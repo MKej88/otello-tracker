@@ -1,12 +1,23 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.db.migration_runner import database_status, init_database
 from app.settings import settings
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_database(settings.database_path)
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.2.0",
     description="Backend for Otello NAV Dashboard",
+    lifespan=lifespan,
 )
 
 origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
@@ -26,14 +37,18 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.1.0",
+        "version": "0.2.0",
     }
+
+
+@app.get("/api/system/database")
+def system_database() -> dict:
+    return database_status(settings.database_path)
 
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
-    # Midlertidige eksempeldata for fase 1.
-    # Erstattes av database/NAV-motor i senere faser.
+    # Midlertidige eksempeldata. Erstattes av NAV-motor og markedsdata i senere faser.
     return {
         "nav_per_share": 24.82,
         "otec_price": 17.20,
