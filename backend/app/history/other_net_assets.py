@@ -42,7 +42,7 @@ def _provenance_once(
         INSERT INTO provenance_records(
             entity_table, entity_id, field_name, source_document_id,
             source_locator, extraction_method, confidence, extracted_value
-        ) VALUES ('other_net_assets_reported_anchors', ?, ?, ?, ?, 'MANUAL_CURATED_REPORT', ?, ?)
+        ) VALUES ('other_net_assets_reported_anchors', ?, ?, ?, ?, 'MANUAL', ?, ?)
         """,
         (
             entity_id,
@@ -68,7 +68,11 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                 document_type=item["document_type"],
                 title=item["title"],
                 url=item["url"],
-                metadata={"full_nav_manifest_version": manifest["version"], "curated": True},
+                metadata={
+                    "full_nav_manifest_version": manifest["version"],
+                    "curated": True,
+                    "extraction_method_detail": "MANUAL_CURATED_REPORT",
+                },
             )
 
         for item in manifest["anchors"]:
