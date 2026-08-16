@@ -10,12 +10,7 @@ from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext
 from app.db.connection import get_connection
 
 EURONEXT_BASE = "https://live.euronext.com"
-OTEC_NEWS_ARCHIVE_URL = (
-    f"{EURONEXT_BASE}/en/markets/oslo/equities/company-news-archive"
-    "?combine=OTELLO+CORPORATION"
-    "&field_company_pr_pub_datetime_start=2026-01-01+00%3A00%3A00"
-    "&field_company_pr_pub_datetime_end=now"
-)
+OTEC_PRESS_RELEASES_URL = f"{EURONEXT_BASE}/en/listview/company-press-release/107222"
 BUYBACK_PATH_MARKER = "otello-corporation-share-buyback-program-status"
 
 
@@ -46,7 +41,7 @@ def _fetch(url: str, timeout: int = 30) -> str:
 
 
 def discover_buyback_urls(html_text: str, *, base_url: str = EURONEXT_BASE) -> list[str]:
-    """Discover Euronext Otello buyback-status links in server-rendered archive HTML."""
+    """Discover Euronext Otello buyback-status links in issuer press-release HTML."""
     candidates = re.findall(r'href=["\']([^"\']+)["\']', html_text, flags=re.I)
     urls: set[str] = set()
     for raw in candidates:
@@ -70,18 +65,19 @@ def _published_at_from_url(url: str) -> str:
     if not match:
         raise ValueError(f"Fant ikke publiseringsdato i Euronext-URL: {url}")
     year, month, day = match.groups()
-    return f"{year}-{month}-{day}T23:59:59+02:00"
+    return f"{year}-{month}-{day}T23:59:59Z"
 
 
 def collect_recent_buybacks(
     database_path: str | None = None,
     *,
-    company_url: str = OTEC_NEWS_ARCHIVE_URL,
+    company_url: str = OTEC_PRESS_RELEASES_URL,
 ) -> dict:
-    """Discover and ingest buyback messages from Euronext's public Oslo news archive.
+    """Discover and ingest buybacks from Euronext's issuer-specific release list.
 
-    The archive is server-rendered, avoiding dependence on Euronext's client-side OTEC
-    product page or undocumented JSON endpoints. Repeated runs are idempotent.
+    This list is server-rendered and contains the original Euronext/Oslo Bors links,
+    avoiding undocumented JSON endpoints and third-party discovery services.
+    Repeated runs are idempotent.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
