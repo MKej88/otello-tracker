@@ -33,7 +33,7 @@ def _dec(text: str) -> Decimal:
 
 
 def _source_priority(connection, document_id: int | None) -> int:
-    """Lower is better; a direct/curated Euronext fact always beats a mirror."""
+    """Lower is better; direct exchange evidence beats issuer evidence, which beats mirrors."""
     if document_id is None:
         return 99
     row = connection.execute(
@@ -152,21 +152,34 @@ def ingest_buyback_status(
     source_metadata: dict[str, Any] | None = None,
     content_hash: str | None = None,
 ) -> dict:
-    """Persist one logical buyback week, preferring official evidence over mirrors.
+    """Persist one logical buyback period, preferring stronger official evidence over mirrors.
 
     Identity is program + period end, not source document. This prevents the same issuer
     release from double-counting cash or shares when both Euronext and a public mirror are
-    available. A later official Euronext fact upgrades the stored provenance in place.
+    available. OTELLO_IR is also treated as direct issuer evidence, which is useful for
+    historical one-off bookbuild buybacks that predate the standard weekly-status format.
     """
     metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
+    if source_code == "EURONEXT":
+        document_type = "REGULATORY_NEWS"
+        document_title = "Otello Corporation share buyback program status"
+        source_label = "Euronext status"
+    elif source_code == "OTELLO_IR":
+        document_type = "ISSUER_RELEASE"
+        document_title = "Otello Corporation issuer buyback release"
+        source_label = "Otello issuer release"
+    else:
+        document_type = "REGULATORY_NEWS_MIRROR"
+        document_title = "Otello Corporation share buyback program status"
+        source_label = f"{source_code} mirror of Oslo Bors status"
 
     with get_connection(database_path) as connection:
         document_id = create_source_document(
             connection,
             source_code=source_code,
             external_id=url,
-            document_type="REGULATORY_NEWS_MIRROR" if source_code != "EURONEXT" else "REGULATORY_NEWS",
-            title="Otello Corporation share buyback program status",
+            document_type=document_type,
+            title=document_title,
             url=url,
             published_at=published_at,
             content_sha256=content_hash,
@@ -177,7 +190,6 @@ def ingest_buyback_status(
             "SELECT id, source_document_id FROM buyback_programs WHERE external_program_id = ?",
             (parsed.program_external_id,),
         ).fetchone()
-        source_label = "Euronext status" if source_code == "EURONEXT" else f"{source_code} mirror of Oslo Bors status"
         if program is None:
             cursor = connection.execute(
                 """
@@ -192,7 +204,7 @@ def ingest_buyback_status(
                     parsed.program_reference_date,
                     parsed.max_program_shares,
                     document_id,
-                    f"Program reconstructed from weekly {source_label}; initiation document can supersede this source later.",
+                    f"Program reconstructed from {source_label}; initiation document can supersede this source later.",
                 ),
             )
             program_id = int(cursor.lastrowid)
@@ -263,7 +275,7 @@ def ingest_buyback_status(
         cash_values = (
             decimal_text(-parsed.period_amount_nok),
             decimal_text(-parsed.period_amount_nok),
-            f"Weekly Otello buyback: {parsed.period_shares:,} shares during {parsed.period_start}–{parsed.period_end}.",
+            f"Otello buyback: {parsed.period_shares:,} shares during {parsed.period_start}–{parsed.period_end}.",
         )
         if not cash_rows:
             connection.execute(
@@ -306,12 +318,12 @@ def ingest_buyback_status(
         share_rows = connection.execute(
             """
             SELECT id, source_document_id FROM otello_share_counts
-            WHERE effective_from = ? AND notes LIKE 'Treasury shares from weekly %'
+            WHERE effective_from = ? AND notes LIKE 'Treasury shares from %'
             ORDER BY id
             """,
             (parsed.period_end,),
         ).fetchall()
-        share_notes = f"Treasury shares from weekly {source_label}; effective at period end {parsed.period_end}."
+        share_notes = f"Treasury shares from {source_label}; effective at period end {parsed.period_end}."
         if not share_rows:
             connection.execute(
                 """
@@ -341,65 +353,24 @@ def ingest_buyback_status(
                 (
                     total_shares, parsed.treasury_shares_after, outstanding,
                     share_document_id,
-                    f"Treasury shares from weekly {share_source_label}; effective at period end {parsed.period_end}.",
+                    f"Treasury shares from {share_source_label}; effective at period end {parsed.period_end}.",
                     share["id"],
                 ),
             )
             for duplicate in share_rows[1:]:
                 connection.execute("DELETE FROM otello_share_counts WHERE id = ?", (duplicate["id"],))
 
-        # Defensive cleanup for databases that may have been populated before logical
-        # week de-duplication existed. Keep the best-provenance buyback row.
-        duplicates = connection.execute(
-            """
-            SELECT id, source_document_id FROM buybacks
-            WHERE program_id = ? AND trade_date = ? AND id <> ?
-            ORDER BY id
-            """,
-            (program_id, parsed.period_end, buyback_id),
-        ).fetchall()
-        for duplicate in duplicates:
-            if _source_priority(connection, duplicate["source_document_id"]) < _source_priority(connection, preferred_document_id):
-                connection.execute(
-                    "UPDATE buybacks SET source_document_id = ? WHERE id = ?",
-                    (duplicate["source_document_id"], buyback_id),
-                )
-                preferred_document_id = duplicate["source_document_id"]
-            connection.execute("DELETE FROM buybacks WHERE id = ?", (duplicate["id"],))
-
         connection.commit()
-
-    return {
-        "buyback_id": buyback_id,
-        "program_id": program_id,
-        "period_end": parsed.period_end,
-        "period_shares": parsed.period_shares,
-        "period_amount_nok": decimal_text(parsed.period_amount_nok),
-        "cumulative_program_shares": parsed.cumulative_program_shares,
-        "cumulative_program_avg_price_nok": decimal_text(parsed.cumulative_program_avg_price_nok),
-        "cumulative_program_amount_nok": decimal_text(parsed.cumulative_program_amount_nok),
-        "treasury_shares_after": parsed.treasury_shares_after,
-        "outstanding_shares_after": outstanding,
-        "source_code": source_code,
-    }
-
-
-def ingest_euronext_buyback_status(
-    *,
-    text: str,
-    url: str,
-    published_at: str,
-    database_path: str | None = None,
-    source_code: str = "EURONEXT",
-    source_metadata: dict[str, Any] | None = None,
-) -> dict:
-    parsed = parse_euronext_buyback_status(text)
-    return ingest_buyback_status(
-        parsed=parsed,
-        url=url,
-        published_at=published_at,
-        database_path=database_path,
-        source_code=source_code,
-        source_metadata=source_metadata,
-        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-    )
+        return {
+            "status": "ok",
+            "program_id": program_id,
+            "buyback_id": buyback_id,
+            "period_end": parsed.period_end,
+            "shares": parsed.period_shares,
+            "amount_nok": decimal_text(parsed.period_amount_nok),
+            "cumulative_program_shares": parsed.cumulative_program_shares,
+            "cumulative_program_amount_nok": decimal_text(parsed.cumulative_program_amount_nok),
+            "treasury_shares_after": parsed.treasury_shares_after,
+            "source_document_id": preferred_document_id,
+            "source_code": source_code,
+        }
