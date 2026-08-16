@@ -9,6 +9,7 @@ MARCH_2022_BUYBACK = {
     "published_at": "2022-03-28T07:30:00+02:00",
     "url": "https://news.cision.com/otello-corporation-asa/r/completion-of-share-buyback-offer,c3533188",
     "source_code": "OTELLO_IR",
+    "note_kind": "CROSSCHECK",
     "source_note": (
         "Issuer release distributed by Cision: Otello completed the shareholder-wide "
         "bookbuilding on 28 March 2022 and acquired 10,000,000 shares at NOK 27.50 per "
