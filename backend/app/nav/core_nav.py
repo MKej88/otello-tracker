@@ -247,3 +247,35 @@ def rebuild_core_nav_anchors(database_path: str | None = None) -> dict[str, Any]
         "written": written,
         "skipped": skipped,
     }
+
+
+def core_nav_status(database_path: str | None = None) -> dict[str, Any]:
+    with get_connection(database_path) as connection:
+        aggregate = connection.execute(
+            """
+            SELECT COUNT(*) AS n, MIN(substr(as_of_at,1,10)) AS min_date,
+                   MAX(substr(as_of_at,1,10)) AS max_date
+            FROM nav_snapshots
+            WHERE calculation_version = ? AND nav_scope = 'CORE'
+            """,
+            (CALCULATION_VERSION,),
+        ).fetchone()
+        latest = connection.execute(
+            """
+            SELECT as_of_at, nav_total_nok, nav_per_share_nok, otec_price_nok,
+                   discount_pct, status, quality_notes
+            FROM nav_snapshots
+            WHERE calculation_version = ? AND nav_scope = 'CORE'
+            ORDER BY as_of_at DESC LIMIT 1
+            """,
+            (CALCULATION_VERSION,),
+        ).fetchone()
+        return {
+            "status": "ok",
+            "calculation_version": CALCULATION_VERSION,
+            "scope": "CORE",
+            "count": aggregate["n"],
+            "from": aggregate["min_date"],
+            "to": aggregate["max_date"],
+            "latest": dict(latest) if latest is not None else None,
+        }
