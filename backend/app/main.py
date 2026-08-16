@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.migration_runner import database_status, init_database
 from app.history import history_status, seed_curated_history
 from app.marketdata import market_data_status
+from app.nav import daily_cash_status, daily_nav_status
 from app.nav.core_nav import core_nav_status
 from app.settings import settings
 
@@ -19,7 +20,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.0",
+    version="0.5.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -41,7 +42,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.4.0",
+        "version": "0.5.0",
     }
 
 
@@ -63,6 +64,16 @@ def system_market_data() -> dict:
 @app.get("/api/nav/core-anchors")
 def nav_core_anchors() -> dict:
     return core_nav_status(settings.database_path)
+
+
+@app.get("/api/nav/daily-cash")
+def nav_daily_cash() -> dict:
+    return daily_cash_status(settings.database_path)
+
+
+@app.get("/api/nav/daily")
+def nav_daily() -> dict:
+    return daily_nav_status(settings.database_path)
 
 
 @app.get("/api/dashboard/summary")
