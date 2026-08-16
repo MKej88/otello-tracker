@@ -18,12 +18,12 @@ from app.settings import settings
 def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     database_path = str(tmp_path / "otello.db")
 
-    assert init_database(database_path) == ["0001", "0002", "0003", "0004", "0005", "0006"]
+    assert init_database(database_path) == ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0006"
-    assert status["table_counts"]["sources"] == 9
+    assert status["latest_migration"] == "0007"
+    assert status["table_counts"]["sources"] == 10
     assert status["table_counts"]["instruments"] == 2
     assert status["table_counts"]["company_news"] == 0
 
@@ -49,6 +49,14 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
             row["name"] for row in connection.execute("PRAGMA table_info(nav_snapshots)")
         }
         assert {"nav_scope", "components_json", "quality_notes"} <= nav_columns
+
+        market_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(market_prices)")
+        }
+        assert {"quality", "metadata_json"} <= market_columns
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sources WHERE code = 'INVESTING'"
+        ).fetchone()[0] == 1
 
 
 def test_financial_values_are_stored_as_exact_decimal_text(tmp_path) -> None:
@@ -78,6 +86,8 @@ def test_financial_values_are_stored_as_exact_decimal_text(tmp_path) -> None:
             currency="NOK",
             source_code="MANUAL",
             source_document_id=document_id,
+            quality="RECONSTRUCTED",
+            metadata={"reason": "test"},
         )
         upsert_market_price(
             connection,
@@ -89,6 +99,8 @@ def test_financial_values_are_stored_as_exact_decimal_text(tmp_path) -> None:
             currency="NOK",
             source_code="MANUAL",
             source_document_id=document_id,
+            quality="DIRECT",
+            metadata={"reason": "updated"},
         )
 
         fx_id = upsert_fx_rate(
@@ -114,13 +126,15 @@ def test_financial_values_are_stored_as_exact_decimal_text(tmp_path) -> None:
         connection.commit()
 
         price_row = connection.execute(
-            "SELECT price FROM market_prices WHERE id = ?", (price_id,)
+            "SELECT price, quality, metadata_json FROM market_prices WHERE id = ?", (price_id,)
         ).fetchone()
         fx_row = connection.execute(
             "SELECT rate FROM fx_rates WHERE id = ?", (fx_id,)
         ).fetchone()
 
         assert price_row["price"] == "17.25"
+        assert price_row["quality"] == "DIRECT"
+        assert '"updated"' in price_row["metadata_json"]
         assert fx_row["rate"] == "1.720000"
         assert connection.execute("SELECT COUNT(*) FROM market_prices").fetchone()[0] == 1
         assert provenance_id > 0
@@ -135,8 +149,8 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0006"
-            assert payload["table_counts"]["sources"] == 9
+            assert payload["latest_migration"] == "0007"
+            assert payload["table_counts"]["sources"] == 10
             assert payload["table_counts"]["company_news"] == 0
     finally:
         settings.database_path = previous_path
