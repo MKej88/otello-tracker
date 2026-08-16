@@ -1,0 +1,45 @@
+{
+  "version": "2026-08-17.1",
+  "documents": [
+    {
+      "key": "otec_capital_reduction_2025_03_06",
+      "source_code": "EURONEXT",
+      "external_id": "otello-capital-reduction-registration-2025-03-06",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Registration of share capital reduction",
+      "published_at": "2025-03-06T11:52:00+01:00",
+      "url": "https://live.euronext.com/en/products/equities/company-news/2025-03-06-registration-share-capital-reduction"
+    },
+    {
+      "key": "otec_capital_reduction_2025_11_18",
+      "source_code": "EURONEXT",
+      "external_id": "otello-capital-reduction-registration-2025-11-18",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Resolution to reduce share capital and registration of share capital reduction",
+      "published_at": "2025-11-18T19:30:00+01:00",
+      "url": "https://live.euronext.com/en/products/equities/company-news/2025-11-18-resolution-reduce-share-capital-and-registration-share"
+    }
+  ],
+  "share_counts": [
+    {
+      "as_of_date": "2025-03-05",
+      "total_shares": 81989779,
+      "treasury_shares": 0,
+      "outstanding_shares": 81989779,
+      "source_key": "otec_capital_reduction_2025_03_06",
+      "source_locator": "registration announcement: new registered share capital effective 5 March 2025",
+      "confidence": "HIGH",
+      "notes": "Cancellation of 9,109,950 treasury shares was registered 5 March 2025. Treasury shares therefore reset to zero and registered/outstanding shares became 81,989,779 before the April 2025 buyback program."
+    },
+    {
+      "as_of_date": "2025-09-20",
+      "total_shares": 73790829,
+      "treasury_shares": 0,
+      "outstanding_shares": 73790829,
+      "source_key": "otec_capital_reduction_2025_11_18",
+      "source_locator": "registration announcement: reduction registered 20 September 2025",
+      "confidence": "HIGH",
+      "notes": "Cancellation of 8,198,950 treasury shares was registered 20 September 2025. Treasury shares therefore reset to zero and registered/outstanding shares became 73,790,829 before the 22 September 2025 buyback program."
+    }
+  ]
+}
