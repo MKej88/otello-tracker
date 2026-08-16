@@ -1,0 +1,45 @@
+{
+  "version": "2026-08-17.2",
+  "documents": [
+    {
+      "key": "otec_capital_reduction_2022_03_07",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-capital-reduction-registration-2022-03-07",
+      "document_type": "ISSUER_RELEASE",
+      "title": "Registration of share capital reduction",
+      "published_at": "2022-03-07T19:12:00+01:00",
+      "url": "https://news.cision.com/otello-corporation-asa/r/registration-of-share-capital-reduction,c3520183"
+    },
+    {
+      "key": "otec_capital_reduction_2022_06_14",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-capital-reduction-registration-2022-06-14",
+      "document_type": "ISSUER_RELEASE",
+      "title": "Registration of share capital reduction",
+      "published_at": "2022-06-14T08:20:00+02:00",
+      "url": "https://news.cision.com/otello-corporation-asa/r/registration-of-share-capital-reduction,c3584899"
+    }
+  ],
+  "share_counts": [
+    {
+      "as_of_date": "2022-03-07",
+      "total_shares": 101099727,
+      "treasury_shares": 0,
+      "outstanding_shares": 101099727,
+      "source_key": "otec_capital_reduction_2022_03_07",
+      "source_locator": "issuer release: share capital reduction registered 7 March 2022",
+      "confidence": "HIGH",
+      "notes": "Cancellation of 11,200,000 treasury shares bought in December 2021. Registered total became 101,099,727 and treasury shares reset to zero before the March 2022 buyback offer."
+    },
+    {
+      "as_of_date": "2022-06-14",
+      "total_shares": 91099729,
+      "treasury_shares": 0,
+      "outstanding_shares": 91099729,
+      "source_key": "otec_capital_reduction_2022_06_14",
+      "source_locator": "issuer release and 1H22 report: share capital reduction registered 14 June 2022",
+      "confidence": "HIGH",
+      "notes": "Following the 28 March 2022 buyback of 10,000,000 shares, the registered total became 91,099,729. The 1H22 report states zero treasury shares at 30 June 2022."
+    }
+  ]
+}
