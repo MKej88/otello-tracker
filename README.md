@@ -18,7 +18,8 @@ Privat investeringsdashboard for Otello/Bemobi med mål om:
 **Fase 5 – daglig cash og CORE NAV:** ferdig og live-validert  
 **Fase 6 – buybacks/cash-avstemming:** ferdig for kjent historikk  
 **Fase 7 – live dashboard:** ferdig  
-**Fase 8 – samlet refresh-pipeline:** under ferdigstilling
+**Fase 8 – samlet refresh-pipeline:** ferdig  
+**Fase 9 – FULL NAV:** kode/tester ferdig; live-backfill er neste kontroll
 
 Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/data-model.md) for datamodellen.
 
@@ -41,13 +42,40 @@ SQLite
   +-- Euronext/kuratert OTEC-kurshistorikk
   +-- ECB BRL/NOK og USD/NOK
   +-- Otello/Bemobi historikk
-  +-- daglig cash + CORE/FULL NAV-snapshots
+  +-- daglig cash
+  +-- CORE NAV-snapshots
+  +-- rapporterte/daglige øvrige nettoeiendeler
+  +-- FULL NAV-snapshots
   +-- buybacks / corporate actions
   +-- meglerestimater / konsensus
   +-- kilde- og provenance-spor
 ```
 
 Samme containere er ment å kunne kjøres på Windows under utvikling og senere på Raspberry Pi.
+
+## NAV-definisjoner
+
+`CORE NAV` er:
+
+```text
+Bemobi markedsverdi + modellert/rapportert cash
+```
+
+`FULL NAV` er:
+
+```text
+CORE NAV + øvrige nettoeiendeler/-forpliktelser (ONA)
+```
+
+Rapportert ONA beregnes fra Otellos konsoliderte balanse som:
+
+```text
+Total assets - cash - Bemobi carrying value - total liabilities
+```
+
+ONA beholdes i rapportens USD, konverteres med historisk USD/NOK og interpoleres i USD mellom rapportankrene. FULL NAV lagres som en separat serie og overskriver aldri CORE. Etter siste rapporterte ONA-anker merkes serien `FORECAST_PARTIAL`.
+
+FULL NAV starter foreløpig 30.06.2022. 2021 holdes CORE-only fordi AdColony-transaksjonen skapte vesentlige fordrings-/skattebalanser som må dokumenteres særskilt før de kan legges inn.
 
 ## Databaseprinsipper
 
@@ -58,7 +86,7 @@ Samme containere er ment å kunne kjøres på Windows under utvikling og senere 
 - Finansielle desimaltall lagres som tekst og beregnes med Python `Decimal`.
 - Kildedata spores gjennom `sources`, `source_documents` og `provenance_records`.
 - Rå dokumenter og vår klassifisering/tolkning holdes separat.
-- Historisk NAV skiller eksplisitt mellom `CORE` (Bemobi + cash) og senere `FULL` NAV.
+- Senere restatements får prioritet når de superseder tidligere rapporterte balanser.
 - Manglende/forsinkede kilder gir synlig degradert status; de erstattes ikke med oppdiktede verdier.
 
 ## Første oppstart med Docker
@@ -77,10 +105,14 @@ docker compose up --build -d
 - Database-status: http://localhost:8000/api/system/database
 - Historikkstatus: http://localhost:8000/api/system/history
 - Markedsdatastatus: http://localhost:8000/api/system/market-data
-- Daglig NAV-status: http://localhost:8000/api/nav/daily
+- Daglig CORE NAV-status: http://localhost:8000/api/nav/daily
+- ONA-status: http://localhost:8000/api/nav/other-net-assets
+- FULL NAV-status: http://localhost:8000/api/nav/full
 - Dashboard summary: http://localhost:8000/api/dashboard/summary
 - Dashboard historikk: http://localhost:8000/api/dashboard/history
 - FastAPI docs: http://localhost:8000/docs
+
+Dashboardet foretrekker FULL-serien når den finnes, og faller automatisk tilbake til CORE hvis FULL ennå ikke er bygget.
 
 ## Historisk markedsdata-backfill
 
@@ -92,15 +124,13 @@ Kommandoene kjøres i backend-containeren eller direkte fra `backend/` med `PYTH
 python -m app.jobs.backfill_market_data --ecb --start 2021-02-10
 ```
 
-ECB leverer BRL, NOK og USD som referansekurser mot EUR. Systemet beregner deretter BRL/NOK og USD/NOK eksakt med `Decimal`.
-
 ### B3 – BMOB3
 
 ```bash
 python -m app.jobs.backfill_market_data --b3-year 2021 --b3-year 2022 --b3-year 2023 --b3-year 2024 --b3-year 2025 --b3-year 2026
 ```
 
-B3 kan tidvis avbryte store årsfil-nedlastinger. Nedlasteren prøver automatisk på nytt. Manuell ZIP kan også importeres:
+B3-nedlasteren har retry. Manuell ZIP kan også importeres:
 
 ```bash
 python -m app.jobs.backfill_market_data --b3-file 2025:/path/COTAHIST_A2025.ZIP
@@ -108,44 +138,45 @@ python -m app.jobs.backfill_market_data --b3-file 2025:/path/COTAHIST_A2025.ZIP
 
 ### OTEC
 
-Historisk OTEC kan importeres fra Euronext CSV:
+Euronext CSV:
 
 ```bash
 python -m app.jobs.backfill_market_data --otec-csv /path/OTEC.csv --otec-date-order DMY
 ```
 
-Gratis Investing-export støttes også som historisk fallback. Pre-09.08.2022-data merkes `RECONSTRUCTED` fordi NOK 21-utdelingen må reverseres:
+Gratis Investing-export støttes som historisk fallback. Pre-09.08.2022-data merkes `RECONSTRUCTED` fordi NOK 21-utdelingen reverseres:
 
 ```bash
 python -m app.jobs.backfill_market_data --otec-investing-csv /path/OTEC-investing.csv
 ```
 
-## Bygg daglig NAV
+## Bygg NAV
+
+CORE-only kan fortsatt bygges separat:
 
 ```bash
 python -m app.jobs.rebuild_daily_nav
 ```
 
-`CORE` betyr bevisst **markedsverdi av Bemobi + modellert/rapportert cash**. Andre nettoeiendeler/gjeld er foreløpig ikke lagt til som om de var kjent. Post-siste rapporterte cash-anker merkes `FORECAST_PARTIAL`.
-
-## Samlet refresh
-
-Fase 8 samler de daglige operasjonene i én kommando:
+Den samlede refresh-pipelinen bygger nå hele kjeden:
 
 ```bash
 python -m app.jobs.refresh_dashboard
 ```
 
-Standardkjøringen:
+Rekkefølge:
 
-1. initialiserer/migrerer databasen og seeder kuratert historikk
-2. oppdaterer nylige ECB-valutakurser
-3. laster/importerer gjeldende B3 COTAHIST-år for BMOB3
-4. samler nye Otello-buyback-meldinger
-5. bygger report-date CORE NAV på nytt
-6. bygger daglig cash på nytt
-7. bygger daglig CORE NAV og rabatt på nytt
-8. returnerer markedsdata-, buyback-, cash-, NAV- og dashboardstatus
+1. init/migrering + kuratert historikk
+2. nylig ECB FX
+3. gjeldende B3 BMOB3
+4. nye Otello-buybacks
+5. report-date CORE NAV
+6. daglig cash
+7. daglig CORE NAV
+8. rapporterte ONA-ankre → NOK
+9. daglig ONA
+10. daglig FULL NAV
+11. dashboard/status
 
 En enkelt kildefeil stopper ikke resten av refreshen. Feilen legges i `source_errors`, siste lagrede data brukes videre, og totalstatus blir `degraded` når det er relevant.
 
@@ -155,7 +186,7 @@ OTEC oppdateres foreløpig ikke via en udokumentert scraper. En fersk CSV kan ma
 python -m app.jobs.refresh_dashboard --otec-csv /path/OTEC.csv
 ```
 
-eller historisk Investing-CSV:
+eller:
 
 ```bash
 python -m app.jobs.refresh_dashboard --otec-investing-csv /path/OTEC-investing.csv
