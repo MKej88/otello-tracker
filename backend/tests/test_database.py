@@ -3,7 +3,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 
 from app.db.connection import get_connection
-from app.db.migrations import database_status, init_database
+from app.db.migration_runner import database_status, init_database
 from app.db.repository import (
     create_source_document,
     decimal_text,
