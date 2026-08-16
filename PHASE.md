@@ -98,7 +98,7 @@ Status: **Ferdig og merget**
 
 ## Fase 8 – Samlet refresh-pipeline
 
-Status: **Kode klar for CI**
+Status: **Ferdig og merget**
 
 - [x] én kommando for databaseinit + historikk + markedsdata + buybacks + cash + NAV
 - [x] nylig ECB-FX oppdateres automatisk
@@ -113,11 +113,34 @@ Status: **Kode klar for CI**
 - [ ] stabil gratis programmatisk OTEC EOD-kilde; inntil da brukes staleness + CSV-import
 - [ ] produksjonsscheduler på Raspberry Pi
 
+## Fase 9 – FULL NAV
+
+Status: **Kode ferdig – CI grønn, klar for merge/live-backfill**
+
+- [x] separat rapporttabell for øvrige nettoeiendeler/-forpliktelser (ONA)
+- [x] rapportformel: total assets − cash − Bemobi carrying value − total liabilities
+- [x] åtte sikre rapportankre fra 30.06.2022 til 31.12.2025
+- [x] 2023/2024 bruker siste restaterte tall fra Annual Report 2025
+- [x] hvert anker avstemmes matematisk før lagring
+- [x] feltbasert provenance til rapport og rapportlokasjon
+- [x] rapport-native USD beholdes og konverteres med historisk USD/NOK
+- [x] daglig ONA interpoleres i USD mellom rapportankre
+- [x] post-FY25 ONA markeres `FORECAST_PARTIAL`
+- [x] separat `FULL` NAV-serie; CORE-serien overskrives aldri
+- [x] invariant-test: FULL NAV = CORE NAV + ONA
+- [x] dashboard foretrekker FULL når serien finnes og faller ellers tilbake til CORE
+- [x] `/api/nav/other-net-assets` og `/api/nav/full`
+- [x] refresh-pipelinen bygger CORE → ONA → FULL i riktig rekkefølge
+- [x] frontend viser CORE/FULL scope og ONA i modellstatus
+- [x] ingen FULL-historikk før 30.06.2022 uten dokumentert ONA
+- [ ] kjøre FULL NAV live mot komplett produksjons-/backfilldatabase
+- [ ] rekonstruere 2021 transaksjonsbalanser dersom FULL NAV ønskes helt tilbake til Bemobi-IPO
+
 ## Neste prioriteringer
 
-1. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL med nytt rapportert cash-/aksjeanker.
-2. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
-3. Rekonstruer øvrige nettoeiendeler/-forpliktelser og oppgrader fra CORE til FULL NAV.
+1. Kjør Phase 9 FULL NAV live mot den komplette historiske databasen og avstem CORE/FULL-differansen.
+2. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
+3. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
 4. Bygg Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
 5. Bygg Bemobi broker-consensus tracker før Q3.
 6. E-postrapporter og varsler.

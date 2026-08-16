@@ -1,0 +1,160 @@
+{
+  "version": "2026-08-17.1",
+  "formula": "total_assets - cash - bemobi_carrying_value - total_liabilities",
+  "currency": "USD",
+  "documents": [
+    {
+      "key": "otello_1h22",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h22",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2022",
+      "url": "https://otello.cdn.prismic.io/otello/52573fe3-21d9-4372-875f-39103e9fdee1_1H22.pdf"
+    },
+    {
+      "key": "otello_ar23",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2023",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2023",
+      "url": "https://otello.cdn.prismic.io/otello/e41bbcb5-89ca-4a99-af47-2d4471b5c3e8_Otello%2BCorporation%2BASA%2BAnnual%2BReport%2B2023.pdf"
+    },
+    {
+      "key": "otello_1h24",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h24",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2024",
+      "url": "https://otello.cdn.prismic.io/otello/ZsWAp0aF0TcGJJNc_Report1H24.pdf"
+    },
+    {
+      "key": "otello_1h25",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h25",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2025",
+      "url": "https://otello.cdn.prismic.io/otello/aKa1FaTt2nPbajuo_Report1H25FINAL.pdf"
+    },
+    {
+      "key": "otello_ar25",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2025",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2025",
+      "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf"
+    }
+  ],
+  "anchors": [
+    {
+      "as_of_date": "2022-06-30",
+      "total_assets": "291500000",
+      "cash": "211600000",
+      "bemobi_carrying": "75200000",
+      "total_liabilities": "3300000",
+      "other_net_assets": "1400000",
+      "precision_status": "ROUNDED_0_1M",
+      "restated": false,
+      "source_key": "otello_1h22",
+      "source_locator": "p. 8, consolidated statement of financial position; USD millions",
+      "notes": "First FULL NAV anchor. Report figures are rounded to USD 0.1m, so ONA has lower precision than later anchors."
+    },
+    {
+      "as_of_date": "2022-12-31",
+      "total_assets": "109800000",
+      "cash": "18373000",
+      "bemobi_carrying": "88590000",
+      "total_liabilities": "2413000",
+      "other_net_assets": "424000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": false,
+      "source_key": "otello_ar23",
+      "source_locator": "Annual Report 2023, 2022 comparative statement of financial position and investment note",
+      "notes": "Derived from the audited 2022 comparative at USD-thousands precision."
+    },
+    {
+      "as_of_date": "2023-06-30",
+      "total_assets": "116588000",
+      "cash": "17578000",
+      "bemobi_carrying": "96128000",
+      "total_liabilities": "2205000",
+      "other_net_assets": "677000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": false,
+      "source_key": "otello_1h24",
+      "source_locator": "1H24 comparative statement of financial position and Bemobi investment note",
+      "notes": "USD-thousands comparative."
+    },
+    {
+      "as_of_date": "2023-12-31",
+      "total_assets": "113409000",
+      "cash": "14576000",
+      "bemobi_carrying": "94402000",
+      "total_liabilities": "1170000",
+      "other_net_assets": "3261000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": true,
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025, restated 01/01/2024 comparative balance and Note 11 Bemobi carrying value",
+      "notes": "Uses the latest retrospectively restated opening-2024 balance, including Bemobi distribution receivable recognition."
+    },
+    {
+      "as_of_date": "2024-06-30",
+      "total_assets": "95590000",
+      "cash": "14518000",
+      "bemobi_carrying": "79996000",
+      "total_liabilities": "647000",
+      "other_net_assets": "429000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": false,
+      "source_key": "otello_1h25",
+      "source_locator": "1H25 comparative 30/06/2024 statement of financial position and investment note",
+      "notes": "USD-thousands comparative."
+    },
+    {
+      "as_of_date": "2024-12-31",
+      "total_assets": "83740000",
+      "cash": "10454000",
+      "bemobi_carrying": "68969000",
+      "total_liabilities": "1330000",
+      "other_net_assets": "2987000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": true,
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025, restated 2024 statement of financial position and Note 11",
+      "notes": "Supersedes the original 2024 annual-report balance. Restatement includes a USD 3.452m current Bemobi receivable."
+    },
+    {
+      "as_of_date": "2025-06-30",
+      "total_assets": "133893000",
+      "cash": "14694000",
+      "bemobi_carrying": "117505000",
+      "total_liabilities": "1699000",
+      "other_net_assets": "-5000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": false,
+      "source_key": "otello_1h25",
+      "source_locator": "1H25 statement of financial position and investment note",
+      "notes": "Near-zero ONA after excluding cash and Bemobi carrying value."
+    },
+    {
+      "as_of_date": "2025-12-31",
+      "total_assets": "134544000",
+      "cash": "15881000",
+      "bemobi_carrying": "113604000",
+      "total_liabilities": "2085000",
+      "other_net_assets": "2974000",
+      "precision_status": "EXACT_THOUSANDS",
+      "restated": false,
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025, audited statement of financial position and Note 11",
+      "notes": "Final audited FY2025 anchor; includes USD 4.291m of other share investments."
+    }
+  ],
+  "known_gaps": [
+    {
+      "code": "FULL_NAV_PRE_2022_06",
+      "severity": "HIGH",
+      "description": "FULL NAV is intentionally not produced before 30 Jun 2022 because 2021 contains material AdColony sale receivables, tax and other transaction balances requiring dedicated extraction. CORE NAV remains available."
+    }
+  ]
+}

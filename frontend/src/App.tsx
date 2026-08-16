@@ -31,6 +31,7 @@ type Summary = {
   bmob3_price?: number | null;
   brl_nok?: number | null;
   estimated_cash_mnok?: number | null;
+  other_net_assets_mnok?: number | null;
   bemobi_value_mnok?: number | null;
   bemobi_shares?: number | null;
   bemobi_ownership_pct?: number | null;
@@ -52,12 +53,14 @@ type HistoryPoint = {
   otec_price: number;
   discount_pct: number;
   cash_mnok: number;
+  other_net_assets_mnok?: number;
   status: string;
 };
 
 type History = {
   ready: boolean;
   data_status: string;
+  model_scope?: string;
   from?: string | null;
   to?: string | null;
   average_discount_pct?: number | null;
@@ -205,6 +208,7 @@ export default function App() {
   const degraded = summary.data_status === "DEGRADED" || summary.cash_quality === "FORECAST_PARTIAL";
   const latestBuyback = summary.latest_buyback;
   const ownership = summary.bemobi_ownership_pct ?? 0;
+  const scope = summary.model_scope ?? "CORE";
 
   return (
     <div className="shell">
@@ -231,14 +235,14 @@ export default function App() {
           <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV Dashboard</h1></div>
           <div className="updated">
             <span className={apiOk && summary.ready ? "statusDot ok" : "statusDot"} />
-            {summary.ready ? `Data ${dateLabel(summary.as_of_date)} · CORE` : "Venter på NAV-data"}
+            {summary.ready ? `Data ${dateLabel(summary.as_of_date)} · ${scope}` : "Venter på NAV-data"}
           </div>
         </header>
 
         {degraded && (
           <div className="modelWarning">
             <strong>2026 er foreløpig estimert.</strong>
-            <span>Cash bygger på siste rapporterte anker og kjente kontantbevegelser. Neste rapportanker kommer med 1H26.</span>
+            <span>Cash og øvrige nettoeiendeler bygger på siste rapporterte ankere og kjente bevegelser frem til neste rapport.</span>
           </div>
         )}
         {!summary.ready && summary.message && <div className="modelWarning neutralWarning">{summary.message}</div>}
@@ -258,7 +262,7 @@ export default function App() {
         <section className="chartGrid">
           <article className="card chart">
             <div className="cardHeader">
-              <div><span className="label">Markeds-NAV</span><h2>NAV vs OTEC</h2></div>
+              <div><span className="label">Markeds-NAV</span><h2>{scope} NAV vs OTEC</h2></div>
               <span className="pill">1 ÅR</span>
             </div>
             <NavPriceChart points={history.points} />
@@ -303,7 +307,8 @@ export default function App() {
           <article className="card">
             <div className="cardHeader"><div><span className="label">System</span><h2>Modellstatus</h2></div></div>
             <div className="sourceList">
-              <div><span>CORE NAV</span><span className={summary.ready ? "sourceOk" : "sourceWait"}>{summary.ready ? "KLAR" : "VENTER"}</span></div>
+              <div><span>{scope} NAV</span><span className={summary.ready ? "sourceOk" : "sourceWait"}>{summary.ready ? "KLAR" : "VENTER"}</span></div>
+              {scope === "FULL" && <div><span>Øvrige nettoeiendeler</span><span className="sourceOk">{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)}m` : "–"}</span></div>}
               <div><span>Cash</span><span className={degraded ? "sourceWarn" : "sourceOk"}>{summary.cash_quality ?? "–"}</span></div>
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
