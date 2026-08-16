@@ -60,7 +60,12 @@ def test_2025_official_backfill_starts_at_zero_and_reaches_december_cumulative(t
     assert rows[-1]["treasury_shares_after"] == 1_516_142
 
     assert sum(row["shares"] for row in rows) == 1_516_142
-    assert sum(Decimal(row["amount_nok"]) for row in rows) == Decimal("23997056")
+    # Weekly published NOK totals sum to 23,997,055 while the issuer publishes
+    # cumulative consideration of 23,997,056. Coverage permits this 1-NOK rounding.
+    assert sum(Decimal(row["amount_nok"]) for row in rows) == Decimal("23997055")
+    assert Decimal(rows[-1]["cumulative_program_amount_nok"]) - sum(
+        Decimal(row["amount_nok"]) for row in rows
+    ) == Decimal("1")
     assert {row["source_code"] for row in rows} == {"EURONEXT"}
 
 
