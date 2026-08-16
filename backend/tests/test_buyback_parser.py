@@ -46,12 +46,14 @@ def test_parser_fails_closed_when_financial_fields_are_missing() -> None:
         raise AssertionError("Parser must fail instead of guessing")
 
 
-def test_discovery_only_accepts_euronext_buyback_company_news_links() -> None:
+def test_discovery_uses_only_mfn_dates_to_construct_euronext_urls() -> None:
     listing = """
     <html><body>
-      <a href="/en/products/equities/company-news/2026-07-11-otello-corporation-share-buyback-program-status">Buyback</a>
-      <a href="https://live.euronext.com/en/products/equities/company-news/2026-07-17-otello-corporation-share-buyback-program-status#top">Buyback 2</a>
-      <a href="/en/products/equities/company-news/2026-07-18-other-news">Other</a>
+      <div>2026-07-17 19:19:57 OTEC: Otello Corporation share buyback program status</div>
+      <div>2026-07-11 21:49:44 OTEC: Otello Corporation share buyback program status</div>
+      <div>2026-07-11 21:49:44 OTEC: Otello Corporation share buyback program status</div>
+      <div>2026-07-08 09:41:44 OTEC: Share Buyback Program</div>
+      <div>2026-07-18 12:00:00 OTEC: Other news</div>
     </body></html>
     """
     urls = discover_buyback_urls(listing)
