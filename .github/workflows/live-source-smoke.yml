@@ -5,7 +5,6 @@ on:
     branches: ["phase-4-2-live-source-smoke"]
     paths:
       - ".github/workflows/live-source-smoke.yml"
-      - "backend/**"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         year: [2021, 2022, 2023, 2024, 2025, 2026]
     defaults:
