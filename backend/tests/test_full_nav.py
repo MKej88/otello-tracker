@@ -53,7 +53,7 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
             """
             SELECT COUNT(*) n FROM provenance_records
             WHERE entity_table = 'other_net_assets_reported_anchors'
-              AND extraction_method = 'MANUAL_CURATED_REPORT'
+              AND extraction_method = 'MANUAL'
             """
         ).fetchone()["n"]
         assert provenance == 8 * 5
@@ -101,7 +101,6 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
     init_database(db)
 
     with get_connection(db) as connection:
-        # No FULL snapshots are possible before an ONA daily estimate exists.
         connection.execute(
             """
             INSERT INTO nav_snapshots(
@@ -132,7 +131,6 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
             """,
             (CORE_VERSION,),
         )
-        # Minimal source/document and reported anchor for FK chain.
         source_id = connection.execute("SELECT id FROM sources WHERE code='MANUAL'").fetchone()["id"]
         cursor = connection.execute(
             "INSERT INTO source_documents(source_id, document_type, title, url, metadata_json) VALUES (?, 'TEST', 'ONA test', 'manual://ona', '{}')",
