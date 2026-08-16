@@ -85,6 +85,14 @@ def _assert_oslo_bors_mirror(text: str) -> None:
         raise ValueError("MFN-artikkelen er ikke merket med Oslo Børs som upstream-kilde")
 
 
+def _latest_reported_cash_anchor(database_path: str | None = None) -> str | None:
+    with get_connection(database_path) as connection:
+        row = connection.execute(
+            "SELECT MAX(as_of_date) AS max_date FROM cash_anchors WHERE anchor_type = 'REPORTED'"
+        ).fetchone()
+        return row["max_date"]
+
+
 def collect_recent_buybacks(
     database_path: str | None = None,
     *,
@@ -93,9 +101,9 @@ def collect_recent_buybacks(
     """Ingest strict Oslo Bors buyback releases from a labelled public mirror.
 
     MFN is stored explicitly as a non-official mirror with Oslo Bors upstream metadata.
-    A tiny curated official backfill closes any known mirror-feed omissions. The sequence
-    is then validated against Otello's cumulative program shares and cash consideration;
-    any remaining gap is surfaced rather than silently imputed.
+    A tiny curated official backfill closes known mirror-feed omissions. Cumulative values
+    validate both historical gaps and, separately, completeness after the latest reported
+    cash anchor used by the live NAV forecast.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
@@ -127,7 +135,13 @@ def collect_recent_buybacks(
             errors.append({"url": mirror_url, "error": str(exc)})
 
     official_backfill = seed_known_official_buybacks(database_path)
-    coverage_gaps = buyback_coverage_gaps(database_path)
+    latest_anchor = _latest_reported_cash_anchor(database_path)
+    historical_gaps = buyback_coverage_gaps(database_path)
+    current_gaps = (
+        buyback_coverage_gaps(database_path, since_date=latest_anchor)
+        if latest_anchor is not None
+        else historical_gaps
+    )
     return {
         "discovery_source": "MFN public Otello feed",
         "stored_source": "MFN mirror + explicit curated Euronext gaps",
@@ -135,15 +149,24 @@ def collect_recent_buybacks(
         "discovered": len(urls),
         "ingested": len(results),
         "official_backfill": official_backfill,
-        "coverage_complete": not coverage_gaps,
-        "coverage_gaps": coverage_gaps,
+        "latest_reported_cash_anchor": latest_anchor,
+        "historical_coverage_complete": not historical_gaps,
+        "historical_coverage_gaps": historical_gaps,
+        "current_coverage_complete": not current_gaps,
+        "current_coverage_gaps": current_gaps,
         "results": results,
         "errors": errors,
     }
 
 
 def buyback_status(database_path: str | None = None) -> dict:
-    gaps = buyback_coverage_gaps(database_path)
+    latest_anchor = _latest_reported_cash_anchor(database_path)
+    historical_gaps = buyback_coverage_gaps(database_path)
+    current_gaps = (
+        buyback_coverage_gaps(database_path, since_date=latest_anchor)
+        if latest_anchor is not None
+        else historical_gaps
+    )
     with get_connection(database_path) as connection:
         aggregate = connection.execute(
             """
@@ -161,9 +184,12 @@ def buyback_status(database_path: str | None = None) -> dict:
             """
         ).fetchone()
         return {
-            "status": "ok" if aggregate["n"] and not gaps else ("incomplete" if aggregate["n"] else "empty"),
-            "coverage_complete": not gaps,
-            "coverage_gaps": gaps,
+            "status": "ok" if aggregate["n"] and not current_gaps else ("incomplete" if aggregate["n"] else "empty"),
+            "latest_reported_cash_anchor": latest_anchor,
+            "historical_coverage_complete": not historical_gaps,
+            "historical_coverage_gaps": historical_gaps,
+            "current_coverage_complete": not current_gaps,
+            "current_coverage_gaps": current_gaps,
             "count": aggregate["n"],
             "from": aggregate["min_date"],
             "to": aggregate["max_date"],
