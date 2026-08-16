@@ -6,6 +6,8 @@ from typing import Any
 from app.db.connection import get_connection
 from app.db.repository import decimal_text
 
+AMOUNT_TOLERANCE_NOK = Decimal("1")
+
 
 def buyback_coverage_gaps(
     database_path: str | None = None,
@@ -15,9 +17,12 @@ def buyback_coverage_gaps(
     """Detect missing weekly rows from published cumulative program totals.
 
     `PREFIX` means the first observed status was already mid-program. `INTERNAL` means a
-    weekly row is missing between two observed statuses. When `since_date` is supplied,
-    gaps whose missing activity necessarily occurred on/before that date are ignored;
-    this is useful for proving cash-flow completeness after the latest reported anchor.
+    weekly row is missing between two observed statuses. Share counts have zero tolerance.
+    Published cumulative NOK totals occasionally differ by one krone from the sum of
+    rounded weekly totals, so amount-only differences of +/-1 NOK are not treated as gaps.
+
+    When `since_date` is supplied, gaps whose missing activity necessarily occurred
+    on/before that date are ignored; this proves cash-flow completeness after an anchor.
     """
     gaps: list[dict[str, Any]] = []
     with get_connection(database_path) as connection:
@@ -51,9 +56,10 @@ def buyback_coverage_gaps(
                     missing_amount = (
                         cumulative_amount - current_amount if cumulative_amount is not None else None
                     )
-                    amount_mismatch = missing_amount is not None and missing_amount != 0
+                    amount_mismatch = (
+                        missing_amount is not None and abs(missing_amount) > AMOUNT_TOLERANCE_NOK
+                    )
                     if missing_shares != 0 or amount_mismatch:
-                        # All missing prefix activity is before the first observed row.
                         if since_date is None or current["trade_date"] > since_date:
                             gaps.append(
                                 {
@@ -79,10 +85,10 @@ def buyback_coverage_gaps(
                     expected_amount = Decimal(prev_amount) + current_amount
                     missing_amount = cumulative_amount - expected_amount
                 missing_shares = current_cumulative - expected_shares
-                amount_mismatch = missing_amount is not None and missing_amount != 0
+                amount_mismatch = (
+                    missing_amount is not None and abs(missing_amount) > AMOUNT_TOLERANCE_NOK
+                )
                 if missing_shares != 0 or amount_mismatch:
-                    # If the current row itself is on/before the requested boundary, the
-                    # whole internal gap is historical to that boundary.
                     if since_date is None or current["trade_date"] > since_date:
                         gaps.append(
                             {
