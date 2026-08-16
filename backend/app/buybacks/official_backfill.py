@@ -31,10 +31,12 @@ def _entry(
     cumulative_amount: str,
     max_shares: int,
     treasury: int,
+    source_note: str | None = None,
 ) -> dict:
     return {
         "published_at": published_at,
         "url": f"{EURONEXT_NEWS}/{release_date}-otello-corporation-share-buyback-program-status",
+        "source_note": source_note,
         "status": BuybackStatus(
             program_reference_date=program_date,
             period_start=period_start,
@@ -100,9 +102,15 @@ KNOWN_OFFICIAL_BUYBACKS = [
     _entry(
         release_date="2025-11-21", published_at="2025-11-21T22:35:00+01:00",
         program_date="2025-09-22", period_start="2025-11-17", period_end="2025-11-21",
-        shares=109_000, avg="16.67", amount="1831883",
+        shares=109_900, avg="16.67", amount="1831883",
         cumulative_shares=1_149_542, cumulative_avg="15.02", cumulative_amount="17260826",
         max_shares=3_689_541, treasury=1_149_542,
+        source_note=(
+            "Issuer release prose states 109,000 weekly shares, but that conflicts with "
+            "the cumulative increase (1,149,542 - 1,039,642 = 109,900) and with the "
+            "published NOK 1,831,883 consideration / NOK 16.67 average. Stored 109,900 "
+            "as the internally reconciled figure; discrepancy is preserved in metadata."
+        ),
     ),
     _entry(
         release_date="2025-11-30", published_at="2025-11-30T19:42:00+01:00",
@@ -132,6 +140,19 @@ KNOWN_OFFICIAL_BUYBACKS = [
 def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]:
     results: list[dict] = []
     for item in KNOWN_OFFICIAL_BUYBACKS:
+        metadata = {
+            "source_quality": "CURATED_OFFICIAL",
+            "provider": "Oslo Bors Newspoint",
+            "structured_transcription": True,
+            "reason": "Structured backfill from original Euronext / Oslo Bors releases where the current mirror feed is incomplete.",
+        }
+        if item["source_note"]:
+            metadata.update(
+                {
+                    "issuer_text_discrepancy": True,
+                    "discrepancy_note": item["source_note"],
+                }
+            )
         results.append(
             ingest_buyback_status(
                 parsed=item["status"],
@@ -139,12 +160,7 @@ def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]
                 published_at=item["published_at"],
                 database_path=database_path,
                 source_code="EURONEXT",
-                source_metadata={
-                    "source_quality": "CURATED_OFFICIAL",
-                    "provider": "Oslo Bors Newspoint",
-                    "structured_transcription": True,
-                    "reason": "Structured backfill from original Euronext / Oslo Bors releases where the current mirror feed is incomplete.",
-                },
+                source_metadata=metadata,
             )
         )
     return results
