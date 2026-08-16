@@ -46,22 +46,20 @@ def test_parser_fails_closed_when_financial_fields_are_missing() -> None:
         raise AssertionError("Parser must fail instead of guessing")
 
 
-def test_discovery_uses_only_mfn_dates_to_construct_euronext_urls() -> None:
+def test_discovery_accepts_only_mfn_buyback_mirror_links() -> None:
     listing = """
     <html><body>
-      <div>2026-07-17 19:19:57 OTEC: Otello Corporation share buyback program status</div>
-      <div>2026-07-11 21:49:44 OTEC: Otello Corporation share buyback program status</div>
-      <div>2026-07-11 21:49:44 OTEC: Otello Corporation share buyback program status</div>
-      <div>2026-07-08 09:41:44 OTEC: Share Buyback Program</div>
-      <div>2026-07-18 12:00:00 OTEC: Other news</div>
+      <a href="/all/a/otello/otec-otello-corporation-share-buyback-program-status-aaa111">First</a>
+      <a href="https://mfn.se/all/a/otello/otec-otello-corporation-share-buyback-program-status-bbb222?x=1">Second</a>
+      <a href="/all/a/otello/otec-other-news-ccc333">Other</a>
     </body></html>
     """
     urls = discover_buyback_urls(listing)
     assert urls == [
-        "https://live.euronext.com/en/products/equities/company-news/2026-07-11-otello-corporation-share-buyback-program-status",
-        "https://live.euronext.com/en/products/equities/company-news/2026-07-17-otello-corporation-share-buyback-program-status",
+        "https://mfn.se/all/a/otello/otec-otello-corporation-share-buyback-program-status-aaa111",
+        "https://mfn.se/all/a/otello/otec-otello-corporation-share-buyback-program-status-bbb222",
     ]
-    page = f"<html><body><main><p>{SAMPLE}</p></main></body></html>"
+    page = f"<html><body><main><p>{SAMPLE}</p><p>Källa Oslo Børs</p></main></body></html>"
     assert "65,300 shares" in extract_page_text(page)
 
 
