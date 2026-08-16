@@ -9,6 +9,7 @@ MIGRATIONS_DIR = Path(__file__).with_name("migrations")
 CORE_TABLES = (
     "sources",
     "source_documents",
+    "company_news",
     "instruments",
     "market_prices",
     "fx_rates",
