@@ -16,17 +16,19 @@ def test_curated_history_is_idempotent(tmp_path) -> None:
 
     assert first["cash_anchors_written"] == 10
     assert first["share_counts_written"] == 10
+    assert first["share_capital_corrections"]["share_counts_written"] == 2
     assert first["bemobi_holdings_written"] == 2
     assert first["corporate_actions_written"] == 7
 
     assert second["cash_anchors_written"] == 0
     assert second["share_counts_written"] == 0
+    assert second["share_capital_corrections"]["share_counts_written"] == 0
     assert second["bemobi_holdings_written"] == 0
     assert second["corporate_actions_written"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM cash_anchors").fetchone()[0] == 10
-        assert connection.execute("SELECT COUNT(*) FROM otello_share_counts").fetchone()[0] == 10
+        assert connection.execute("SELECT COUNT(*) FROM otello_share_counts").fetchone()[0] == 12
         assert connection.execute("SELECT COUNT(*) FROM bemobi_holdings").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0] == 7
         assert connection.execute("SELECT COUNT(*) FROM provenance_records").fetchone()[0] > 40
@@ -146,16 +148,23 @@ def test_history_status_exposes_full_report_anchor_coverage(tmp_path) -> None:
     seed_curated_history(database_path)
 
     status = history_status(database_path)
-    assert status["manifest_version"] == "2026-08-16.2"
+    assert status["manifest_version"] == "2026-08-17.1"
     assert status["cash_anchors"] == {
         "count": 10,
         "from": "2021-06-30",
         "to": "2025-12-31",
     }
+    # Ten report-date anchors plus two effective registration anchors needed for
+    # daily NAV/share between reports.
     assert status["share_count_anchors"] == {
-        "count": 10,
+        "count": 12,
         "from": "2021-06-30",
         "to": "2025-12-31",
+    }
+    assert status["effective_share_capital_corrections"] == {
+        "count": 2,
+        "from": "2025-03-05",
+        "to": "2025-09-20",
     }
     assert status["known_gaps"] == []
 
@@ -170,7 +179,8 @@ def test_history_status_api_seeds_fresh_database(tmp_path) -> None:
             payload = response.json()
             assert payload["status"] == "ok"
             assert payload["cash_anchors"]["count"] == 10
-            assert payload["share_count_anchors"]["count"] == 10
+            assert payload["share_count_anchors"]["count"] == 12
+            assert payload["effective_share_capital_corrections"]["count"] == 2
             assert payload["bemobi_holding"]["shares"] == 32_719_588
             assert payload["bemobi_holding"]["effective_from"] == "2021-03-15"
             assert payload["known_gaps"] == []
