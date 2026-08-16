@@ -7,11 +7,54 @@ from typing import Any
 from app.db.connection import get_connection
 from app.db.repository import create_source_document, instrument_id
 
-MANIFEST_PATH = Path(__file__).with_name("data") / "otello_report_anchors.json"
+DATA_DIR = Path(__file__).with_name("data")
+MANIFEST_PATH = DATA_DIR / "otello_report_anchors.json"
+CORRECTIONS_PATH = DATA_DIR / "otello_2021_corrections.json"
 
 
 def load_manifest() -> dict[str, Any]:
-    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    """Load the base history plus later evidence-backed corrections.
+
+    Keeping corrections in a separate overlay makes revisions reviewable instead of
+    silently rewriting the original curated dataset.
+    """
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    corrections = json.loads(CORRECTIONS_PATH.read_text(encoding="utf-8"))
+
+    manifest["version"] = corrections["version"]
+    manifest["documents"] = manifest["documents"] + corrections.get("documents", [])
+    manifest["share_counts"] = manifest["share_counts"] + corrections.get("share_counts", [])
+
+    # The original Phase 3 Bemobi holding deliberately started in 2022 because the
+    # greenshoe effective date was then unresolved. The correction overlay replaces
+    # that conservative range with the exact IPO/greenshoe history.
+    manifest["bemobi_holdings"] = corrections.get(
+        "bemobi_holdings", manifest["bemobi_holdings"]
+    )
+
+    # Two Phase 3 cancellation quantities were correct in isolation but attached to
+    # the wrong event dates. Remove those specific rows from the logical manifest and
+    # replace them with the verified registration sequence.
+    superseded_actions = {
+        ("SHARE_CANCELLATION", "2021-09-30", 11200000),
+        ("SHARE_CANCELLATION", "2022-01-27", 9999998),
+    }
+    manifest["corporate_actions"] = [
+        item
+        for item in manifest["corporate_actions"]
+        if (
+            item["action_type"],
+            item.get("announcement_date"),
+            item.get("quantity"),
+        )
+        not in superseded_actions
+    ] + corrections.get("corporate_actions", [])
+
+    resolved = set(corrections.get("resolved_gap_codes", []))
+    manifest["known_gaps"] = [
+        gap for gap in manifest.get("known_gaps", []) if gap["code"] not in resolved
+    ]
+    return manifest
 
 
 def _record_provenance_once(
