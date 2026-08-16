@@ -6,7 +6,9 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
+from app.buybacks.coverage import buyback_coverage_gaps
 from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext_buyback_status
+from app.buybacks.official_backfill import seed_known_official_buybacks
 from app.db.connection import get_connection
 
 EURONEXT_BASE = "https://live.euronext.com"
@@ -88,13 +90,12 @@ def collect_recent_buybacks(
     *,
     company_url: str = MFN_OTELLO_URL,
 ) -> dict:
-    """Ingest strict Oslo Bors buyback releases from a clearly labelled public mirror.
+    """Ingest strict Oslo Bors buyback releases from a labelled public mirror.
 
-    Euronext pages are client-rendered to ordinary HTTP clients. MFN is therefore used as
-    a non-official mirror. The collector requires the mirror page to identify Oslo Bors as
-    upstream, parses only Otello's strict standard wording, stores source_code=MFN, and
-    records the canonical Euronext URL in metadata. It never labels mirrored bytes as a
-    direct Euronext fetch.
+    MFN is stored explicitly as a non-official mirror with Oslo Bors upstream metadata.
+    A tiny curated official backfill closes any known mirror-feed omissions. The sequence
+    is then validated against Otello's cumulative program shares and cash consideration;
+    any remaining gap is surfaced rather than silently imputed.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
@@ -124,18 +125,25 @@ def collect_recent_buybacks(
             results.append({"mirror_url": mirror_url, "canonical_url": canonical_url, **result})
         except Exception as exc:
             errors.append({"url": mirror_url, "error": str(exc)})
+
+    official_backfill = seed_known_official_buybacks(database_path)
+    coverage_gaps = buyback_coverage_gaps(database_path)
     return {
         "discovery_source": "MFN public Otello feed",
-        "stored_source": "MFN mirror",
+        "stored_source": "MFN mirror + explicit curated Euronext gaps",
         "upstream_source": "Oslo Bors",
         "discovered": len(urls),
         "ingested": len(results),
+        "official_backfill": official_backfill,
+        "coverage_complete": not coverage_gaps,
+        "coverage_gaps": coverage_gaps,
         "results": results,
         "errors": errors,
     }
 
 
 def buyback_status(database_path: str | None = None) -> dict:
+    gaps = buyback_coverage_gaps(database_path)
     with get_connection(database_path) as connection:
         aggregate = connection.execute(
             """
@@ -147,12 +155,15 @@ def buyback_status(database_path: str | None = None) -> dict:
         latest = connection.execute(
             """
             SELECT trade_date, shares, avg_price_nok, amount_nok,
-                   cumulative_program_shares, treasury_shares_after
+                   cumulative_program_shares, cumulative_program_avg_price_nok,
+                   cumulative_program_amount_nok, treasury_shares_after
             FROM buybacks ORDER BY trade_date DESC, id DESC LIMIT 1
             """
         ).fetchone()
         return {
-            "status": "ok" if aggregate["n"] else "empty",
+            "status": "ok" if aggregate["n"] and not gaps else ("incomplete" if aggregate["n"] else "empty"),
+            "coverage_complete": not gaps,
+            "coverage_gaps": gaps,
             "count": aggregate["n"],
             "from": aggregate["min_date"],
             "to": aggregate["max_date"],
