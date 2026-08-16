@@ -10,10 +10,15 @@ from app.marketdata.backfill import (
     import_b3_bmob3_zip,
     import_ecb_fx_csv,
     import_euronext_otec_csv,
+    import_investing_otec_csv,
     market_data_status,
 )
 from app.marketdata.ecb_fx import derive_nok_cross_rates, parse_ecb_csv
 from app.marketdata.euronext_csv import parse_euronext_historical_csv
+from app.marketdata.investing_csv import (
+    parse_investing_historical_csv,
+    reconstruct_otec_2022_distribution,
+)
 from app.nav.core_nav import rebuild_core_nav_anchors
 
 
@@ -53,6 +58,18 @@ def _b3_zip(line: str) -> bytes:
     return output.getvalue()
 
 
+def _investing_sample() -> str:
+    return (
+        '"Date","Price","Open","High","Low","Vol.","Change %"\n'
+        '"08/19/2024","8.30","8.30","8.30","8.30","1K","0%"\n'
+        '"08/09/2022","8.82","8.08","9.10","7.29","1K","17.60%"\n'
+        '"08/08/2022","7.50","7.82","7.89","7.50","1K","-1.21%"\n'
+        '"07/29/2022","7.76","7.76","7.76","7.76","1K","0%"\n'
+        '"12/30/2021","7.07","7.07","7.07","7.07","1K","0%"\n'
+        '"06/30/2021","8.42","8.42","8.42","8.42","1K","0%"\n'
+    )
+
+
 def test_b3_fixed_width_parser_uses_official_price_positions() -> None:
     parsed = parse_cotahist_line(_b3_line(close_cents=3120))
     assert parsed is not None
@@ -81,6 +98,61 @@ def test_euronext_csv_parser_handles_semicolon_and_decimal_comma() -> None:
     prices = parse_euronext_historical_csv(text, date_order="DMY")
     assert [item.trading_date for item in prices] == ["2025-12-29", "2025-12-30"]
     assert prices[-1].close == Decimal("17.20")
+
+
+def test_investing_otec_reconstruction_reverses_2022_distribution() -> None:
+    raw = parse_investing_historical_csv(_investing_sample())
+    prices, adjustment = reconstruct_otec_2022_distribution(raw)
+    by_date = {item.trading_date: item for item in prices}
+
+    assert adjustment.last_including_date == "2022-08-08"
+    assert adjustment.adjusted_close_last_including == Decimal("7.50")
+    assert adjustment.reconstructed_close_last_including == Decimal("28.50")
+    assert adjustment.reconstruction_multiplier == Decimal("3.8")
+
+    assert by_date["2021-06-30"].close == Decimal("32.00")
+    assert by_date["2021-06-30"].quality == "RECONSTRUCTED"
+    assert by_date["2021-12-30"].close == Decimal("26.87")
+    assert by_date["2022-07-29"].close == Decimal("29.49")
+    assert by_date["2022-08-08"].close == Decimal("28.50")
+    assert by_date["2022-08-09"].close == Decimal("8.82")
+    assert by_date["2022-08-09"].quality == "DIRECT"
+
+
+def test_investing_import_validates_euronext_overlap_and_counts_unique_dates(tmp_path) -> None:
+    database_path = str(tmp_path / "investing.db")
+    init_database(database_path)
+
+    assert import_euronext_otec_csv(
+        "Date,Closing Price\n19/08/2024,8.30\n",
+        database_path=database_path,
+    ) == 1
+
+    result = import_investing_otec_csv(_investing_sample(), database_path=database_path)
+    assert result["rows_written"] == 6
+    assert result["reconstructed_rows"] == 4
+    assert result["direct_rows"] == 2
+    assert result["euronext_overlap_checked"] == 1
+    assert result["reconstruction_multiplier"] == "3.8"
+
+    status = market_data_status(database_path)
+    assert status["OTEC"]["count"] == 6
+    assert status["OTEC"]["rows_total"] == 7
+    assert status["OTEC"]["reconstructed_dates"] == 4
+    assert status["OTEC"]["direct_dates"] == 2
+
+    with get_connection(database_path) as connection:
+        row = connection.execute(
+            """
+            SELECT mp.price, mp.quality, mp.metadata_json
+            FROM market_prices mp
+            JOIN sources s ON s.id = mp.source_id
+            WHERE s.code = 'INVESTING' AND mp.trading_date = '2021-06-30'
+            """
+        ).fetchone()
+        assert row["price"] == "32.00"
+        assert row["quality"] == "RECONSTRUCTED"
+        assert '"source_close": "8.42"' in row["metadata_json"]
 
 
 def test_market_data_import_and_core_nav_anchor(tmp_path) -> None:
