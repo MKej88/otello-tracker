@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -9,9 +10,16 @@ from app.db.repository import create_source_document, upsert_fx_rate, upsert_mar
 from app.marketdata.b3_cotahist import B3_YEARLY_URL, parse_cotahist_zip_bytes
 from app.marketdata.ecb_fx import derive_nok_cross_rates, parse_ecb_csv
 from app.marketdata.euronext_csv import parse_euronext_historical_csv
+from app.marketdata.investing_csv import (
+    parse_investing_historical_csv,
+    reconstruct_otec_2022_distribution,
+)
 
 OTEC_EURONEXT_HISTORY_URL = (
     "https://live.euronext.com/en/popout-page/getHistoricalPrice/NO0010040611-XOSL"
+)
+OTEC_INVESTING_HISTORY_URL = (
+    "https://www.investing.com/equities/opera-software-asa-historical-data"
 )
 
 
@@ -123,23 +131,147 @@ def import_euronext_otec_csv(
                 currency="NOK",
                 source_code="EURONEXT",
                 source_document_id=document_id,
+                quality="DIRECT",
             )
             written += 1
         connection.commit()
     return written
 
 
+def import_investing_otec_csv(
+    text: str,
+    *,
+    database_path: str | None = None,
+    overlap_tolerance: Decimal = Decimal("0.001"),
+) -> dict[str, Any]:
+    """Import a manual Investing.com CSV export as a free OTEC history backfill.
+
+    The exported series is backward-adjusted for Otello's NOK 21 distribution before
+    2022-08-09. That segment is reconstructed and explicitly tagged RECONSTRUCTED.
+    Dates on/after the ex-date are stored as DIRECT. If official Euronext rows already
+    exist, every overlapping direct close is validated before the transaction commits.
+    """
+    payload = text.encode("utf-8")
+    raw_rows = parse_investing_historical_csv(text)
+    prices, adjustment = reconstruct_otec_2022_distribution(raw_rows)
+    digest = _sha256(payload)
+
+    written = 0
+    overlap_checked = 0
+    with get_connection(database_path) as connection:
+        official_rows = {
+            row["trading_date"]: Decimal(row["price"])
+            for row in connection.execute(
+                """
+                SELECT mp.trading_date, mp.price
+                FROM market_prices mp
+                JOIN instruments i ON i.id = mp.instrument_id
+                JOIN sources s ON s.id = mp.source_id
+                WHERE i.symbol = 'OTEC' AND mp.price_type = 'CLOSE'
+                  AND s.code = 'EURONEXT'
+                """
+            )
+        }
+
+        for item in prices:
+            official = official_rows.get(item.trading_date)
+            if official is not None and item.quality == "DIRECT":
+                overlap_checked += 1
+                if abs(official - item.close) > overlap_tolerance:
+                    raise ValueError(
+                        "Investing/Euronext avvik på "
+                        f"{item.trading_date}: Investing={item.close}, Euronext={official}"
+                    )
+
+        document_id = create_source_document(
+            connection,
+            source_code="INVESTING",
+            external_id=f"otec-manual-export-{digest[:20]}",
+            document_type="MARKET_DATA_FILE",
+            title="Investing.com manual historical price export - OTEC",
+            url=OTEC_INVESTING_HISTORY_URL,
+            content_sha256=digest,
+            metadata={
+                "symbol": "OTEC",
+                "format": "CSV",
+                "manual_export": True,
+                "automated_scraping": False,
+                "distribution_reconstruction": {
+                    "ex_date": adjustment.ex_date,
+                    "dividend_nok": str(adjustment.dividend_nok),
+                    "last_including_date": adjustment.last_including_date,
+                    "adjusted_close_last_including": str(adjustment.adjusted_close_last_including),
+                    "reconstructed_close_last_including": str(adjustment.reconstructed_close_last_including),
+                    "backward_adjustment_factor": str(adjustment.backward_adjustment_factor),
+                    "reconstruction_multiplier": str(adjustment.reconstruction_multiplier),
+                },
+                "official_overlap_rows_checked": overlap_checked,
+                "official_overlap_tolerance_nok": str(overlap_tolerance),
+            },
+        )
+
+        reconstructed = 0
+        direct = 0
+        for item in prices:
+            if item.quality == "RECONSTRUCTED":
+                reconstructed += 1
+            else:
+                direct += 1
+            upsert_market_price(
+                connection,
+                symbol="OTEC",
+                observed_at=f"{item.trading_date}T23:59:59Z",
+                trading_date=item.trading_date,
+                price_type="CLOSE",
+                price=item.close,
+                currency="NOK",
+                source_code="INVESTING",
+                source_document_id=document_id,
+                quality=item.quality,
+                metadata={
+                    "source_close": str(item.source_close),
+                    "distribution_adjustment_factor": (
+                        str(item.adjustment_factor) if item.adjustment_factor is not None else None
+                    ),
+                },
+            )
+            written += 1
+        connection.commit()
+
+    return {
+        "rows_written": written,
+        "direct_rows": direct,
+        "reconstructed_rows": reconstructed,
+        "from": prices[0].trading_date,
+        "to": prices[-1].trading_date,
+        "euronext_overlap_checked": overlap_checked,
+        "reconstruction_multiplier": str(adjustment.reconstruction_multiplier),
+    }
+
+
 def _coverage(connection, symbol: str) -> dict[str, Any]:
     row = connection.execute(
         """
-        SELECT COUNT(*) AS n, MIN(mp.trading_date) AS min_date, MAX(mp.trading_date) AS max_date
+        SELECT COUNT(*) AS rows_total,
+               COUNT(DISTINCT mp.trading_date) AS n,
+               MIN(mp.trading_date) AS min_date,
+               MAX(mp.trading_date) AS max_date,
+               COUNT(DISTINCT CASE WHEN mp.quality = 'DIRECT' THEN mp.trading_date END) AS direct_dates,
+               COUNT(DISTINCT CASE WHEN mp.quality = 'RECONSTRUCTED' THEN mp.trading_date END) AS reconstructed_dates
         FROM market_prices mp
         JOIN instruments i ON i.id = mp.instrument_id
         WHERE i.symbol = ? AND mp.price_type = 'CLOSE'
         """,
         (symbol,),
     ).fetchone()
-    return {"count": row["n"], "from": row["min_date"], "to": row["max_date"]}
+    return {
+        "count": row["n"],
+        "rows_total": row["rows_total"],
+        "from": row["min_date"],
+        "to": row["max_date"],
+        "direct_dates": row["direct_dates"],
+        "reconstructed_dates": row["reconstructed_dates"],
+    }
 
 
 def _fx_coverage(connection, base: str) -> dict[str, Any]:
