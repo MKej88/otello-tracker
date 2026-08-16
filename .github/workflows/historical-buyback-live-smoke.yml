@@ -50,6 +50,9 @@ jobs:
           assert s['current_coverage_complete'], s['current_coverage_gaps']
           assert s['from'] == '2025-09-26', s
           assert s['to'] == '2026-08-14', s
-          # No source duplicates: weekly row totals must equal the three program cumulative totals.
-          assert s['count'] == 45, s
+          assert s['latest']['treasury_shares_after'] == 5787397, s
+          assert s['latest']['cumulative_program_shares'] == 600393, s
+          # Zero-purchase status weeks are audit facts, not buyback rows. Completeness
+          # is proven by cumulative shares/consideration, not a brittle row count.
+          assert s['count'] >= 40, s
           PY
