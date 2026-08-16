@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.buybacks.euronext import BuybackStatus, ingest_buyback_status
+from app.buybacks.older_2025_reconciled import reconciled_older_2025_buybacks
 
 EURONEXT_NEWS = "https://live.euronext.com/en/products/equities/company-news"
 
@@ -139,7 +140,8 @@ KNOWN_OFFICIAL_BUYBACKS = [
 
 def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]:
     results: list[dict] = []
-    for item in KNOWN_OFFICIAL_BUYBACKS:
+    all_rows = [*reconciled_older_2025_buybacks(), *KNOWN_OFFICIAL_BUYBACKS]
+    for item in all_rows:
         metadata = {
             "source_quality": "CURATED_OFFICIAL",
             "provider": "Oslo Bors Newspoint",
