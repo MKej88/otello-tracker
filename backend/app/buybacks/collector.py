@@ -10,7 +10,12 @@ from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext
 from app.db.connection import get_connection
 
 EURONEXT_BASE = "https://live.euronext.com"
-OTEC_COMPANY_URL = f"{EURONEXT_BASE}/en/product/equities/NO0010040611-XOSL"
+OTEC_NEWS_ARCHIVE_URL = (
+    f"{EURONEXT_BASE}/en/markets/oslo/equities/company-news-archive"
+    "?combine=OTELLO+CORPORATION"
+    "&field_company_pr_pub_datetime_start=2026-01-01+00%3A00%3A00"
+    "&field_company_pr_pub_datetime_end=now"
+)
 BUYBACK_PATH_MARKER = "otello-corporation-share-buyback-program-status"
 
 
@@ -41,7 +46,7 @@ def _fetch(url: str, timeout: int = 30) -> str:
 
 
 def discover_buyback_urls(html_text: str, *, base_url: str = EURONEXT_BASE) -> list[str]:
-    """Discover Euronext buyback status links visible in one OTEC company page."""
+    """Discover Euronext Otello buyback-status links in server-rendered archive HTML."""
     candidates = re.findall(r'href=["\']([^"\']+)["\']', html_text, flags=re.I)
     urls: set[str] = set()
     for raw in candidates:
@@ -50,7 +55,7 @@ def discover_buyback_urls(html_text: str, *, base_url: str = EURONEXT_BASE) -> l
             continue
         absolute = urljoin(base_url, decoded)
         if "/products/equities/company-news/" in absolute:
-            urls.add(absolute.split("#", 1)[0])
+            urls.add(absolute.split("#", 1)[0].split("?", 1)[0])
     return sorted(urls)
 
 
@@ -71,13 +76,12 @@ def _published_at_from_url(url: str) -> str:
 def collect_recent_buybacks(
     database_path: str | None = None,
     *,
-    company_url: str = OTEC_COMPANY_URL,
+    company_url: str = OTEC_NEWS_ARCHIVE_URL,
 ) -> dict:
-    """Discover and ingest buyback messages currently linked from Euronext's OTEC page.
+    """Discover and ingest buyback messages from Euronext's public Oslo news archive.
 
-    The collector intentionally does not rely on a private/internal API. It parses only
-    public company-news links. Repeated runs are idempotent through source-document and
-    buyback uniqueness rules.
+    The archive is server-rendered, avoiding dependence on Euronext's client-side OTEC
+    product page or undocumented JSON endpoints. Repeated runs are idempotent.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
@@ -87,7 +91,6 @@ def collect_recent_buybacks(
         try:
             page_html = _fetch(url)
             text = extract_page_text(page_html)
-            # Fail closed before touching the DB if the page no longer matches the schema.
             parse_euronext_buyback_status(text)
             result = ingest_euronext_buyback_status(
                 text=text,
@@ -96,7 +99,7 @@ def collect_recent_buybacks(
                 database_path=database_path,
             )
             results.append({"url": url, **result})
-        except Exception as exc:  # surfaced to job status; no silent guessed data
+        except Exception as exc:
             errors.append({"url": url, "error": str(exc)})
     return {"discovered": len(urls), "ingested": len(results), "results": results, "errors": errors}
 
