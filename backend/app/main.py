@@ -86,6 +86,9 @@ def nav_daily() -> dict:
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
+    # Keep this endpoint safe for health/smoke callers that do not enter the
+    # FastAPI lifespan (for example a minimal TestClient invocation).
+    init_database(settings.database_path)
     return get_dashboard_summary(settings.database_path)
 
 
@@ -94,6 +97,7 @@ def dashboard_history(
     days: int = Query(default=365, ge=7, le=3650),
     max_points: int = Query(default=400, ge=50, le=1000),
 ) -> dict:
+    init_database(settings.database_path)
     return get_dashboard_history(
         settings.database_path,
         days=days,
