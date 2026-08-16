@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import html
 import re
 from html.parser import HTMLParser
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext_buyback_status
 from app.db.connection import get_connection
 
 EURONEXT_BASE = "https://live.euronext.com"
-MFN_OTELLO_URL = "https://mfn.se/all/a/otello-corporation"
-BUYBACK_TITLE = "OTEC: Otello Corporation share buyback program status"
+MFN_BASE = "https://mfn.se"
+MFN_OTELLO_URL = f"{MFN_BASE}/all/a/otello-corporation"
+MFN_BUYBACK_MARKER = "otec-otello-corporation-share-buyback-program-status"
 EURONEXT_BUYBACK_SLUG = "otello-corporation-share-buyback-program-status"
 
 
@@ -46,30 +49,38 @@ def extract_page_text(html_text: str) -> str:
 
 
 def discover_buyback_urls(html_text: str) -> list[str]:
-    """Use MFN only to discover publication dates, then construct original Euronext URLs.
-
-    No financial values are consumed from MFN. Every discovered date is verified by
-    fetching and strictly parsing the corresponding Euronext/Oslo Bors message before
-    anything is written to the database.
-    """
-    text = extract_page_text(html_text)
-    pattern = re.compile(
-        r"(20\d{2}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\s+"
-        + re.escape(BUYBACK_TITLE),
-        re.I,
-    )
-    dates = sorted(set(pattern.findall(text)))
-    return [
-        f"{EURONEXT_BASE}/en/products/equities/company-news/{day}-{EURONEXT_BUYBACK_SLUG}"
-        for day in dates
-    ]
+    """Discover public MFN mirror article URLs; no financial fields are read here."""
+    candidates = re.findall(r'href=["\']([^"\']+)["\']', html_text, flags=re.I)
+    urls: set[str] = set()
+    for raw in candidates:
+        decoded = html.unescape(raw)
+        if MFN_BUYBACK_MARKER not in decoded.lower():
+            continue
+        urls.add(urljoin(MFN_BASE, decoded).split("#", 1)[0].split("?", 1)[0])
+    return sorted(urls)
 
 
-def _published_at_from_url(url: str) -> str:
-    match = re.search(r"/company-news/(\d{4}-\d{2}-\d{2})-", url)
+def _publication_timestamp(text: str) -> str:
+    match = re.search(r"(20\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})", text)
     if not match:
-        raise ValueError(f"Fant ikke publiseringsdato i Euronext-URL: {url}")
-    return f"{match.group(1)}T23:59:59Z"
+        raise ValueError("Fant ikke publiseringstidspunkt i MFN-mirror")
+    return f"{match.group(1)}T{match.group(2)}+02:00"
+
+
+def _canonical_euronext_url(text: str) -> str:
+    match = re.search(r"(20\d{2}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}", text)
+    if not match:
+        raise ValueError("Fant ikke publiseringsdato for Euronext canonical URL")
+    return (
+        f"{EURONEXT_BASE}/en/products/equities/company-news/"
+        f"{match.group(1)}-{EURONEXT_BUYBACK_SLUG}"
+    )
+
+
+def _assert_oslo_bors_mirror(text: str) -> None:
+    normalized = " ".join(text.split())
+    if not re.search(r"(?:Källa|Source)\s+Oslo\s+Børs", normalized, re.I):
+        raise ValueError("MFN-artikkelen er ikke merket med Oslo Børs som upstream-kilde")
 
 
 def collect_recent_buybacks(
@@ -77,33 +88,46 @@ def collect_recent_buybacks(
     *,
     company_url: str = MFN_OTELLO_URL,
 ) -> dict:
-    """Discover status dates from MFN, but source and validate every value at Euronext.
+    """Ingest strict Oslo Bors buyback releases from a clearly labelled public mirror.
 
-    MFN is only a transient discovery index. The collector constructs the canonical
-    Euronext URL for each date, fetches that original Oslo Bors/Newspoint message and
-    fails closed if the Euronext text does not match the deterministic parser.
+    Euronext pages are client-rendered to ordinary HTTP clients. MFN is therefore used as
+    a non-official mirror. The collector requires the mirror page to identify Oslo Bors as
+    upstream, parses only Otello's strict standard wording, stores source_code=MFN, and
+    records the canonical Euronext URL in metadata. It never labels mirrored bytes as a
+    direct Euronext fetch.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
     results: list[dict] = []
     errors: list[dict[str, str]] = []
-    for url in urls:
+    for mirror_url in urls:
         try:
-            page_html = _fetch(url)
+            page_html = _fetch(mirror_url)
             text = extract_page_text(page_html)
+            _assert_oslo_bors_mirror(text)
             parse_euronext_buyback_status(text)
+            canonical_url = _canonical_euronext_url(text)
             result = ingest_euronext_buyback_status(
                 text=text,
-                url=url,
-                published_at=_published_at_from_url(url),
+                url=mirror_url,
+                published_at=_publication_timestamp(text),
                 database_path=database_path,
+                source_code="MFN",
+                source_metadata={
+                    "source_quality": "MIRROR",
+                    "upstream_source": "Oslo Bors",
+                    "upstream_provider": "Oslo Bors Newspoint",
+                    "canonical_euronext_url": canonical_url,
+                    "financial_fields_require_strict_parser": True,
+                },
             )
-            results.append({"url": url, **result})
+            results.append({"mirror_url": mirror_url, "canonical_url": canonical_url, **result})
         except Exception as exc:
-            errors.append({"url": url, "error": str(exc)})
+            errors.append({"url": mirror_url, "error": str(exc)})
     return {
-        "discovery_source": "MFN dates only",
-        "financial_source": "Euronext / Oslo Bors Newspoint",
+        "discovery_source": "MFN public Otello feed",
+        "stored_source": "MFN mirror",
+        "upstream_source": "Oslo Bors",
         "discovered": len(urls),
         "ingested": len(results),
         "results": results,
