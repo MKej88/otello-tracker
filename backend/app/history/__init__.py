@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from app.history.curated import history_status as _history_status
 from app.history.curated import seed_curated_history as _seed_curated_history
+from app.history.other_net_assets import (
+    load_other_net_assets_manifest,
+    seed_other_net_assets_reported,
+)
 from app.history.share_capital_2022 import (
     load_2022_share_capital_corrections,
     seed_2022_share_capital_anchors,
@@ -16,11 +20,13 @@ def seed_curated_history(database_path: str | None = None) -> dict:
     result = _seed_curated_history(database_path)
     capital_2022 = seed_2022_share_capital_anchors(database_path)
     capital_2025 = seed_2025_share_capital_anchors(database_path)
+    other_net_assets = seed_other_net_assets_reported(database_path)
     result["manifest_version"] = capital_2022["manifest_version"]
     result["share_capital_corrections"] = {
         "2022": capital_2022,
         "2025": capital_2025,
     }
+    result["other_net_assets"] = other_net_assets
     return result
 
 
@@ -29,11 +35,18 @@ def history_status(database_path: str | None = None) -> dict:
     corrections_2022 = load_2022_share_capital_corrections()
     corrections_2025 = load_2025_share_capital_corrections()
     rows = [*corrections_2022["share_counts"], *corrections_2025["share_counts"]]
+    ona_manifest = load_other_net_assets_manifest()
     result["manifest_version"] = corrections_2022["version"]
     result["effective_share_capital_corrections"] = {
         "count": len(rows),
         "from": min(row["as_of_date"] for row in rows),
         "to": max(row["as_of_date"] for row in rows),
+    }
+    result["full_nav_report_anchors"] = {
+        "count": len(ona_manifest["anchors"]),
+        "from": ona_manifest["anchors"][0]["as_of_date"],
+        "to": ona_manifest["anchors"][-1]["as_of_date"],
+        "known_gaps": ona_manifest.get("known_gaps", []),
     }
     return result
 
