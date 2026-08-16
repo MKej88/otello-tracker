@@ -28,7 +28,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: Collect public Otello buybacks
+      - name: Collect public Otello buybacks and verify cumulative coverage
         env:
           PYTHONPATH: .
         run: |
