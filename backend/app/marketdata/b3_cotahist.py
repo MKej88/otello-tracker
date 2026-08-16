@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from http.client import IncompleteRead
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
@@ -66,10 +69,15 @@ def parse_cotahist_line(line: str) -> B3DailyClose | None:
 
 
 def iter_ticker_from_text(lines, ticker: str):
+    """Yield only records for one ticker without fully parsing the whole B3 universe."""
     target = ticker.strip().upper()
     for line in lines:
+        if len(line) < 24 or line[0:2] != "01":
+            continue
+        if line[12:24].strip().upper() != target:
+            continue
         parsed = parse_cotahist_line(line)
-        if parsed is not None and parsed.ticker.upper() == target:
+        if parsed is not None:
             yield parsed
 
 
@@ -87,20 +95,45 @@ def parse_cotahist_zip_file(path: str | Path, ticker: str) -> list[B3DailyClose]
     return parse_cotahist_zip_bytes(Path(path).read_bytes(), ticker)
 
 
-def download_cotahist_year(year: int, timeout: int = 30) -> bytes:
+def download_cotahist_year(
+    year: int,
+    timeout: int = 60,
+    attempts: int = 4,
+) -> bytes:
+    """Download one official B3 annual COTAHIST ZIP with bounded retries.
+
+    B3's large annual files occasionally terminate mid-transfer. Retrying the whole
+    request is deliberately simpler and safer than accepting a partial ZIP. The payload
+    is returned only after it has a ZIP signature; the caller later validates its content.
+    """
     if year < 1986 or year > date.today().year:
         raise ValueError(f"Ugyldig B3-år: {year}")
-    url = B3_YEARLY_URL.format(year=year)
-    request = Request(url, headers={"User-Agent": "otello-tracker/0.4 (+private research)"})
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            payload = response.read()
-    except Exception as exc:
-        raise RuntimeError(
-            "B3-nedlasting feilet. B3 kan kreve CAPTCHA; last i så fall ned "
-            f"COTAHIST_A{year}.ZIP manuelt fra B3 og importer den lokale ZIP-filen."
-        ) from exc
+    if attempts < 1:
+        raise ValueError("attempts må være minst 1")
 
-    if not payload.startswith(b"PK"):
-        raise RuntimeError("B3 svarte ikke med en ZIP-fil")
-    return payload
+    url = B3_YEARLY_URL.format(year=year)
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "otello-tracker/0.4 (+private research)",
+                "Connection": "close",
+            },
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = response.read()
+            if not payload.startswith(b"PK"):
+                raise RuntimeError("B3 svarte ikke med en ZIP-fil")
+            return payload
+        except (IncompleteRead, HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(min(2 ** (attempt - 1), 8))
+
+    raise RuntimeError(
+        f"B3-nedlasting av COTAHIST_A{year}.ZIP feilet etter {attempts} forsøk. "
+        "Last om nødvendig ned filen manuelt fra B3 og importer den lokale ZIP-filen."
+    ) from last_error
