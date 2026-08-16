@@ -58,9 +58,14 @@ Status: **Kode og modell ferdig – runtime backfill gjenstår**
 - [x] automatisk B3 årsfil-nedlasting med trygg fallback til manuell ZIP ved CAPTCHA
 - [x] ECB EXR CSV-parser og automatisk BRL/NOK + USD/NOK cross-rate
 - [x] robust Euronext historical CSV-import for OTEC
+- [x] gratis full OTEC-backfill fra manuell Investing CSV (10.02.2021 → siste handelsdag)
+- [x] eksplisitt `DIRECT` vs `RECONSTRUCTED` kvalitet på markedspriser
+- [x] reversering av Investing sin dividend-adjustment før NOK 21-utdelingen 09.08.2022
+- [x] automatisk avstemming av Investing-overlapp mot offisiell Euronext-historikk
+- [x] markedsdatastatus teller unike handelsdager og viser rekonstruert/direct dekning
 - [x] kildefil-hash og source-document-spor for alle backfills
 - [x] markedsdatastatus via `/api/system/market-data`
-- [x] CLI for B3/ECB/Euronext-backfill
+- [x] CLI for B3/ECB/Euronext/Investing-backfill
 - [x] CORE NAV-motor på rapportdatoer
 - [x] historisk CORE NAV-rabatt når OTEC-kurs finnes
 - [x] eksplisitt skille mellom `CORE` og senere `FULL` NAV
@@ -69,7 +74,8 @@ Status: **Kode og modell ferdig – runtime backfill gjenstår**
 - [x] parser-, database- og NAV-avstemmingstester
 - [ ] kjøre full ECB-backfill fra 10.02.2021
 - [ ] importere B3 årsfilene 2021–2026
-- [ ] importere Euronext OTEC-historikk
+- [ ] importere brukerens fulle OTEC-Investing-CSV i lokal/produksjonsdatabase
+- [ ] importere Euronext 2-årsfil som offisiell overlappskontroll
 - [ ] generere alle tilgjengelige CORE NAV-ankre på produksjons-/lokal database
 - [ ] rekonstruere øvrige nettoeiendeler/gjeld og oppgradere fra CORE til FULL NAV
 
