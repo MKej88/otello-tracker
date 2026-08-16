@@ -4,18 +4,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.migration_runner import database_status, init_database
+from app.history import history_status, seed_curated_history
 from app.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database(settings.database_path)
+    seed_curated_history(settings.database_path)
     yield
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.3.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -37,13 +39,18 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.2.0",
+        "version": "0.3.0",
     }
 
 
 @app.get("/api/system/database")
 def system_database() -> dict:
     return database_status(settings.database_path)
+
+
+@app.get("/api/system/history")
+def system_history() -> dict:
+    return history_status(settings.database_path)
 
 
 @app.get("/api/dashboard/summary")
