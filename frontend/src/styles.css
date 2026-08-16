@@ -1,0 +1,68 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #eef4ff;
+  background: #07101f;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at 68% -10%, rgba(34, 91, 170, .18), transparent 28%), #07101f;
+}
+button { font: inherit; }
+.shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { border-right: 1px solid #18253b; background: rgba(6, 14, 28, .92); padding: 28px 18px; display: flex; flex-direction: column; }
+.brand { display: flex; gap: 12px; align-items: center; padding: 0 8px 28px; }
+.brandMark { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; background: linear-gradient(135deg, #387ef1, #1fd0b2); color: white; }
+.brand strong { display: block; font-size: 18px; }
+.brand small { display: block; color: #71809a; margin-top: 2px; }
+nav { display: grid; gap: 5px; }
+.navItem { border: 0; background: transparent; color: #8998b2; border-radius: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; cursor: default; text-align: left; }
+.navItem.active { background: #112d5a; color: #fff; }
+.navDot { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
+.navItem.active .navDot { background: #4c9cff; border-color: #4c9cff; }
+.sidebarFooter { margin-top: auto; color: #71809a; font-size: 12px; padding: 14px 8px 0; border-top: 1px solid #18253b; display: flex; gap: 8px; align-items: center; }
+.main { padding: 28px 32px 40px; max-width: 1700px; width: 100%; margin: 0 auto; }
+header { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 24px; }
+h1 { margin: 3px 0 0; font-size: 28px; letter-spacing: -.03em; }
+h2 { margin: 4px 0 0; font-size: 17px; }
+.eyebrow, .label { margin: 0; color: #7787a2; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.updated { display: flex; gap: 8px; align-items: center; color: #8b9ab3; font-size: 13px; }
+.statusDot { width: 8px; height: 8px; border-radius: 50%; background: #9e4d5a; box-shadow: 0 0 0 4px rgba(158,77,90,.12); }
+.statusDot.ok { background: #1ec89d; box-shadow: 0 0 0 4px rgba(30,200,157,.12); }
+.card { background: linear-gradient(180deg, rgba(16, 28, 48, .97), rgba(11, 21, 38, .97)); border: 1px solid #1c2b43; border-radius: 14px; padding: 18px; box-shadow: 0 18px 40px rgba(0,0,0,.10); }
+.kpiGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.kpi { min-height: 128px; position: relative; overflow: hidden; }
+.kpi strong { display: block; font-size: 25px; margin-top: 12px; letter-spacing: -.025em; }
+.change { display: block; margin-top: 8px; font-size: 12px; font-weight: 700; }
+.positive { color: #27d3a5; }
+.negative { color: #ff6c88; }
+.spark { position: absolute; width: 76px; height: 30px; right: 12px; bottom: 14px; opacity: .7; border-top: 2px solid currentColor; transform: skewY(-8deg); border-radius: 50%; }
+.chartGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.chart { min-height: 340px; }
+.cardHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.pill { border: 1px solid #254c80; color: #9fc4ff; background: #102748; border-radius: 999px; font-size: 11px; font-weight: 800; padding: 6px 9px; }
+.pill.muted { border-color: #2c3748; background: #151e2c; color: #7f8ca2; }
+.fakeChart, .discountChart { position: relative; height: 250px; margin-top: 20px; border-radius: 10px; overflow: hidden; background-image: linear-gradient(#17263d 1px, transparent 1px), linear-gradient(90deg, #17263d 1px, transparent 1px); background-size: 100% 25%, 16.66% 100%; }
+.line { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 50%; }
+.navLine { top: 35%; background: #4b91ff; transform: rotate(-3deg); box-shadow: 80px 22px 0 #4b91ff, 180px -18px 0 #4b91ff, 300px 15px 0 #4b91ff; }
+.priceLine { top: 66%; background: #d4dae5; transform: rotate(-1deg); }
+.discountArea { position: absolute; left: 3%; right: 3%; bottom: 18%; height: 46%; background: linear-gradient(180deg, rgba(120,92,255,.42), rgba(120,92,255,.06)); clip-path: polygon(0 50%, 8% 55%, 15% 42%, 22% 60%, 30% 48%, 38% 63%, 46% 36%, 55% 50%, 62% 26%, 69% 44%, 77% 35%, 85% 52%, 92% 40%, 100% 45%, 100% 100%, 0 100%); border-top: 2px solid #8d78ff; }
+.averageLine { position: absolute; top: 51%; left: 3%; right: 3%; border-top: 1px dashed #28c9a2; }
+.chartCaption { position: absolute; left: 12px; bottom: 10px; color: #62718a; font-size: 11px; }
+.lowerGrid { display: grid; grid-template-columns: 1.15fr 1fr .8fr; gap: 14px; margin-top: 14px; }
+.placeholderRows, .sourceList { display: grid; gap: 0; margin-top: 14px; }
+.placeholderRows > div, .sourceList > div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid #1b2a40; color: #91a0b8; font-size: 13px; }
+.placeholderRows strong { color: #e9f1ff; }
+.exposure { display: flex; align-items: center; gap: 22px; margin-top: 16px; }
+.grow { flex: 1; }
+.donut { width: 92px; height: 92px; border-radius: 50%; background: conic-gradient(#3f8cff 0 38.22%, #182b45 38.22% 100%); display: grid; place-items: center; position: relative; }
+.donut::after { content: ""; width: 66px; height: 66px; background: #0e1a2d; border-radius: 50%; position: absolute; }
+.donut span { position: relative; z-index: 1; font-weight: 800; font-size: 14px; }
+.sourceOk { color: #2bd2a4; font-weight: 800; font-size: 11px; }
+@media (max-width: 1250px) { .kpiGrid { grid-template-columns: repeat(3, 1fr); } .lowerGrid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 850px) { .shell { grid-template-columns: 1fr; } .sidebar { display: none; } .main { padding: 20px; } .kpiGrid { grid-template-columns: repeat(2, 1fr); } .chartGrid, .lowerGrid { grid-template-columns: 1fr; } header { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 500px) { .kpiGrid { grid-template-columns: 1fr; } }
