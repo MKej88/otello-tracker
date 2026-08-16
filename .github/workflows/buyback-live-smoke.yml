@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/buyback-live-smoke.yml"
       - "backend/app/buybacks/**"
+      - "backend/app/db/migrations/0009_mfn_mirror_source.sql"
+      - "backend/app/db/migrations/0010_buyback_cumulative_values.sql"
       - "backend/app/jobs/collect_buybacks.py"
   workflow_dispatch:
 
@@ -26,7 +28,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: Collect public Euronext buybacks
+      - name: Collect public Otello buybacks
         env:
           PYTHONPATH: .
         run: |
@@ -35,7 +37,14 @@ jobs:
           python - <<'PY'
           import json
           d=json.load(open('/tmp/result.json'))
-          assert d['collection']['discovered'] >= 1, d
-          assert d['collection']['ingested'] >= 1, d
-          assert not d['collection']['errors'], d
+          c=d['collection']
+          s=d['buyback_status']
+          assert c['discovered'] >= 1, d
+          assert c['ingested'] >= 1, d
+          assert not c['errors'], d
+          assert c['coverage_complete'], c['coverage_gaps']
+          assert s['coverage_complete'], s['coverage_gaps']
+          assert s['latest']['trade_date'] == '2026-08-14', s
+          assert s['latest']['treasury_shares_after'] == 5787397, s
+          assert s['latest']['cumulative_program_shares'] == 600393, s
           PY
