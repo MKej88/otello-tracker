@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.buybacks import buyback_status
+from app.dashboard import dashboard_history as get_dashboard_history
+from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.db.migration_runner import database_status, init_database
 from app.history import history_status, seed_curated_history
 from app.marketdata import market_data_status
@@ -21,7 +23,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.6.0",
+    version="0.7.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -43,7 +45,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.6.0",
+        "version": "0.7.0",
     }
 
 
@@ -84,13 +86,16 @@ def nav_daily() -> dict:
 
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
-    # Midlertidige eksempeldata. Erstattes av NAV-motor og markedsdata etter backfill.
-    return {
-        "nav_per_share": 24.82,
-        "otec_price": 17.20,
-        "nav_discount_pct": 30.7,
-        "bmob3_price": 31.20,
-        "brl_nok": 1.72,
-        "estimated_cash_mnok": 112.4,
-        "data_status": "demo",
-    }
+    return get_dashboard_summary(settings.database_path)
+
+
+@app.get("/api/dashboard/history")
+def dashboard_history(
+    days: int = Query(default=365, ge=7, le=3650),
+    max_points: int = Query(default=400, ge=50, le=1000),
+) -> dict:
+    return get_dashboard_history(
+        settings.database_path,
+        days=days,
+        max_points=max_points,
+    )
