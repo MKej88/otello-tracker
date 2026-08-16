@@ -1,0 +1,93 @@
+name: Live market-source smoke
+
+on:
+  push:
+    branches: ["phase-4-2-live-source-smoke"]
+    paths:
+      - ".github/workflows/live-source-smoke.yml"
+      - "backend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-source-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Backfill ECB 2021-2026
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m app.jobs.backfill_market_data \
+            --database /tmp/otello-live-smoke.db \
+            --ecb \
+            --start 2021-02-10 \
+            --end 2026-08-14 \
+            > /tmp/ecb-result.json
+          cat /tmp/ecb-result.json
+
+      - name: Verify ECB coverage
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from app.marketdata.backfill import market_data_status
+          status = market_data_status('/tmp/otello-live-smoke.db')
+          print(status)
+          assert status['BRL_NOK']['count'] > 1000, status
+          assert status['USD_NOK']['count'] > 1000, status
+          assert status['BRL_NOK']['from'] <= '2021-02-10'
+          assert status['BRL_NOK']['to'] >= '2026-08-13'
+          PY
+
+      - name: Try official B3 COTAHIST 2025
+        id: b3
+        continue-on-error: true
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m app.jobs.backfill_market_data \
+            --database /tmp/otello-live-smoke.db \
+            --b3-year 2025 \
+            > /tmp/b3-result.json
+          cat /tmp/b3-result.json
+
+      - name: Summarize live-source result
+        if: always()
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY' | tee /tmp/live-source-summary.txt
+          from app.marketdata.backfill import market_data_status
+          status = market_data_status('/tmp/otello-live-smoke.db')
+          print('MARKET DATA STATUS')
+          print(status)
+          print()
+          print('B3 step outcome: ${{ steps.b3.outcome }}')
+          PY
+
+      - name: Upload smoke outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-source-smoke
+          path: |
+            /tmp/ecb-result.json
+            /tmp/b3-result.json
+            /tmp/live-source-summary.txt
+          if-no-files-found: ignore
