@@ -3,6 +3,7 @@ import json
 from app.dashboard import dashboard_history, dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
+from app.history import seed_curated_history
 from app.nav.daily_nav import CALCULATION_VERSION
 
 
@@ -51,13 +52,8 @@ def _insert_snapshot(connection, *, day: str, nav: str, otec: str, discount: str
 def test_dashboard_summary_uses_latest_real_snapshot(tmp_path):
     db = str(tmp_path / "dashboard.db")
     init_database(db)
+    seed_curated_history(db)
     with get_connection(db) as connection:
-        connection.execute(
-            """
-            INSERT INTO bemobi_holdings(effective_from, shares, ownership_pct, notes)
-            VALUES ('2021-03-15', 32719588, '36.0', 'test')
-            """
-        )
         _insert_snapshot(
             connection,
             day="2026-08-13",
@@ -110,13 +106,8 @@ def test_dashboard_summary_returns_not_ready_without_nav(tmp_path):
 def test_dashboard_history_is_bounded_and_keeps_latest_point(tmp_path):
     db = str(tmp_path / "history.db")
     init_database(db)
+    seed_curated_history(db)
     with get_connection(db) as connection:
-        connection.execute(
-            """
-            INSERT INTO bemobi_holdings(effective_from, shares, ownership_pct, notes)
-            VALUES ('2021-03-15', 32719588, '36.0', 'test')
-            """
-        )
         for day, nav, price, discount in (
             ("2026-08-10", "22", "17", "22.7273"),
             ("2026-08-11", "23", "17.2", "25.2174"),
