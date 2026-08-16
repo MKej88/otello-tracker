@@ -12,6 +12,7 @@ from app.marketdata.backfill import (
     import_b3_bmob3_zip,
     import_ecb_fx_csv,
     import_euronext_otec_csv,
+    import_investing_otec_csv,
     market_data_status,
 )
 from app.marketdata.ecb_fx import fetch_ecb_csv
@@ -35,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--otec-csv", default=None, help="Import Euronext OTEC historical CSV")
     parser.add_argument("--otec-date-order", default="DMY", choices=["DMY", "MDY", "YMD"])
+    parser.add_argument(
+        "--otec-investing-csv",
+        default=None,
+        help="Import manually exported Investing.com OTEC CSV; reverses the 2022 dividend adjustment",
+    )
     parser.add_argument("--rebuild-nav", action="store_true", help="Rebuild report-date CORE NAV anchors")
     return parser
 
@@ -69,9 +75,16 @@ def main() -> None:
 
     if args.otec_csv:
         text = Path(args.otec_csv).read_text(encoding="utf-8-sig")
-        results["otec_rows_written"] = import_euronext_otec_csv(
+        results["otec_euronext_rows_written"] = import_euronext_otec_csv(
             text,
             date_order=args.otec_date_order,
+            database_path=args.database,
+        )
+
+    if args.otec_investing_csv:
+        text = Path(args.otec_investing_csv).read_text(encoding="utf-8-sig")
+        results["otec_investing"] = import_investing_otec_csv(
+            text,
             database_path=args.database,
         )
 
