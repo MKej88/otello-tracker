@@ -5,6 +5,8 @@ on:
     branches: ["phase-6-buyback-tracker"]
     paths:
       - ".github/workflows/buyback-live-smoke.yml"
+      - "backend/app/buybacks/**"
+      - "backend/app/jobs/collect_buybacks.py"
   workflow_dispatch:
 
 permissions:
