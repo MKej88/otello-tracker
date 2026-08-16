@@ -1,0 +1,158 @@
+{
+  "version": "2026-08-16.2",
+  "resolved_gap_codes": [
+    "OTEC_SHARE_COUNT_2021_EXACT",
+    "BEMOBI_GREENSHOE_EFFECTIVE_DATE"
+  ],
+  "documents": [
+    {
+      "key": "otello_1h21",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h21",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2021",
+      "published_at": "2021-08-27T06:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/53f216d0-b63e-462e-9e13-ecb4d4cb6afd_1H21.pdf"
+    },
+    {
+      "key": "otello_ar21",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2021",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2021",
+      "published_at": "2022-04-27T21:58:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/47bdbc2b-5757-4336-824c-9ca203f676b2_Otello%2BCorporation%2BAnnual%2BReport%2B2021.pdf"
+    },
+    {
+      "key": "bemobi_trading_commences",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-bemobi-trading-commences-2021-02-11",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Bemobi trading commences",
+      "published_at": "2021-02-11T07:30:00Z",
+      "url": "https://news.cision.com/otello-corporation-asa/r/bemobi-trading-commences%2Cc3284812"
+    },
+    {
+      "key": "bemobi_greenshoe_result",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-bemobi-greenshoe-2021-03-15",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Bemobi - Result of the Greenshoe",
+      "published_at": "2021-03-15T07:30:00Z",
+      "url": "https://news.cision.com/otello-corporation-asa/r/bemobi---result-of-the-greenshoe%2Cc3306198"
+    },
+    {
+      "key": "otec_capital_reduction_2021_11_24",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-capital-reduction-2021-11-24",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Registration of share capital reduction",
+      "published_at": "2021-11-24T07:30:00Z",
+      "url": "https://news.cision.com/otello-corporation-asa/r/registration-of-share-capital-reduction%2Cc3459657"
+    },
+    {
+      "key": "otec_capital_reduction_2022_03_07",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-capital-reduction-2022-03-07",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Registration of share capital reduction",
+      "published_at": "2022-03-07T18:12:00Z",
+      "url": "https://news.cision.com/otello-corporation-asa"
+    },
+    {
+      "key": "otec_capital_reduction_2022_06_14",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-capital-reduction-2022-06-14",
+      "document_type": "STOCK_EXCHANGE_ANNOUNCEMENT",
+      "title": "Registration of share capital reduction",
+      "published_at": "2022-06-14T06:20:00Z",
+      "url": "https://news.cision.com/otello-corporation-asa/r/registration-of-share-capital-reduction%2Cc3584899"
+    }
+  ],
+  "share_counts": [
+    {
+      "as_of_date": "2021-06-30",
+      "total_shares": 124749727,
+      "treasury_shares": 15904,
+      "outstanding_shares": 124733823,
+      "source_key": "otello_1h21",
+      "source_locator": "share capital decrease and treasury shares note",
+      "confidence": "HIGH",
+      "notes": "Registered total after cancellation of 13,727,702 treasury shares; 1H21 explicitly reports 15,904 treasury shares at 30 June."
+    },
+    {
+      "as_of_date": "2021-12-31",
+      "total_shares": 112299727,
+      "treasury_shares": 11199998,
+      "outstanding_shares": 101099729,
+      "source_key": "otello_ar21",
+      "source_locator": "share capital decrease and treasury shares note",
+      "confidence": "HIGH",
+      "notes": "Annual Report 2021 explicitly reports registered total shares of 112,299,727 and treasury shares of 11,199,998 at year-end. Outstanding is the exact arithmetic difference."
+    }
+  ],
+  "bemobi_holdings": [
+    {
+      "effective_from": "2021-02-10",
+      "effective_to": "2021-03-14",
+      "shares": 34553860,
+      "ownership_pct": "38.01",
+      "source_key": "bemobi_trading_commences",
+      "source_locator": "Bemobi trading commences announcement",
+      "confidence": "HIGH",
+      "notes": "Bemobi first traded on 10 February 2021. The base IPO was primary issuance, so Otello retained 34,553,860 shares while its ownership diluted to 38.01%."
+    },
+    {
+      "effective_from": "2021-03-15",
+      "effective_to": null,
+      "shares": 32719588,
+      "ownership_pct": "36.0",
+      "source_key": "bemobi_greenshoe_result",
+      "source_locator": "Bemobi - Result of the Greenshoe announcement",
+      "confidence": "HIGH",
+      "notes": "Official 15 March 2021 release confirms Otello sold 1,834,272 shares under the greenshoe and thereafter held 32,719,588 shares. The 36.0% ownership figure is rounded in the release; later reports show approximately 35.99% before Bemobi cancellations increased the percentage."
+    }
+  ],
+  "corporate_actions": [
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2021-06-30",
+      "quantity": 13727702,
+      "source_key": "otello_1h21",
+      "source_locator": "share capital decrease note; AGM resolution 2 June 2021, registered by 30 June",
+      "confidence": "HIGH",
+      "notes": "Cancellation reduced registered share count to 124,749,727. The anchor date uses 30 June because the exact registration day is not required for report-date NAV and is not separately captured in the report."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2021-11-24",
+      "quantity": 12450000,
+      "source_key": "otec_capital_reduction_2021_11_24",
+      "source_locator": "registration announcement; EGM resolution 30 September 2021",
+      "confidence": "HIGH",
+      "notes": "Registered reduction from 124,749,727 to 112,299,727 shares."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2022-03-07",
+      "quantity": 11200000,
+      "source_key": "otec_capital_reduction_2022_03_07",
+      "source_locator": "registration announcement referencing 8 December 2021 buyback",
+      "confidence": "HIGH",
+      "notes": "Cancellation of the December 2021 tender-offer shares reduced registered share count to 101,099,727."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2022-06-14",
+      "quantity": 9999998,
+      "source_key": "otec_capital_reduction_2022_06_14",
+      "source_locator": "registration announcement referencing 28 March 2022 buyback",
+      "confidence": "HIGH",
+      "notes": "Registered share count fell from 101,099,727 to 91,099,729. Otello had bought 10,000,000 shares in the March tender offer; the exact registered share-count reduction is 9,999,998."
+    }
+  ]
+}

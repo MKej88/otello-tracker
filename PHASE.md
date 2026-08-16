@@ -34,20 +34,21 @@ Status: **Ferdig**
 
 ## Fase 3 – Historiske Otello-rapportankre
 
-Status: **Ferdig for offentlig tilgjengelig kildemateriale**
+Status: **Ferdig**
 
 - [x] katalogisere primære Otello-rapporter som brukes i historikken
-- [x] versjonert, kuratert historikkmanifest
+- [x] versjonert, kuratert historikkmanifest med separat korreksjonslag
 - [x] rapport-native cash-ankre i USD uten kunstig NOK-konvertering
-- [x] OTEC total-/egne-/utestående aksjer fra 2022 til 2025
-- [x] bekreftet Bemobi-beholdning på 32 719 588 aksjer
-- [x] relevante aksjekanselleringer og NOK 21-distribusjonen i 2022
-- [x] feltbasert provenance til rapport og side/avsnitt
+- [x] eksakte OTEC total-/egne-/utestående aksjer fra 1H21 til FY25
+- [x] Bemobi IPO-beholdning: 34 553 860 aksjer / 38,01 % fra første handelsdag
+- [x] Bemobi etter greenshoe: 32 719 588 aksjer fra 15.03.2021
+- [x] verifisert registreringskjede for OTEC-aksjekanselleringene i 2021–2022
+- [x] NOK 21-distribusjonen i 2022
+- [x] feltbasert provenance til rapport/melding og side/avsnitt
 - [x] idempotent historikkimport ved appstart
-- [x] `/api/system/history` med dekning og kjente datagap
+- [x] `/api/system/history` med dekning
 - [x] automatiske tester for nøkkelankre og avstemminger
-- [ ] eksakt OTEC total-/treasury-/utestående aksjer i 2021 (krever bedre 2021-kilde)
-- [ ] eksakt effektiv dato for Bemobi-greenshoe-salget etter IPO
+- [x] tidligere kjente 2021-gap lukket fra offentlig kildemateriale
 
 ## Neste: Fase 4 – Historiske markedsdata og første NAV-serie
 

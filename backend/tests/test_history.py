@@ -15,9 +15,9 @@ def test_curated_history_is_idempotent(tmp_path) -> None:
     second = seed_curated_history(database_path)
 
     assert first["cash_anchors_written"] == 10
-    assert first["share_counts_written"] == 8
-    assert first["bemobi_holdings_written"] == 1
-    assert first["corporate_actions_written"] == 5
+    assert first["share_counts_written"] == 10
+    assert first["bemobi_holdings_written"] == 2
+    assert first["corporate_actions_written"] == 7
 
     assert second["cash_anchors_written"] == 0
     assert second["share_counts_written"] == 0
@@ -26,10 +26,10 @@ def test_curated_history_is_idempotent(tmp_path) -> None:
 
     with get_connection(database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM cash_anchors").fetchone()[0] == 10
-        assert connection.execute("SELECT COUNT(*) FROM otello_share_counts").fetchone()[0] == 8
-        assert connection.execute("SELECT COUNT(*) FROM bemobi_holdings").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0] == 5
-        assert connection.execute("SELECT COUNT(*) FROM provenance_records").fetchone()[0] > 30
+        assert connection.execute("SELECT COUNT(*) FROM otello_share_counts").fetchone()[0] == 10
+        assert connection.execute("SELECT COUNT(*) FROM bemobi_holdings").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0] == 7
+        assert connection.execute("SELECT COUNT(*) FROM provenance_records").fetchone()[0] > 40
 
 
 def test_key_report_anchors_are_exact_and_reconcilable(tmp_path) -> None:
@@ -47,6 +47,27 @@ def test_key_report_anchors_are_exact_and_reconcilable(tmp_path) -> None:
         assert cash_2025["reported_amount"] == "15881000"
         assert cash_2025["reported_currency"] == "USD"
         assert cash_2025["amount_nok"] is None
+
+        shares_1h21 = connection.execute(
+            """
+            SELECT total_shares, treasury_shares, outstanding_shares
+            FROM otello_share_counts WHERE effective_from = '2021-06-30'
+            """
+        ).fetchone()
+        assert shares_1h21["total_shares"] == 124_749_727
+        assert shares_1h21["treasury_shares"] == 15_904
+        assert shares_1h21["outstanding_shares"] == 124_733_823
+
+        shares_fy21 = connection.execute(
+            """
+            SELECT total_shares, treasury_shares, outstanding_shares
+            FROM otello_share_counts WHERE effective_from = '2021-12-31'
+            """
+        ).fetchone()
+        assert shares_fy21["total_shares"] == 112_299_727
+        assert shares_fy21["treasury_shares"] == 11_199_998
+        assert shares_fy21["outstanding_shares"] == 101_099_729
+        assert shares_fy21["total_shares"] - shares_fy21["treasury_shares"] == shares_fy21["outstanding_shares"]
 
         shares_2024 = connection.execute(
             """
@@ -69,11 +90,42 @@ def test_key_report_anchors_are_exact_and_reconcilable(tmp_path) -> None:
         assert shares_2025["treasury_shares"] == 2_393_742
         assert shares_2025["outstanding_shares"] == 71_397_087
 
-        holding = connection.execute(
-            "SELECT shares, ownership_pct FROM bemobi_holdings"
-        ).fetchone()
-        assert holding["shares"] == 32_719_588
-        assert holding["ownership_pct"] == "35.992"
+        holdings = connection.execute(
+            """
+            SELECT effective_from, effective_to, shares, ownership_pct
+            FROM bemobi_holdings ORDER BY effective_from
+            """
+        ).fetchall()
+        assert [dict(row) for row in holdings] == [
+            {
+                "effective_from": "2021-02-10",
+                "effective_to": "2021-03-14",
+                "shares": 34_553_860,
+                "ownership_pct": "38.01",
+            },
+            {
+                "effective_from": "2021-03-15",
+                "effective_to": None,
+                "shares": 32_719_588,
+                "ownership_pct": "36.0",
+            },
+        ]
+
+        cancellations = connection.execute(
+            """
+            SELECT announcement_date, quantity
+            FROM corporate_actions
+            WHERE action_type = 'SHARE_CANCELLATION'
+              AND announcement_date <= '2022-06-14'
+            ORDER BY announcement_date
+            """
+        ).fetchall()
+        assert [tuple(row) for row in cancellations] == [
+            ("2021-06-30", 13_727_702),
+            ("2021-11-24", 12_450_000),
+            ("2022-03-07", 11_200_000),
+            ("2022-06-14", 9_999_998),
+        ]
 
         dividend = connection.execute(
             """
@@ -88,21 +140,24 @@ def test_key_report_anchors_are_exact_and_reconcilable(tmp_path) -> None:
         assert dividend["payment_date"] == "2022-08-18"
 
 
-def test_history_status_exposes_coverage_and_known_gaps(tmp_path) -> None:
+def test_history_status_exposes_full_report_anchor_coverage(tmp_path) -> None:
     database_path = str(tmp_path / "status.db")
     init_database(database_path)
     seed_curated_history(database_path)
 
     status = history_status(database_path)
-    assert status["manifest_version"] == "2026-08-16.1"
+    assert status["manifest_version"] == "2026-08-16.2"
     assert status["cash_anchors"] == {
         "count": 10,
         "from": "2021-06-30",
         "to": "2025-12-31",
     }
-    assert status["share_count_anchors"]["count"] == 8
-    gap_codes = {gap["code"] for gap in status["known_gaps"]}
-    assert gap_codes == {"OTEC_SHARE_COUNT_2021_EXACT", "BEMOBI_GREENSHOE_EFFECTIVE_DATE"}
+    assert status["share_count_anchors"] == {
+        "count": 10,
+        "from": "2021-06-30",
+        "to": "2025-12-31",
+    }
+    assert status["known_gaps"] == []
 
 
 def test_history_status_api_seeds_fresh_database(tmp_path) -> None:
@@ -115,7 +170,9 @@ def test_history_status_api_seeds_fresh_database(tmp_path) -> None:
             payload = response.json()
             assert payload["status"] == "ok"
             assert payload["cash_anchors"]["count"] == 10
-            assert payload["share_count_anchors"]["count"] == 8
+            assert payload["share_count_anchors"]["count"] == 10
             assert payload["bemobi_holding"]["shares"] == 32_719_588
+            assert payload["bemobi_holding"]["effective_from"] == "2021-03-15"
+            assert payload["known_gaps"] == []
     finally:
         settings.database_path = previous_path
