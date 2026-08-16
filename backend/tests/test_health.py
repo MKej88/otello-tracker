@@ -18,5 +18,9 @@ def test_dashboard_summary() -> None:
     response = client.get("/api/dashboard/summary")
     assert response.status_code == 200
     payload = response.json()
-    assert "nav_per_share" in payload
-    assert "nav_discount_pct" in payload
+    assert "ready" in payload
+    assert "data_status" in payload
+    # A fresh smoke-test database must never fall back to invented demo values.
+    if not payload["ready"]:
+        assert payload["data_status"] == "not_ready"
+        assert "nav_per_share" not in payload

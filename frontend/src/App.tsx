@@ -1,24 +1,71 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type ChangeSet = {
+  nav_pct: number | null;
+  otec_pct: number | null;
+  discount_pp: number | null;
+  bmob3_pct: number | null;
+  brl_nok_pct: number | null;
+  cash_pct: number | null;
+};
+
+type Buyback = {
+  trade_date: string;
+  shares: number;
+  avg_price_nok: string;
+  amount_nok: string;
+  treasury_shares_after: number | null;
+  cumulative_program_shares: number | null;
+  cumulative_program_amount_nok: string | null;
+};
 
 type Summary = {
-  nav_per_share: number;
-  otec_price: number;
-  nav_discount_pct: number;
-  bmob3_price: number;
-  brl_nok: number;
-  estimated_cash_mnok: number;
+  ready: boolean;
   data_status: string;
+  model_scope?: string;
+  calculation_version?: string;
+  as_of_date?: string;
+  nav_per_share?: number | null;
+  otec_price?: number | null;
+  nav_discount_pct?: number | null;
+  bmob3_price?: number | null;
+  brl_nok?: number | null;
+  estimated_cash_mnok?: number | null;
+  bemobi_value_mnok?: number | null;
+  bemobi_shares?: number | null;
+  bemobi_ownership_pct?: number | null;
+  shares_outstanding?: number | null;
+  cash_quality?: string | null;
+  otec_price_quality?: string | null;
+  otec_price_source?: string | null;
+  bmob3_price_quality?: string | null;
+  bmob3_price_source?: string | null;
+  quality_notes?: string | null;
+  changes?: ChangeSet;
+  latest_buyback?: Buyback | null;
+  message?: string;
 };
 
-const fallback: Summary = {
-  nav_per_share: 24.82,
-  otec_price: 17.2,
-  nav_discount_pct: 30.7,
-  bmob3_price: 31.2,
-  brl_nok: 1.72,
-  estimated_cash_mnok: 112.4,
-  data_status: "demo"
+type HistoryPoint = {
+  date: string;
+  nav_per_share: number;
+  otec_price: number;
+  discount_pct: number;
+  cash_mnok: number;
+  status: string;
 };
+
+type History = {
+  ready: boolean;
+  data_status: string;
+  from?: string | null;
+  to?: string | null;
+  average_discount_pct?: number | null;
+  points: HistoryPoint[];
+};
+
+const initialSummary: Summary = { ready: false, data_status: "loading" };
+const initialHistory: History = { ready: false, data_status: "loading", points: [] };
 
 const menu = [
   "Oversikt",
@@ -32,52 +79,147 @@ const menu = [
   "Innstillinger"
 ];
 
+const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 2 });
+const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
+
+function value(value: number | null | undefined, digits = 2) {
+  if (value == null || !Number.isFinite(value)) return "–";
+  return value.toLocaleString("nb-NO", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+
+function dateLabel(value?: string | null) {
+  if (!value) return "–";
+  const [year, month, day] = value.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+function changeLabel(change: number | null | undefined, unit = "%") {
+  if (change == null || !Number.isFinite(change)) return "Ingen sammenligning";
+  const prefix = change > 0 ? "+" : "";
+  return `${prefix}${change.toLocaleString("nb-NO", { maximumFractionDigits: 2 })} ${unit}`;
+}
+
+function changeTone(change: number | null | undefined, invert = false) {
+  if (change == null || change === 0) return "neutral";
+  const positive = invert ? change < 0 : change > 0;
+  return positive ? "positive" : "negative";
+}
+
+function polyline(values: Array<number | null>, shared?: { min: number; max: number }) {
+  const valid = values.filter((item): item is number => item != null && Number.isFinite(item));
+  if (!valid.length) return "";
+  const min = shared?.min ?? Math.min(...valid);
+  const max = shared?.max ?? Math.max(...valid);
+  const spread = max - min || 1;
+  return values
+    .map((item, index) => {
+      if (item == null || !Number.isFinite(item)) return null;
+      const x = values.length === 1 ? 50 : 3 + (index / (values.length - 1)) * 94;
+      const y = 37 - ((item - min) / spread) * 32;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function NavPriceChart({ points }: { points: HistoryPoint[] }) {
+  if (points.length < 2) return <div className="chartEmpty">Venter på historisk NAV-data</div>;
+  const nav = points.map((item) => item.nav_per_share);
+  const price = points.map((item) => item.otec_price);
+  const combined = [...nav, ...price].filter(Number.isFinite);
+  const domain = { min: Math.min(...combined), max: Math.max(...combined) };
+  return (
+    <div className="realChart">
+      <svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-label="NAV mot OTEC-kurs">
+        {[9, 18, 27, 36].map((y) => <line className="gridLine" x1="0" x2="100" y1={y} y2={y} key={y} />)}
+        <polyline className="chartLine navSeries" points={polyline(nav, domain)} />
+        <polyline className="chartLine priceSeries" points={polyline(price, domain)} />
+      </svg>
+      <div className="legend"><span className="navLegend">NAV/aksje</span><span className="priceLegend">OTEC</span></div>
+      <div className="chartDates"><span>{dateLabel(points[0].date)}</span><span>{dateLabel(points.at(-1)?.date)}</span></div>
+    </div>
+  );
+}
+
+function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: number | null }) {
+  if (points.length < 2) return <div className="chartEmpty">Venter på historisk rabattdata</div>;
+  const discounts = points.map((item) => item.discount_pct);
+  const valid = discounts.filter(Number.isFinite);
+  const domain = { min: Math.min(...valid, average ?? Infinity), max: Math.max(...valid, average ?? -Infinity) };
+  const avgY = average == null || domain.max === domain.min
+    ? null
+    : 37 - ((average - domain.min) / (domain.max - domain.min)) * 32;
+  return (
+    <div className="realChart">
+      <svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-label="Historisk NAV-rabatt">
+        {[9, 18, 27, 36].map((y) => <line className="gridLine" x1="0" x2="100" y1={y} y2={y} key={y} />)}
+        {avgY != null && <line className="averageSeries" x1="3" x2="97" y1={avgY} y2={avgY} />}
+        <polyline className="chartLine discountSeries" points={polyline(discounts, domain)} />
+      </svg>
+      <div className="legend"><span className="discountLegend">NAV-rabatt</span><span className="averageLegend">Snitt {average == null ? "–" : `${value(average, 1)} %`}</span></div>
+      <div className="chartDates"><span>{dateLabel(points[0].date)}</span><span>{dateLabel(points.at(-1)?.date)}</span></div>
+    </div>
+  );
+}
+
 export default function App() {
-  const [summary, setSummary] = useState<Summary>(fallback);
+  const [summary, setSummary] = useState<Summary>(initialSummary);
+  const [history, setHistory] = useState<History>(initialHistory);
   const [apiOk, setApiOk] = useState(false);
 
   useEffect(() => {
-    fetch("/api/dashboard/summary")
-      .then((r) => {
-        if (!r.ok) throw new Error("API-feil");
-        return r.json();
+    Promise.all([
+      fetch("/api/dashboard/summary").then((response) => {
+        if (!response.ok) throw new Error("Summary API-feil");
+        return response.json() as Promise<Summary>;
+      }),
+      fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
+        if (!response.ok) throw new Error("History API-feil");
+        return response.json() as Promise<History>;
       })
-      .then((data: Summary) => {
-        setSummary(data);
+    ])
+      .then(([summaryData, historyData]) => {
+        setSummary(summaryData);
+        setHistory(historyData);
         setApiOk(true);
       })
-      .catch(() => setApiOk(false));
+      .catch(() => {
+        setApiOk(false);
+        setSummary({ ready: false, data_status: "error", message: "Kunne ikke hente dashboarddata." });
+      });
   }, []);
 
-  const cards = [
-    ["NAV/aksje", `${summary.nav_per_share.toFixed(2)} kr`, "+1,72 %", "positive"],
-    ["OTEC kurs", `${summary.otec_price.toFixed(2)} kr`, "-0,86 %", "negative"],
-    ["Rabatt til NAV", `${summary.nav_discount_pct.toFixed(1)} %`, "-0,6 pp", "positive"],
-    ["BMOB3", `R$ ${summary.bmob3_price.toFixed(2)}`, "+2,80 %", "positive"],
-    ["BRL/NOK", summary.brl_nok.toFixed(2), "+0,58 %", "positive"],
-    ["Estimert cash", `${summary.estimated_cash_mnok.toFixed(1)}m`, "+6,03 %", "positive"]
-  ];
+  const changes = summary.changes;
+  const cards = useMemo(() => [
+    { label: "NAV/aksje", value: summary.ready ? `${value(summary.nav_per_share)} kr` : "–", change: changes?.nav_pct, unit: "%" },
+    { label: "OTEC kurs", value: summary.ready ? `${value(summary.otec_price)} kr` : "–", change: changes?.otec_pct, unit: "%" },
+    { label: "Rabatt til NAV", value: summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–", change: changes?.discount_pp, unit: "pp", invert: true },
+    { label: "BMOB3", value: summary.ready ? `R$ ${value(summary.bmob3_price)}` : "–", change: changes?.bmob3_pct, unit: "%" },
+    { label: "BRL/NOK", value: summary.ready ? value(summary.brl_nok, 3) : "–", change: changes?.brl_nok_pct, unit: "%" },
+    { label: "Estimert cash", value: summary.ready ? `${value(summary.estimated_cash_mnok, 1)}m` : "–", change: changes?.cash_pct, unit: "%" }
+  ], [summary, changes]);
+
+  const degraded = summary.data_status === "DEGRADED" || summary.cash_quality === "FORECAST_PARTIAL";
+  const latestBuyback = summary.latest_buyback;
+  const ownership = summary.bemobi_ownership_pct ?? 0;
 
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
           <span className="brandMark">O</span>
-          <div>
-            <strong>Otello</strong>
-            <small>Investorverktøy</small>
-          </div>
+          <div><strong>Otello</strong><small>Investorverktøy</small></div>
         </div>
-
         <nav>
           {menu.map((item, index) => (
             <button className={index === 0 ? "navItem active" : "navItem"} key={item}>
-              <span className="navDot" />
-              {item}
+              <span className="navDot" />{item}
             </button>
           ))}
         </nav>
-
         <div className="sidebarFooter">
           <span className={apiOk ? "statusDot ok" : "statusDot"} />
           API {apiOk ? "tilkoblet" : "venter"}
@@ -86,23 +228,29 @@ export default function App() {
 
       <main className="main">
         <header>
-          <div>
-            <p className="eyebrow">OTELLO / BEMOBI</p>
-            <h1>Otello NAV Dashboard</h1>
-          </div>
+          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV Dashboard</h1></div>
           <div className="updated">
-            <span className={apiOk ? "statusDot ok" : "statusDot"} />
-            Fase 1 · demo-data
+            <span className={apiOk && summary.ready ? "statusDot ok" : "statusDot"} />
+            {summary.ready ? `Data ${dateLabel(summary.as_of_date)} · CORE` : "Venter på NAV-data"}
           </div>
         </header>
 
+        {degraded && (
+          <div className="modelWarning">
+            <strong>2026 er foreløpig estimert.</strong>
+            <span>Cash bygger på siste rapporterte anker og kjente kontantbevegelser. Neste rapportanker kommer med 1H26.</span>
+          </div>
+        )}
+        {!summary.ready && summary.message && <div className="modelWarning neutralWarning">{summary.message}</div>}
+
         <section className="kpiGrid">
-          {cards.map(([label, value, change, tone]) => (
-            <article className="card kpi" key={label}>
-              <span className="label">{label}</span>
-              <strong>{value}</strong>
-              <span className={`change ${tone}`}>{change}</span>
-              <div className={`spark ${tone}`} />
+          {cards.map((card) => (
+            <article className="card kpi" key={card.label}>
+              <span className="label">{card.label}</span>
+              <strong>{card.value}</strong>
+              <span className={`change ${changeTone(card.change, card.invert)}`}>
+                {changeLabel(card.change, card.unit)}
+              </span>
             </article>
           ))}
         </section>
@@ -110,81 +258,55 @@ export default function App() {
         <section className="chartGrid">
           <article className="card chart">
             <div className="cardHeader">
-              <div>
-                <span className="label">Markeds-NAV</span>
-                <h2>NAV vs OTEC</h2>
-              </div>
+              <div><span className="label">Markeds-NAV</span><h2>NAV vs OTEC</h2></div>
               <span className="pill">1 ÅR</span>
             </div>
-            <div className="fakeChart">
-              <div className="line navLine" />
-              <div className="line priceLine" />
-              <span className="chartCaption">Datakobling bygges i fase 2–4</span>
-            </div>
+            <NavPriceChart points={history.points} />
           </article>
 
           <article className="card chart">
             <div className="cardHeader">
-              <div>
-                <span className="label">Verdsettelse</span>
-                <h2>Historisk NAV-rabatt</h2>
-              </div>
-              <span className="pill">30,7 %</span>
+              <div><span className="label">Verdsettelse</span><h2>Historisk NAV-rabatt</h2></div>
+              <span className="pill">{summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–"}</span>
             </div>
-            <div className="discountChart">
-              <div className="discountArea" />
-              <div className="averageLine" />
-              <span className="chartCaption">Historikken fylles når NAV-motoren er klar</span>
-            </div>
+            <DiscountChart points={history.points} average={history.average_discount_pct} />
           </article>
         </section>
 
         <section className="lowerGrid">
           <article className="card">
             <div className="cardHeader">
-              <div>
-                <span className="label">Kapitalallokering</span>
-                <h2>Tilbakekjøp</h2>
-              </div>
-              <span className="pill muted">Neste modul</span>
+              <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
+              <span className="pill muted">{latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
             </div>
             <div className="placeholderRows">
-              <div><span>Siste kjøp</span><strong>–</strong></div>
-              <div><span>Egne aksjer</span><strong>–</strong></div>
-              <div><span>Akkretiv effekt</span><strong>–</strong></div>
+              <div><span>Siste uke</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
+              <div><span>Snittkurs</span><strong>{latestBuyback ? `${value(Number(latestBuyback.avg_price_nok))} kr` : "–"}</strong></div>
+              <div><span>Egne aksjer</span><strong>{latestBuyback?.treasury_shares_after != null ? integer.format(latestBuyback.treasury_shares_after) : "–"}</strong></div>
             </div>
           </article>
 
           <article className="card">
-            <div className="cardHeader">
-              <div>
-                <span className="label">Underliggende verdi</span>
-                <h2>Bemobi-eksponering</h2>
-              </div>
-            </div>
+            <div className="cardHeader"><div><span className="label">Underliggende verdi</span><h2>Bemobi-eksponering</h2></div></div>
             <div className="exposure">
-              <div className="donut"><span>38,22%</span></div>
+              <div className="donut" style={{ background: `conic-gradient(#3f8cff 0 ${Math.max(0, Math.min(100, ownership))}%, #182b45 ${Math.max(0, Math.min(100, ownership))}% 100%)` }}>
+                <span>{summary.ready ? `${value(ownership, 1)}%` : "–"}</span>
+              </div>
               <div className="placeholderRows grow">
-                <div><span>BMOB3-aksjer</span><strong>32 719 588</strong></div>
-                <div><span>BMOB3-kurs</span><strong>R$ {summary.bmob3_price.toFixed(2)}</strong></div>
+                <div><span>BMOB3-aksjer</span><strong>{summary.bemobi_shares != null ? integer.format(summary.bemobi_shares) : "–"}</strong></div>
+                <div><span>BMOB3-kurs</span><strong>{summary.bmob3_price != null ? `R$ ${value(summary.bmob3_price)}` : "–"}</strong></div>
+                <div><span>Markedsverdi</span><strong>{summary.bemobi_value_mnok != null ? `${number.format(summary.bemobi_value_mnok)}m kr` : "–"}</strong></div>
               </div>
             </div>
           </article>
 
           <article className="card">
-            <div className="cardHeader">
-              <div>
-                <span className="label">System</span>
-                <h2>Modellstatus</h2>
-              </div>
-            </div>
+            <div className="cardHeader"><div><span className="label">System</span><h2>Modellstatus</h2></div></div>
             <div className="sourceList">
-              {["FastAPI", "Frontend", "Docker-oppsett", "GitHub CI"].map((source) => (
-                <div key={source}>
-                  <span>{source}</span>
-                  <span className="sourceOk">KLAR</span>
-                </div>
-              ))}
+              <div><span>CORE NAV</span><span className={summary.ready ? "sourceOk" : "sourceWait"}>{summary.ready ? "KLAR" : "VENTER"}</span></div>
+              <div><span>Cash</span><span className={degraded ? "sourceWarn" : "sourceOk"}>{summary.cash_quality ?? "–"}</span></div>
+              <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
+              <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
             </div>
           </article>
         </section>
