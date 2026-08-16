@@ -1,0 +1,101 @@
+name: Cash residual diagnostic
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Build live cash diagnostic
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          from app.db import get_connection, init_database
+          from app.history import seed_curated_history
+          from app.marketdata.backfill import import_ecb_fx_csv
+          from app.buybacks.official_backfill import seed_known_official_buybacks
+          from app.nav.cash_curve import rebuild_daily_cash
+
+          db = "/tmp/otello-cash-diagnostic.db"
+          init_database(db)
+          history = seed_curated_history(db)
+
+          ecb_url = (
+              "https://data-api.ecb.europa.eu/service/data/EXR/"
+              "D.BRL+NOK+USD.EUR.SP00.A?startPeriod=2021-06-25&"
+              "endPeriod=2026-08-14&format=csvdata&detail=dataonly"
+          )
+          req = urllib.request.Request(ecb_url, headers={"User-Agent": "otello-tracker/1.0"})
+          with urllib.request.urlopen(req, timeout=60) as response:
+              ecb_text = response.read().decode("utf-8-sig")
+          fx_rows = import_ecb_fx_csv(ecb_text, source_url=ecb_url, database_path=db)
+
+          seeded_buybacks = seed_known_official_buybacks(db)
+          result = rebuild_daily_cash(db, end_date="2025-12-31")
+
+          with get_connection(db) as connection:
+              periods = [dict(row) for row in connection.execute(
+                  """
+                  SELECT start_anchor_date, end_anchor_date, start_cash_nok, end_cash_nok,
+                         known_movements_nok, residual_nok, residual_per_day_nok,
+                         calendar_days, quality
+                  FROM cash_period_calibrations
+                  ORDER BY start_anchor_date
+                  """
+              )]
+              movements_2022 = [dict(row) for row in connection.execute(
+                  """
+                  SELECT movement_date, movement_type, amount_nok, amount_original,
+                         currency, fx_rate_to_nok, confidence, description
+                  FROM cash_movements
+                  WHERE movement_date > '2021-12-31' AND movement_date <= '2022-06-30'
+                  ORDER BY movement_date, id
+                  """
+              )]
+
+          payload = {
+              "fx_rows": fx_rows,
+              "history_manifest": history.get("manifest_version"),
+              "seeded_buyback_rows": len(seeded_buybacks),
+              "rebuild": result,
+              "periods": periods,
+              "movements_h1_2022": movements_2022,
+          }
+          print(json.dumps(payload, indent=2, default=str))
+
+          out = Path("/tmp/cash-residuals.csv")
+          with out.open("w", newline="", encoding="utf-8") as handle:
+              writer = csv.DictWriter(handle, fieldnames=list(periods[0].keys()))
+              writer.writeheader()
+              writer.writerows(periods)
+          Path("/tmp/cash-diagnostic.json").write_text(
+              json.dumps(payload, indent=2, default=str), encoding="utf-8"
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cash-residual-diagnostic
+          path: |
+            /tmp/cash-residuals.csv
+            /tmp/cash-diagnostic.json
