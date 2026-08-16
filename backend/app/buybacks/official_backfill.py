@@ -157,12 +157,15 @@ def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]
             "reason": "Structured backfill from original issuer/exchange releases where automatic historical discovery is incomplete.",
         }
         if item["source_note"]:
-            metadata.update(
-                {
-                    "issuer_text_discrepancy": True,
-                    "discrepancy_note": item["source_note"],
-                }
-            )
+            if item.get("note_kind") == "CROSSCHECK":
+                metadata["crosscheck_note"] = item["source_note"]
+            else:
+                metadata.update(
+                    {
+                        "issuer_text_discrepancy": True,
+                        "discrepancy_note": item["source_note"],
+                    }
+                )
         results.append(
             ingest_buyback_status(
                 parsed=item["status"],
