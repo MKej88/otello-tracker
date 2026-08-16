@@ -66,10 +66,20 @@ def parse_cotahist_line(line: str) -> B3DailyClose | None:
 
 
 def iter_ticker_from_text(lines, ticker: str):
+    """Yield only records for one ticker without fully parsing the whole B3 universe.
+
+    A yearly COTAHIST file contains equities, options and many other instruments.
+    Checking the fixed-width ticker field first avoids Decimal/date parsing for millions
+    of irrelevant rows and makes Raspberry Pi backfills substantially cheaper.
+    """
     target = ticker.strip().upper()
     for line in lines:
+        if len(line) < 24 or line[0:2] != "01":
+            continue
+        if line[12:24].strip().upper() != target:
+            continue
         parsed = parse_cotahist_line(line)
-        if parsed is not None and parsed.ticker.upper() == target:
+        if parsed is not None:
             yield parsed
 
 
