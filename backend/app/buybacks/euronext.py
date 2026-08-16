@@ -152,21 +152,33 @@ def ingest_buyback_status(
     source_metadata: dict[str, Any] | None = None,
     content_hash: str | None = None,
 ) -> dict:
-    """Persist one logical buyback week, preferring official evidence over mirrors.
+    """Persist one logical buyback period, preferring official evidence over mirrors.
 
     Identity is program + period end, not source document. This prevents the same issuer
     release from double-counting cash or shares when both Euronext and a public mirror are
-    available. A later official Euronext fact upgrades the stored provenance in place.
+    available. A later stronger official source upgrades the stored provenance in place.
     """
     metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
+    if source_code == "EURONEXT":
+        document_type = "REGULATORY_NEWS"
+        document_title = "Otello Corporation share buyback program status"
+        source_label = "Euronext status"
+    elif source_code == "OTELLO_IR":
+        document_type = "ISSUER_RELEASE"
+        document_title = "Otello Corporation issuer buyback release"
+        source_label = "Otello issuer release"
+    else:
+        document_type = "REGULATORY_NEWS_MIRROR"
+        document_title = "Otello Corporation share buyback program status"
+        source_label = f"{source_code} mirror of Oslo Bors status"
 
     with get_connection(database_path) as connection:
         document_id = create_source_document(
             connection,
             source_code=source_code,
             external_id=url,
-            document_type="REGULATORY_NEWS_MIRROR" if source_code != "EURONEXT" else "REGULATORY_NEWS",
-            title="Otello Corporation share buyback program status",
+            document_type=document_type,
+            title=document_title,
             url=url,
             published_at=published_at,
             content_sha256=content_hash,
@@ -177,7 +189,6 @@ def ingest_buyback_status(
             "SELECT id, source_document_id FROM buyback_programs WHERE external_program_id = ?",
             (parsed.program_external_id,),
         ).fetchone()
-        source_label = "Euronext status" if source_code == "EURONEXT" else f"{source_code} mirror of Oslo Bors status"
         if program is None:
             cursor = connection.execute(
                 """
@@ -192,7 +203,7 @@ def ingest_buyback_status(
                     parsed.program_reference_date,
                     parsed.max_program_shares,
                     document_id,
-                    f"Program reconstructed from weekly {source_label}; initiation document can supersede this source later.",
+                    f"Program reconstructed from {source_label}; initiation document can supersede this source later.",
                 ),
             )
             program_id = int(cursor.lastrowid)
@@ -263,7 +274,7 @@ def ingest_buyback_status(
         cash_values = (
             decimal_text(-parsed.period_amount_nok),
             decimal_text(-parsed.period_amount_nok),
-            f"Weekly Otello buyback: {parsed.period_shares:,} shares during {parsed.period_start}–{parsed.period_end}.",
+            f"Otello buyback: {parsed.period_shares:,} shares during {parsed.period_start}–{parsed.period_end}.",
         )
         if not cash_rows:
             connection.execute(

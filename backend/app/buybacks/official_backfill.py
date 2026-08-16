@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.buybacks.euronext import BuybackStatus, ingest_buyback_status
+from app.buybacks.older_2022 import OLDER_2022_OFFICIAL_BUYBACKS
 from app.buybacks.older_2024_reconciled import reconciled_older_2024_buybacks
 from app.buybacks.older_2025_reconciled import reconciled_older_2025_buybacks
 
@@ -142,31 +143,36 @@ KNOWN_OFFICIAL_BUYBACKS = [
 def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]:
     results: list[dict] = []
     all_rows = [
+        *OLDER_2022_OFFICIAL_BUYBACKS,
         *reconciled_older_2024_buybacks(),
         *reconciled_older_2025_buybacks(),
         *KNOWN_OFFICIAL_BUYBACKS,
     ]
     for item in all_rows:
+        source_code = item.get("source_code", "EURONEXT")
         metadata = {
             "source_quality": "CURATED_OFFICIAL",
-            "provider": "Oslo Bors Newspoint",
+            "provider": "Otello issuer release" if source_code == "OTELLO_IR" else "Oslo Bors Newspoint",
             "structured_transcription": True,
-            "reason": "Structured backfill from original Euronext / Oslo Bors releases where the current mirror feed is incomplete.",
+            "reason": "Structured backfill from original issuer/exchange releases where automatic historical discovery is incomplete.",
         }
         if item["source_note"]:
-            metadata.update(
-                {
-                    "issuer_text_discrepancy": True,
-                    "discrepancy_note": item["source_note"],
-                }
-            )
+            if item.get("note_kind") == "CROSSCHECK":
+                metadata["crosscheck_note"] = item["source_note"]
+            else:
+                metadata.update(
+                    {
+                        "issuer_text_discrepancy": True,
+                        "discrepancy_note": item["source_note"],
+                    }
+                )
         results.append(
             ingest_buyback_status(
                 parsed=item["status"],
                 url=item["url"],
                 published_at=item["published_at"],
                 database_path=database_path,
-                source_code="EURONEXT",
+                source_code=source_code,
                 source_metadata=metadata,
             )
         )

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.db.connection import get_connection
 from app.db.repository import decimal_text
+from app.history.cash_events_2022 import seed_2022_cash_events
 from app.history.distributions import seed_bemobi_distributions
 
 MAX_LOOKBACK_DAYS = 7
@@ -214,10 +215,17 @@ def rebuild_daily_cash(
     end_date: str | None = None,
 ) -> dict[str, Any]:
     sync_result = sync_corporate_action_cash_movements(database_path)
+    cash_events_2022 = seed_2022_cash_events(database_path)
     with get_connection(database_path) as connection:
         anchors = _reported_anchors_nok(connection)
         if len(anchors) < 2:
-            return {"written": 0, "periods": 0, "error": "Need at least two cash anchors"}
+            return {
+                "written": 0,
+                "periods": 0,
+                "error": "Need at least two cash anchors",
+                "sync_movements": sync_result,
+                "cash_events_2022": cash_events_2022,
+            }
 
         if end_date is None:
             row = connection.execute(
@@ -268,7 +276,7 @@ def rebuild_daily_cash(
                     decimal_text(end["cash_nok"]), decimal_text(known_total),
                     decimal_text(residual), decimal_text(residual_per_day), days,
                     inputs_hash, quality,
-                    "Residual includes unmodelled buybacks, operating cash flow, taxes, FX/revaluation and other cash movements. It is spread linearly only between reported anchors.",
+                    "Residual includes unmodelled operating cash flow, taxes, FX/revaluation and other cash movements. It is spread linearly only between reported anchors.",
                 ),
             )
 
@@ -370,6 +378,7 @@ def rebuild_daily_cash(
         "to": end_date,
         "last_reported_anchor": anchors[-1]["date"],
         "sync_movements": sync_result,
+        "cash_events_2022": cash_events_2022,
         "high_residual_periods": high_residual_periods,
     }
 
