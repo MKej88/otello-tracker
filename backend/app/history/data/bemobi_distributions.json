@@ -1,0 +1,175 @@
+{
+  "version": "2026-08-16-bemobi-distributions-v1",
+  "documents": [
+    {
+      "key": "bemobi_distribution_2021",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2021",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - 2021 distribution",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_distribution_2022",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2022",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - 2022 distribution",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_jcp_2023",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-jcp-2023",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - JCP 2023",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_distribution_2024",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2024",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - 2024 distribution",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_dividend_2025_may",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2025-may",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - May 2025 dividend",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_jcp_2025_dec",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2025-jcp-dec",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - December 2025 JCP",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_distribution_2025_dec",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2025-dec",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - December 2025 dividend and JCP",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    },
+    {
+      "key": "bemobi_dividend_2026_may",
+      "source_code": "BEMOBI_IR",
+      "external_id": "bemobi-dividend-history-2026-may",
+      "document_type": "IR_PAGE",
+      "title": "Bemobi dividend history - May 2026 dividend",
+      "url": "https://ri.bemobi.com.br/nossas-acoes/dividendos/"
+    }
+  ],
+  "corporate_actions": [
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2022-03-21",
+      "payment_date": "2022-04-12",
+      "amount_per_share": "0.20235653",
+      "total_amount": "17895377.48",
+      "currency": "BRL",
+      "source_key": "bemobi_distribution_2021",
+      "source_locator": "Dividend table: reference period 2021",
+      "confidence": "CONFIRMED",
+      "notes": "Official Bemobi IR dividend history. Cash-curve derivation uses Otello's eligible BMOB3 holding and treats the derived receipt as gross/estimated until reconciled to Otello cash anchors."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2023-03-24",
+      "payment_date": "2023-04-12",
+      "amount_per_share": "0.23330816",
+      "total_amount": "20322002.11",
+      "currency": "BRL",
+      "source_key": "bemobi_distribution_2022",
+      "source_locator": "Dividend table: reference period 2022",
+      "confidence": "CONFIRMED",
+      "notes": "Official Bemobi IR dividend history."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "JCP",
+      "ex_date": "2023-12-19",
+      "payment_date": "2024-05-02",
+      "amount_per_share": "0.52193343",
+      "total_amount": "45000000.00",
+      "currency": "BRL",
+      "source_key": "bemobi_jcp_2023",
+      "source_locator": "Dividend table: JCP 2023",
+      "confidence": "CONFIRMED",
+      "notes": "Gross JCP. Net cash to Otello can differ because of withholding; historical cash anchors absorb the difference."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2024-12-18",
+      "payment_date": "2025-01-07",
+      "amount_per_share": "0.64384496",
+      "total_amount": "55000000.00",
+      "currency": "BRL",
+      "source_key": "bemobi_distribution_2024",
+      "source_locator": "Dividend table: Dividendos + JCP 2024",
+      "confidence": "CONFIRMED",
+      "notes": "Official table labels this distribution Dividendos + JCP. Stored as DIVIDEND for cash-curve purposes; gross amount is reconciled to reported cash anchors."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2025-04-25",
+      "payment_date": "2025-05-09",
+      "amount_per_share": "0.69457324",
+      "total_amount": "58493613.29",
+      "currency": "BRL",
+      "source_key": "bemobi_dividend_2025_may",
+      "source_locator": "Dividend table: payment 09/05/2025",
+      "confidence": "CONFIRMED",
+      "notes": "Official Bemobi IR dividend history."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "JCP",
+      "ex_date": "2025-08-22",
+      "payment_date": "2025-12-01",
+      "amount_per_share": "0.36",
+      "total_amount": "30000000.00",
+      "currency": "BRL",
+      "source_key": "bemobi_jcp_2025_dec",
+      "source_locator": "Dividend table: JCP 2025",
+      "confidence": "CONFIRMED",
+      "notes": "Gross JCP; cash model treats derived Otello receipt as estimated before anchor reconciliation."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2025-12-12",
+      "payment_date": "2025-12-22",
+      "amount_per_share": "1.59",
+      "total_amount": "134217363.44",
+      "currency": "BRL",
+      "source_key": "bemobi_distribution_2025_dec",
+      "source_locator": "Dividend table: Dividendos + JCP payment 22/12/2025",
+      "confidence": "CONFIRMED",
+      "notes": "Official table labels this distribution Dividendos + JCP. Gross amount is reconciled to reported cash."
+    },
+    {
+      "symbol": "BMOB3",
+      "action_type": "DIVIDEND",
+      "ex_date": "2026-05-18",
+      "payment_date": "2026-05-27",
+      "amount_per_share": "0.19",
+      "total_amount": "16000000.00",
+      "currency": "BRL",
+      "source_key": "bemobi_dividend_2026_may",
+      "source_locator": "Dividend table: reference period 2026",
+      "confidence": "CONFIRMED",
+      "notes": "Official Bemobi IR dividend history. Current-period cash receipt remains a gross estimate until Otello reports its next cash anchor."
+    }
+  ]
+}
