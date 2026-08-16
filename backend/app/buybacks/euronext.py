@@ -178,18 +178,32 @@ def ingest_euronext_buyback_status(
             "SELECT id FROM buybacks WHERE trade_date = ? AND source_document_id = ?",
             (parsed.period_end, document_id),
         ).fetchone()
+        buyback_values = (
+            program_id,
+            parsed.period_shares,
+            decimal_text(parsed.period_avg_price_nok),
+            decimal_text(parsed.period_amount_nok),
+            parsed.cumulative_program_shares,
+            decimal_text(parsed.cumulative_program_avg_price_nok),
+            decimal_text(parsed.cumulative_program_amount_nok),
+            parsed.treasury_shares_after,
+        )
         if existing is None:
             cursor = connection.execute(
                 """
                 INSERT INTO buybacks(
                     program_id, trade_date, shares, avg_price_nok, amount_nok,
-                    cumulative_program_shares, treasury_shares_after, source_document_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    cumulative_program_shares, cumulative_program_avg_price_nok,
+                    cumulative_program_amount_nok, treasury_shares_after, source_document_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     program_id, parsed.period_end, parsed.period_shares,
                     decimal_text(parsed.period_avg_price_nok), decimal_text(parsed.period_amount_nok),
-                    parsed.cumulative_program_shares, parsed.treasury_shares_after, document_id,
+                    parsed.cumulative_program_shares,
+                    decimal_text(parsed.cumulative_program_avg_price_nok),
+                    decimal_text(parsed.cumulative_program_amount_nok),
+                    parsed.treasury_shares_after, document_id,
                 ),
             )
             buyback_id = int(cursor.lastrowid)
@@ -198,13 +212,10 @@ def ingest_euronext_buyback_status(
             connection.execute(
                 """
                 UPDATE buybacks SET program_id = ?, shares = ?, avg_price_nok = ?, amount_nok = ?,
-                    cumulative_program_shares = ?, treasury_shares_after = ? WHERE id = ?
+                    cumulative_program_shares = ?, cumulative_program_avg_price_nok = ?,
+                    cumulative_program_amount_nok = ?, treasury_shares_after = ? WHERE id = ?
                 """,
-                (
-                    program_id, parsed.period_shares, decimal_text(parsed.period_avg_price_nok),
-                    decimal_text(parsed.period_amount_nok), parsed.cumulative_program_shares,
-                    parsed.treasury_shares_after, buyback_id,
-                ),
+                (*buyback_values, buyback_id),
             )
 
         cash = connection.execute(
@@ -291,6 +302,8 @@ def ingest_euronext_buyback_status(
         "period_shares": parsed.period_shares,
         "period_amount_nok": decimal_text(parsed.period_amount_nok),
         "cumulative_program_shares": parsed.cumulative_program_shares,
+        "cumulative_program_avg_price_nok": decimal_text(parsed.cumulative_program_avg_price_nok),
+        "cumulative_program_amount_nok": decimal_text(parsed.cumulative_program_amount_nok),
         "treasury_shares_after": parsed.treasury_shares_after,
         "outstanding_shares_after": outstanding,
         "source_code": source_code,
