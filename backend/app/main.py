@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.buybacks import buyback_status
 from app.db.migration_runner import database_status, init_database
 from app.history import history_status, seed_curated_history
 from app.marketdata import market_data_status
@@ -20,7 +21,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.5.0",
+    version="0.6.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -42,7 +43,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.5.0",
+        "version": "0.6.0",
     }
 
 
@@ -59,6 +60,11 @@ def system_history() -> dict:
 @app.get("/api/system/market-data")
 def system_market_data() -> dict:
     return market_data_status(settings.database_path)
+
+
+@app.get("/api/buybacks/status")
+def system_buybacks() -> dict:
+    return buyback_status(settings.database_path)
 
 
 @app.get("/api/nav/core-anchors")
