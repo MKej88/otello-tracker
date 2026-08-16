@@ -9,7 +9,7 @@ from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.db.migration_runner import database_status, init_database
 from app.history import history_status, seed_curated_history
 from app.marketdata import market_data_status
-from app.nav import daily_cash_status, daily_nav_status
+from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
 from app.settings import settings
 
@@ -23,7 +23,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.7.0",
+    version="0.8.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -45,7 +45,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.7.0",
+        "version": "0.8.0",
     }
 
 
@@ -84,10 +84,18 @@ def nav_daily() -> dict:
     return daily_nav_status(settings.database_path)
 
 
+@app.get("/api/nav/other-net-assets")
+def nav_other_net_assets() -> dict:
+    return other_net_assets_status(settings.database_path)
+
+
+@app.get("/api/nav/full")
+def nav_full() -> dict:
+    return full_nav_status(settings.database_path)
+
+
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
-    # Keep this endpoint safe for health/smoke callers that do not enter the
-    # FastAPI lifespan (for example a minimal TestClient invocation).
     init_database(settings.database_path)
     return get_dashboard_summary(settings.database_path)
 
