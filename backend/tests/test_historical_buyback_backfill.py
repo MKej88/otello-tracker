@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from app.buybacks import ingest_euronext_buyback_status
-from app.buybacks.official_backfill import seed_known_official_buybacks
+from app.buybacks.official_backfill import ZERO_PURCHASE_WEEKS, seed_known_official_buybacks
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
@@ -41,7 +41,14 @@ def test_2025_official_backfill_starts_at_zero_and_reaches_december_cumulative(t
             """
         ).fetchall()
 
-    assert len(rows) == 11
+    # Nine positive-purchase weeks. Two zero-purchase issuer statuses are retained in
+    # ZERO_PURCHASE_WEEKS and do not create artificial buyback/cash rows.
+    assert len(rows) == 9
+    assert ZERO_PURCHASE_WEEKS == (
+        ("2025-11-03", "2025-11-07", 1_039_642, Decimal("15428942")),
+        ("2025-11-10", "2025-11-14", 1_039_642, Decimal("15428942")),
+    )
+
     assert rows[0]["trade_date"] == "2025-09-26"
     assert rows[0]["shares"] == 159_500
     assert rows[0]["cumulative_program_shares"] == 159_500
@@ -54,10 +61,6 @@ def test_2025_official_backfill_starts_at_zero_and_reaches_december_cumulative(t
 
     assert sum(row["shares"] for row in rows) == 1_516_142
     assert sum(Decimal(row["amount_nok"]) for row in rows) == Decimal("23997056")
-    assert [row["trade_date"] for row in rows if row["shares"] == 0] == [
-        "2025-11-07",
-        "2025-11-14",
-    ]
     assert {row["source_code"] for row in rows} == {"EURONEXT"}
 
 
