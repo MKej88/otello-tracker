@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.migration_runner import database_status, init_database
 from app.history import history_status, seed_curated_history
+from app.marketdata import market_data_status
+from app.nav.core_nav import core_nav_status
 from app.settings import settings
 
 
@@ -17,7 +19,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.3.0",
+    version="0.4.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -39,7 +41,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.3.0",
+        "version": "0.4.0",
     }
 
 
@@ -53,9 +55,19 @@ def system_history() -> dict:
     return history_status(settings.database_path)
 
 
+@app.get("/api/system/market-data")
+def system_market_data() -> dict:
+    return market_data_status(settings.database_path)
+
+
+@app.get("/api/nav/core-anchors")
+def nav_core_anchors() -> dict:
+    return core_nav_status(settings.database_path)
+
+
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
-    # Midlertidige eksempeldata. Erstattes av NAV-motor og markedsdata i senere faser.
+    # Midlertidige eksempeldata. Erstattes av NAV-motor og markedsdata etter backfill.
     return {
         "nav_per_share": 24.82,
         "otec_price": 17.20,

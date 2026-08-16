@@ -12,11 +12,11 @@ Privat investeringsdashboard for Otello/Bemobi med mål om:
 ## Status
 
 **Fase 1 – fundament:** ferdig  
-**Fase 2 – SQLite og datamodell:** ferdig
+**Fase 2 – SQLite og datamodell:** ferdig  
+**Fase 3 – historiske Otello-rapportankre:** ferdig  
+**Fase 4 – markedsdata/NAV-motor:** kode ferdig, full runtime-backfill gjenstår
 
-Fase 2 legger til et versjonert og kilde-/audit-sporbart datalag for markedsdata, FX, holdings, cash, tilbakekjøp, corporate actions, NAV, selskapsmeldinger og meglerestimater.
-
-Se [docs/data-model.md](docs/data-model.md) for detaljert datamodell.
+Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/data-model.md) for datamodellen.
 
 ## Arkitektur
 
@@ -33,9 +33,11 @@ FastAPI backend
   v
 SQLite
   |
-  +-- markedsdata / FX
-  +-- Otello- og Bemobi-data
-  +-- NAV-snapshots
+  +-- B3 BMOB3-kurser
+  +-- Euronext OTEC-kurser
+  +-- ECB BRL/NOK og USD/NOK
+  +-- Otello/Bemobi historikk
+  +-- CORE/FULL NAV-snapshots
   +-- meglerestimater / konsensus
   +-- kilde- og provenance-spor
 ```
@@ -48,66 +50,76 @@ Samme containere er ment å kunne kjøres på Windows under utvikling og senere 
 - Migreringer ligger i `backend/app/db/migrations/` og kjøres bare én gang.
 - Foreign keys er aktivert på alle forbindelser.
 - Produksjonsfilen bruker WAL-modus.
-- Finansielle desimaltall lagres som tekst og beregnes med Python `Decimal` for å unngå flyttallsavrunding.
-- Kildedata kan spores gjennom `sources`, `source_documents` og `provenance_records`.
+- Finansielle desimaltall lagres som tekst og beregnes med Python `Decimal`.
+- Kildedata spores gjennom `sources`, `source_documents` og `provenance_records`.
 - Rå dokumenter og vår klassifisering/tolkning holdes separat.
+- Historisk NAV skiller eksplisitt mellom `CORE` (Bemobi + cash) og senere `FULL` NAV.
 
 ## Første oppstart med Docker
-
-1. Kopier miljøfilen:
-
-```bash
-cp .env.example .env
-```
 
 På Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-2. Start:
-
-```bash
 docker compose up --build -d
 ```
 
-3. Åpne:
+Åpne:
 
 - Dashboard: http://localhost:3000
 - API health: http://localhost:8000/api/health
 - Database-status: http://localhost:8000/api/system/database
+- Historikkstatus: http://localhost:8000/api/system/history
+- Markedsdatastatus: http://localhost:8000/api/system/market-data
+- CORE NAV-status: http://localhost:8000/api/nav/core-anchors
 - FastAPI docs: http://localhost:8000/docs
 
-4. Se status:
+## Fase 4 – markedsdata-backfill
+
+Kommandoene kjøres i backend-containeren eller direkte fra `backend/` med `PYTHONPATH=.`.
+
+### ECB – BRL/NOK og USD/NOK
 
 ```bash
-docker compose ps
+python -m app.jobs.backfill_market_data --ecb --start 2021-02-10
 ```
 
-5. Se logger:
+ECB leverer BRL, NOK og USD som referansekurser mot EUR. Systemet beregner deretter BRL/NOK og USD/NOK eksakt med `Decimal`.
+
+### B3 – BMOB3
+
+Automatisk årsfil:
 
 ```bash
-docker compose logs -f
+python -m app.jobs.backfill_market_data --b3-year 2021 --b3-year 2022 --b3-year 2023 --b3-year 2024 --b3-year 2025 --b3-year 2026
 ```
 
-6. Stopp:
+B3 kan tidvis kreve CAPTCHA. Hvis automatisk nedlasting stopper, last ned årsfilen fra B3 og importer ZIP-filen direkte:
 
 ```bash
-docker compose down
+python -m app.jobs.backfill_market_data --b3-file 2025:/path/COTAHIST_A2025.ZIP
 ```
+
+### Euronext – OTEC
+
+Euronext Live har eksport av historiske data til CSV. Eksporter OTEC (`NO0010040611-XOSL`) med datoformat `dd/mm/yy` og importer:
+
+```bash
+python -m app.jobs.backfill_market_data --otec-csv /path/OTEC.csv --otec-date-order DMY
+```
+
+Parseren håndterer både komma/semikolon som skilletegn og punkt/komma som desimalskilletegn.
+
+### Bygg report-date CORE NAV
+
+Når BMOB3 + ECB er importert kan CORE NAV beregnes. OTEC-kurs er valgfri for NAV, men kreves for rabatt:
+
+```bash
+python -m app.jobs.backfill_market_data --rebuild-nav
+```
+
+`CORE` betyr bevisst kun **markedsverdi av Bemobi + rapportert cash**. Andre nettoeiendeler/gjeld er ikke satt inn som om de var kjent; dette dokumenteres i hvert snapshot. Når de er rekonstruert oppgraderes modellen til `FULL` NAV.
 
 ## GitHub og secrets
 
-Ikke commit `.env`, databasefiler eller API-nøkler. Produksjonsdata ligger utenfor Git-historikken.
-
-## Neste fase
-
-Fase 3 bygger historisk Otello-datagrunnlag fra primærkilder:
-
-- Otello-rapporter og børsmeldinger
-- Bemobi-beholdning over tid
-- OTEC total-/egne-/utestående aksjer
-- rapporterte cash-ankre
-- relevante corporate actions
-- første historiske NAV-ankerpunkter
+Ikke commit `.env`, databasefiler, API-nøkler eller rå markedsdatafiler. Produksjonsdata ligger utenfor Git-historikken.
