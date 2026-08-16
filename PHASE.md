@@ -81,9 +81,9 @@ Status: **Ferdig for kjent historikk til 14.08.2026**
 
 ## Fase 7 – Live dashboard
 
-Status: **Ferdig kode – klar for merge/deployment**
+Status: **Ferdig og merget**
 
-- [x] fjern demo-KPI-er fra API og frontend
+- [x] demo-KPI-er fjernet fra API og frontend
 - [x] database-backed `/api/dashboard/summary`
 - [x] `/api/dashboard/history` med bounded/downsampled historikk
 - [x] reelle NAV-, OTEC-, BMOB3-, FX- og cash-KPI-er
@@ -96,10 +96,27 @@ Status: **Ferdig kode – klar for merge/deployment**
 - [x] `not_ready` på tom database i stedet for demo/falske tall
 - [x] backend- og frontend-CI grønn
 
+## Fase 8 – Samlet refresh-pipeline
+
+Status: **Kode klar for CI**
+
+- [x] én kommando for databaseinit + historikk + markedsdata + buybacks + cash + NAV
+- [x] nylig ECB-FX oppdateres automatisk
+- [x] gjeldende B3 COTAHIST-år oppdateres automatisk
+- [x] buybacks samles før cash/NAV-rebuild
+- [x] optional OTEC Euronext/Investing CSV-import i samme jobb
+- [x] upstream-feil stopper ikke resten av modellen
+- [x] `source_errors` viser nøyaktig hvilken kilde som feilet
+- [x] dashboard-staleness beregnes eksplisitt
+- [x] `--strict` kan brukes av scheduler/CI
+- [x] tester for fail-soft og staleness
+- [ ] stabil gratis programmatisk OTEC EOD-kilde; inntil da brukes staleness + CSV-import
+- [ ] produksjonsscheduler på Raspberry Pi
+
 ## Neste prioriteringer
 
 1. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL med nytt rapportert cash-/aksjeanker.
-2. Sett opp løpende produksjonsjobber for markedsdata, buybacks, cash og NAV.
+2. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
 3. Rekonstruer øvrige nettoeiendeler/-forpliktelser og oppgrader fra CORE til FULL NAV.
 4. Bygg Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
 5. Bygg Bemobi broker-consensus tracker før Q3.

@@ -14,7 +14,11 @@ Privat investeringsdashboard for Otello/Bemobi med mål om:
 **Fase 1 – fundament:** ferdig  
 **Fase 2 – SQLite og datamodell:** ferdig  
 **Fase 3 – historiske Otello-rapportankre:** ferdig  
-**Fase 4 – markedsdata/NAV-motor:** kode ferdig, full runtime-backfill gjenstår
+**Fase 4 – historiske markedsdata:** ferdig og live-validert  
+**Fase 5 – daglig cash og CORE NAV:** ferdig og live-validert  
+**Fase 6 – buybacks/cash-avstemming:** ferdig for kjent historikk  
+**Fase 7 – live dashboard:** ferdig  
+**Fase 8 – samlet refresh-pipeline:** under ferdigstilling
 
 Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/data-model.md) for datamodellen.
 
@@ -34,10 +38,11 @@ FastAPI backend
 SQLite
   |
   +-- B3 BMOB3-kurser
-  +-- Euronext OTEC-kurser
+  +-- Euronext/kuratert OTEC-kurshistorikk
   +-- ECB BRL/NOK og USD/NOK
   +-- Otello/Bemobi historikk
-  +-- CORE/FULL NAV-snapshots
+  +-- daglig cash + CORE/FULL NAV-snapshots
+  +-- buybacks / corporate actions
   +-- meglerestimater / konsensus
   +-- kilde- og provenance-spor
 ```
@@ -54,6 +59,7 @@ Samme containere er ment å kunne kjøres på Windows under utvikling og senere 
 - Kildedata spores gjennom `sources`, `source_documents` og `provenance_records`.
 - Rå dokumenter og vår klassifisering/tolkning holdes separat.
 - Historisk NAV skiller eksplisitt mellom `CORE` (Bemobi + cash) og senere `FULL` NAV.
+- Manglende/forsinkede kilder gir synlig degradert status; de erstattes ikke med oppdiktede verdier.
 
 ## Første oppstart med Docker
 
@@ -71,10 +77,12 @@ docker compose up --build -d
 - Database-status: http://localhost:8000/api/system/database
 - Historikkstatus: http://localhost:8000/api/system/history
 - Markedsdatastatus: http://localhost:8000/api/system/market-data
-- CORE NAV-status: http://localhost:8000/api/nav/core-anchors
+- Daglig NAV-status: http://localhost:8000/api/nav/daily
+- Dashboard summary: http://localhost:8000/api/dashboard/summary
+- Dashboard historikk: http://localhost:8000/api/dashboard/history
 - FastAPI docs: http://localhost:8000/docs
 
-## Fase 4 – markedsdata-backfill
+## Historisk markedsdata-backfill
 
 Kommandoene kjøres i backend-containeren eller direkte fra `backend/` med `PYTHONPATH=.`.
 
@@ -88,37 +96,72 @@ ECB leverer BRL, NOK og USD som referansekurser mot EUR. Systemet beregner deret
 
 ### B3 – BMOB3
 
-Automatisk årsfil:
-
 ```bash
 python -m app.jobs.backfill_market_data --b3-year 2021 --b3-year 2022 --b3-year 2023 --b3-year 2024 --b3-year 2025 --b3-year 2026
 ```
 
-B3 kan tidvis kreve CAPTCHA. Hvis automatisk nedlasting stopper, last ned årsfilen fra B3 og importer ZIP-filen direkte:
+B3 kan tidvis avbryte store årsfil-nedlastinger. Nedlasteren prøver automatisk på nytt. Manuell ZIP kan også importeres:
 
 ```bash
 python -m app.jobs.backfill_market_data --b3-file 2025:/path/COTAHIST_A2025.ZIP
 ```
 
-### Euronext – OTEC
+### OTEC
 
-Euronext Live har eksport av historiske data til CSV. Eksporter OTEC (`NO0010040611-XOSL`) med datoformat `dd/mm/yy` og importer:
+Historisk OTEC kan importeres fra Euronext CSV:
 
 ```bash
 python -m app.jobs.backfill_market_data --otec-csv /path/OTEC.csv --otec-date-order DMY
 ```
 
-Parseren håndterer både komma/semikolon som skilletegn og punkt/komma som desimalskilletegn.
-
-### Bygg report-date CORE NAV
-
-Når BMOB3 + ECB er importert kan CORE NAV beregnes. OTEC-kurs er valgfri for NAV, men kreves for rabatt:
+Gratis Investing-export støttes også som historisk fallback. Pre-09.08.2022-data merkes `RECONSTRUCTED` fordi NOK 21-utdelingen må reverseres:
 
 ```bash
-python -m app.jobs.backfill_market_data --rebuild-nav
+python -m app.jobs.backfill_market_data --otec-investing-csv /path/OTEC-investing.csv
 ```
 
-`CORE` betyr bevisst kun **markedsverdi av Bemobi + rapportert cash**. Andre nettoeiendeler/gjeld er ikke satt inn som om de var kjent; dette dokumenteres i hvert snapshot. Når de er rekonstruert oppgraderes modellen til `FULL` NAV.
+## Bygg daglig NAV
+
+```bash
+python -m app.jobs.rebuild_daily_nav
+```
+
+`CORE` betyr bevisst **markedsverdi av Bemobi + modellert/rapportert cash**. Andre nettoeiendeler/gjeld er foreløpig ikke lagt til som om de var kjent. Post-siste rapporterte cash-anker merkes `FORECAST_PARTIAL`.
+
+## Samlet refresh
+
+Fase 8 samler de daglige operasjonene i én kommando:
+
+```bash
+python -m app.jobs.refresh_dashboard
+```
+
+Standardkjøringen:
+
+1. initialiserer/migrerer databasen og seeder kuratert historikk
+2. oppdaterer nylige ECB-valutakurser
+3. laster/importerer gjeldende B3 COTAHIST-år for BMOB3
+4. samler nye Otello-buyback-meldinger
+5. bygger report-date CORE NAV på nytt
+6. bygger daglig cash på nytt
+7. bygger daglig CORE NAV og rabatt på nytt
+8. returnerer markedsdata-, buyback-, cash-, NAV- og dashboardstatus
+
+En enkelt kildefeil stopper ikke resten av refreshen. Feilen legges i `source_errors`, siste lagrede data brukes videre, og totalstatus blir `degraded` når det er relevant.
+
+OTEC oppdateres foreløpig ikke via en udokumentert scraper. En fersk CSV kan mates inn ved behov:
+
+```bash
+python -m app.jobs.refresh_dashboard --otec-csv /path/OTEC.csv
+```
+
+eller historisk Investing-CSV:
+
+```bash
+python -m app.jobs.refresh_dashboard --otec-investing-csv /path/OTEC-investing.csv
+```
+
+Bruk `--strict` dersom en scheduler/CI skal returnere feilstatus når refreshen ikke ender i `ok`.
 
 ## GitHub og secrets
 
