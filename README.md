@@ -9,18 +9,14 @@ Privat investeringsdashboard for Otello/Bemobi med mål om:
 - Bemobi-meglerkonsensus før kvartalsrapporter
 - datakildestatus og senere e-postrapporter
 
-## Fase 1 – fundament
+## Status
 
-Denne første versjonen inneholder:
+**Fase 1 – fundament:** ferdig  
+**Fase 2 – SQLite og datamodell:** ferdig
 
-- FastAPI-backend
-- React + TypeScript-frontend
-- Docker Compose
-- health-endepunkt
-- mørkt dashboard-skjelett
-- GitHub Actions-CI
-- `.env.example`
-- lokal datafolder for senere SQLite-database
+Fase 2 legger til et versjonert og kilde-/audit-sporbart datalag for markedsdata, FX, holdings, cash, tilbakekjøp, corporate actions, NAV, selskapsmeldinger og meglerestimater.
+
+Se [docs/data-model.md](docs/data-model.md) for detaljert datamodell.
 
 ## Arkitektur
 
@@ -35,10 +31,26 @@ Nginx / React frontend
 FastAPI backend
   |
   v
-SQLite (fase 2)
+SQLite
+  |
+  +-- markedsdata / FX
+  +-- Otello- og Bemobi-data
+  +-- NAV-snapshots
+  +-- meglerestimater / konsensus
+  +-- kilde- og provenance-spor
 ```
 
 Samme containere er ment å kunne kjøres på Windows under utvikling og senere på Raspberry Pi.
+
+## Databaseprinsipper
+
+- SQLite initialiseres automatisk ved appstart.
+- Migreringer ligger i `backend/app/db/migrations/` og kjøres bare én gang.
+- Foreign keys er aktivert på alle forbindelser.
+- Produksjonsfilen bruker WAL-modus.
+- Finansielle desimaltall lagres som tekst og beregnes med Python `Decimal` for å unngå flyttallsavrunding.
+- Kildedata kan spores gjennom `sources`, `source_documents` og `provenance_records`.
+- Rå dokumenter og vår klassifisering/tolkning holdes separat.
 
 ## Første oppstart med Docker
 
@@ -64,6 +76,7 @@ docker compose up --build -d
 
 - Dashboard: http://localhost:3000
 - API health: http://localhost:8000/api/health
+- Database-status: http://localhost:8000/api/system/database
 - FastAPI docs: http://localhost:8000/docs
 
 4. Se status:
@@ -84,29 +97,17 @@ docker compose logs -f
 docker compose down
 ```
 
-## GitHub
+## GitHub og secrets
 
-Ikke commit `.env`, databasefiler eller API-nøkler.
+Ikke commit `.env`, databasefiler eller API-nøkler. Produksjonsdata ligger utenfor Git-historikken.
 
 ## Neste fase
 
-Fase 2 blir datamodellen og SQLite:
+Fase 3 bygger historisk Otello-datagrunnlag fra primærkilder:
 
-- instruments
-- market_prices
-- fx_rates
-- bemobi_holdings
-- otello_share_counts
-- treasury_shares
-- cash_anchors
-- cash_movements
-- buybacks
-- corporate_actions
-- dividends
-- nav_snapshots
-- source_documents
-- company_news
-- broker_estimates
-- consensus_snapshots
-- job_runs
-- source_health
+- Otello-rapporter og børsmeldinger
+- Bemobi-beholdning over tid
+- OTEC total-/egne-/utestående aksjer
+- rapporterte cash-ankre
+- relevante corporate actions
+- første historiske NAV-ankerpunkter
