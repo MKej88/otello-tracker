@@ -131,8 +131,9 @@ def run_refresh(
     steps["daily_cash"] = _safe_step(
         "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
     )
-    steps["daily_core_nav"] = _safe_step(
-        "daily_core_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
+    # Preserve the Phase 8 public step name for backwards compatibility.
+    steps["daily_nav"] = _safe_step(
+        "daily_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
     )
     steps["other_net_assets_anchors"] = _safe_step(
         "other_net_assets_anchors", lambda: rebuild_other_net_assets_anchors(database_path), errors
