@@ -18,13 +18,14 @@ from app.settings import settings
 def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     database_path = str(tmp_path / "otello.db")
 
-    assert init_database(database_path) == ["0001", "0002"]
+    assert init_database(database_path) == ["0001", "0002", "0003"]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0002"
+    assert status["latest_migration"] == "0003"
     assert status["table_counts"]["sources"] == 9
     assert status["table_counts"]["instruments"] == 2
+    assert status["table_counts"]["company_news"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -119,7 +120,8 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0002"
+            assert payload["latest_migration"] == "0003"
             assert payload["table_counts"]["sources"] == 9
+            assert payload["table_counts"]["company_news"] == 0
     finally:
         settings.database_path = previous_path
