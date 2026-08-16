@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import html
 import re
 from html.parser import HTMLParser
-from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext_buyback_status
 from app.db.connection import get_connection
 
 EURONEXT_BASE = "https://live.euronext.com"
-OTEC_PRESS_RELEASES_URL = f"{EURONEXT_BASE}/en/listview/company-press-release/107222"
-BUYBACK_PATH_MARKER = "otello-corporation-share-buyback-program-status"
+MFN_OTELLO_URL = "https://mfn.se/all/a/otello-corporation"
+BUYBACK_TITLE = "OTEC: Otello Corporation share buyback program status"
+EURONEXT_BUYBACK_SLUG = "otello-corporation-share-buyback-program-status"
 
 
 class _TextExtractor(HTMLParser):
@@ -40,44 +39,49 @@ def _fetch(url: str, timeout: int = 30) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
-def discover_buyback_urls(html_text: str, *, base_url: str = EURONEXT_BASE) -> list[str]:
-    """Discover Euronext Otello buyback-status links in issuer press-release HTML."""
-    candidates = re.findall(r'href=["\']([^"\']+)["\']', html_text, flags=re.I)
-    urls: set[str] = set()
-    for raw in candidates:
-        decoded = html.unescape(raw)
-        if BUYBACK_PATH_MARKER not in decoded.lower():
-            continue
-        absolute = urljoin(base_url, decoded)
-        if "/products/equities/company-news/" in absolute:
-            urls.add(absolute.split("#", 1)[0].split("?", 1)[0])
-    return sorted(urls)
-
-
 def extract_page_text(html_text: str) -> str:
     extractor = _TextExtractor()
     extractor.feed(html_text)
     return extractor.text()
 
 
+def discover_buyback_urls(html_text: str) -> list[str]:
+    """Use MFN only to discover publication dates, then construct original Euronext URLs.
+
+    No financial values are consumed from MFN. Every discovered date is verified by
+    fetching and strictly parsing the corresponding Euronext/Oslo Bors message before
+    anything is written to the database.
+    """
+    text = extract_page_text(html_text)
+    pattern = re.compile(
+        r"(20\d{2}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\s+"
+        + re.escape(BUYBACK_TITLE),
+        re.I,
+    )
+    dates = sorted(set(pattern.findall(text)))
+    return [
+        f"{EURONEXT_BASE}/en/products/equities/company-news/{day}-{EURONEXT_BUYBACK_SLUG}"
+        for day in dates
+    ]
+
+
 def _published_at_from_url(url: str) -> str:
-    match = re.search(r"/company-news/(\d{4})-(\d{2})-(\d{2})-", url)
+    match = re.search(r"/company-news/(\d{4}-\d{2}-\d{2})-", url)
     if not match:
         raise ValueError(f"Fant ikke publiseringsdato i Euronext-URL: {url}")
-    year, month, day = match.groups()
-    return f"{year}-{month}-{day}T23:59:59Z"
+    return f"{match.group(1)}T23:59:59Z"
 
 
 def collect_recent_buybacks(
     database_path: str | None = None,
     *,
-    company_url: str = OTEC_PRESS_RELEASES_URL,
+    company_url: str = MFN_OTELLO_URL,
 ) -> dict:
-    """Discover and ingest buybacks from Euronext's issuer-specific release list.
+    """Discover status dates from MFN, but source and validate every value at Euronext.
 
-    This list is server-rendered and contains the original Euronext/Oslo Bors links,
-    avoiding undocumented JSON endpoints and third-party discovery services.
-    Repeated runs are idempotent.
+    MFN is only a transient discovery index. The collector constructs the canonical
+    Euronext URL for each date, fetches that original Oslo Bors/Newspoint message and
+    fails closed if the Euronext text does not match the deterministic parser.
     """
     listing_html = _fetch(company_url)
     urls = discover_buyback_urls(listing_html)
@@ -97,7 +101,14 @@ def collect_recent_buybacks(
             results.append({"url": url, **result})
         except Exception as exc:
             errors.append({"url": url, "error": str(exc)})
-    return {"discovered": len(urls), "ingested": len(results), "results": results, "errors": errors}
+    return {
+        "discovery_source": "MFN dates only",
+        "financial_source": "Euronext / Oslo Bors Newspoint",
+        "discovered": len(urls),
+        "ingested": len(results),
+        "results": results,
+        "errors": errors,
+    }
 
 
 def buyback_status(database_path: str | None = None) -> dict:
