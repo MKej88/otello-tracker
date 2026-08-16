@@ -1,0 +1,315 @@
+{
+  "version": "2026-08-16.1",
+  "scope": "Otello report anchors from Bemobi IPO period through FY2025",
+  "documents": [
+    {
+      "key": "otello_1h22",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h22",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2022",
+      "published_at": "2022-08-17T00:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/52573fe3-21d9-4372-875f-39103e9fdee1_1H22.pdf"
+    },
+    {
+      "key": "otello_1h23",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h23",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2023",
+      "published_at": null,
+      "url": "https://otello.cdn.prismic.io/otello/7a3ad694-88e4-4551-9624-a85cb484bafc_1H23.pdf"
+    },
+    {
+      "key": "otello_1h24",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h24",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2024",
+      "published_at": "2024-08-20T00:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/ZsWAp0aF0TcGJJNc_Report1H24.pdf"
+    },
+    {
+      "key": "otello_ar24",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2024",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2024",
+      "published_at": "2025-04-24T00:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/aBJT_PIqRLdaBwvK_otellocorporation-2024-12-31-en.pdf"
+    },
+    {
+      "key": "otello_1h25",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-1h25",
+      "document_type": "HALF_YEAR_REPORT",
+      "title": "Otello Corporation ASA - 1H 2025",
+      "published_at": "2025-08-20T00:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/aKa1FaTt2nPbajuo_Report1H25FINAL.pdf"
+    },
+    {
+      "key": "otello_ar25",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2025",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2025",
+      "published_at": "2026-05-11T00:00:00Z",
+      "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf"
+    }
+  ],
+  "cash_anchors": [
+    {
+      "as_of_date": "2021-06-30",
+      "reported_amount": "68000000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h22",
+      "source_locator": "p. 8, consolidated statement of financial position, comparative 6/30/2021",
+      "confidence": "MEDIUM",
+      "notes": "Comparative amount is reported in USD millions and therefore has lower precision than later USD-thousands reports."
+    },
+    {
+      "as_of_date": "2021-12-31",
+      "reported_amount": "79000000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h22",
+      "source_locator": "p. 8, consolidated statement of financial position, audited comparative 12/31/2021",
+      "confidence": "MEDIUM",
+      "notes": "Audited comparative, reported in USD millions."
+    },
+    {
+      "as_of_date": "2022-06-30",
+      "reported_amount": "211600000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h22",
+      "source_locator": "p. 8, consolidated statement of financial position",
+      "confidence": "MEDIUM",
+      "notes": "Reported in USD millions."
+    },
+    {
+      "as_of_date": "2022-12-31",
+      "reported_amount": "18373000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h24",
+      "source_locator": "p. 8, comparative cash flow: beginning cash for 1H23",
+      "confidence": "HIGH",
+      "notes": "Exact USD-thousands comparative used to recover the 12/31/2022 cash balance."
+    },
+    {
+      "as_of_date": "2023-06-30",
+      "reported_amount": "17578000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h24",
+      "source_locator": "p. 7, consolidated statement of financial position, comparative 6/30/2023",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    },
+    {
+      "as_of_date": "2023-12-31",
+      "reported_amount": "14576000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h24",
+      "source_locator": "p. 7, consolidated statement of financial position, audited 12/31/2023 comparative",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    },
+    {
+      "as_of_date": "2024-06-30",
+      "reported_amount": "14518000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h24",
+      "source_locator": "p. 7, consolidated statement of financial position",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    },
+    {
+      "as_of_date": "2024-12-31",
+      "reported_amount": "10454000",
+      "reported_currency": "USD",
+      "source_key": "otello_ar24",
+      "source_locator": "p. 13, consolidated statement of financial position",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    },
+    {
+      "as_of_date": "2025-06-30",
+      "reported_amount": "14694000",
+      "reported_currency": "USD",
+      "source_key": "otello_1h25",
+      "source_locator": "p. 7, consolidated statement of financial position",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    },
+    {
+      "as_of_date": "2025-12-31",
+      "reported_amount": "15881000",
+      "reported_currency": "USD",
+      "source_key": "otello_ar25",
+      "source_locator": "p. 13, consolidated statement of financial position",
+      "confidence": "HIGH",
+      "notes": "USD thousands."
+    }
+  ],
+  "share_counts": [
+    {
+      "as_of_date": "2022-06-30",
+      "total_shares": 91099729,
+      "treasury_shares": 0,
+      "outstanding_shares": 91099729,
+      "source_key": "otello_1h22",
+      "source_locator": "p. 10, share capital decrease and treasury shares",
+      "confidence": "HIGH",
+      "notes": "Registered share count after the 27 Jan 2022 cancellation; report explicitly states zero treasury shares at 30 Jun 2022."
+    },
+    {
+      "as_of_date": "2022-12-31",
+      "total_shares": 91099729,
+      "treasury_shares": 0,
+      "outstanding_shares": 91099729,
+      "source_key": "otello_1h23",
+      "source_locator": "p. 9, opening equity balance plus registered share-count note",
+      "confidence": "HIGH",
+      "notes": "No treasury balance at opening 2023; registered total remains 91,099,729."
+    },
+    {
+      "as_of_date": "2023-06-30",
+      "total_shares": 91099729,
+      "treasury_shares": 281729,
+      "outstanding_shares": 90818000,
+      "source_key": "otello_1h23",
+      "source_locator": "p. 9, treasury shares",
+      "confidence": "HIGH",
+      "notes": "Exact treasury-share disclosure reconciles to the reported 90.8m rounded outstanding count."
+    },
+    {
+      "as_of_date": "2023-12-31",
+      "total_shares": 91099729,
+      "treasury_shares": 3180027,
+      "outstanding_shares": 87919702,
+      "source_key": "otello_ar24",
+      "source_locator": "p. 15 and note 19, 2023 comparative treasury shares",
+      "confidence": "HIGH",
+      "notes": "Exact treasury shares from annual report; outstanding shares calculated from registered total less treasury."
+    },
+    {
+      "as_of_date": "2024-06-30",
+      "total_shares": 91099729,
+      "treasury_shares": 3688364,
+      "outstanding_shares": 87411365,
+      "source_key": "otello_1h24",
+      "source_locator": "p. 9, treasury shares and statement of changes in equity",
+      "confidence": "HIGH",
+      "notes": "Exact treasury shares; outstanding calculated from registered total less treasury."
+    },
+    {
+      "as_of_date": "2024-12-31",
+      "total_shares": 91099729,
+      "treasury_shares": 7493227,
+      "outstanding_shares": 83606502,
+      "source_key": "otello_ar24",
+      "source_locator": "p. 15 and note 19, treasury shares",
+      "confidence": "HIGH",
+      "notes": "Annual-report board text calls 91,099,729 'outstanding'; typed history treats it as registered total because the same report discloses 7,493,227 treasury shares and ~83.607m shares outstanding in equity."
+    },
+    {
+      "as_of_date": "2025-06-30",
+      "total_shares": 81989779,
+      "treasury_shares": 4246320,
+      "outstanding_shares": 77743459,
+      "source_key": "otello_1h25",
+      "source_locator": "p. 9, share capital decrease and treasury shares",
+      "confidence": "HIGH",
+      "notes": "After cancellation of 9,109,950 treasury shares resolved 25 Feb 2025."
+    },
+    {
+      "as_of_date": "2025-12-31",
+      "total_shares": 73790829,
+      "treasury_shares": 2393742,
+      "outstanding_shares": 71397087,
+      "source_key": "otello_ar25",
+      "source_locator": "p. 15 and note 18, share capital decreases and treasury shares",
+      "confidence": "HIGH",
+      "notes": "After cancellation of 8,198,950 treasury shares resolved 15 Sep 2025. Board-report wording uses total registered shares as 'outstanding'; typed outstanding is total less treasury."
+    }
+  ],
+  "bemobi_holdings": [
+    {
+      "effective_from": "2022-06-30",
+      "effective_to": null,
+      "shares": 32719588,
+      "ownership_pct": "35.992",
+      "source_key": "otello_1h22",
+      "source_locator": "p. 3-5, business overview and Bemobi investment",
+      "confidence": "HIGH",
+      "notes": "Share count is the NAV-critical input. Ownership percentage later rises as Bemobi cancels its own shares; 1H25 confirms the same 32,719,588 shares and 38.22% ownership."
+    }
+  ],
+  "corporate_actions": [
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2021-09-30",
+      "quantity": 11200000,
+      "source_key": "otello_1h22",
+      "source_locator": "p. 10, share capital decrease",
+      "confidence": "HIGH",
+      "notes": "EGM resolution; subsequently registered. Total registered shares became 101,099,727."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2022-01-27",
+      "quantity": 9999998,
+      "source_key": "otello_1h22",
+      "source_locator": "p. 10, share capital decrease",
+      "confidence": "HIGH",
+      "notes": "EGM resolution; subsequently registered. Total registered shares became 91,099,729."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "DISTRIBUTION",
+      "announcement_date": "2022-07-28",
+      "ex_date": "2022-08-09",
+      "record_date": "2022-08-10",
+      "payment_date": "2022-08-18",
+      "amount_per_share": "21",
+      "total_amount": "1913094309",
+      "currency": "NOK",
+      "source_key": "otello_1h22",
+      "source_locator": "p. 5 and note 12, events after reporting date",
+      "confidence": "HIGH",
+      "notes": "Cash distribution/dividend resolved by the board under AGM authorization."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2025-02-25",
+      "quantity": 9109950,
+      "source_key": "otello_1h25",
+      "source_locator": "p. 9, share capital decrease",
+      "confidence": "HIGH",
+      "notes": "Registered total shares became 81,989,779."
+    },
+    {
+      "symbol": "OTEC",
+      "action_type": "SHARE_CANCELLATION",
+      "announcement_date": "2025-09-15",
+      "quantity": 8198950,
+      "source_key": "otello_ar25",
+      "source_locator": "p. 15, share capital decrease",
+      "confidence": "HIGH",
+      "notes": "Registered total shares became 73,790,829."
+    }
+  ],
+  "known_gaps": [
+    {
+      "code": "OTEC_SHARE_COUNT_2021_EXACT",
+      "severity": "MEDIUM",
+      "description": "Exact total/treasury/outstanding share count at 30 Jun and 31 Dec 2021 is not seeded because currently accessible comparatives are rounded to millions. Annual Report 2021 or 1H/2H21 can resolve this."
+    },
+    {
+      "code": "BEMOBI_GREENSHOE_EFFECTIVE_DATE",
+      "severity": "MEDIUM",
+      "description": "The exact effective date of the 1,834,272-share greenshoe sale after the Bemobi IPO is not yet confirmed. The post-greenshoe holding of 32,719,588 shares is confirmed, but is conservatively seeded only from 30 Jun 2022."
+    }
+  ]
+}
