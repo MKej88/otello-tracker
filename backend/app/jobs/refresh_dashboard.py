@@ -22,9 +22,14 @@ from app.marketdata.ecb_fx import fetch_ecb_csv
 from app.nav import (
     daily_cash_status,
     daily_nav_status,
+    full_nav_status,
+    other_net_assets_status,
     rebuild_core_nav_anchors,
     rebuild_daily_cash,
     rebuild_daily_core_nav,
+    rebuild_daily_full_nav,
+    rebuild_daily_other_net_assets,
+    rebuild_other_net_assets_anchors,
 )
 from app.settings import settings
 
@@ -57,11 +62,12 @@ def run_refresh(
     otec_euronext_csv: str | None = None,
     otec_investing_csv: str | None = None,
 ) -> dict[str, Any]:
-    """Refresh all currently automatable inputs, then rebuild cash/NAV/dashboard.
+    """Refresh automatable inputs and rebuild both CORE and FULL NAV.
 
-    Provider/network failures are recorded per step and do not prevent the model from
-    rebuilding with the most recent persisted data. OTEC does not have an undocumented
-    scraper here: optional CSV imports are supported and staleness is surfaced explicitly.
+    Provider failures are recorded per step. Persisted data is still used to rebuild
+    later model layers, so a temporary upstream outage degrades the result rather than
+    destroying the dashboard. FULL NAV remains a separate snapshot series and never
+    overwrites CORE.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -118,15 +124,24 @@ def run_refresh(
     else:
         steps["buybacks"] = {"skipped": True}
 
-    # Rebuild from persisted inputs even when one upstream provider was temporarily down.
+    # Rebuild from persisted inputs even when an upstream provider was temporarily down.
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
     )
     steps["daily_cash"] = _safe_step(
         "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
     )
-    steps["daily_nav"] = _safe_step(
-        "daily_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
+    steps["daily_core_nav"] = _safe_step(
+        "daily_core_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
+    )
+    steps["other_net_assets_anchors"] = _safe_step(
+        "other_net_assets_anchors", lambda: rebuild_other_net_assets_anchors(database_path), errors
+    )
+    steps["daily_other_net_assets"] = _safe_step(
+        "daily_other_net_assets", lambda: rebuild_daily_other_net_assets(database_path, end_date=end), errors
+    )
+    steps["daily_full_nav"] = _safe_step(
+        "daily_full_nav", lambda: rebuild_daily_full_nav(database_path, end_date=end), errors
     )
 
     summary = dashboard_summary(database_path)
@@ -146,7 +161,9 @@ def run_refresh(
         "market_data": market_data_status(database_path),
         "buyback_status": buyback_status(database_path),
         "cash_status": daily_cash_status(database_path),
-        "nav_status": daily_nav_status(database_path),
+        "core_nav_status": daily_nav_status(database_path),
+        "other_net_assets_status": other_net_assets_status(database_path),
+        "full_nav_status": full_nav_status(database_path),
         "dashboard": summary,
     }
 
