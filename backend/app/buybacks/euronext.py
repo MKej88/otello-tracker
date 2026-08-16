@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from app.db.connection import get_connection
 from app.db.repository import create_source_document, decimal_text
@@ -117,27 +118,37 @@ def ingest_euronext_buyback_status(
     url: str,
     published_at: str,
     database_path: str | None = None,
+    source_code: str = "EURONEXT",
+    source_metadata: dict[str, Any] | None = None,
 ) -> dict:
+    """Ingest a strictly parsed status while preserving the actual fetched source.
+
+    `source_code` defaults to EURONEXT for direct originals. A verified public mirror can
+    be passed explicitly (for example MFN), but must keep upstream/canonical metadata so
+    the database never mislabels mirrored bytes as an official-source fetch.
+    """
     parsed = parse_euronext_buyback_status(text)
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
 
     with get_connection(database_path) as connection:
         document_id = create_source_document(
             connection,
-            source_code="EURONEXT",
+            source_code=source_code,
             external_id=url,
-            document_type="REGULATORY_NEWS",
+            document_type="REGULATORY_NEWS_MIRROR" if source_code != "EURONEXT" else "REGULATORY_NEWS",
             title="Otello Corporation share buyback program status",
             url=url,
             published_at=published_at,
             content_sha256=content_hash,
-            metadata={"parser": "otec-buyback-status-v1"},
+            metadata=metadata,
         )
 
         program = connection.execute(
             "SELECT id FROM buyback_programs WHERE external_program_id = ?",
             (parsed.program_external_id,),
         ).fetchone()
+        source_label = "Euronext status" if source_code == "EURONEXT" else f"{source_code} mirror of Oslo Bors status"
         if program is None:
             cursor = connection.execute(
                 """
@@ -152,7 +163,7 @@ def ingest_euronext_buyback_status(
                     parsed.program_reference_date,
                     parsed.max_program_shares,
                     document_id,
-                    "Program reconstructed from the first ingested weekly Euronext status; announcement source may be replaced later.",
+                    f"Program reconstructed from weekly {source_label}; initiation document can supersede this source later.",
                 ),
             )
             program_id = int(cursor.lastrowid)
@@ -250,7 +261,7 @@ def ingest_euronext_buyback_status(
         ).fetchone()
         share_values = (
             total_shares, parsed.treasury_shares_after, outstanding,
-            f"Treasury shares from weekly Euronext buyback status; effective at period end {parsed.period_end}.",
+            f"Treasury shares from weekly {source_label}; effective at period end {parsed.period_end}.",
         )
         if share_row is None:
             connection.execute(
@@ -282,4 +293,5 @@ def ingest_euronext_buyback_status(
         "cumulative_program_shares": parsed.cumulative_program_shares,
         "treasury_shares_after": parsed.treasury_shares_after,
         "outstanding_shares_after": outstanding,
+        "source_code": source_code,
     }
