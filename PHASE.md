@@ -6,82 +6,102 @@ Status: **Ferdig**
 
 - [x] FastAPI-backend
 - [x] React/TypeScript-frontend
-- [x] Docker Compose
-- [x] Health-endepunkt
+- [x] Docker Compose + nginx
 - [x] GitHub Actions CI
-- [x] Mørkt dashboard-skjelett
+- [x] mørkt dashboard-skjelett
 
 ## Fase 2 – Database og datamodell
 
 Status: **Ferdig**
 
-- [x] SQLite-initialisering ved appstart
-- [x] Versjonerte og idempotente migreringer
+- [x] SQLite med versjonerte/idempotente migreringer
 - [x] WAL, foreign keys og busy timeout
-- [x] Referansedata for kilder og instrumenter
-- [x] Markedspris- og FX-tabeller
-- [x] Bemobi-beholdning og OTEC-aksjetall
-- [x] Cash-ankre og cash-bevegelser
-- [x] Tilbakekjøpsprogrammer og transaksjoner
-- [x] Corporate actions
+- [x] markedsdata, FX, Bemobi-beholdning og OTEC-aksjetall
+- [x] cash-ankre og cash-bevegelser
+- [x] buybacks og corporate actions
 - [x] NAV-snapshots
-- [x] Bemobi/Otello selskapsmeldinger
-- [x] Meglerestimater og konsensus-snapshots
-- [x] Kilde-/dokumentkobling og provenance/audit trail
-- [x] Jobbstatus og kildehelse
-- [x] Database-status API
-- [x] Automatiske databasetester
+- [x] meglerestimater/konsensus-tabeller
+- [x] kilde-, dokument- og feltbasert provenance/audit trail
+- [x] jobbstatus og kildehelse
 
-## Fase 3 – Historiske Otello-rapportankre
+## Fase 3 – Historiske Otello-ankre
 
 Status: **Ferdig**
 
-- [x] katalogisere primære Otello-rapporter som brukes i historikken
-- [x] versjonert, kuratert historikkmanifest med separat korreksjonslag
-- [x] rapport-native cash-ankre i USD uten kunstig NOK-konvertering
-- [x] eksakte OTEC total-/egne-/utestående aksjer fra 1H21 til FY25
-- [x] Bemobi IPO-beholdning: 34 553 860 aksjer / 38,01 % fra første handelsdag
-- [x] Bemobi etter greenshoe: 32 719 588 aksjer fra 15.03.2021
-- [x] verifisert registreringskjede for OTEC-aksjekanselleringene i 2021–2022
+- [x] kuraterte Otello-rapportankre fra 2021
+- [x] rapportert cash i original valuta
+- [x] registrerte/egne/utestående OTEC-aksjer
+- [x] Bemobi IPO- og greenshoe-beholdning
+- [x] historiske aksjekanselleringer
 - [x] NOK 21-distribusjonen i 2022
-- [x] feltbasert provenance til rapport/melding og side/avsnitt
-- [x] idempotent historikkimport ved appstart
-- [x] `/api/system/history` med dekning
-- [x] automatiske tester for nøkkelankre og avstemminger
-- [x] tidligere kjente 2021-gap lukket fra offentlig kildemateriale
+- [x] kildeprovenance til rapport/melding
 
-## Fase 4 – Historiske markedsdata og første NAV-serie
+## Fase 4 – Historiske markedsdata
 
-Status: **Kode og modell ferdig – runtime backfill gjenstår**
+Status: **Ferdig og live-validert**
 
-- [x] offisiell B3 COTAHIST fixed-width parser for BMOB3
-- [x] automatisk B3 årsfil-nedlasting med trygg fallback til manuell ZIP ved CAPTCHA
-- [x] ECB EXR CSV-parser og automatisk BRL/NOK + USD/NOK cross-rate
-- [x] robust Euronext historical CSV-import for OTEC
-- [x] gratis full OTEC-backfill fra manuell Investing CSV (10.02.2021 → siste handelsdag)
-- [x] eksplisitt `DIRECT` vs `RECONSTRUCTED` kvalitet på markedspriser
-- [x] reversering av Investing sin dividend-adjustment før NOK 21-utdelingen 09.08.2022
-- [x] automatisk avstemming av Investing-overlapp mot offisiell Euronext-historikk
-- [x] markedsdatastatus teller unike handelsdager og viser rekonstruert/direct dekning
-- [x] kildefil-hash og source-document-spor for alle backfills
-- [x] markedsdatastatus via `/api/system/market-data`
-- [x] CLI for B3/ECB/Euronext/Investing-backfill
-- [x] CORE NAV-motor på rapportdatoer
-- [x] historisk CORE NAV-rabatt når OTEC-kurs finnes
-- [x] eksplisitt skille mellom `CORE` og senere `FULL` NAV
-- [x] komponent-/inputspor og hash per NAV-snapshot
-- [x] `/api/nav/core-anchors`
-- [x] parser-, database- og NAV-avstemmingstester
-- [ ] kjøre full ECB-backfill fra 10.02.2021
-- [ ] importere B3 årsfilene 2021–2026
-- [ ] importere brukerens fulle OTEC-Investing-CSV i lokal/produksjonsdatabase
-- [ ] importere Euronext 2-årsfil som offisiell overlappskontroll
-- [ ] generere alle tilgjengelige CORE NAV-ankre på produksjons-/lokal database
-- [ ] rekonstruere øvrige nettoeiendeler/gjeld og oppgradere fra CORE til FULL NAV
+- [x] BMOB3 fra offisiell B3 COTAHIST, 10.02.2021 → 14.08.2026
+- [x] BRL/NOK og USD/NOK fra ECB
+- [x] OTEC-historikk fra Investing + offisiell Euronext-overlapp
+- [x] reversering av OTEC dividend-adjustment før NOK 21-utdelingen
+- [x] 498/498 overlappende OTEC-dager avstemt eksakt mot Euronext
+- [x] DIRECT/RECONSTRUCTED datakvalitet
+- [x] robust B3-nedlasting med retry og manuell ZIP-fallback
+- [x] CORE NAV på rapportankre
 
-## Neste etter runtime-backfill
+## Fase 5 – Daglig cash og daglig CORE NAV
 
-- løpende markedsdatajobber
-- cash-motor mellom rapportdatoene
-- FULL historisk NAV
-- daglig NAV-serie og historisk rabattgraf
+Status: **Ferdig og live-validert**
+
+- [x] rapporterte cash-ankre konverteres med historisk ECB FX
+- [x] kjente corporate actions legges på faktiske datoer
+- [x] residual cash drift avstemmer eksakt mot neste rapporterte anker
+- [x] daglig cash-kurve
+- [x] daglig Bemobi-markedsverdi
+- [x] daglig CORE NAV/aksje
+- [x] daglig OTEC-rabatt
+- [x] eksplisitt BACKFILLED/DEGRADED/FORECAST_PARTIAL-kvalitet
+- [x] historiske residualdiagnoser
+- [x] etter fase 6.4: ingen halvårsperioder står igjen som HIGH_RESIDUAL
+
+## Fase 6 – Otello-buybacks og cash-avstemming
+
+Status: **Ferdig for kjent historikk til 14.08.2026**
+
+- [x] deterministisk parser for ukentlige buyback-statusmeldinger
+- [x] idempotent oppdatering av buybacks, cash og treasury shares
+- [x] historisk buyback-backfill 2022, 2024, 2025 og 2026
+- [x] full 2025-buyback-kjede avstemt
+- [x] 2026-dekning avstemt gjennom 14.08.2026
+- [x] originale utstederavvik beholdes i metadata og korrigeres aldri lydløst
+- [x] effektive aksjekapitalankre etter kanselleringer
+- [x] H1 2022 AdColony-innbetaling og Bemobi-skatt modellert
+- [x] H1 2022 residual redusert fra ca. NOK 1,399 mrd. til ca. NOK 129m
+- [x] ingen perioder er lenger flagget HIGH_RESIDUAL
+
+## Fase 7 – Live dashboard
+
+Status: **Ferdig kode – klar for merge/deployment**
+
+- [x] fjern demo-KPI-er fra API og frontend
+- [x] database-backed `/api/dashboard/summary`
+- [x] `/api/dashboard/history` med bounded/downsampled historikk
+- [x] reelle NAV-, OTEC-, BMOB3-, FX- og cash-KPI-er
+- [x] reelle dagsendringer i stedet for hardkodede prosenter
+- [x] SVG-graf for NAV vs OTEC uten tung chart-avhengighet
+- [x] SVG-graf for historisk NAV-rabatt og gjennomsnitt
+- [x] siste buyback og treasury shares i dashboardet
+- [x] Bemobi-eksponering fra databasen
+- [x] tydelig FORECAST_PARTIAL-varsel for post-anchor cash
+- [x] `not_ready` på tom database i stedet for demo/falske tall
+- [x] backend- og frontend-CI grønn
+
+## Neste prioriteringer
+
+1. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL med nytt rapportert cash-/aksjeanker.
+2. Sett opp løpende produksjonsjobber for markedsdata, buybacks, cash og NAV.
+3. Rekonstruer øvrige nettoeiendeler/-forpliktelser og oppgrader fra CORE til FULL NAV.
+4. Bygg Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
+5. Bygg Bemobi broker-consensus tracker før Q3.
+6. E-postrapporter og varsler.
+7. Raspberry Pi + Cloudflare Tunnel/Access deployment.
