@@ -32,6 +32,36 @@ def _dec(text: str) -> Decimal:
     return Decimal(text.replace(",", "").strip())
 
 
+def _source_priority(connection, document_id: int | None) -> int:
+    """Lower is better; a direct/curated Euronext fact always beats a mirror."""
+    if document_id is None:
+        return 99
+    row = connection.execute(
+        """
+        SELECT s.code, s.is_official
+        FROM source_documents sd
+        JOIN sources s ON s.id = sd.source_id
+        WHERE sd.id = ?
+        """,
+        (document_id,),
+    ).fetchone()
+    if row is None:
+        return 99
+    if row["code"] == "EURONEXT":
+        return 0
+    if row["is_official"]:
+        return 1
+    return 10
+
+
+def _preferred_document_id(connection, existing_document_id: int | None, new_document_id: int) -> int:
+    return (
+        new_document_id
+        if _source_priority(connection, new_document_id) < _source_priority(connection, existing_document_id)
+        else (existing_document_id or new_document_id)
+    )
+
+
 @dataclass(frozen=True)
 class BuybackStatus:
     program_reference_date: str
@@ -122,7 +152,12 @@ def ingest_buyback_status(
     source_metadata: dict[str, Any] | None = None,
     content_hash: str | None = None,
 ) -> dict:
-    """Persist a validated/structured buyback status with explicit source provenance."""
+    """Persist one logical buyback week, preferring official evidence over mirrors.
+
+    Identity is program + period end, not source document. This prevents the same issuer
+    release from double-counting cash or shares when both Euronext and a public mirror are
+    available. A later official Euronext fact upgrades the stored provenance in place.
+    """
     metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
 
     with get_connection(database_path) as connection:
@@ -139,7 +174,7 @@ def ingest_buyback_status(
         )
 
         program = connection.execute(
-            "SELECT id FROM buyback_programs WHERE external_program_id = ?",
+            "SELECT id, source_document_id FROM buyback_programs WHERE external_program_id = ?",
             (parsed.program_external_id,),
         ).fetchone()
         source_label = "Euronext status" if source_code == "EURONEXT" else f"{source_code} mirror of Oslo Bors status"
@@ -163,25 +198,20 @@ def ingest_buyback_status(
             program_id = int(cursor.lastrowid)
         else:
             program_id = int(program["id"])
+            program_document_id = _preferred_document_id(connection, program["source_document_id"], document_id)
             connection.execute(
-                "UPDATE buyback_programs SET max_shares = ? WHERE id = ?",
-                (parsed.max_program_shares, program_id),
+                "UPDATE buyback_programs SET max_shares = ?, source_document_id = ? WHERE id = ?",
+                (parsed.max_program_shares, program_document_id, program_id),
             )
 
         existing = connection.execute(
-            "SELECT id FROM buybacks WHERE trade_date = ? AND source_document_id = ?",
-            (parsed.period_end, document_id),
+            """
+            SELECT id, source_document_id FROM buybacks
+            WHERE program_id = ? AND trade_date = ?
+            ORDER BY id LIMIT 1
+            """,
+            (program_id, parsed.period_end),
         ).fetchone()
-        buyback_values = (
-            program_id,
-            parsed.period_shares,
-            decimal_text(parsed.period_avg_price_nok),
-            decimal_text(parsed.period_amount_nok),
-            parsed.cumulative_program_shares,
-            decimal_text(parsed.cumulative_program_avg_price_nok),
-            decimal_text(parsed.cumulative_program_amount_nok),
-            parsed.treasury_shares_after,
-        )
         if existing is None:
             cursor = connection.execute(
                 """
@@ -201,30 +231,41 @@ def ingest_buyback_status(
                 ),
             )
             buyback_id = int(cursor.lastrowid)
+            preferred_document_id = document_id
         else:
             buyback_id = int(existing["id"])
+            preferred_document_id = _preferred_document_id(connection, existing["source_document_id"], document_id)
             connection.execute(
                 """
-                UPDATE buybacks SET program_id = ?, shares = ?, avg_price_nok = ?, amount_nok = ?,
+                UPDATE buybacks SET shares = ?, avg_price_nok = ?, amount_nok = ?,
                     cumulative_program_shares = ?, cumulative_program_avg_price_nok = ?,
-                    cumulative_program_amount_nok = ?, treasury_shares_after = ? WHERE id = ?
+                    cumulative_program_amount_nok = ?, treasury_shares_after = ?,
+                    source_document_id = ?
+                WHERE id = ?
                 """,
-                (*buyback_values, buyback_id),
+                (
+                    parsed.period_shares, decimal_text(parsed.period_avg_price_nok),
+                    decimal_text(parsed.period_amount_nok), parsed.cumulative_program_shares,
+                    decimal_text(parsed.cumulative_program_avg_price_nok),
+                    decimal_text(parsed.cumulative_program_amount_nok), parsed.treasury_shares_after,
+                    preferred_document_id, buyback_id,
+                ),
             )
 
-        cash = connection.execute(
+        cash_rows = connection.execute(
             """
-            SELECT id FROM cash_movements
-            WHERE movement_type = 'OTELLO_BUYBACK' AND movement_date = ? AND source_document_id = ?
+            SELECT id, source_document_id FROM cash_movements
+            WHERE movement_type = 'OTELLO_BUYBACK' AND movement_date = ?
+            ORDER BY id
             """,
-            (parsed.period_end, document_id),
-        ).fetchone()
+            (parsed.period_end,),
+        ).fetchall()
         cash_values = (
             decimal_text(-parsed.period_amount_nok),
             decimal_text(-parsed.period_amount_nok),
             f"Weekly Otello buyback: {parsed.period_shares:,} shares during {parsed.period_start}–{parsed.period_end}.",
         )
-        if cash is None:
+        if not cash_rows:
             connection.execute(
                 """
                 INSERT INTO cash_movements(
@@ -232,16 +273,21 @@ def ingest_buyback_status(
                     fx_rate_to_nok, description, source_document_id, confidence
                 ) VALUES (?, 'OTELLO_BUYBACK', ?, ?, 'NOK', '1', ?, ?, 'CONFIRMED')
                 """,
-                (parsed.period_end, *cash_values, document_id),
+                (parsed.period_end, *cash_values, preferred_document_id),
             )
         else:
+            cash = cash_rows[0]
+            cash_document_id = _preferred_document_id(connection, cash["source_document_id"], preferred_document_id)
             connection.execute(
                 """
-                UPDATE cash_movements SET amount_nok = ?, amount_original = ?, description = ?
+                UPDATE cash_movements SET amount_nok = ?, amount_original = ?, description = ?,
+                    source_document_id = ?, confidence = 'CONFIRMED'
                 WHERE id = ?
                 """,
-                (*cash_values, cash["id"]),
+                (*cash_values, cash_document_id, cash["id"]),
             )
+            for duplicate in cash_rows[1:]:
+                connection.execute("DELETE FROM cash_movements WHERE id = ?", (duplicate["id"],))
 
         latest_total = connection.execute(
             """
@@ -257,18 +303,16 @@ def ingest_buyback_status(
         if outstanding <= 0:
             raise ValueError("Buyback-parser ga ugyldig antall utestående aksjer")
 
-        share_row = connection.execute(
+        share_rows = connection.execute(
             """
-            SELECT id FROM otello_share_counts
-            WHERE effective_from = ? AND source_document_id = ? LIMIT 1
+            SELECT id, source_document_id FROM otello_share_counts
+            WHERE effective_from = ? AND notes LIKE 'Treasury shares from weekly %'
+            ORDER BY id
             """,
-            (parsed.period_end, document_id),
-        ).fetchone()
-        share_values = (
-            total_shares, parsed.treasury_shares_after, outstanding,
-            f"Treasury shares from weekly {source_label}; effective at period end {parsed.period_end}.",
-        )
-        if share_row is None:
+            (parsed.period_end,),
+        ).fetchall()
+        share_notes = f"Treasury shares from weekly {source_label}; effective at period end {parsed.period_end}."
+        if not share_rows:
             connection.execute(
                 """
                 INSERT INTO otello_share_counts(
@@ -276,16 +320,52 @@ def ingest_buyback_status(
                     source_document_id, notes
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (parsed.period_end, *share_values[:3], document_id, share_values[3]),
+                (
+                    parsed.period_end, total_shares, parsed.treasury_shares_after,
+                    outstanding, preferred_document_id, share_notes,
+                ),
             )
         else:
+            share = share_rows[0]
+            share_document_id = _preferred_document_id(connection, share["source_document_id"], preferred_document_id)
+            share_source_label = (
+                "Euronext status"
+                if _source_priority(connection, share_document_id) == 0
+                else source_label
+            )
             connection.execute(
                 """
                 UPDATE otello_share_counts SET total_shares = ?, treasury_shares = ?,
-                    outstanding_shares = ?, notes = ? WHERE id = ?
+                    outstanding_shares = ?, source_document_id = ?, notes = ? WHERE id = ?
                 """,
-                (*share_values, share_row["id"]),
+                (
+                    total_shares, parsed.treasury_shares_after, outstanding,
+                    share_document_id,
+                    f"Treasury shares from weekly {share_source_label}; effective at period end {parsed.period_end}.",
+                    share["id"],
+                ),
             )
+            for duplicate in share_rows[1:]:
+                connection.execute("DELETE FROM otello_share_counts WHERE id = ?", (duplicate["id"],))
+
+        # Defensive cleanup for databases that may have been populated before logical
+        # week de-duplication existed. Keep the best-provenance buyback row.
+        duplicates = connection.execute(
+            """
+            SELECT id, source_document_id FROM buybacks
+            WHERE program_id = ? AND trade_date = ? AND id <> ?
+            ORDER BY id
+            """,
+            (program_id, parsed.period_end, buyback_id),
+        ).fetchall()
+        for duplicate in duplicates:
+            if _source_priority(connection, duplicate["source_document_id"]) < _source_priority(connection, preferred_document_id):
+                connection.execute(
+                    "UPDATE buybacks SET source_document_id = ? WHERE id = ?",
+                    (duplicate["source_document_id"], buyback_id),
+                )
+                preferred_document_id = duplicate["source_document_id"]
+            connection.execute("DELETE FROM buybacks WHERE id = ?", (duplicate["id"],))
 
         connection.commit()
 
