@@ -112,23 +112,17 @@ def parse_euronext_buyback_status(text: str) -> BuybackStatus:
     )
 
 
-def ingest_euronext_buyback_status(
+def ingest_buyback_status(
     *,
-    text: str,
+    parsed: BuybackStatus,
     url: str,
     published_at: str,
     database_path: str | None = None,
     source_code: str = "EURONEXT",
     source_metadata: dict[str, Any] | None = None,
+    content_hash: str | None = None,
 ) -> dict:
-    """Ingest a strictly parsed status while preserving the actual fetched source.
-
-    `source_code` defaults to EURONEXT for direct originals. A verified public mirror can
-    be passed explicitly (for example MFN), but must keep upstream/canonical metadata so
-    the database never mislabels mirrored bytes as an official-source fetch.
-    """
-    parsed = parse_euronext_buyback_status(text)
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    """Persist a validated/structured buyback status with explicit source provenance."""
     metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
 
     with get_connection(database_path) as connection:
@@ -308,3 +302,24 @@ def ingest_euronext_buyback_status(
         "outstanding_shares_after": outstanding,
         "source_code": source_code,
     }
+
+
+def ingest_euronext_buyback_status(
+    *,
+    text: str,
+    url: str,
+    published_at: str,
+    database_path: str | None = None,
+    source_code: str = "EURONEXT",
+    source_metadata: dict[str, Any] | None = None,
+) -> dict:
+    parsed = parse_euronext_buyback_status(text)
+    return ingest_buyback_status(
+        parsed=parsed,
+        url=url,
+        published_at=published_at,
+        database_path=database_path,
+        source_code=source_code,
+        source_metadata=source_metadata,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    )
