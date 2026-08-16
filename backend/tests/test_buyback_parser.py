@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from app.buybacks import ingest_euronext_buyback_status, parse_euronext_buyback_status
+from app.buybacks.collector import discover_buyback_urls, extract_page_text
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
@@ -43,6 +44,23 @@ def test_parser_fails_closed_when_financial_fields_are_missing() -> None:
         assert "mangler" in str(exc)
     else:
         raise AssertionError("Parser must fail instead of guessing")
+
+
+def test_discovery_only_accepts_euronext_buyback_company_news_links() -> None:
+    listing = """
+    <html><body>
+      <a href="/en/products/equities/company-news/2026-07-11-otello-corporation-share-buyback-program-status">Buyback</a>
+      <a href="https://live.euronext.com/en/products/equities/company-news/2026-07-17-otello-corporation-share-buyback-program-status#top">Buyback 2</a>
+      <a href="/en/products/equities/company-news/2026-07-18-other-news">Other</a>
+    </body></html>
+    """
+    urls = discover_buyback_urls(listing)
+    assert urls == [
+        "https://live.euronext.com/en/products/equities/company-news/2026-07-11-otello-corporation-share-buyback-program-status",
+        "https://live.euronext.com/en/products/equities/company-news/2026-07-17-otello-corporation-share-buyback-program-status",
+    ]
+    page = f"<html><body><main><p>{SAMPLE}</p></main></body></html>"
+    assert "65,300 shares" in extract_page_text(page)
 
 
 def test_ingestion_updates_buyback_cash_and_share_count_idempotently(tmp_path) -> None:
