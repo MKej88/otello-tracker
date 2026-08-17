@@ -20,3 +20,5 @@ jobs:
           node-version: "22"
       - run: npm install
       - run: npm list --depth=0
+      - name: Emit lockfile
+        run: cat package-lock.json
