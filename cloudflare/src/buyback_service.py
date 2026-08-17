@@ -12,6 +12,7 @@ SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
 RECENT_PROGRAM_WEEKS = 8
 METHOD_VERSION = "otec-buyback-safe-harbour-program-v1"
+MAX_ACTIVITY_ROWS = 5000
 
 
 @dataclass(frozen=True)
@@ -59,29 +60,47 @@ def _oslo_today() -> date:
     return (now + offset).date()
 
 
-async def _activity_before(repository, day: date, *, limit: int = LOOKBACK_DAYS):
-    rows = await repository.all(
+async def _activity_history(repository, before: date) -> list[dict[str, Any]]:
+    """Load the bounded OTEC activity set once per forecast invocation.
+
+    The previous Worker port issued two D1 queries for every historical program week.
+    Fetching the ordered activity once preserves the exact model calculations while
+    keeping D1 query count effectively constant as the active program gets older.
+    """
+    return await repository.all(
         """
         SELECT ma.trading_date, ma.volume_shares, ma.last_price_nok, ma.quality
         FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
         WHERE i.symbol='OTEC' AND ma.trading_date < ? AND ma.volume_shares > 0
-        ORDER BY ma.trading_date DESC LIMIT ?
+        ORDER BY ma.trading_date, ma.id
+        LIMIT ?
         """,
-        (day.isoformat(), limit),
+        (before.isoformat(), MAX_ACTIVITY_ROWS),
     )
-    return rows[::-1]
 
 
-async def _activity_in_period(repository, start: date, end: date):
-    return await repository.all(
-        """
-        SELECT ma.trading_date, ma.volume_shares
-        FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
-        WHERE i.symbol='OTEC' AND ma.trading_date BETWEEN ? AND ? AND ma.volume_shares > 0
-        ORDER BY ma.trading_date
-        """,
-        (start.isoformat(), end.isoformat()),
-    )
+def _activity_before(
+    activity: list[dict[str, Any]],
+    day: date,
+    *,
+    limit: int = LOOKBACK_DAYS,
+) -> list[dict[str, Any]]:
+    cutoff = day.isoformat()
+    return [item for item in activity if str(item["trading_date"]) < cutoff][-limit:]
+
+
+def _activity_in_period(
+    activity: list[dict[str, Any]],
+    start: date,
+    end: date,
+) -> list[dict[str, Any]]:
+    start_text = start.isoformat()
+    end_text = end.isoformat()
+    return [
+        item
+        for item in activity
+        if start_text <= str(item["trading_date"]) <= end_text
+    ]
 
 
 async def _active_program(repository, as_of: date):
@@ -122,14 +141,17 @@ async def _program_weeks(repository, program_id: int) -> list[ProgramWeek]:
     ]
 
 
-async def _program_history(repository, program_id: int, max_shares: int) -> list[dict[str, Any]]:
-    weeks = await _program_weeks(repository, program_id)
+def _program_history(
+    weeks: list[ProgramWeek],
+    max_shares: int,
+    activity: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     previous_cumulative = 0
     observed_utils: list[float] = []
     rows: list[dict[str, Any]] = []
     for week in weeks:
-        lookback = await _activity_before(repository, week.period_start)
-        period_activity = await _activity_in_period(repository, week.period_start, week.period_end)
+        lookback = _activity_before(activity, week.period_start)
+        period_activity = _activity_in_period(activity, week.period_start, week.period_end)
         if len(lookback) < LOOKBACK_DAYS or not period_activity:
             previous_cumulative = week.cumulative_shares
             continue
@@ -226,7 +248,8 @@ async def buyback_forecast(
             },
         }
 
-    lookback = await _activity_before(repository, period_start)
+    activity = await _activity_history(repository, period_start)
+    lookback = _activity_before(activity, period_start)
     if len(lookback) < LOOKBACK_DAYS:
         return {
             "ready": False,
@@ -272,7 +295,8 @@ async def buyback_forecast(
 
     capacity = float(SAFE_HARBOUR_SHARE) * adv20 * expected_days
     capacity_estimate = min(capacity, float(remaining))
-    history = await _program_history(repository, int(program["id"]), int(program["max_shares"]))
+    weeks = await _program_weeks(repository, int(program["id"]))
+    history = _program_history(weeks, int(program["max_shares"]), activity)
     recent = history[-RECENT_PROGRAM_WEEKS:]
     recent_utils = [float(row["utilization"]) for row in recent]
     factor = max(0.0, min(1.10, _median(recent_utils, 1.0)))
