@@ -23,12 +23,10 @@ def _easter_sunday(year: int) -> date:
 
 
 def b3_market_holidays(year: int) -> set[date]:
-    """Non-trading dates for the B3 listed-equities market.
+    """Recurring non-trading dates for the B3 listed-equities market.
 
-    The recurring rules mirror B3's published 2026 calendar and avoid treating a stale
-    web quote as a new same-day BMOB3 price on exchange holidays. B3 can announce
-    exceptional closures, so provider-date checks remain in the quote adapter as a
-    second line of defence.
+    The rules match B3's published 2026 market calendar. Provider-date validation remains
+    a second line of defence for any exceptional closure B3 may announce separately.
     """
     easter = _easter_sunday(year)
     return {
@@ -51,6 +49,13 @@ def b3_market_holidays(year: int) -> set[date]:
 
 def is_b3_trading_day(day: date) -> bool:
     return day.weekday() < 5 and day not in b3_market_holidays(day.year)
+
+
+def previous_b3_trading_day(day: date) -> date:
+    candidate = day - timedelta(days=1)
+    while not is_b3_trading_day(candidate):
+        candidate -= timedelta(days=1)
+    return candidate
 
 
 def is_ash_wednesday(day: date) -> bool:
