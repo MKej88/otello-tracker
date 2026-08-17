@@ -10,6 +10,7 @@ getcontext().prec = 28
 
 OTEC_2022_DISTRIBUTION_EX_DATE = "2022-08-09"
 OTEC_2022_DISTRIBUTION_NOK = Decimal("21")
+MAX_PLAUSIBLE_OTEC_NOK = Decimal("500")
 
 
 @dataclass(frozen=True)
@@ -32,16 +33,45 @@ class AdjustmentInfo:
     reconstruction_multiplier: Decimal
 
 
+def _detect_dialect(text: str) -> csv.Dialect:
+    sample = "\n".join(text.splitlines()[:10])
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;\t")
+    except csv.Error:
+        return csv.excel
+
+
 def _parse_decimal(value: str) -> Decimal:
-    cleaned = value.strip().replace("\u00a0", "").replace(" ", "").replace(",", "")
+    """Parse either decimal-comma or decimal-point exports without silently scaling price."""
+    cleaned = value.strip().replace("\u00a0", "").replace(" ", "")
     if not cleaned:
         raise ValueError("Tom Investing-pris")
-    return Decimal(cleaned)
+
+    if "," in cleaned and "." in cleaned:
+        # The right-most separator is decimal; the other separator is thousands.
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        # OTEC exports can be localized as 17,20. Treat a lone comma as decimal.
+        cleaned = cleaned.replace(",", ".")
+
+    result = Decimal(cleaned)
+    if result <= 0 or result > MAX_PLAUSIBLE_OTEC_NOK:
+        raise ValueError(f"Urealistisk OTEC-pris i Investing CSV: {value}")
+    return result
 
 
 def _parse_date(value: str) -> str:
     value = value.strip()
-    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+    for fmt in (
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%d/%m/%Y",
+        "%d/%m/%y",
+        "%Y-%m-%d",
+    ):
         try:
             return datetime.strptime(value, fmt).date().isoformat()
         except ValueError:
@@ -52,11 +82,12 @@ def _parse_date(value: str) -> str:
 def parse_investing_historical_csv(text: str) -> list[tuple[str, Decimal]]:
     """Parse a manually exported Investing.com historical-price CSV.
 
-    Only Date and Price are required. The raw price may be dividend-adjusted by the
-    vendor; reconstruction is deliberately handled in a separate function so the
-    transformation is visible and testable.
+    Only Date and Price are required. The delimiter and decimal representation may be
+    localized. The raw price may be dividend-adjusted by the vendor; reconstruction is
+    deliberately handled separately so the transformation is visible and testable.
     """
-    reader = csv.DictReader(StringIO(text.lstrip("\ufeff")))
+    clean_text = text.lstrip("\ufeff")
+    reader = csv.DictReader(StringIO(clean_text), dialect=_detect_dialect(clean_text))
     fields = set(reader.fieldnames or [])
     if not {"Date", "Price"}.issubset(fields):
         raise ValueError(f"Investing CSV må inneholde Date og Price. Fant: {reader.fieldnames}")
@@ -113,6 +144,10 @@ def reconstruct_otec_2022_distribution(
     for trading_date, source_close in rows:
         if date.fromisoformat(trading_date) < ex:
             reconstructed = (source_close * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if reconstructed <= 0 or reconstructed > MAX_PLAUSIBLE_OTEC_NOK:
+                raise ValueError(
+                    f"Urealistisk rekonstruert OTEC-pris {reconstructed} på {trading_date}"
+                )
             result.append(
                 InvestingDailyClose(
                     trading_date=trading_date,
