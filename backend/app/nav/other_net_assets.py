@@ -131,7 +131,8 @@ def _receivable_actions(connection) -> list[dict[str, Any]]:
     actions = connection.execute(
         """
         SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date,
-               ca.amount_per_share, ca.currency, ca.source_document_id
+               ca.amount_per_share, ca.currency, ca.source_document_id,
+               ca.component_group
         FROM corporate_actions ca
         JOIN instruments i ON i.id = ca.issuer_instrument_id
         WHERE i.symbol = 'BMOB3'
@@ -142,7 +143,8 @@ def _receivable_actions(connection) -> list[dict[str, Any]]:
         """
     ).fetchall()
 
-    result: list[dict[str, Any]] = []
+    prepared: list[dict[str, Any]] = []
+    gross_by_anchor: dict[int, Decimal] = {}
     for action in actions:
         holding = _holding(connection, action["ex_date"])
         if holding is None:
@@ -158,27 +160,69 @@ def _receivable_actions(connection) -> list[dict[str, Any]]:
             """,
             (action["ex_date"], action["payment_date"]),
         ).fetchone()
+        if calibration_anchor is not None:
+            anchor_id = int(calibration_anchor["id"])
+            gross_by_anchor[anchor_id] = gross_by_anchor.get(anchor_id, Decimal("0")) + gross_brl
+        prepared.append(
+            {
+                "action": action,
+                "holding": holding,
+                "gross_brl": gross_brl,
+                "calibration_anchor": calibration_anchor,
+            }
+        )
 
+    # A reported associated-company receivable is a total balance, not one balance per
+    # corporate-action component. When Bemobi pays a mixed dividend/JCP, all components
+    # active at the same report anchor therefore share one calibration factor based on
+    # their combined gross entitlement. This also handles future overlapping distributions
+    # without double-counting the same reported receivable.
+    calibration_by_anchor: dict[int, dict[str, Any]] = {}
+    for item in prepared:
+        calibration_anchor = item["calibration_anchor"]
+        if calibration_anchor is None:
+            continue
+        anchor_id = int(calibration_anchor["id"])
+        if anchor_id in calibration_by_anchor:
+            continue
+        anchor_date = calibration_anchor["as_of_date"]
+        usd_fx = _nearest_fx(connection, "USD", anchor_date)
+        brl_fx = _nearest_fx(connection, "BRL", anchor_date)
+        total_gross_brl = gross_by_anchor[anchor_id]
+        if usd_fx is None or brl_fx is None or total_gross_brl == 0:
+            continue
+        reported_usd = Decimal(calibration_anchor["associated_receivable_reported"])
+        reported_nok = reported_usd * Decimal(usd_fx["rate"])
+        gross_nok = total_gross_brl * Decimal(brl_fx["rate"])
+        if gross_nok == 0:
+            continue
+        calibration_by_anchor[anchor_id] = {
+            "factor": reported_nok / gross_nok,
+            "metadata": {
+                "anchor_id": anchor_id,
+                "anchor_date": anchor_date,
+                "reported_receivable_usd": decimal_text(reported_usd),
+                "combined_gross_brl": decimal_text(total_gross_brl),
+                "usd_nok": usd_fx["rate"],
+                "brl_nok": brl_fx["rate"],
+            },
+        }
+
+    result: list[dict[str, Any]] = []
+    for item in prepared:
+        action = item["action"]
+        holding = item["holding"]
+        gross_brl = item["gross_brl"]
+        calibration_anchor = item["calibration_anchor"]
         factor = Decimal("1")
         quality = "ESTIMATED_GROSS"
         calibration: dict[str, Any] | None = None
-        if calibration_anchor is not None and gross_brl != 0:
-            usd_fx = _nearest_fx(connection, "USD", calibration_anchor["as_of_date"])
-            brl_fx = _nearest_fx(connection, "BRL", calibration_anchor["as_of_date"])
-            if usd_fx is not None and brl_fx is not None:
-                reported_usd = Decimal(calibration_anchor["associated_receivable_reported"])
-                reported_nok = reported_usd * Decimal(usd_fx["rate"])
-                gross_nok = gross_brl * Decimal(brl_fx["rate"])
-                if gross_nok != 0:
-                    factor = reported_nok / gross_nok
-                    quality = "REPORTED_CALIBRATED"
-                    calibration = {
-                        "anchor_id": calibration_anchor["id"],
-                        "anchor_date": calibration_anchor["as_of_date"],
-                        "reported_receivable_usd": decimal_text(reported_usd),
-                        "usd_nok": usd_fx["rate"],
-                        "brl_nok": brl_fx["rate"],
-                    }
+        if calibration_anchor is not None:
+            calibrated = calibration_by_anchor.get(int(calibration_anchor["id"]))
+            if calibrated is not None:
+                factor = calibrated["factor"]
+                quality = "REPORTED_CALIBRATED"
+                calibration = calibrated["metadata"]
 
         result.append(
             {
@@ -187,6 +231,7 @@ def _receivable_actions(connection) -> list[dict[str, Any]]:
                 "ex_date": action["ex_date"],
                 "payment_date": action["payment_date"],
                 "amount_per_share": action["amount_per_share"],
+                "component_group": action["component_group"],
                 "holding_id": holding["id"],
                 "holding_shares": int(holding["shares"]),
                 "gross_brl": gross_brl,
@@ -225,6 +270,7 @@ def _receivable_for_day(connection, current_iso: str, actions: list[dict[str, An
                 "action_type": action["action_type"],
                 "ex_date": action["ex_date"],
                 "payment_date": action["payment_date"],
+                "component_group": action["component_group"],
                 "holding_id": action["holding_id"],
                 "holding_shares": action["holding_shares"],
                 "gross_brl": decimal_text(action["gross_brl"]),
