@@ -1,0 +1,32 @@
+name: NewsWeb 2021 tender ID diagnostic
+
+on:
+  push:
+    branches: [phase-9-4-full-newsweb-history-clean]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Inspect May 2021 tender messages
+        working-directory: backend
+        run: |
+          PYTHONPATH=. python - <<'PY'
+          from app.newsweb.client import fetch_message
+          for mid in (532327, 532648):
+              try:
+                  msg = fetch_message(mid, timeout=45)
+              except Exception as exc:
+                  print("MESSAGE", mid, "ERROR", repr(exc))
+                  continue
+              print("MESSAGE", mid, msg.published_at, msg.title)
+              print(" ".join(msg.body.split())[:3000])
+              print("---")
+          PY
