@@ -2,9 +2,9 @@
 
 Sist oppdatert: **17.08.2026**
 
-## Nåværende fase – Phase 14/15: Cloudflare-native produksjon
+## Nåværende fase – Phase 15: D1 og Worker-migrering
 
-Kjernemodellen og live-feedene er ferdige. Produksjonsmålet er nå spesifikt **Cloudflare**.
+Kjernemodellen og live-feedene er ferdige. Produksjonsmålet er **Cloudflare-native**.
 
 ### 14.1 – Lett OTEC-feed
 
@@ -34,47 +34,61 @@ Status: **Ferdig og CI-validert**
 
 ### 14.4 – Generisk cloud-grunnlag
 
-Status: **Erstattes som produksjonsmål av 14.5**
+Status: **Erstattet som produksjonsmål av 14.5**
 
-Det generiske VM/Docker-oppsettet var nyttig for å skille prosjektet fra lokal maskinvare, men er ikke riktig sluttdesign når valgt leverandør er Cloudflare.
-
-Docker Compose beholdes som lokal/regresjonsreferanse under migreringen.
+Docker Compose beholdes som lokal/regresjonsreferanse under Cloudflare-migreringen.
 
 ### 14.5 – Cloudflare-native målarkitektur
 
-Status: **Pågår**
+Status: **Ferdig som arkitekturvalg**
 
 - [x] Cloudflare valgt som produksjonsplattform
+- [x] Python Workers + FastAPI valgt for API/forretningslogikk
 - [x] Workers Static Assets valgt for React/Vite
 - [x] D1 valgt som autoritativ produksjonsdatabase
 - [x] R2 valgt for PDF/råkilder/arkiv
 - [x] Cron Triggers valgt for fast refresh
 - [x] Workflows/scheduled jobs valgt for tyngre refresh/retries
-- [x] Cloudflare Containers avvist som autoritativ SQLite-disk pga ephemeral disk
-- [x] generic persistent-disk production env fjernes
+- [x] Cloudflare Containers avvist som autoritativ SQLite-disk
 - [x] Cloudflare deploy/runbook dokumentert
-- [ ] opprett faktisk Workers/Wrangler-prosjekt
-- [ ] opprett D1 database/bindings
-- [ ] opprett R2 bucket/binding
-- [ ] koble GitHub/Cloudflare deploy
+- [ ] opprett faktiske D1/R2/Worker-ressurser – gjøres når migreringen er klar for remote deploy
+- [ ] koble GitHub/Cloudflare deploy – go-live-fase
 
 ## Phase 15 – D1 og Worker-migrering
 
-### 15.1 – D1 schema
+### 15.1 – D1 schema og structural parity
 
-- [ ] konverter dagens SQLite migrations til D1-kompatible migrations
-- [ ] bevare tabell-/feltsemantikk og finansielle constraints
-- [ ] lage schema parity-test
+Status: **Ferdig og CI-validert**
+
+- [x] konsolidert D1-schema genereres deterministisk fra fullt migrert SQLite-referanse
+- [x] `schema_migrations` holdes utenfor fordi Wrangler/D1 fører migreringshistorikken
+- [x] alle tabeller og endelige felt fra migrasjon 0001–0016 er med
+- [x] foreign keys, delete/update-regler og constraints er bevart
+- [x] eksplisitte/partial/unique indekser er bevart
+- [x] NewsWeb/buyback-triggerne er bevart
+- [x] separat D1-migrering for stabile sources/instruments
+- [x] schema drift-check i CI
+- [x] parity-tester for tabeller, kolonner, foreign keys, indekser og triggere
+- [x] lokal Wrangler D1 kjører begge migrations uten feil
+- [x] `PRAGMA foreign_key_check` er tom etter migrering
+- [x] 12 sources og 2 instrumenter seeds i lokal D1
+- [x] backend-regresjonspakken passerer med D1 parity-testene inkludert
+
+Dokumentasjon: `docs/d1-migration.md`.
 
 ### 15.2 – Historisk bootstrap til D1
 
-- [ ] eksportere validert SQLite-referansedatabase til importformat
+Status: **Neste**
+
+- [ ] eksportere validert SQLite-referansedatabase til D1-importformat
 - [ ] importere historiske OTEC/BMOB3/FX/cash/buyback/NAV-data
 - [ ] verifisere row counts og kontrollsummer/nøkkeltall
+- [ ] verifisere CORE/FULL NAV og buyback-output mot referanse
+- [ ] lage repeterbar bootstrap uten å være avhengig av en lokal produksjons-DB
 
-### 15.3 – Worker API
+### 15.3 – Worker API og D1 repository
 
-- [ ] Cloudflare Worker med eksisterende dashboard API-kontrakter
+- [ ] Cloudflare Python Worker/FastAPI med eksisterende dashboard API-kontrakter
 - [ ] D1 repository/data-access-lag
 - [ ] summary/history/forecast parity mot referansebackend
 - [ ] React static assets på samme Worker/custom domain
@@ -104,11 +118,11 @@ Status: **Pågår**
 
 ### 15.7 – Cloudflare go-live
 
-- [ ] Workers Paid/limits verifisert mot reell CPU-bruk
+- [ ] Workers plan/limits verifisert mot reell CPU-bruk
 - [ ] Cloudflare secrets
 - [ ] GitHub → Cloudflare auto-deploy
 - [ ] custom domain og HTTPS
-- [ ] D1 Time Travel/restore test
+- [ ] D1 restore/Time Travel-test
 - [ ] observability/logging
 - [ ] end-to-end preflight
 
