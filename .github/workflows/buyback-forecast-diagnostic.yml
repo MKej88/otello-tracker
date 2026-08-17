@@ -25,5 +25,22 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run forecast unit tests
         run: PYTHONPATH=. pytest -q tests/test_buyback_forecast.py
+      - name: Validate previous-day Euronext trade volume
+        run: |
+          PYTHONPATH=. python - <<'PY'
+          from collections import defaultdict
+          from decimal import Decimal
+          from app.marketdata.euronext_delayed import download_euronext_delayed_equities, parse_euronext_delayed_trades
+
+          url, payload = download_euronext_delayed_equities("PREVIOUS_TRADING_DAY")
+          totals = defaultdict(lambda: Decimal("0"))
+          for trade in parse_euronext_delayed_trades(payload):
+              totals[trade.trading_date] += trade.quantity
+          print({key: str(value) for key, value in sorted(totals.items())})
+          assert totals["2026-08-14"] == Decimal("24952"), (
+              f"Euronext delayed trade sum {totals['2026-08-14']} does not reconcile "
+              "to official historical Number of Shares 24952 for 2026-08-14"
+          )
+          PY
       - name: Run regime-sensitive buyback forecast backtest
         run: PYTHONPATH=. python -m app.jobs.backtest_buyback_forecast_v2 --to 2026-08-14
