@@ -28,7 +28,7 @@ from app.nav import (
     full_nav_status,
     other_net_assets_status,
     rebuild_core_nav_anchors,
-    rebuild_daily_cash,
+    rebuild_daily_cash_if_changed,
     rebuild_daily_core_nav,
     rebuild_daily_full_nav,
     rebuild_daily_other_net_assets,
@@ -229,10 +229,13 @@ def run_refresh(
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
     )
-    # The daily full refresh intentionally performs one deterministic complete rebuild.
-    # Thirty-minute fast cycles use a dirty-check wrapper instead.
+    # Daily maintenance intentionally performs one deterministic complete cash rebuild,
+    # but routes it through the dirty-state wrapper so subsequent 30-minute cycles know
+    # that the just-rebuilt inputs/horizon are current and do not repeat the full rewrite.
     steps["daily_cash"] = _safe_step(
-        "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
+        "daily_cash",
+        lambda: rebuild_daily_cash_if_changed(database_path, end_date=end, force=True),
+        errors,
     )
     steps["daily_nav"] = _safe_step(
         "daily_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
