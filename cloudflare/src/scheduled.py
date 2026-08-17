@@ -2,18 +2,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .newsweb_buybacks import collect_newsweb_buybacks
+    from .newsweb_ingestion import collect_newsweb_history
     from .otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
     from .repository import D1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from newsweb_buybacks import collect_newsweb_buybacks
+    from newsweb_ingestion import collect_newsweb_history
     from otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
     from repository import D1WriteRepository
 
 FAST_REFRESH_CRON = "*/30 * * * *"
 JOB_NAME = "cloudflare_fast_refresh"
+OSLO_TZ = ZoneInfo("Europe/Oslo")
 
 
 def _scheduled_datetime(scheduled_time_ms: Any | None) -> datetime:
@@ -62,12 +68,38 @@ async def _safe_async_step(
         return None
 
 
+def _append_nested_errors(
+    step: str,
+    result: Any,
+    *,
+    errors: list[dict[str, str]],
+) -> None:
+    if not isinstance(result, dict):
+        return
+    nested = result.get("errors")
+    if not isinstance(nested, list):
+        return
+    for item in nested:
+        if not isinstance(item, dict):
+            continue
+        message_id = item.get("message_id")
+        detail = str(item.get("error") or "ukjent NewsWeb-feil")[:800]
+        prefix = f"messageId={message_id}: " if message_id is not None else ""
+        errors.append(
+            {
+                "step": step,
+                "error": (prefix + detail)[:1000],
+                "error_type": "NewsWebItemError",
+            }
+        )
+
+
 async def run_fast_refresh(
     database: Any,
     *,
     scheduled_time_ms: Any | None = None,
 ) -> dict[str, Any]:
-    """Run bounded 30-minute market ingestion and persist an auditable D1 job record."""
+    """Run bounded 30-minute ingestion and persist an auditable D1 job record."""
     repository = D1WriteRepository(database)
     scheduled_at = _scheduled_datetime(scheduled_time_ms)
     started_at = _scheduled_iso(scheduled_time_ms)
@@ -77,7 +109,7 @@ async def run_fast_refresh(
         metadata={
             "trigger": "cloudflare_cron",
             "cron": FAST_REFRESH_CRON,
-            "phase": "15.4.3",
+            "phase": "15.4.4",
         },
     )
 
@@ -137,7 +169,28 @@ async def run_fast_refresh(
         if isinstance(bmob3, dict) and bmob3.get("status") == "ok":
             records_written += 1
 
-    attempted_sources = 2
+    newsweb_date = scheduled_at.astimezone(OSLO_TZ).date().isoformat()
+    news_history = await _safe_async_step(
+        "newsweb_history",
+        lambda: collect_newsweb_history(repository, to_date=newsweb_date),
+        steps=steps,
+        errors=errors,
+    )
+    _append_nested_errors("newsweb_history", news_history, errors=errors)
+    if isinstance(news_history, dict):
+        records_written += int(news_history.get("archived") or 0)
+
+    news_buybacks = await _safe_async_step(
+        "newsweb_buybacks",
+        lambda: collect_newsweb_buybacks(repository, to_date=newsweb_date),
+        steps=steps,
+        errors=errors,
+    )
+    _append_nested_errors("newsweb_buybacks", news_buybacks, errors=errors)
+    if isinstance(news_buybacks, dict):
+        records_written += int(news_buybacks.get("ingested") or 0)
+
+    attempted_sources = 3
     failed_sources = len({item["step"].split("_")[0] for item in errors})
     if errors and failed_sources >= attempted_sources:
         status = "FAILED"
@@ -146,12 +199,12 @@ async def run_fast_refresh(
     else:
         status = "SUCCESS"
 
-    error_message = "; ".join(item["error"] for item in errors) or None
+    error_message = "; ".join(item["error"] for item in errors)[:4000] or None
     metadata = {
-        "phase": "15.4.3",
+        "phase": "15.4.4",
         "steps": steps,
         "source_errors": errors,
-        "pending_fast_paths": ["NEWSWEB", "DIRTY_NAV"],
+        "pending_fast_paths": ["DIRTY_NAV"],
     }
     await repository.finish_job(
         job_id,
