@@ -9,7 +9,7 @@ from app.db.connection import get_connection
 from app.db.repository import decimal_text
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 
-FULL_CALCULATION_VERSION = "full-market-nav-daily-v1"
+FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -41,7 +41,9 @@ def rebuild_daily_full_nav(
                    n.inputs_hash AS core_inputs_hash, n.components_json AS core_components_json,
                    o.rowid AS ona_daily_id, o.amount_usd, o.usd_nok_rate,
                    o.amount_nok AS ona_nok, o.quality AS ona_quality,
-                   o.inputs_hash AS ona_inputs_hash
+                   o.base_amount_usd, o.base_amount_nok,
+                   o.associated_receivable_nok, o.receivable_quality,
+                   o.receivable_components_json, o.inputs_hash AS ona_inputs_hash
             FROM nav_snapshots n
             JOIN other_net_assets_daily_estimates o
               ON o.estimate_date = substr(n.as_of_at, 1, 10)
@@ -63,8 +65,13 @@ def rebuild_daily_full_nav(
                 if otec_price is not None and full_per_share != 0
                 else None
             )
-            degraded = row["core_status"] == "DEGRADED" or row["ona_quality"] == "FORECAST_PARTIAL"
+            degraded = (
+                row["core_status"] == "DEGRADED"
+                or row["ona_quality"] == "FORECAST_PARTIAL"
+                or row["receivable_quality"] == "ESTIMATED_GROSS"
+            )
             status = "DEGRADED" if degraded else "BACKFILLED"
+            receivable_components = json.loads(row["receivable_components_json"] or "[]")
             components = {
                 "scope": "FULL",
                 "core_snapshot_id": row["core_snapshot_id"],
@@ -72,20 +79,28 @@ def rebuild_daily_full_nav(
                 "core_inputs_hash": row["core_inputs_hash"],
                 "other_net_assets": {
                     "daily_estimate_id": row["ona_daily_id"],
-                    "amount_usd": row["amount_usd"],
+                    "amount_usd_equivalent": row["amount_usd"],
                     "usd_nok": row["usd_nok_rate"],
                     "amount_nok": row["ona_nok"],
+                    "base_amount_usd": row["base_amount_usd"],
+                    "base_amount_nok": row["base_amount_nok"],
+                    "associated_receivable_nok": row["associated_receivable_nok"],
+                    "receivable_quality": row["receivable_quality"],
+                    "receivable_components": receivable_components,
                     "quality": row["ona_quality"],
                     "inputs_hash": row["ona_inputs_hash"],
                 },
             }
             inputs_hash = _hash(components)
             quality_notes = (
-                "FULL NAV = stored CORE NAV + other net assets/liabilities derived from consolidated reports. "
-                "ONA is interpolated in USD between report anchors and converted with daily USD/NOK."
+                "FULL NAV = stored CORE NAV + receivable-aware other net assets/liabilities. "
+                "Base ONA is interpolated in USD between report anchors. Bemobi distribution receivables "
+                "are valued separately from entitlement/ex-date until payment and then removed as cash receives the distribution."
             )
             if row["ona_quality"] == "FORECAST_PARTIAL":
-                quality_notes += " ONA is carried forward after the latest report and is therefore partial forecast data."
+                quality_notes += " Base ONA is carried forward after the latest report and is therefore partial forecast data."
+            if row["receivable_quality"] == "ESTIMATED_GROSS":
+                quality_notes += " At least one active Bemobi receivable is gross-estimated because no report-date receivable anchor exists inside its lifecycle."
 
             connection.execute(
                 """

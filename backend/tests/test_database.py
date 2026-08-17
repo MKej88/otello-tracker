@@ -18,11 +18,11 @@ from app.settings import settings
 def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     database_path = str(tmp_path / "otello.db")
 
-    assert init_database(database_path) == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011"]
+    assert init_database(database_path) == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012"]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0011"
+    assert status["latest_migration"] == "0012"
     assert status["table_counts"]["sources"] == 11
     assert status["table_counts"]["instruments"] == 2
     assert status["table_counts"]["company_news"] == 0
@@ -51,6 +51,15 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
 
         ona_columns = {row["name"] for row in connection.execute("PRAGMA table_info(other_net_assets_anchors)")}
         assert {"reported_anchor_id", "amount_usd", "fx_rate_to_nok", "quality", "inputs_hash"} <= ona_columns
+
+        reported_ona_columns = {row["name"] for row in connection.execute("PRAGMA table_info(other_net_assets_reported_anchors)")}
+        assert {"associated_receivable_reported", "base_other_net_assets_reported"} <= reported_ona_columns
+
+        daily_ona_columns = {row["name"] for row in connection.execute("PRAGMA table_info(other_net_assets_daily_estimates)")}
+        assert {
+            "base_amount_usd", "base_amount_nok", "associated_receivable_nok",
+            "receivable_quality", "receivable_components_json",
+        } <= daily_ona_columns
 
         market_columns = {row["name"] for row in connection.execute("PRAGMA table_info(market_prices)")}
         assert {"quality", "metadata_json"} <= market_columns
@@ -148,7 +157,7 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0011"
+            assert payload["latest_migration"] == "0012"
             assert payload["table_counts"]["sources"] == 11
             assert payload["table_counts"]["company_news"] == 0
     finally:
