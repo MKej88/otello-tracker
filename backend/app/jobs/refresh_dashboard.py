@@ -124,14 +124,12 @@ def run_refresh(
     else:
         steps["buybacks"] = {"skipped": True}
 
-    # Rebuild from persisted inputs even when an upstream provider was temporarily down.
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
     )
     steps["daily_cash"] = _safe_step(
         "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
     )
-    # Preserve the Phase 8 public step name for backwards compatibility.
     steps["daily_nav"] = _safe_step(
         "daily_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors
     )
@@ -150,7 +148,7 @@ def run_refresh(
     status = "ok"
     if not summary.get("ready"):
         status = "not_ready"
-    elif errors or stale["stale"] or summary.get("data_status") == "DEGRADED":
+    elif errors or stale["stale"] or summary.get("data_status") in {"DEGRADED", "ESTIMATED"}:
         status = "degraded"
 
     return {
