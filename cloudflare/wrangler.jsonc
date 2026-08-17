@@ -4,6 +4,9 @@
   "main": "src/entry.py",
   "compatibility_date": "2026-08-17",
   "compatibility_flags": ["python_workers"],
+  "triggers": {
+    "crons": ["*/30 * * * *"]
+  },
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
