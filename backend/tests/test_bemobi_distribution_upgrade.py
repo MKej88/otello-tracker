@@ -39,8 +39,8 @@ def test_legacy_mixed_distribution_is_upgraded_without_duplicate(tmp_path) -> No
     with get_connection(database) as connection:
         rows = connection.execute(
             """
-            SELECT id, action_type, external_action_id, component_group,
-                   gross_total_amount, source_document_id
+            SELECT ca.id, ca.action_type, ca.external_action_id, ca.component_group,
+                   ca.gross_total_amount, ca.source_document_id
             FROM corporate_actions ca
             JOIN instruments i ON i.id = ca.issuer_instrument_id
             WHERE i.symbol = 'BMOB3'
