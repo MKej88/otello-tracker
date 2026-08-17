@@ -60,7 +60,7 @@ Status: **Ferdig og live-validert**
 - [x] daglig Bemobi-markedsverdi
 - [x] daglig CORE NAV/aksje
 - [x] daglig OTEC-rabatt
-- [x] eksplisitt BACKFILLED/DEGRADED/FORECAST_PARTIAL-kvalitet
+- [x] eksplisitt BACKFILLED/ESTIMATED/DEGRADED/FORECAST_PARTIAL-kvalitet
 - [x] historiske residualdiagnoser
 - [x] etter fase 6.4: ingen halvårsperioder står igjen som HIGH_RESIDUAL
 
@@ -92,7 +92,7 @@ Status: **Ferdig og merget**
 - [x] SVG-graf for historisk NAV-rabatt og gjennomsnitt
 - [x] siste buyback og treasury shares i dashboardet
 - [x] Bemobi-eksponering fra databasen
-- [x] tydelig FORECAST_PARTIAL-varsel for post-anchor cash
+- [x] tydelig ESTIMATED/DEGRADED-status
 - [x] `not_ready` på tom database i stedet for demo/falske tall
 - [x] backend- og frontend-CI grønn
 
@@ -115,7 +115,7 @@ Status: **Ferdig og merget**
 
 ## Fase 9 – FULL NAV
 
-Status: **Kode ferdig – CI grønn, klar for merge/live-backfill**
+Status: **Ferdig og merget**
 
 - [x] separat rapporttabell for øvrige nettoeiendeler/-forpliktelser (ONA)
 - [x] rapportformel: total assets − cash − Bemobi carrying value − total liabilities
@@ -128,20 +128,66 @@ Status: **Kode ferdig – CI grønn, klar for merge/live-backfill**
 - [x] post-FY25 ONA markeres `FORECAST_PARTIAL`
 - [x] separat `FULL` NAV-serie; CORE-serien overskrives aldri
 - [x] invariant-test: FULL NAV = CORE NAV + ONA
-- [x] dashboard foretrekker FULL når serien finnes og faller ellers tilbake til CORE
 - [x] `/api/nav/other-net-assets` og `/api/nav/full`
 - [x] refresh-pipelinen bygger CORE → ONA → FULL i riktig rekkefølge
-- [x] frontend viser CORE/FULL scope og ONA i modellstatus
 - [x] ingen FULL-historikk før 30.06.2022 uten dokumentert ONA
-- [ ] kjøre FULL NAV live mot komplett produksjons-/backfilldatabase
-- [ ] rekonstruere 2021 transaksjonsbalanser dersom FULL NAV ønskes helt tilbake til Bemobi-IPO
+
+### Fase 9.1 – Receivable-aware FULL NAV
+
+Status: **Ferdig og merget**
+
+- [x] Bemobi-utbyttefordringer skilles fra base ONA
+- [x] fordring oppstår fra rettighets-/ex-dato og faller bort på betalingsdato
+- [x] 31.12.2023 avstemmes mot rapportert associated-company receivable USD 3,237m
+- [x] 31.12.2024 avstemmes mot USD 3,452m
+- [x] ikke-kalibrerte korte fordringer merkes ESTIMATED_GROSS
+- [x] regresjonstester mot dobbelttelling fordring → cash
+
+### Fase 9.2 – Integrity & security hardening
+
+Status: **Ferdig og merget**
+
+- [x] FULL brukes bare når den er like fersk som CORE
+- [x] svakere buyback-kilder kan ikke overskrive sterkere offisielle fakta
+- [x] buyback-uker som krysser cash-anker håndteres konservativt uten dobbelttelling
+- [x] robust lokalisert Investing CSV-parser + plausibilitetskontroll
+- [x] BACKFILLED/ESTIMATED/DEGRADED propageres gjennom NAV
+- [x] share-count staleness vurderes uavhengig av cash
+- [x] API-porten eksponeres ikke direkte fra Docker
+- [x] News/MFN-tid bruker Europe/Oslo DST
+- [x] source-document refresh bevarer provenance og oppdaterer hash/metadata
+- [x] regresjonstester for integritetsfunnene
+
+### Fase 9.3 – Oslo Børs NewsWeb originalkilde og daglige buybacks
+
+Status: **Implementert og live-validert på feature branch**
+
+- [x] reverse-engineeret NewsWeb sin offentlige server-side API-kontrakt fra egen webapp
+- [x] direkte OTEC-discovery via `/v1/newsreader/list`, issuerId `7759`
+- [x] original melding via `/v1/newsreader/message?messageId=...`
+- [x] PDF-vedlegg via `/v1/newsreader/attachment?messageId=...&attachmentId=...`
+- [x] NEWSWEB registreres som offisiell EXCHANGE-kilde
+- [x] strict OTEC/XOSL-validering før lagring
+- [x] transaksjons-PDF parses deterministisk på handelslinjenivå
+- [x] hver handel avstemmes antall × kurs = beløp
+- [x] daglige summer avstemmes mot ExecBuy, ukens aksjer, beløp og VWAP
+- [x] små dokumenterte avrundings-/kildeavvik merkes RECONCILED; større avvik stopper import
+- [x] daglige buybacks lagres separat med attachment-ID, hash og provenance
+- [x] cash bruker `OTELLO_BUYBACK_DAILY` på faktiske handelsdatoer der vedlegg finnes
+- [x] ukentlig cash-summary fjernes først etter validert daglig detalj
+- [x] manglende transaksjons-PDF beholder Phase 9.2-fallbacken
+- [x] live-validert melding 678028: fem handelsdager, totalt 65 300 aksjer
+- [x] live-validert historisk tilfelle med immateriell beløpsdifferanse som RECONCILED
+- [x] PDF-er lagres ikke permanent; kun nødvendige avledede fakta/hash/provenance
+- [x] backend unit tests og live NewsWeb-smoke grønne
+- [ ] ordinær PR-CI + merge til main
 
 ## Neste prioriteringer
 
-1. Kjør Phase 9 FULL NAV live mot den komplette historiske databasen og avstem CORE/FULL-differansen.
+1. Merge Fase 9.3 etter ordinær CI.
 2. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
 3. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
-4. Bygg Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
-5. Bygg Bemobi broker-consensus tracker før Q3.
+4. Fase 10: Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
+5. Bemobi broker-consensus tracker før Q3.
 6. E-postrapporter og varsler.
 7. Raspberry Pi + Cloudflare Tunnel/Access deployment.
