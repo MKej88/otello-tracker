@@ -136,7 +136,9 @@ def test_cvm_archive_parser_uses_official_columns_and_filters_bemobi() -> None:
     assert categories["ma-1"] == ("M_AND_A", False)
     assert categories["buyback-1"] == ("BUYBACK", False)
     assert categories["jcp-notice-v2"] == ("JCP", True)
-    assert categories["board-jcp-1"] == ("JCP", False)
+    # Governance minutes stay conservatively CORPORATE. The separate shareholder notice
+    # carries the explicit payout classification and review flag.
+    assert categories["board-jcp-1"] == ("CORPORATE", False)
 
 
 def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeypatch) -> None:
@@ -157,7 +159,8 @@ def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeyp
     assert result["requires_review"] == 1
     assert result["categories"] == {
         "BUYBACK": 1,
-        "JCP": 2,
+        "CORPORATE": 1,
+        "JCP": 1,
         "M_AND_A": 1,
         "RESULTS": 1,
     }
@@ -174,7 +177,7 @@ def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeyp
     latest = list_bemobi_news(database, limit=20)
     assert latest["count"] == 5
     assert all(item["is_latest_version"] for item in latest["items"])
-    assert len([item for item in latest["items"] if item["category"] == "JCP"]) == 2
+    assert len([item for item in latest["items"] if item["category"] == "JCP"]) == 1
 
     all_versions = list_bemobi_news(database, limit=20, include_superseded=True)
     assert all_versions["count"] == 6
