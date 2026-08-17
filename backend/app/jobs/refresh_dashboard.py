@@ -31,6 +31,11 @@ from app.nav import (
     rebuild_daily_other_net_assets,
     rebuild_other_net_assets_anchors,
 )
+from app.newsweb import (
+    collect_newsweb_buybacks,
+    newsweb_buyback_status,
+    sync_newsweb_daily_buyback_cash,
+)
 from app.settings import settings
 
 
@@ -68,6 +73,11 @@ def run_refresh(
     later model layers, so a temporary upstream outage degrades the result rather than
     destroying the dashboard. FULL NAV remains a separate snapshot series and never
     overwrites CORE.
+
+    Buybacks use two layers: the older Euronext/MFN collector remains a resilient
+    secondary source for weekly status facts, while official Oslo Børs NewsWeb is queried
+    directly for original messages and transaction attachments. Where NewsWeb daily
+    transactions reconcile to the weekly status, they replace the weekly cash timing.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -118,11 +128,33 @@ def run_refresh(
         steps["otec_investing"] = _safe_step("otec_investing", update_otec_investing, errors)
 
     if fetch_buybacks:
+        # Secondary weekly source first. NewsWeb is then authoritative for attachment-level
+        # timing and its cash sync removes a weekly cash summary only after reconciliation.
         steps["buybacks"] = _safe_step(
             "buybacks", lambda: collect_recent_buybacks(database_path), errors
         )
+        newsweb_result = _safe_step(
+            "newsweb_buybacks",
+            lambda: collect_newsweb_buybacks(database_path, to_date=end),
+            errors,
+        )
+        steps["newsweb_buybacks"] = newsweb_result
+        if isinstance(newsweb_result, dict) and newsweb_result.get("errors"):
+            errors.append(
+                {
+                    "step": "newsweb_buybacks_partial",
+                    "error": json.dumps(newsweb_result["errors"], ensure_ascii=False, default=str),
+                }
+            )
+        steps["newsweb_buyback_cash"] = _safe_step(
+            "newsweb_buyback_cash",
+            lambda: sync_newsweb_daily_buyback_cash(database_path),
+            errors,
+        )
     else:
         steps["buybacks"] = {"skipped": True}
+        steps["newsweb_buybacks"] = {"skipped": True}
+        steps["newsweb_buyback_cash"] = {"skipped": True}
 
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
@@ -159,6 +191,7 @@ def run_refresh(
         "staleness": stale,
         "market_data": market_data_status(database_path),
         "buyback_status": buyback_status(database_path),
+        "newsweb_buyback_status": newsweb_buyback_status(database_path),
         "cash_status": daily_cash_status(database_path),
         "core_nav_status": daily_nav_status(database_path),
         "other_net_assets_status": other_net_assets_status(database_path),
