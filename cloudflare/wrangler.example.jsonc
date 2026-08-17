@@ -2,9 +2,10 @@
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "otello-tracker",
   "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["python_workers"],
 
-  // Final Worker entrypoint is added in Phase 15 after the D1 adapter exists.
-  "main": "src/index.ts",
+  // Final Python Worker/FastAPI entrypoint is added in Phase 15 after the D1 adapter exists.
+  "main": "src/entry.py",
 
   "assets": {
     "directory": "../frontend/dist",
