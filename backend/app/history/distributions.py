@@ -168,13 +168,18 @@ def _sync_withholding_adjustments(connection) -> dict[str, int]:
         if tax_per_share <= 0:
             continue
 
+        # The tax policy is still active even if this particular refresh temporarily
+        # lacks the historical holding or FX row needed to recompute the NOK amount.
+        # Mark it active before those lookups so a transient data gap never deletes a
+        # previously valid, persisted adjustment as "stale".
+        external_movement_id = f"bemobi-withholding:{action['external_action_id']}"
+        active_ids.add(external_movement_id)
+
         holding = _holding(connection, action["ex_date"])
         fx = _nearest_brl_nok(connection, action["payment_date"])
         if holding is None or fx is None:
             continue
 
-        external_movement_id = f"bemobi-withholding:{action['external_action_id']}"
-        active_ids.add(external_movement_id)
         amount_original = -(tax_per_share * Decimal(holding["shares"]))
         fx_rate = Decimal(fx["rate"])
         amount_nok = amount_original * fx_rate
