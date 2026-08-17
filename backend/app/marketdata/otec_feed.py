@@ -175,9 +175,10 @@ def finalize_otec_eod_from_payload(
     """Persist the final OTEC trade for a completed session without calling it CLOSE.
 
     The free MiFID delayed trade files expose transactions, not Euronext's official
-    valuation/closing-price field. The final trade is therefore stored as LAST with
-    EOD_LAST_TRADE quality. This keeps the data model honest and allows a future EWS
-    closPx source to outrank it simply by writing a same-day CLOSE row.
+    valuation/closing-price field. The final trade is therefore stored as a direct LAST.
+    EOD_LAST_TRADE is kept as feed semantics in metadata, while market_prices.quality
+    remains DIRECT because this is an original exchange transaction. A future EWS
+    closPx source can outrank it simply by writing a same-day CLOSE row.
     """
     trades = parse_euronext_delayed_trades(payload)
     latest = _latest_trade_for_date(trades, target_date)
@@ -225,7 +226,7 @@ def finalize_otec_eod_from_payload(
             currency=latest.currency,
             source_code="EURONEXT",
             source_document_id=document_id,
-            quality="EOD_LAST_TRADE",
+            quality="DIRECT",
             metadata={
                 **metadata,
                 "trade_unique_identifier": latest.trade_unique_identifier,
@@ -241,7 +242,8 @@ def finalize_otec_eod_from_payload(
         "target_date": target_date,
         "price_id": price_id,
         "price_type": "LAST",
-        "quality": "EOD_LAST_TRADE",
+        "quality": "DIRECT",
+        "price_semantics": "EOD_LAST_TRADE",
         "price_nok": str(latest.price),
         "trading_datetime": latest.trading_datetime,
         "publication_datetime": latest.publication_datetime,
