@@ -1,179 +1,144 @@
-# Cloud deployment
+# Cloudflare deployment
 
-Otello-trackeren er nå lagt opp som en **cloud-first Docker-applikasjon**. Standard produksjonsarkitektur er én cloud-host/container-host med Docker Compose og en persistent disk. Dette bevarer den eksisterende FastAPI + scheduler + SQLite-arkitekturen uten unødvendig migrering av datamodellen.
+Otello-trackeren skal hostes **direkte på Cloudflare-plattformen**, ikke på en generell cloud-VM bak Cloudflare.
 
-## Arkitektur
-
-```text
-Internet
-  |
-  v
-Cloud edge / HTTPS reverse proxy
-  |
-  v
-web (Nginx + React)  <--- eneste offentlige app-port
-  |
-  | /api/* på privat Docker-nett
-  v
-api (FastAPI)  -------- scheduler
-      |                    |
-      +--------+-----------+
-               v
-        persistent /data
-        SQLite + backups
-```
-
-Viktige forutsetninger:
-
-- `api` og `scheduler` skal bruke **samme persistente disk**;
-- `/data` må ligge på varig cloud storage, ikke containerens ephemeral filesystem;
-- bare `web` skal eksponeres eksternt;
-- HTTPS termineres hos cloud-provider, load balancer eller annen edge/reverse proxy;
-- SQLite-oppsettet er laget for én aktiv app-host/region. Ikke horisontalskaler API/scheduler over flere verter med samme SQLite-fil.
-
-## 1. Opprett cloud-host
-
-Bruk en Linux-basert cloud VM/container-host med Docker Engine og Docker Compose. Fest en persistent disk og monter den på for eksempel:
+## Målarkitektur
 
 ```text
-/var/lib/otello
+Browser
+  |
+  v
+Cloudflare Worker + Static Assets
+  |-- React/Vite frontend
+  |-- /api/*
+  |
+  +--> D1              (primær database)
+  +--> R2              (PDF-er, råkilder, eksport/arkiv)
+  +--> Cron Triggers   (fast refresh)
+  +--> Workflows       (tyngre fullrefresh/retries)
+  +--> Secrets Store   (API-nøkler/secrets)
 ```
 
-Katalogen skal overleve deploy, reboot og image-bytte.
+## Hvorfor vi ikke bruker dagens SQLite-fil direkte i Cloudflare Containers
 
-## 2. Klon repo og opprett produksjonsmiljø
+Cloudflare Containers kan kjøre eksisterende Docker-images, men containerdisk er ephemeral. Det er derfor ikke riktig å legge den autoritative `otello.db` på containerens lokale disk.
 
-```bash
-git clone <repo-url>
-cd otello-tracker
-cp .env.production.example .env
-```
+R2 kan mounts som filsystem, men objektlagring er ikke et POSIX/SSD-filsystem og skal ikke brukes som direkte SQLite-disk for denne applikasjonen.
 
-Sett minst:
+Produksjonsdatabasen flyttes derfor til **Cloudflare D1**. D1 er SQLite-basert SQL, men aksesseres gjennom Cloudflare bindings i Worker-runtime og ikke gjennom dagens lokale `sqlite3`-fil.
 
-```env
-APP_ENV=production
-WEB_BIND=0.0.0.0
-WEB_PORT=3000
-DATA_DIR=/var/lib/otello
-DATABASE_PATH=/data/otello.db
-BACKUP_DIR=/data/backups
-CORS_ORIGINS=https://din-endelige-domene.example
-TZ=Europe/Oslo
-```
+## Frontend
 
-Secrets skal ligge i cloud-providerens secret store eller i hostens `.env`, aldri i Git.
+React/Vite beholdes. Produksjon skal serveres som **Workers Static Assets** sammen med Worker-rutene, slik at frontend og API kan bruke samme domene og deploy.
 
-## 3. Persistent data
+Nginx og `frontend/Dockerfile` beholdes foreløpig kun som lokal/regresjonsreferanse mens Cloudflare-migreringen pågår. De er ikke målarkitektur for produksjon.
 
-Opprett katalogene på den persistente disken:
+## Backend/API
 
-```bash
-sudo mkdir -p /var/lib/otello/raw /var/lib/otello/backups
-```
+Cloudflare støtter FastAPI i Python Workers. Dette gjør Python fortsatt til et naturlig språk for API-laget.
 
-`compose.yaml` monterer `${DATA_DIR}` som `/data` i både API og scheduler. Dermed brukes samme SQLite-database og samme backupkatalog av begge tjenester.
+Dagens backend kan likevel ikke deployes uendret fordi store deler av datalaget bruker synkron `sqlite3` mot en lokal fil. Migreringen må derfor skille forretningslogikk fra persistence og lage et D1-basert datalag.
 
-## 4. Bootstrap første produksjonsdatabase
+Målet er å bevare:
 
-Legg validert historisk OTEC-CSV i:
+- NAV-formler og Decimal-logikk;
+- buyback-modellen;
+- kildevalidering/provenance;
+- dashboardets API-kontrakter;
+- eksisterende regresjonstester så langt det er mulig.
+
+## D1
+
+D1 blir autoritativt produksjonslager for strukturerte data:
+
+- instruments / market prices / FX;
+- cash anchors og cash movements;
+- holdings og corporate actions;
+- NAV snapshots og historikk;
+- NewsWeb/CVM metadata;
+- buyback-programmer/transaksjoner;
+- job status/runtime state.
+
+Eksisterende SQL-schema skal konverteres til D1-kompatible migrations. Tabellenes finansielle semantikk skal ikke endres bare fordi lagringsmotoren endres.
+
+## R2
+
+R2 brukes for binære og større kildeobjekter, ikke som SQL-database:
+
+- NewsWeb PDF-er;
+- eventuelle rå CSV/ZIP-filer som skal arkiveres;
+- historiske importfiler;
+- eksport/snapshot som ekstra gjenopprettingslag.
+
+D1 har egen point-in-time recovery/Time Travel. R2 brukes i tillegg for kildearkiv og eksport, ikke som erstatning for D1.
+
+## Scheduler
+
+Dagens langlevende scheduler-container erstattes av Cloudflare scheduling:
+
+### Fast refresh
+
+Cron Trigger:
 
 ```text
-/var/lib/otello/raw/
+*/30 * * * *
 ```
 
-Bygg image:
+Den skal hente lette livekilder:
 
-```bash
-docker compose build
+- OTEC delayed LAST/EOD;
+- BMOB3 delayed LAST/EOD;
+- inkrementell NewsWeb/buyback;
+- dirty-state cash;
+- dagens CORE/FULL NAV.
+
+### Full refresh
+
+Tyngre jobber skal kjøres via Workflow/planlagt jobb slik at kildetrinn kan retries separat:
+
+- ECB;
+- B3 daily/history ved behov;
+- CVM;
+- avstemming/rebuild;
+- preflight/data-health.
+
+Cloudflare Cron kjører i UTC. Oslo-/São Paulo-markedskalendere håndteres derfor eksplisitt i applikasjonslogikken og ikke ved å anta lokal cron-tid.
+
+## Workers-plan
+
+Selve arkitekturen kan utvikles mot Workers Free, men produksjonsjobbene våre parser markedsdata/PDF-er og gjør mer enn en helt enkel edge-request. Free-planen har svært lav CPU-grense per Worker/Cron-invokasjon.
+
+Produksjonsmålet settes derfor til **Workers Paid** med mindre målinger etter migreringen viser at hele jobbløpet trygt holder seg innen Free-grensene. Dette er også nødvendig dersom Cloudflare Containers senere skulle brukes for enkelte isolerte batchjobber.
+
+## Deploy
+
+Endelig deploy skal gå direkte fra GitHub til Cloudflare via Workers Builds eller GitHub Actions/Wrangler.
+
+Målet er:
+
+```text
+push/merge til main
+        ↓
+CI + tester
+        ↓
+Cloudflare build/deploy
+        ↓
+Worker + static assets + D1 migrations
 ```
 
-Kjør bootstrap, eksempel med Investing-exporten som allerede er validert i prosjektet:
+Deploy aktiveres først etter at D1-migreringen og API-kontraktene er verifisert.
 
-```bash
-docker compose run --rm api python -m app.jobs.bootstrap_production \
-  --database /data/otello.db \
-  --otec-investing-csv /data/raw/Otello-Corporation-ASA-Stock-Price-History.csv \
-  --strict
-```
+## Migreringsrekkefølge
 
-Deretter:
+1. Cloudflare/Wrangler-prosjekt og statiske assets.
+2. D1-schema/migrations.
+3. Eksport/import fra eksisterende SQLite-testdatabase til D1.
+4. D1 repository/data-access-lag.
+5. Dashboard read-only API på Worker.
+6. Markedsfeeds og inkrementelle write-jobber.
+7. Cron Triggers/Workflows.
+8. R2 kildearkiv.
+9. Preflight mot D1.
+10. Cloudflare deploy fra `main` og custom domain.
 
-```bash
-docker compose run --rm api python -m app.jobs.preflight \
-  --database /data/otello.db \
-  --strict
-```
-
-Start først tjenestene når preflight ender i `READY`:
-
-```bash
-docker compose up -d
-```
-
-## 5. Nettverk og HTTPS
-
-Web-containeren lytter på `${WEB_PORT}`. Cloud-oppsettet skal plassere HTTPS foran denne porten via providerens load balancer/reverse proxy eller tilsvarende edge.
-
-API-port 8000 skal **ikke** publiseres. Nginx sender `/api/*` internt til `api:8000` på Docker-nettverket.
-
-Anbefalt firewall-prinsipp:
-
-- åpne bare administrasjonstilgang som faktisk trengs;
-- eksponer web-porten bare til cloud edge/load balancer når plattformen støtter det;
-- ikke eksponer SQLite, scheduler eller FastAPI direkte til internett.
-
-## 6. Scheduler
-
-Produksjonen kjører:
-
-- fast refresh hvert 30. minutt;
-- full refresh én gang per døgn;
-- verifisert SQLite-backup én gang per døgn.
-
-Jobbresultater lagres i `job_runs`. Se `docs/production-scheduler.md`.
-
-## 7. Backup i cloud
-
-Applikasjonen lager daglige verifiserte SQLite-snapshots i `/data/backups`. Dette beskytter mot logiske/databasefeil, men er **ikke alene en full cloud-backup** dersom hele disken forsvinner.
-
-Produksjonsoppsettet skal derfor i tillegg bruke minst én off-host mekanisme, for eksempel:
-
-- provider-snapshot av persistent disk; eller
-- kopi av verifiserte backupfiler til ekstern/object storage.
-
-Automatisk object-storage-opplasting er ikke implementert i repoet ennå. Det bør legges til når endelig cloud-provider er valgt, slik at credentials, retention og restore-prosess kan tilpasses riktig.
-
-## 8. Deploy og oppdatering
-
-Normal oppdatering på cloud-hosten:
-
-```bash
-git pull
-docker compose build
-docker compose up -d
-```
-
-Etter større database-/modellendringer:
-
-```bash
-docker compose run --rm api python -m app.jobs.preflight \
-  --database /data/otello.db \
-  --strict
-```
-
-## 9. Produksjonskrav
-
-Før cloud-instansen regnes som driftsklar:
-
-1. bootstrap og `preflight --strict` skal være `READY`;
-2. web og API skal fungere gjennom HTTPS-endepunktet;
-3. `job_runs` skal vise normale fast/full/backup-kjøringer;
-4. persistent disk skal overleve restart/redeploy;
-5. minst én restore fra en verifisert backup skal testes;
-6. off-host backup/snapshot skal være aktivert;
-7. secrets skal være utenfor Git.
-
-## GitHub-deploy
-
-CI bygger og validerer produksjonsimage på hver PR. Automatisk deploy fra GitHub Actions er med vilje ikke bundet til én leverandør ennå. Når endelig cloud-provider er valgt, kan deploy-workflow legges til uten å endre applikasjonsarkitekturen.
+Docker Compose beholdes under migreringen for lokal regresjonstesting av den nåværende Python/SQLite-implementasjonen, men er ikke lenger produksjonsmålet.

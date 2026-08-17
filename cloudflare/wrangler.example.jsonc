@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "otello-tracker",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["python_workers"],
+
+  // Final Python Worker/FastAPI entrypoint is added in Phase 15 after the D1 adapter exists.
+  "main": "src/entry.py",
+
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "otello-nav",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "SOURCE_ARCHIVE",
+      "bucket_name": "otello-source-archive"
+    }
+  ],
+
+  "triggers": {
+    "crons": [
+      "*/30 * * * *",
+      "15 3 * * *"
+    ]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

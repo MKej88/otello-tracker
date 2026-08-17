@@ -13,8 +13,13 @@ frontend/dist/
 .env
 .env.*
 !.env.example
-!.env.production.example
 *.env.local
+.dev.vars
+.dev.vars.*
+
+# Cloudflare local state
+.wrangler/
+cloudflare/.wrangler/
 
 # Runtime data
 data/*.db

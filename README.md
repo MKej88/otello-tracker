@@ -4,45 +4,39 @@ Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-r
 
 ## Status 17.08.2026
 
-Kjernemodellen, produksjonsplattformen og de lette live-feedene er implementert:
+Kjernemodellen og live-feedene er implementert og testet. Produksjonsmålet er nå **Cloudflare-native**, ikke en generell cloud-VM/container-host.
 
 - **CORE NAV og FULL NAV:** historisk modell + daglig/indikativ live-serie
 - **NewsWeb:** historikk, originale buyback-meldinger og daglige transaksjoner
-- **Bemobi:** lett B3 delayed intradag, offisiell daglig CLOSE, CVM-nyheter og skattejusterte utdelinger/JCP
-- **OTEC:** historisk kurs + lette Euronext delayed-vinduer + EOD LAST
+- **Bemobi:** B3 delayed intradag, offisiell daglig CLOSE, CVM og utdelinger/JCP
+- **OTEC:** historisk kurs + Euronext delayed + EOD LAST
 - **Buyback-prognose:** Safe Harbour/ADV20-basert estimat med historisk validering
-- **Phase 13:** produksjons-bootstrap, preflight, scheduler/backup, freshness og reproducerbar CI
-- **Phase 14.1:** lett OTEC-feed med gap recovery og EOD-finalisering
-- **Phase 14.2:** lett BMOB3-feed med delayed LAST og liten offisiell daglig COTAHIST CLOSE
-- **Phase 14.3:** sikkerhet/ytelse, dirty-state for cash/seeds, inkrementelle tunge kilder og mixed-date live NAV
-- **Phase 14.4:** cloud-first deployoppsett med persistent lagring og produksjonsrunbook
+- **Phase 14.1–14.3:** lette feeds, sikkerhet og produksjonsytelse
+- **Phase 14.4:** generisk cloud-grunnlag
+- **Phase 14.5:** Cloudflare-native målarkitektur og migreringsplan
 
 Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md) og [docs/production-readiness.md](docs/production-readiness.md).
 
-## Cloud-arkitektur
+## Produksjonsarkitektur – Cloudflare
 
 ```text
-Internet
+Browser
   |
   v
-Cloud edge / HTTPS reverse proxy
+Cloudflare Worker + Static Assets
+  |-- React/Vite
+  |-- /api/*
   |
-  v
-Nginx / React (web)
-  |
-  | /api/* på privat Docker-nett
-  v
-FastAPI  ---- scheduler
-  |             |-- fast refresh hvert 30. min
-  |             |-- full refresh daglig
-  |             `-- SQLite backup daglig
-  v
-Persistent cloud disk: /data/otello.db
+  +--> D1             strukturert produksjonsdata
+  +--> R2             PDF/råkilder/arkiv
+  +--> Cron Triggers  30-minutters refresh
+  +--> Workflows      tyngre fullrefresh/retries
+  +--> Secrets        API-nøkler
 ```
 
-Bare `web` skal eksponeres eksternt. FastAPI kjører på privat Docker-nett og proxes via Nginx. Nginx har API-rate limiting, proxy-timeouts og sikkerhetsheadere/CSP. Compose-tjenestene kjører med `no-new-privileges`, og produksjon bruker eksplisitt `Europe/Oslo`.
+React/Vite beholdes. FastAPI/Python kan fortsatt brukes i Workers, men dagens backend kan ikke deployes uendret fordi den bruker lokal `sqlite3`-fil. Produksjonsdata skal derfor migreres til **Cloudflare D1**.
 
-Så lenge SQLite brukes er produksjonsmodellen **én aktiv app-host/region** med API og scheduler mot samme persistente disk. Horisontal skalering over flere verter krever først en annen databasearkitektur.
+Cloudflare Containers er ikke valgt som primær databasearkitektur fordi containerdisk er ephemeral. Docker Compose/Nginx beholdes foreløpig for lokal regresjonstesting under migreringen, men er ikke produksjonsmålet.
 
 ## NAV-definisjoner
 
@@ -58,115 +52,76 @@ Bemobi markedsverdi + modellert/rapportert cash
 CORE NAV + øvrige nettoeiendeler/-forpliktelser (ONA)
 ```
 
-Rapportert ONA beregnes fra Otellos konsoliderte balanse som:
+Rapportert ONA:
 
 ```text
 Total assets - cash - Bemobi carrying value - total liabilities
 ```
 
-FULL og CORE lagres som separate serier. Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt; de presenteres ikke som rapporterte tall.
+Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. Hvis BMOB3 har fersk dagens pris før OTEC har handlet, kan dagens NAV bruke siste gyldige OTEC-pris og markeres `MIXED`/indikativt.
 
-Live-modellen bruker samme NAV-formel og samme validerte lookbacks. Dersom BMOB3 har fersk dagens pris før OTEC har handlet, kan dagens NAV bruke siste gyldige OTEC-pris sammen med dagens BMOB3. Dashboardet viser da komponentdatoene og markerer snapshotet `MIXED`/indikativt.
+## Datakilder
 
-## Viktigste datakilder
-
-- **B3:** offentlig 15-minutters delayed BMOB3 intradag + offisiell daglig COTAHIST CLOSE/historikk
+- **B3:** BMOB3 delayed + daglig COTAHIST
 - **ECB:** BRL/NOK og USD/NOK
-- **Euronext:** OTEC delayed-pris og historisk markedsdata
-- **Oslo Børs NewsWeb:** offisielle Otello-meldinger og buyback-vedlegg
+- **Euronext:** OTEC delayed/historikk
+- **NewsWeb:** Otello-meldinger og buybacks
 - **CVM:** Bemobi selskapsmeldinger
 - **Otello-rapporter:** kuraterte finansielle ankere
-- **MFN:** sekundær fallback/discovery, aldri autoritativ over offisielle kilder
-- **Investing.com CSV:** kun manuell historisk OTEC-fallback; ingen automatisert scraping
+- **MFN:** sekundær fallback/discovery
+- **Investing.com CSV:** kun manuell historisk OTEC-fallback
 
-## Produksjonsoppsett i cloud
+## Cloudflare-lagring
 
-Repoet er provider-nøytralt. Standardoppsettet er en Linux cloud-host/container-host med Docker Compose og persistent disk.
+### D1
 
-Start med produksjonsmalen:
+D1 blir autoritativt produksjonslager for market data, cash, holdings, corporate actions, NAV, buybacks, NewsWeb/CVM-metadata og jobbstatus.
 
-```bash
-cp .env.production.example .env
-```
+Eksisterende SQLite-schema skal porteres uten å endre den finansielle semantikken.
 
-Sett minst endelig HTTPS-origin og persistent host-katalog:
+### R2
 
-```env
-APP_ENV=production
-WEB_BIND=0.0.0.0
-WEB_PORT=3000
-DATA_DIR=/var/lib/otello
-DATABASE_PATH=/data/otello.db
-CORS_ORIGINS=https://dashboard.example.com
-TZ=Europe/Oslo
-```
+R2 brukes til større/binære objekter:
 
-Legg validert historisk OTEC-CSV i `${DATA_DIR}/raw/`, bygg image og bootstrap databasen:
+- NewsWeb-PDF-er
+- rå CSV/ZIP-kilder som skal arkiveres
+- historiske importfiler
+- eksport/snapshots
 
-```bash
-docker compose build
+R2 skal ikke brukes som direkte SQLite-filsystem.
 
-docker compose run --rm api python -m app.jobs.bootstrap_production \
-  --database /data/otello.db \
-  --otec-investing-csv /data/raw/Otello-Corporation-ASA-Stock-Price-History.csv \
-  --strict
-```
+## Scheduler på Cloudflare
 
-Kjør produksjonsporten:
+Fast refresh beholdes logisk hvert 30. minutt, men flyttes fra langlevende Docker-scheduler til **Cron Triggers**.
 
-```bash
-docker compose run --rm api python -m app.jobs.preflight \
-  --database /data/otello.db \
-  --strict
-```
+Tyngre fullrefresh flyttes til **Workflows/scheduled jobs** med retries per kilde/trinn.
 
-Bare ved `READY`:
+Cloudflare Cron kjører i UTC, så eksisterende Oslo-/São Paulo-kalenderlogikk skal fortsatt styre hvilke markeder som faktisk er åpne.
 
-```bash
-docker compose up -d
-```
+## Kostnadsnivå
 
-HTTPS skal termineres hos cloud-provider, load balancer eller annen reverse proxy/edge foran web-porten. API-port 8000 skal ikke publiseres.
+Migreringen bygges Cloudflare-native, men produksjonsmålet er i utgangspunktet **Workers Paid**. Bakgrunnen er at Free-planens CPU-grense per Worker/Cron-invokasjon er svært lav sammenlignet med våre CSV/PDF-/modelljobber.
 
-Detaljert oppsett står i [docs/cloud-deployment.md](docs/cloud-deployment.md).
+D1 og Worker-arkitekturen skal likevel holdes effektiv nok til at faktisk bruk/kostnad blir liten.
 
-## Scheduler og ytelse
+## Migreringsplan
 
-### Fast refresh – standard hvert 30. minutt
+1. Workers/Static Assets-oppsett for eksisterende React-app.
+2. D1-migrations basert på dagens SQLite-schema.
+3. Verifisert SQLite → D1 bootstrap/import.
+4. D1 data-access-lag.
+5. Dashboardets read-only API på Cloudflare.
+6. OTEC/BMOB3/NewsWeb-writejobs.
+7. Cron Triggers og Workflows.
+8. R2 source archive.
+9. D1-preflight og datakvalitetskontroll.
+10. Auto-deploy fra `main` og custom domain.
 
-- OTEC `LAST_15_MINUTES` / `LAST_HOUR`, med gap recovery bare ved behov
-- BMOB3 liten delayed quote og separat EOD-logikk
-- inkrementell NewsWeb-historikk og buybacks
-- buyback cash/programdata
-- cash-rebuild bare når modellinput eller datohorisont faktisk er endret
-- siste relevante CORE/FULL snapshot
+Detaljer: [docs/cloud-deployment.md](docs/cloud-deployment.md).
 
-Fastløpet laster ikke ned hele B3-år, ECB-historikk, CVM-årsarkiver eller MFN-fallback hver halvtime. Kuraterte statiske manifests skrives heller ikke på nytt når fingerprinten er uendret.
+## Lokal utvikling under migreringen
 
-### Full refresh – standard én gang per døgn
-
-Tar tyngre kilder og avstemminger. NewsWeb-buybacks bruker sikkerhetsoverlapp fra siste kjente data. CVM inneværende år er løpende; foregående år kontrolleres periodisk. Fullrefresh primer cash dirty-state slik at neste fastsyklus ikke gjentar samme fullrebuild. Jobbstatus lagres i `job_runs`.
-
-### Backup – standard én gang per døgn
-
-SQLite backup-API brukes mot den levende WAL-databasen, og snapshotet må passere `PRAGMA integrity_check`. Backuper lagres i `/data/backups`.
-
-I cloud skal dette kombineres med **off-host backup**, for eksempel provider-snapshot eller object storage. Automatisk object-storage-opplasting legges til når endelig cloud-provider er valgt.
-
-## Datakvalitet og kildevern
-
-Siste NAV-snapshot får timestamp-status:
-
-- `ALIGNED` – OTEC, BMOB3 og BRL/NOK har kompatibel markedsdato
-- `MIXED` – gyldige inputs, men fra ulike markedsdatoer; NAV er indikativ
-- `STALE` – minst én markedsinput er for gammel
-- `UNKNOWN` – manglende timestamp-metadata
-
-GUI-et oppdaterer seg automatisk hvert 2. minutt og viser inputdatoene.
-
-En gammel rapportert Bemobi-eierprosent vises ikke som dagens prosent. NAV bruker det verifiserte antallet Bemobi-aksjer. Endrende OTEC delayed-filer får immutabel payload-identitet, og NewsWeb JSON/PDF har eksplisitte responsgrenser før parsing.
-
-## Utvikling og CI
+Den eksisterende implementasjonen kan fortsatt testes lokalt:
 
 Backend:
 
@@ -186,7 +141,7 @@ npm audit --omit=dev --audit-level=high
 npm run build
 ```
 
-Docker/produksjonsimage:
+Docker-regresjon:
 
 ```bash
 docker compose config --quiet
@@ -194,20 +149,21 @@ docker compose build api web
 docker run --rm --add-host api:127.0.0.1 otello-web:local nginx -t
 ```
 
-CI kjører backendtester/dependency-konsistens, låst frontend-build + produksjonsdependency-audit og produksjons-Docker/Nginx-validering på hver PR.
+Dette er lokal/reference CI, ikke endelig Cloudflare-produksjonsdeploy.
 
-## Secrets og produksjonsdata
+## Produksjonsdata og secrets
 
-Ikke commit `.env`, databasefiler, API-nøkler, rå markedsdata eller NewsWeb-PDF-er. Ekte secrets skal ligge i cloud-providerens secret store eller hostens `.env`.
+Ikke commit databasefiler, API-nøkler, rå markedsdata eller PDF-er. Cloudflare-secrets skal legges i Workers Secrets/Secrets Store, ikke i Git.
 
-## Før endelig live-erklæring
+## Neste produksjonsporter
 
-Produksjonen er klar når:
+Før Cloudflare-go-live skal:
 
-1. persistent cloud storage er montert og overlever redeploy;
-2. bootstrap + `preflight --strict` er `READY` på produksjonsdatabasen;
-3. HTTPS-endepunktet fungerer og bare web er eksponert;
-4. scheduler/job_runs og daglig backup er verifisert;
-5. restore fra backup er testet;
-6. off-host backup/snapshot er aktivert;
-7. Otello 1H26-ankrene etter 21.08.2026 er importert og avstemt.
+1. D1-schema og SQLite→D1-import være verifisert;
+2. dashboard-API gi samme tall som dagens referanseimplementasjon;
+3. fast/full refresh kjøre gjennom Cron/Workflows;
+4. R2 source archive være på plass;
+5. D1 preflight/data-health passere;
+6. GitHub→Cloudflare deploy være grønn;
+7. custom domain/HTTPS fungere;
+8. Otello 1H26-ankrene etter 21.08.2026 være importert og avstemt.
