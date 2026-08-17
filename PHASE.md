@@ -69,7 +69,7 @@ Status: **Ferdig og CI-validert**
 - [x] separat D1-migrering for stabile sources/instruments
 - [x] schema drift-check i CI
 - [x] parity-tester for tabeller, kolonner, foreign keys, indekser og triggere
-- [x] lokal Wrangler D1 kjører begge migrations uten feil
+- [x] lokal Wrangler D1 kjører migrations uten feil
 - [x] `PRAGMA foreign_key_check` er tom etter migrering
 - [x] 12 sources og 2 instrumenter seeds i lokal D1
 - [x] backend-regresjonspakken passerer med D1 parity-testene inkludert
@@ -117,15 +117,34 @@ Status: **Ferdig og CI-validert lokalt; remote deploy venter på faktisk D1-ress
 
 Dokumentasjon: `docs/worker-api.md`.
 
+### 15.3.1 – Cloudflare hardening før ingestion
+
+Status: **Ferdig og CI-validert**
+
+- [x] buyback forecast bruker én bounded OTEC activity-read i stedet for to D1-queries per historisk programuke
+- [x] eksplisitt query-budget-regresjonstest på ready-path
+- [x] bounded activity-vindu beholder alltid de nyeste radene før kronologisk modellberegning
+- [x] D1-spesifikke ytelsesindekser for buyback-program og NAV-serie
+- [x] populated SQLite → D1 → `workerd` → HTTP parity-test i CI
+- [x] eksakt JSON-sammenligning av summary/history/forecast mot referansebackend
+- [x] Cloudflare `_headers` for statiske assets med CSP og browser-hardening
+- [x] API-genererte Worker-responser får egne sikkerhetsheadere
+- [x] korte cachevinduer på summary og lengre cachevinduer på history/forecast
+- [x] fingerprintede Vite-assets får immutable langtids-cache
+- [x] README/Worker-dokumentasjon oppdatert til faktisk fase
+
+Bevisst ikke endret: NAV-formel, cash/ONA-metodikk, Safe Harbour-regler, buyback-estimator, markedsdataprioritet eller historiske data.
+
 ### 15.4 – Cloudflare scheduled ingestion
 
 Status: **Neste**
 
-- [ ] OTEC delayed/EOD
-- [ ] BMOB3 delayed/EOD
-- [ ] NewsWeb incremental
-- [ ] dirty-state cash/NAV
+- [ ] OTEC delayed/EOD som Worker-native fetch + D1-write
+- [ ] BMOB3 delayed/EOD som Worker-native fetch + D1-write
+- [ ] NewsWeb incremental som Worker-native write-path
+- [ ] dirty-state cash/NAV på D1
 - [ ] Cron Trigger `*/30 * * * *`
+- [ ] store payloads håndteres streaming/bounded og ikke som ukritiske full-memory CPython-filer
 
 ### 15.5 – Full refresh Workflows
 

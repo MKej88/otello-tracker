@@ -6,7 +6,21 @@ from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from repository import D1Repository
 
-API_VERSION = "0.11.0"
+API_VERSION = "0.11.1"
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+CACHE_POLICIES = {
+    "/api/health": "no-store",
+    "/api/dashboard/summary": "public, max-age=30",
+    "/api/dashboard/history": "public, max-age=900",
+    "/api/buybacks/forecast": "public, max-age=900",
+}
 
 app = FastAPI(
     title="Otello NAV Dashboard",
@@ -16,6 +30,15 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+
+@app.middleware("http")
+async def add_response_hardening(request: Request, call_next):
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers[header] = value
+    response.headers["Cache-Control"] = CACHE_POLICIES.get(request.url.path, "no-store")
+    return response
 
 
 def _repository(request: Request) -> D1Repository:

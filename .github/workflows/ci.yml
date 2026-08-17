@@ -48,6 +48,11 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Build
         run: npm run build
+      - name: Verify Cloudflare static headers are emitted into dist
+        run: |
+          test -f dist/_headers
+          grep -q "Content-Security-Policy" dist/_headers
+          grep -q "max-age=31536000, immutable" dist/_headers
 
   d1-parity:
     name: Cloudflare D1 schema + historical data parity
@@ -92,10 +97,11 @@ jobs:
           python cloudflare/tools/d1_bootstrap.py verify
           --database cloudflare/.wrangler/state/v3/d1
           --manifest /tmp/otello-d1-bootstrap.json
-      - name: Verify D1 foreign keys and reference seed
+      - name: Verify D1 foreign keys, reference seed and performance indexes
         run: |
           npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "PRAGMA foreign_key_check;"
           npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT COUNT(*) AS source_count FROM sources; SELECT COUNT(*) AS instrument_count FROM instruments; SELECT COUNT(*) AS nav_count FROM nav_snapshots;"
+          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_buybacks_program_trade','idx_nav_snapshots_calc_scope_time') ORDER BY name;"
 
   worker:
     name: Cloudflare Python Worker API
@@ -116,15 +122,40 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Install pinned Python Worker toolchain
-        run: python -m pip install workers-py==1.16.4 uv==0.12.3
+      - name: Install backend and pinned Python Worker tooling
+        run: |
+          python -m pip install -r ../backend/requirements-dev.txt
+          python -m pip install workers-py==1.16.4 uv==0.12.3
+          python -m pip check
       - name: Install pinned Wrangler
         run: npm install --no-save wrangler@4.123.0
       - name: Apply schema to Worker local D1
         run: npx wrangler d1 migrations apply DB --local --config wrangler.worker-test.jsonc
+      - name: Build populated reference fixture and expected API payloads
+        run: >-
+          python tools/build_worker_runtime_fixture.py
+          --database /tmp/otello-worker-reference.db
+          --expected-dir /tmp/otello-worker-expected
+      - name: Export populated fixture for D1
+        run: >-
+          python tools/d1_bootstrap.py export
+          --database /tmp/otello-worker-reference.db
+          --sql /tmp/otello-worker-bootstrap.sql
+          --manifest /tmp/otello-worker-bootstrap.json
+      - name: Import populated fixture into actual local Wrangler D1
+        run: >-
+          npx wrangler d1 execute DB
+          --local
+          --config wrangler.worker-test.jsonc
+          --file /tmp/otello-worker-bootstrap.sql
+      - name: Verify populated D1 parity before Worker runtime
+        run: >-
+          python tools/d1_bootstrap.py verify
+          --database .wrangler/state/v3/d1
+          --manifest /tmp/otello-worker-bootstrap.json
       - name: Build Python Worker without deploying
         run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
-      - name: Smoke-test Worker HTTP API and static assets against local D1
+      - name: End-to-end Worker HTTP parity, static assets and headers
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
           worker_pid=$!
@@ -141,29 +172,50 @@ jobs:
             cat /tmp/otello-worker.log
             exit 1
           fi
-          curl -fsS http://127.0.0.1:8787/api/dashboard/summary > /tmp/worker-summary.json
-          curl -fsS 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' > /tmp/worker-history.json
-          curl -fsS 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' > /tmp/worker-forecast.json
-          curl -fsS http://127.0.0.1:8787/ > /tmp/worker-index.html
+          curl -fsS -D /tmp/worker-summary.headers http://127.0.0.1:8787/api/dashboard/summary -o /tmp/worker-summary.json
+          curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
+          curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
+          curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
           python - <<'PY'
           import json
           from pathlib import Path
+
           health = json.loads(Path('/tmp/worker-health.json').read_text())
-          summary = json.loads(Path('/tmp/worker-summary.json').read_text())
-          history = json.loads(Path('/tmp/worker-history.json').read_text())
-          forecast = json.loads(Path('/tmp/worker-forecast.json').read_text())
-          index = Path('/tmp/worker-index.html').read_text()
-          fallback = Path('/tmp/worker-spa-fallback.html').read_text()
+          actual = {
+              'summary': json.loads(Path('/tmp/worker-summary.json').read_text()),
+              'history': json.loads(Path('/tmp/worker-history.json').read_text()),
+              'forecast': json.loads(Path('/tmp/worker-forecast.json').read_text()),
+          }
+          expected_dir = Path('/tmp/otello-worker-expected')
+          expected = {
+              name: json.loads((expected_dir / f'{name}.json').read_text())
+              for name in ('summary', 'history', 'forecast')
+          }
           assert health['status'] == 'ok'
           assert health['environment'] == 'cloudflare'
-          assert summary['ready'] is False and summary['data_status'] == 'not_ready'
-          assert summary['market_timestamps']['status'] == 'UNKNOWN'
-          assert history['ready'] is False and history['points'] == []
-          assert forecast['ready'] is False and forecast['status'] == 'NO_ACTIVE_PROGRAM'
+          assert actual == expected
+          assert actual['summary']['ready'] is True
+          assert actual['history']['ready'] is True and actual['history']['points']
+          assert actual['forecast']['ready'] is True
+
+          index = Path('/tmp/worker-index.html').read_text()
+          fallback = Path('/tmp/worker-spa-fallback.html').read_text()
           assert '<title>Otello NAV Dashboard</title>' in index
           assert '<title>Otello NAV Dashboard</title>' in fallback
-          print('Worker HTTP + static asset smoke test passed')
+
+          index_headers = Path('/tmp/worker-index.headers').read_text().lower()
+          summary_headers = Path('/tmp/worker-summary.headers').read_text().lower()
+          history_headers = Path('/tmp/worker-history.headers').read_text().lower()
+          forecast_headers = Path('/tmp/worker-forecast.headers').read_text().lower()
+          assert 'content-security-policy:' in index_headers
+          assert 'x-content-type-options: nosniff' in index_headers
+          assert 'x-content-type-options: nosniff' in summary_headers
+          assert 'x-frame-options: deny' in summary_headers
+          assert 'cache-control: public, max-age=30' in summary_headers
+          assert 'cache-control: public, max-age=900' in history_headers
+          assert 'cache-control: public, max-age=900' in forecast_headers
+          print('Populated D1 -> workerd -> HTTP parity and header test passed')
           PY
 
   docker-reference:
