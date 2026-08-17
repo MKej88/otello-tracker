@@ -12,10 +12,10 @@ MAX_FX_LOOKBACK_DAYS = 7
 TENDER_BUYBACKS = (
     {
         "key": "2021-05-10-tender",
-        "message_id": 532327,
-        "published_at": "2021-05-10T05:30:00Z",
-        "title": "Completion of share buyback offer",
-        "program_start": "2021-05-05",
+        "message_id": 532648,
+        "published_at": "2021-05-10T06:45:07.312Z",
+        "title": "Otello Corporation ASA: Completion of share buy back offer",
+        "program_start": "2021-05-03",
         "trade_date": "2021-05-10",
         "shares": 12_000_000,
         "price_nok": Decimal("33.75"),
@@ -392,11 +392,10 @@ def seed_2021_newsweb_events(database_path: str | None = None) -> dict[str, Any]
                 "movement_date": event["movement_date"],
                 "amount_original": decimal_text(original),
                 "currency": event["currency"],
-                "fx_rate_to_nok": decimal_text(fx_rate),
                 "fx_date": fx["rate_date"],
+                "fx_rate_to_nok": decimal_text(fx_rate),
                 "amount_nok": decimal_text(amount_nok),
-                "movement_id": movement_id,
+                "cash_movement_id": movement_id,
             }
-
         connection.commit()
     return result
