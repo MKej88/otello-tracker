@@ -1,6 +1,6 @@
 # Produksjonsscheduler for Otello-tracker
 
-Otello-tracker kan kjøre den eksisterende `refresh_dashboard`-jobben automatisk i en egen Docker-container. Dette er laget for samme Docker Compose-oppsett som brukes lokalt og senere på Raspberry Pi.
+Otello-tracker kjører automatisk datainnhenting og NAV-refresh i en egen Docker-container. Samme Compose-oppsett brukes lokalt og i cloud-produksjon.
 
 ## Standardoppsett
 
@@ -8,22 +8,24 @@ Otello-tracker kan kjøre den eksisterende `refresh_dashboard`-jobben automatisk
 
 - `otello-api` – FastAPI og SQLite-init/migreringer
 - `otello-scheduler` – automatisk datainnhenting og NAV-refresh
-- `otello-web` – dashboardet
+- `otello-web` – dashboardet/Nginx
 
-Scheduleren venter til API-et er friskt før den starter. Deretter kjører den refresh med samme databasevolum som API-et.
+Scheduleren venter til API-et er friskt før den starter. API og scheduler må ha samme persistente `/data`-mount. I cloud settes dette med `DATA_DIR` til en varig disk på hosten.
 
 Standard er:
 
 ```env
 REFRESH_INTERVAL_MINUTES=30
 REFRESH_RUN_ON_START=true
+FULL_REFRESH_INTERVAL_MINUTES=1440
+BACKUP_INTERVAL_MINUTES=1440
 ```
 
 `REFRESH_INTERVAL_MINUTES` kan ikke settes lavere enn 5 minutter. Hensikten er å unngå aggressiv polling av eksterne datakilder.
 
 ## Endre intervall
 
-Rediger lokal `.env`:
+Rediger `.env` på produksjonshosten:
 
 ```env
 REFRESH_INTERVAL_MINUTES=60
@@ -61,26 +63,34 @@ Hver kjøring skriver én kompakt JSON-linje, for eksempel:
 {"event":"refresh_complete","status":"ok","target_date":"2026-08-17","source_error_count":0,"dashboard_ready":true}
 ```
 
-En `degraded` refresh stopper ikke scheduleren. Den fortsetter på neste intervall fordi den eksisterende refresh-pipelinen er laget for å beholde siste gyldige data når en ekstern kilde midlertidig feiler.
+En `degraded` refresh stopper ikke scheduleren. Den fortsetter på neste intervall fordi refresh-pipelinen beholder siste gyldige data når en ekstern kilde midlertidig feiler.
 
-En uventet feil utenfor den vanlige fail-soft-håndteringen logges som `refresh_failed`, men prosessen fortsetter også da ved neste intervall.
+En uventet feil utenfor den vanlige fail-soft-håndteringen logges som `refresh_failed`, men prosessen fortsetter ved neste intervall.
 
 ## Manuell refresh ved behov
-
-Scheduleren erstatter ikke muligheten til å kjøre en manuell refresh:
 
 ```bash
 docker compose exec -T api python -m app.jobs.refresh_dashboard
 ```
 
-Streng kontroll kan fortsatt kjøres manuelt:
+Streng kontroll:
 
 ```bash
 docker compose exec -T api python -m app.jobs.refresh_dashboard --strict
 ```
 
-## Raspberry Pi
+## Cloud-drift
 
-Når prosjektet senere flyttes til Raspberry Pi, er det ikke nødvendig å installere Python eller cron på selve Pi-en utover det som allerede trengs for Docker. Scheduler-koden ligger i backend-imaget og startes av Docker Compose med `restart: unless-stopped`.
+Cloud-produksjon forutsetter én aktiv app-host/region så lenge SQLite brukes. API og scheduler skal derfor ikke skaleres til flere verter som skriver til samme databasefil.
 
-Etter omstart av Pi-en vil Docker kunne starte API, scheduler og web igjen, forutsatt at Docker er satt opp til å starte ved boot og Compose-stacken er startet som vanlig.
+Produksjonshosten skal ha:
+
+- persistent disk for `DATA_DIR`;
+- restart-policy for containerne;
+- HTTPS/reverse proxy foran `web`;
+- bare web-tjenesten eksponert eksternt;
+- off-host backup eller provider-snapshot i tillegg til `/data/backups`.
+
+Ved reboot eller deploy starter Compose API, scheduler og web igjen med samme persistente database. Verifiser `job_runs` etter deploy og kjør `preflight --strict` etter større modell-/databaseendringer.
+
+Se `docs/cloud-deployment.md` og `docs/production-readiness.md`.
