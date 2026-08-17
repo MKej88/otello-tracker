@@ -28,7 +28,7 @@ Status: **Ferdig**
 
 ### 14.3 – Sikkerhet og Raspberry Pi-ytelse
 
-Status: **Implementert i PR #35 – CI-validering pågår**
+Status: **Ferdig og CI-validert**
 
 - [x] fersk BMOB3 kan oppdatere dagens indikative NAV selv før OTEC har handlet samme dag
 - [x] eksisterende NAV-formel/lookbacks beholdes; `MIXED` viser ulike komponentdatoer eksplisitt
