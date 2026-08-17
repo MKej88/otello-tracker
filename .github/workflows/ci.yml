@@ -76,6 +76,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements-dev.txt
       - name: Generate consolidated schema
         run: python cloudflare/tools/generate_d1_schema.py
       - name: Commit generated schema when changed
