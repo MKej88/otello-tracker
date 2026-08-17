@@ -100,6 +100,7 @@ def rebuild_daily_cash_if_changed(
     database_path: str | None = None,
     *,
     end_date: str,
+    force: bool = False,
 ) -> dict[str, Any]:
     before = cash_input_signature(database_path, end_date=end_date)
     previous = get_runtime_state(_STATE_KEY, database_path)
@@ -109,7 +110,7 @@ def rebuild_daily_cash_if_changed(
         ).fetchone()
         existing_to = row["max_date"] if row is not None else None
 
-    if previous == before and existing_to is not None and existing_to >= end_date:
+    if not force and previous == before and existing_to is not None and existing_to >= end_date:
         return {
             "skipped": True,
             "reason": "cash_inputs_unchanged",
@@ -121,5 +122,6 @@ def rebuild_daily_cash_if_changed(
     after = cash_input_signature(database_path, end_date=end_date)
     set_runtime_state(_STATE_KEY, after, database_path)
     result["skipped"] = False
+    result["forced"] = force
     result["input_signature"] = after
     return result
