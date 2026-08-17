@@ -159,7 +159,7 @@ Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
-Status: **Pågår – 15.4.1 OTEC intradag er ferdig og CI-validert**
+Status: **Pågår – 15.4.1 OTEC intradag og 15.4.2 BMOB3 delayed/EOD er ferdige og CI-validerte**
 
 #### 15.4.1 – OTEC intradag + Cron
 
@@ -174,10 +174,25 @@ Status: **Pågår – 15.4.1 OTEC intradag er ferdig og CI-validert**
 - [x] Cron Trigger `*/30 * * * *`
 - [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
 
+#### 15.4.2 – BMOB3 delayed + EOD LAST
+
+- [x] B3 delayed JSON som Worker-native fetch + D1-write
+- [x] 15-minutters effective timestamp bevart fra referanseimplementasjonen
+- [x] B3-handelskalender og Ash Wednesday-vindu portert til Worker
+- [x] bounded 256 KiB JSON-respons
+- [x] `LAST` / `DIRECT`-semantikk og provenance bevart
+- [x] idempotent EOD LAST etter 19:15 São Paulo
+- [x] EOD LAST merkes eksplisitt som forsinket webkurs, ikke offisiell COTAHIST `CLOSE`
+- [x] COTAHIST CLOSE beholdes som sterkere kilde i full refresh
+- [x] BMOB3 koblet til samme 30-minutters Cron som OTEC
+- [x] kildefeil isoleres slik at én feed kan gi `PARTIAL` uten å stoppe den andre
+- [x] Worker-subrequest sender ikke forbudt `Connection` hop-by-hop-header
+- [x] egen regresjonstest låser Cloudflare-headerkravet
+- [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
+
 #### Gjenstår i 15.4
 
 - [ ] OTEC EOD / `CURRENT_TRADING_DAY` + gap recovery med eksplisitt bounded/streaming/R2-strategi
-- [ ] BMOB3 delayed/EOD som Worker-native fetch + D1-write
 - [ ] NewsWeb incremental som Worker-native write-path
 - [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
 - [ ] store payloads håndteres streaming/bounded og ikke som ukritiske full-memory CPython-filer
