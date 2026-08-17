@@ -1,0 +1,15 @@
+## CURRENT_TRADING_DAY https://marketdata.euronext.com/data-reporting-service/trades-file/download/EQUITIES/CURRENT_TRADING_DAY/OSL
+STATUS=200 CONTENT_TYPE='application/zip' CONTENT_DISPOSITION='attachment; filename="Trades_Equities_CURRENT_TRADING_DAY_OSL.zip"' BYTES=667339
+ENCODING=latin-1 LINE_COUNT=19954
+DELIMITER=';' HEADER_RAW='PK\x03\x04\x14\x00\x08\x08\x08\x00\x11Z\x11]\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x13\x00\x00\x00Trades_Equities.csvÔ\x9dÛ\x92\x15G\x96¦ïç)°¾ê6+e\x87»Ç±îÈ\x03\x90\t;\x13q\x12p§\x96è*¬«¤\x1a\tuM¿ýÄÞádnÈôXÿ\x8eõ\x11\x96=6]U"\x10|ü,w_¾Nþ¯?ýÛ\x83XÅæÁÙ\x1f¿ýúË\x87ÿ÷éÁåÑ\x9b£\x07\x0fÿö·\x07/>þå¯\x9f~\x7fðâÃï\x1f~ûï\x0f?\x1fÝü\x94\x8f¿?øíÃÿýãão\x1f~~ðé×\x07\x7fÿñ¿><øôÛ\x8f?\x7fxðó\x8f\x9f~|ðã\x7fÿøño?þÇß><øÇ\x1f¿ýþÇ\x8f¿|Úþ¬\x1f\x7fûôñ§ñÇBzðë\x7f>øô×\x0f\x0f6?þö_\x1fÆßáã/\x0f'
+CSV_ERROR=Error("new-line character seen in unquoted field - do you need to open the file with newline=''?")
+## PREVIOUS_TRADING_DAY https://marketdata.euronext.com/data-reporting-service/trades-file/download/EQUITIES/PREVIOUS_TRADING_DAY/OSL
+STATUS=200 CONTENT_TYPE='application/zip' CONTENT_DISPOSITION='attachment; filename="Trades_Equities_PREVIOUS_TRADING_DAY_OSL.zip"' BYTES=1888633
+ENCODING=latin-1 LINE_COUNT=57315
+DELIMITER=';' HEADER_RAW='PK\x03\x04\x14\x00\x08\x08\x08\x00\x12Z\x11]\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x13\x00\x00\x00Trades_Equities.csvÔ\x9d[s'
+CSV_ERROR=Error("new-line character seen in unquoted field - do you need to open the file with newline=''?")
+## SINCE_PREVIOUS_TRADING_DAY https://marketdata.euronext.com/data-reporting-service/trades-file/download/EQUITIES/SINCE_PREVIOUS_TRADING_DAY/OSL
+STATUS=200 CONTENT_TYPE='application/zip' CONTENT_DISPOSITION='attachment; filename="Trades_Equities_SINCE_PREVIOUS_TRADING_DAY_OSL.zip"' BYTES=2555064
+ENCODING=latin-1 LINE_COUNT=77402
+DELIMITER=';' HEADER_RAW='PK\x03\x04\x14\x00\x08\x08\x08\x00\x13Z\x11]\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x13\x00\x00\x00Trades_Equities.csvÔ\x9d[s'
+CSV_ERROR=Error("new-line character seen in unquoted field - do you need to open the file with newline=''?")
