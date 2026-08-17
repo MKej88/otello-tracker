@@ -183,7 +183,7 @@ Docker/produksjonsimage:
 ```bash
 docker compose config --quiet
 docker compose build api web
-docker compose run --rm --no-deps --add-host api:127.0.0.1 web nginx -t
+docker run --rm --add-host api:127.0.0.1 otello-web:local nginx -t
 ```
 
 CI kjører backendtester/dependency-konsistens, låst frontend-build + produksjonsdependency-audit og faktisk produksjons-Docker/Nginx-validering på hver PR.
