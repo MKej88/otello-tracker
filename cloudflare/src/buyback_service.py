@@ -61,22 +61,25 @@ def _oslo_today() -> date:
 
 
 async def _activity_history(repository, before: date) -> list[dict[str, Any]]:
-    """Load the bounded OTEC activity set once per forecast invocation.
+    """Load the newest bounded OTEC activity set once per forecast invocation.
 
     The previous Worker port issued two D1 queries for every historical program week.
     Fetching the ordered activity once preserves the exact model calculations while
-    keeping D1 query count effectively constant as the active program gets older.
+    keeping D1 query count effectively constant as the active program gets older. The
+    SQL reads newest-first so the safety bound can never discard current lookback rows;
+    the returned list is reversed back to chronological order for the model.
     """
-    return await repository.all(
+    rows = await repository.all(
         """
         SELECT ma.trading_date, ma.volume_shares, ma.last_price_nok, ma.quality
         FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
         WHERE i.symbol='OTEC' AND ma.trading_date < ? AND ma.volume_shares > 0
-        ORDER BY ma.trading_date, ma.id
+        ORDER BY ma.trading_date DESC, ma.id DESC
         LIMIT ?
         """,
         (before.isoformat(), MAX_ACTIVITY_ROWS),
     )
+    return rows[::-1]
 
 
 def _activity_before(
