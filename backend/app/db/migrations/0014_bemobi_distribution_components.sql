@@ -14,3 +14,9 @@ CREATE UNIQUE INDEX idx_corporate_actions_external_action_id
 CREATE INDEX idx_corporate_actions_component_group
     ON corporate_actions(component_group)
     WHERE component_group IS NOT NULL;
+
+ALTER TABLE cash_movements ADD COLUMN external_movement_id TEXT;
+
+CREATE UNIQUE INDEX idx_cash_movements_external_movement_id
+    ON cash_movements(external_movement_id)
+    WHERE external_movement_id IS NOT NULL;
