@@ -4,7 +4,7 @@
   "compatibility_date": "2026-08-17",
   "compatibility_flags": ["python_workers"],
 
-  // Final Python Worker/FastAPI entrypoint is added in Phase 15 after the D1 adapter exists.
+  // Final Python Worker/FastAPI entrypoint is added after the D1 adapter exists.
   "main": "src/entry.py",
 
   "assets": {
@@ -18,7 +18,8 @@
     {
       "binding": "DB",
       "database_name": "otello-nav",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
     }
   ],
 

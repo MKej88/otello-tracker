@@ -49,6 +49,33 @@ jobs:
       - name: Build
         run: npm run build
 
+  d1-schema:
+    name: Cloudflare D1 schema parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install backend dependencies for schema generator
+        run: pip install -r backend/requirements-dev.txt
+      - name: Verify generated D1 schema has no drift
+        run: python cloudflare/tools/generate_d1_schema.py --check
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Apply D1 migrations in local Wrangler runtime
+        run: >-
+          npx --yes wrangler@4 d1 migrations apply DB
+          --local
+          --config cloudflare/wrangler.schema-test.jsonc
+      - name: Verify D1 foreign keys and reference seed
+        run: |
+          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "PRAGMA foreign_key_check;"
+          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT COUNT(*) AS source_count FROM sources; SELECT COUNT(*) AS instrument_count FROM instruments;"
+
   docker-reference:
     name: Docker regression reference
     runs-on: ubuntu-latest
@@ -63,6 +90,5 @@ jobs:
       - name: Verify backend reference timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
 
-# Cloudflare Worker/D1 build and deploy jobs are added during Phase 15 once the
-# Wrangler project and D1 bindings exist. Docker is retained only as a parity/reference
-# implementation during that migration and is not the production target.
+# Worker/API and D1 data-parity jobs are added incrementally during Phase 15.
+# Docker remains only a regression/reference implementation and is not the production target.

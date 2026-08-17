@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "otello-d1-schema-test",
+  "compatibility_date": "2026-08-17",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "otello-nav-test",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
