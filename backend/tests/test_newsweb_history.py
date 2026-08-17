@@ -70,7 +70,7 @@ def test_full_newsweb_archive_is_idempotent_and_does_not_persist_body(tmp_path, 
         rows = connection.execute(
             """
             SELECT sd.external_id, sd.content_sha256, sd.metadata_json, sd.issuer_instrument_id,
-                   cn.category, cn.requires_review, cn.summary, cn.notes
+                   cn.category, cn.processing_status, cn.nav_impact, cn.summary, cn.notes
             FROM source_documents sd
             JOIN sources s ON s.id=sd.source_id
             JOIN company_news cn ON cn.source_document_id=sd.id
@@ -86,12 +86,17 @@ def test_full_newsweb_archive_is_idempotent_and_does_not_persist_body(tmp_path, 
         metadata = [json.loads(row["metadata_json"]) for row in rows]
         assert all(item["body_persisted"] is False for item in metadata)
         assert all("body" not in item for item in metadata)
-        assert any(row["category"] == "OTHER" and row["requires_review"] == 1 for row in rows)
+        assert any(
+            row["category"] == "OTHER" and row["processing_status"] == "REVIEW_REQUIRED"
+            for row in rows
+        )
+        assert any(row["nav_impact"] == "POTENTIAL" for row in rows)
 
     status = newsweb_history_status(db)
     assert status["count"] == 3
     assert status["from"] == "2020-02-11"
     assert status["to"] == "2023-01-02"
+    assert status["requires_review"] == 1
     assert status["by_year"] == {"2020": 1, "2022": 1, "2023": 1}
 
 
