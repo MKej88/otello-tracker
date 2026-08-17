@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from app.buybacks import (
@@ -15,9 +15,12 @@ from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
-from app.marketdata.euronext_delayed import (
-    download_euronext_delayed_equities,
-    refresh_otec_delayed_price,
+from app.marketdata.euronext_delayed import download_euronext_delayed_equities
+from app.marketdata.oslo_calendar import is_oslo_bors_trading_day
+from app.marketdata.otec_feed import (
+    finalize_otec_eod_from_payload,
+    maybe_finalize_otec_eod,
+    refresh_otec_intraday_price,
 )
 from app.nav import rebuild_daily_cash, rebuild_daily_core_nav, rebuild_daily_full_nav
 from app.newsweb import (
@@ -50,16 +53,25 @@ def _latest_otec_date(database_path: str, target_date: str) -> str | None:
     return row["d"] if row and row["d"] else None
 
 
+def _previous_oslo_trading_day(day: date) -> date:
+    candidate = day - timedelta(days=1)
+    while not is_oslo_bors_trading_day(candidate):
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 def run_fast_refresh(
     database_path: str,
     *,
     target_date: str | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Refresh only sources/layers that can matter intraday.
 
     Heavy annual/history providers (B3 COTAHIST, ECB, CVM and MFN fallback) deliberately
-    live in the daily full refresh. This path keeps the 30-minute production cycle small:
-    delayed OTEC, incremental NewsWeb, buyback cash and the latest NAV snapshot.
+    live in the daily full refresh. OTEC intraday pricing uses only Euronext's small
+    15-minute/hour delayed windows. The full current-day trade file is fetched at most
+    once after the Oslo session to persist an end-of-day LAST, never mislabeled CLOSE.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -88,7 +100,16 @@ def run_fast_refresh(
     if end_day == today:
         steps["otec_delayed"] = _safe_step(
             "otec_delayed",
-            lambda: refresh_otec_delayed_price(database_path),
+            lambda: refresh_otec_intraday_price(database_path),
+            errors,
+        )
+        steps["otec_eod"] = _safe_step(
+            "otec_eod",
+            lambda: maybe_finalize_otec_eod(
+                database_path,
+                target_date=end,
+                now=now,
+            ),
             errors,
         )
     else:
@@ -96,16 +117,32 @@ def run_fast_refresh(
             "skipped": True,
             "reason": "live_source_not_used_for_historical_target",
         }
+        steps["otec_eod"] = {
+            "skipped": True,
+            "reason": "live_source_not_used_for_historical_target",
+        }
 
     if end_day == today and today.weekday() < 5 and not activity_check_done(database_path):
         def previous_activity() -> Any:
             url, payload = download_euronext_delayed_equities("PREVIOUS_TRADING_DAY")
-            return ingest_previous_trading_day_activity(
+            activity_result = ingest_previous_trading_day_activity(
                 payload,
                 source_url=url,
                 database_path=database_path,
                 check_date=today.isoformat(),
             )
+            # Reuse the same complete Euronext payload to finalize yesterday's price.
+            # This catches days where the Pi was offline at the same-day EOD checkpoint
+            # without issuing another large download.
+            previous_day = _previous_oslo_trading_day(today).isoformat()
+            eod_result = finalize_otec_eod_from_payload(
+                payload,
+                source_url=url,
+                target_date=previous_day,
+                database_path=database_path,
+                source_selection="PREVIOUS_TRADING_DAY",
+            )
+            return {"activity": activity_result, "eod_price": eod_result}
 
         steps["otec_previous_day_activity"] = _safe_step(
             "otec_previous_day_activity", previous_activity, errors
