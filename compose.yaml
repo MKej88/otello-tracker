@@ -14,7 +14,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       TZ: ${TZ:-Europe/Oslo}
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 30s
@@ -42,7 +42,7 @@ services:
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
       REFRESH_RUN_ON_START: ${REFRESH_RUN_ON_START:-true}
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
     command: ["python", "-m", "app.jobs.scheduler"]
 
   web:
