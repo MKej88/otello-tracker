@@ -70,19 +70,14 @@ async def _existing_newsweb_documents(repository) -> dict[str, dict[str, Any]]:
 def _revalidation_due(
     existing: dict[str, dict[str, Any]],
     external_id: str,
-    to_date: str,
+    revalidation_date: str,
 ) -> bool:
-    """Revalidate stable NewsWeb IDs at most once per calendar day.
-
-    This keeps the immutable-content guarantee from 15.4.6: if NewsWeb mutates a body
-    under a stable ID, the changed hash is still discovered. It avoids doing the same
-    full-message fetch on every 30-minute cron invocation.
-    """
+    """Revalidate stable NewsWeb IDs at most once per UTC calendar day."""
     item = existing.get(external_id)
     if item is None:
         return False
     fetched_date = str(item.get("_fetched_at") or "")[:10]
-    return not fetched_date or fetched_date < to_date
+    return not fetched_date or fetched_date < revalidation_date
 
 
 def _buyback_processed_key(
@@ -102,17 +97,20 @@ async def collect_newsweb_fast(
     repository,
     *,
     to_date: str,
+    revalidation_date: str | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     """Discover once, fetch each needed message once, then fan out to both parsers.
 
-    Existing messages are normally skipped. During the first cron invocation of a new
-    calendar day, recent overlap-window messages are hash-revalidated once so a provider
-    body mutation under a stable ID is still detected without 30-minute refetch churn.
+    Existing messages are normally skipped. Once per UTC calendar day, recent overlap-
+    window messages are hash-revalidated so a provider body mutation under a stable ID is
+    still detected without 30-minute refetch churn. ``to_date`` remains the Oslo-market
+    discovery boundary; ``revalidation_date`` is separate because D1 ``fetched_at`` is UTC.
     """
     history_start = await history_start_for_refresh(repository)
     buyback_start = await buyback_start_for_refresh(repository)
     combined_start = min(history_start, buyback_start)
+    revalidate_on = revalidation_date or to_date
 
     discovered = await discover_otec_messages(combined_start, to_date, fetcher=fetcher)
     existing = await _existing_newsweb_documents(repository)
@@ -141,7 +139,7 @@ async def collect_newsweb_fast(
         history_revalidation = (
             history_scope
             and archive_exists
-            and _revalidation_due(existing, archive_external_id, to_date)
+            and _revalidation_due(existing, archive_external_id, revalidate_on)
         )
         needs_history = history_scope and (not archive_exists or history_revalidation)
 
@@ -149,7 +147,7 @@ async def collect_newsweb_fast(
         buyback_revalidation = (
             buyback_scope
             and buyback_key is not None
-            and _revalidation_due(existing, buyback_key, to_date)
+            and _revalidation_due(existing, buyback_key, revalidate_on)
         )
         needs_buyback = buyback_scope and (buyback_key is None or buyback_revalidation)
 
@@ -173,7 +171,9 @@ async def collect_newsweb_fast(
             try:
                 archived = await archive_message(repository, message)
                 history_results.append(archived)
-                existing[archive_external_id] = {"_fetched_at": f"{to_date}T00:00:00Z"}
+                existing[archive_external_id] = {
+                    "_fetched_at": f"{revalidate_on}T00:00:00Z"
+                }
             except Exception as exc:
                 history_errors.append(_error(item, exc))
 
@@ -205,12 +205,14 @@ async def collect_newsweb_fast(
                     }
                     existing[archive_external_id] = {
                         "buyback_status": "NO_PURCHASES",
-                        "_fetched_at": f"{to_date}T00:00:00Z",
+                        "_fetched_at": f"{revalidate_on}T00:00:00Z",
                     }
                 else:
                     parsed = parse_newsweb_weekly_status(clean)
                     result = await ingest_weekly_buyback(repository, message, parsed)
-                    existing[message.public_url] = {"_fetched_at": f"{to_date}T00:00:00Z"}
+                    existing[message.public_url] = {
+                        "_fetched_at": f"{revalidate_on}T00:00:00Z"
+                    }
                 buyback_results.append(result)
             except Exception as exc:
                 buyback_errors.append(_error(item, exc))
@@ -268,6 +270,7 @@ async def collect_newsweb_fast(
         ),
         "from": combined_start,
         "to": to_date,
+        "revalidation_date": revalidate_on,
         "discovered": len(discovered),
         "full_messages_fetched": full_messages_fetched,
         "skipped_existing": skipped_existing,
