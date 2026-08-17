@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from src.buyback_service import buyback_forecast
-from src.dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
-from src.repository import D1Repository
+from buyback_service import buyback_forecast
+from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
+from repository import D1Repository
 
 API_VERSION = "0.11.0"
 
