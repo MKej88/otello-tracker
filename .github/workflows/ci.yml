@@ -38,15 +38,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - name: Install dependencies
-        run: npm install
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
       - name: Build
         run: npm run build
 
-  compose:
-    name: Docker Compose config
+  docker:
+    name: Production Docker build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Validate Compose configuration
         run: docker compose config --quiet
+      - name: Build backend and frontend images
+        run: docker compose build api web
+      - name: Verify backend production timezone
+        run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
