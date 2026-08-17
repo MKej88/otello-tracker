@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.history.curated import history_status as _history_status
 from app.history.curated import seed_curated_history as _seed_curated_history
-from app.history.newsweb_2021_events import seed_2021_newsweb_events
 from app.history.other_net_assets import (
     load_other_net_assets_manifest,
     seed_other_net_assets_reported,
@@ -19,12 +18,10 @@ from app.history.share_capital_2025 import (
 
 def seed_curated_history(database_path: str | None = None) -> dict:
     result = _seed_curated_history(database_path)
-    newsweb_2021 = seed_2021_newsweb_events(database_path)
     capital_2022 = seed_2022_share_capital_anchors(database_path)
     capital_2025 = seed_2025_share_capital_anchors(database_path)
     other_net_assets = seed_other_net_assets_reported(database_path)
     result["manifest_version"] = capital_2022["manifest_version"]
-    result["newsweb_2021_events"] = newsweb_2021
     result["share_capital_corrections"] = {
         "2022": capital_2022,
         "2025": capital_2025,
@@ -54,8 +51,4 @@ def history_status(database_path: str | None = None) -> dict:
     return result
 
 
-__all__ = [
-    "seed_curated_history",
-    "seed_2021_newsweb_events",
-    "history_status",
-]
+__all__ = ["seed_curated_history", "history_status"]
