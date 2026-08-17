@@ -15,6 +15,7 @@ from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
+from app.marketdata.bmob3_feed import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
 from app.marketdata.euronext_delayed import download_euronext_delayed_equities
 from app.marketdata.oslo_calendar import is_oslo_bors_trading_day
 from app.marketdata.otec_feed import (
@@ -77,9 +78,9 @@ def run_fast_refresh(
     """Refresh only sources/layers that can matter intraday.
 
     Heavy annual/history providers (B3 COTAHIST, ECB, CVM and MFN fallback) deliberately
-    live in the daily full refresh. OTEC normally uses Euronext's small 15-minute/hour
-    delayed windows. After the Oslo session, the one EOD finalization gets priority so a
-    cold start cannot download the full current-day file twice in the same cycle.
+    live in the daily full refresh. OTEC uses Euronext's small delayed trade windows while
+    BMOB3 uses B3's lightweight public delayed web quote. Each market has a separate EOD
+    finalization so the latest LAST is available before the next official daily CLOSE.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -127,12 +128,38 @@ def run_fast_refresh(
                 lambda: refresh_otec_intraday_price(database_path, now=now),
                 errors,
             )
+
+        bmob3_eod = _safe_step(
+            "bmob3_eod",
+            lambda: maybe_finalize_bmob3_eod(database_path, now=now),
+            errors,
+        )
+        steps["bmob3_eod"] = bmob3_eod
+        if _eod_is_authoritative_for_cycle(bmob3_eod):
+            steps["bmob3_delayed"] = {
+                "skipped": True,
+                "reason": "eod_finalized_for_session",
+            }
+        else:
+            steps["bmob3_delayed"] = _safe_step(
+                "bmob3_delayed",
+                lambda: refresh_bmob3_intraday_price(database_path, now=now),
+                errors,
+            )
     else:
         steps["otec_delayed"] = {
             "skipped": True,
             "reason": "live_source_not_used_for_historical_target",
         }
         steps["otec_eod"] = {
+            "skipped": True,
+            "reason": "live_source_not_used_for_historical_target",
+        }
+        steps["bmob3_delayed"] = {
+            "skipped": True,
+            "reason": "live_source_not_used_for_historical_target",
+        }
+        steps["bmob3_eod"] = {
             "skipped": True,
             "reason": "live_source_not_used_for_historical_target",
         }
