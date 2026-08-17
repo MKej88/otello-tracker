@@ -9,7 +9,7 @@ from app.db.connection import get_connection
 from app.db.repository import decimal_text
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 
-FULL_CALCULATION_VERSION = "full-market-nav-daily-v3-option-aware"
+FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -94,6 +94,7 @@ def rebuild_daily_full_nav(
                 "core_snapshot_id": row["core_snapshot_id"],
                 "core_calculation_version": CORE_CALCULATION_VERSION,
                 "core_inputs_hash": row["core_inputs_hash"],
+                "full_nav_methodology": "option-liability-v1",
                 "other_net_assets": {
                     "daily_estimate_id": row["ona_daily_id"],
                     "amount_usd_equivalent": row["amount_usd"],
