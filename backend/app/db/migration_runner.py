@@ -22,6 +22,7 @@ CORE_TABLES = (
     "other_net_assets_daily_estimates",
     "buyback_programs",
     "buybacks",
+    "buyback_daily_transactions",
     "corporate_actions",
     "nav_snapshots",
     "broker_estimate_sets",
