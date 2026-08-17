@@ -54,8 +54,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Validate Compose configuration
+      - name: Validate local Compose configuration
         run: docker compose config --quiet
+      - name: Validate cloud production Compose configuration
+        run: docker compose --env-file .env.production.example config --quiet
       - name: Build backend and frontend images
         run: docker compose build api web
       - name: Verify nginx configuration

@@ -2,9 +2,9 @@
 
 Sist oppdatert: **17.08.2026**
 
-## Nåværende fase – Phase 14: Live market-data og Pi-optimalisering
+## Nåværende fase – Phase 14: Live market-data og cloud-produksjon
 
-Phase 14 bygger videre på den ferdige pre-live-plattformen med lettere markedsfeeds, bedre intradag-ferskhet og lavere ressursbruk på Raspberry Pi.
+Phase 14 bygger videre på produksjonsplattformen med lettere markedsfeeds, bedre intradag-ferskhet, lavere ressursbruk og et provider-nøytralt cloud-oppsett.
 
 ### 14.1 – Lett OTEC-feed
 
@@ -26,29 +26,47 @@ Status: **Ferdig**
 - [x] årlig COTAHIST er flyttet ut av normal intradag/live-prising
 - [x] B3-handelskalender og EOD-vinduer håndteres eksplisitt
 
-### 14.3 – Sikkerhet og Raspberry Pi-ytelse
+### 14.3 – Sikkerhet og produksjonsytelse
 
 Status: **Ferdig og CI-validert**
 
 - [x] fersk BMOB3 kan oppdatere dagens indikative NAV selv før OTEC har handlet samme dag
 - [x] eksisterende NAV-formel/lookbacks beholdes; `MIXED` viser ulike komponentdatoer eksplisitt
-- [x] 30-minutters fast refresh hopper over full cash-rebuild når modellinputene er uendret
-- [x] daglig fullrefresh primer samme dirty-state slik at neste fastsyklus ikke gjentar rebuild
+- [x] fast refresh hopper over full cash-rebuild når modellinputene er uendret
+- [x] fullrefresh primer samme dirty-state slik at neste fastsyklus ikke gjentar rebuild
 - [x] statiske kuraterte manifests seeds bare når innhold/fingerprint er endret
-- [x] NewsWeb buyback-refresh bruker automatisk siste dato minus sikkerhetsoverlapp
-- [x] CVM inneværende år refreshes løpende; foregående år kontrolleres periodisk i stedet for daglig
+- [x] NewsWeb buyback-refresh bruker siste dato minus sikkerhetsoverlapp
+- [x] CVM inneværende år refreshes løpende; foregående år kontrolleres periodisk
 - [x] OTEC delayed payloads har immutabel kilde/provenance per payload
 - [x] NewsWeb JSON/PDF har eksplisitte størrelsesgrenser
 - [x] Nginx har rate limiting, sikkerhetsheadere og proxy-timeouts
 - [x] containere bruker `no-new-privileges`
-- [x] CI kontrollerer Python dependency-konsistens, produksjons-NPM audit og Nginx-konfigurasjon
-- [x] nye regresjonstester dekker dirty-state, mixed-date NAV, CVM, NewsWeb og OTEC provenance
+- [x] CI kontrollerer Python dependency-konsistens, production NPM audit og Nginx-konfigurasjon
 
 Bevisst ikke endret i 14.3: NAV-formelen, buyback-estimator/backtest og automatisk backup-retention.
 
-## Pre-live-plattform – Phase 13
+### 14.4 – Cloud-first produksjonsoppsett
 
-Phase 13 gjorde repoet testbart og eksplisitt deploybart til Raspberry Pi-produksjon.
+Status: **Ferdig og CI-validert**
+
+- [x] repoet er ryddet for tidligere lokal maskinvare-spesifikk produksjonsplan
+- [x] én aktiv cloud app-host/region med Docker Compose er standard produksjonsarkitektur
+- [x] persistent host-path er konfigurerbar via `DATA_DIR`
+- [x] separat `.env.production.example` for cloud-produksjon
+- [x] bare web skal eksponeres; API forblir privat på Docker-nettet
+- [x] HTTPS termineres hos cloud edge/load balancer/reverse proxy
+- [x] cloud-runbook i `docs/cloud-deployment.md`
+- [x] produksjonsport i `docs/production-readiness.md`
+- [x] SQLite-begrensningen mot horisontal multi-host skalering er eksplisitt dokumentert
+- [x] off-host backup/snapshot er produksjonskrav i tillegg til lokale SQLite-snapshots
+- [x] CI validerer `.env.production.example` mot Compose
+- [x] backend, frontend, Docker/cloud-config og oppryddingskontroll passerte CI før merge
+- [ ] provider-spesifikk deploy fra GitHub Actions – avventer valg av cloud-provider
+- [ ] automatisk object-storage backup/retention – avventer valg av cloud-provider
+
+## Produksjonsplattform – Phase 13
+
+Phase 13 gjorde repoet testbart, reproducerbart og eksplisitt deploybart som containerisert produksjonsapplikasjon.
 
 ### 13.1 – Produksjons-bootstrap og preflight
 
@@ -61,26 +79,21 @@ Status: **Ferdig**
 - [x] streng `preflight --strict`
 - [x] SQLite-integritet og migreringsnivå
 - [x] kontroll av OTEC/BMOB3/FX historisk dekning
-- [x] kontroll av FX-vindu for hvert rapporterte ikke-NOK cash-anker
 - [x] NewsWeb/buyback-dekning
 - [x] cash/CORE/ONA/FULL og dashboard-readiness
 
-Dokumentasjon: `docs/pre-live-hardening.md`.
+Dokumentasjon: `docs/production-readiness.md`.
 
 ### 13.2 – Scheduler, ytelse, jobbstatus og backup
 
 Status: **Ferdig**
 
 - [x] lett fast refresh hvert 30. minutt
-- [x] delayed OTEC + inkrementell NewsWeb i fastløpet
-- [x] ingen B3-årsfil/ECB/CVM/MFN-fullarbeid hvert 30. minutt
 - [x] full refresh standard én gang per døgn
 - [x] full/fast/backup-jobber lagres i `job_runs`
 - [x] SQLite backup-API mot levende WAL-database
 - [x] backup må passere `PRAGMA integrity_check`
 - [x] standard backupkatalog `/data/backups`
-
-Kjent driftsoppgave: automatisk retention/sletting av gamle backuper er ikke aktivert. Diskforbruk skal overvåkes, og restore skal testes på faktisk Pi før full driftsklar-erklæring.
 
 ### 13.3 – Datoferskhet og GUI
 
@@ -91,24 +104,17 @@ Status: **Ferdig**
 - [x] MIXED markeres som indikativt uten å endre NAV-beregningen
 - [x] GUI oppdaterer data automatisk hvert 2. minutt
 - [x] gammel rapportert Bemobi-eierandel vises ikke som dagens prosent
-- [x] verifisert Bemobi-aksjeantall brukes fortsatt i NAV
 
 ### 13.4 – Reproducerbarhet, tidssone og produksjons-CI
 
 Status: **Ferdig og CI-validert**
 
-- [x] frontend direkte avhengigheter pinnet
-- [x] `package-lock.json` generert fra GitHub CI
-- [x] frontend bruker `npm ci` i Docker og CI
-- [x] backend direkte Python-avhengigheter pinnet til testede versjoner
-- [x] eksplisitt `Europe/Oslo` i backend/scheduler
-- [x] backend-image inkluderer `tzdata`
-- [x] CI bygger faktiske produksjons-Docker-images, ikke bare Compose-konfigurasjon
-- [x] README og produksjonsinstruksjoner synkronisert
+- [x] låste frontend-avhengigheter og `npm ci`
+- [x] pinnede direkte Python-avhengigheter
+- [x] eksplisitt `Europe/Oslo`
+- [x] faktiske produksjons-Docker-images bygges i CI
 
 ## Funksjonell historikk
-
-Følgende hoveddeler er ferdige fra tidligere faser:
 
 - [x] FastAPI + React/TypeScript + Docker Compose/nginx
 - [x] SQLite med versjonerte migreringer, WAL, FK og provenance
@@ -129,37 +135,37 @@ Følgende hoveddeler er ferdige fra tidligere faser:
 
 ## Neste obligatoriske produksjonsporter
 
-### A. Faktisk Raspberry Pi-database
+### A. Cloud production
 
-Når Pi-en er tilgjengelig:
-
-1. `docker compose build`
-2. bootstrap ren `/data/otello.db` med den validerte historiske OTEC-filen
-3. kjør `python -m app.jobs.preflight --strict`
-4. verifiser `READY`
-5. start stacken
-6. kontroller `job_runs`, scheduler, backup og GUI over minst ett døgn
-7. gjør en faktisk restore-test fra backup
+1. velg endelig cloud-provider/host;
+2. opprett persistent disk og sett `DATA_DIR`;
+3. bygg image og bootstrap `/data/otello.db`;
+4. kjør `preflight --strict` og verifiser `READY`;
+5. start stacken bak HTTPS;
+6. bekreft at bare web er eksternt eksponert;
+7. kontroller `job_runs`, scheduler og backup gjennom minst ett døgn;
+8. restart/redeploy og bekreft at persistent database består;
+9. gjør faktisk restore-test;
+10. aktiver off-host snapshot/object-storage backup.
 
 ### B. Otello 1H26 – 21.08.2026
 
-Dagens cash/ONA etter siste rapportanker kan legitimt være `FORECAST_PARTIAL`/estimert. Når 1H26 publiseres:
+Når rapporten publiseres:
 
-1. importer nye rapporterte cash-/balanseankre
-2. avstem ONA
-3. rebuild CORE/FULL
-4. kontroller residualer og share count
-5. kjør preflight på nytt
+1. importer nye rapporterte cash-/balanseankre;
+2. avstem ONA;
+3. rebuild CORE/FULL;
+4. kontroller residualer og share count;
+5. kjør preflight på nytt.
 
-Før dette skal dashboardet ikke late som dagens cash/ONA er rapportert.
+Før dette kan dagens cash/ONA legitimt være `FORECAST_PARTIAL`/estimert.
 
-## Etter pre-live
-
-Når produksjonsportene over er bestått kan neste funksjonelle utvikling fortsette, blant annet:
+## Etter cloud-go-live
 
 - meglerkonsensus før Bemobi-rapporter
 - aksjonærdata der lovlig og teknisk forsvarlig
 - e-post-/ukerapporter
 - bedre navigasjon/undersider i GUI
 - varsling på source/job health
-- sikker automatisk backup-retention når restore-rutinen er etablert
+- provider-spesifikk GitHub Actions deploy
+- automatisk off-host backup/retention

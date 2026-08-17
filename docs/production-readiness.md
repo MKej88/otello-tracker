@@ -1,4 +1,4 @@
-# Pre-live hardening
+# Production readiness
 
 Dette dokumentet er produksjonsporten for Otello-trackeren. En fresh clone er **ikke** produksjonsklar bare fordi containerne starter.
 
@@ -67,10 +67,11 @@ Produksjon bruker to refreshnivåer:
 Standard: hvert 30. minutt.
 
 - Euronext delayed OTEC
+- BMOB3 delayed/EOD
 - inkrementell NewsWeb
 - inkrementelle buybacks
 - buyback cash/programdata
-- daglig cash
+- cash bare når modellinput/horisont er endret
 - siste relevante NAV-snapshot
 
 Fastløpet skal ikke laste hele B3-år, ECB-historikk, CVM-arkiver eller MFN-fallback.
@@ -81,7 +82,18 @@ Standard: én gang per døgn. Tar tyngre kilder, full historisk rebuild og avste
 
 Alle fast/full/backup-kjøringer lagres i `job_runs`.
 
-## 4. Backup
+## 4. Persistent cloud storage
+
+Produksjonsdatabasen skal ligge på en varig disk montert som `/data`. `compose.yaml` bruker `${DATA_DIR}` på hosten og monterer den i både API og scheduler.
+
+Krav:
+
+- data skal overleve container-restart, image-bytte og deploy;
+- API og scheduler skal se samme SQLite-fil;
+- containerens ephemeral filesystem skal ikke brukes som eneste lagringssted;
+- SQLite-arkitekturen skal kjøres som én aktiv app-host/region, ikke som flere samtidige noder over et delt nettverksfilesystem.
+
+## 5. Backup
 
 Standard: én verifisert SQLite-snapshot per døgn til `/data/backups`.
 
@@ -93,9 +105,11 @@ PRAGMA integrity_check;
 
 før snapshotet godtas.
 
-**Kjent driftsoppgave:** automatisk retention/sletting er ikke aktivert. På Pi-en skal diskforbruk overvåkes, og minst én faktisk restore-test gjennomføres før full driftsklar-erklæring.
+Cloud-produksjon krever i tillegg **off-host backup**: provider-snapshot eller ekstern/object storage. En backup som bare ligger på samme persistente disk beskytter ikke mot tap av hele disken.
 
-## 5. Datoferskhet i NAV
+Automatisk object-storage-opplasting er ikke implementert før endelig cloud-provider er valgt. Restore fra minst én verifisert backup skal testes før full driftsklar-erklæring.
+
+## 6. Datoferskhet i NAV
 
 Dashboard-API og GUI viser kompatibiliteten mellom OTEC-, BMOB3- og BRL/NOK-datoene:
 
@@ -110,7 +124,7 @@ GUI-et henter nye data automatisk hvert 2. minutt.
 
 En gammel rapportert Bemobi-eierprosent eksponeres ikke som dagens eierandel. NAV bruker det verifiserte Bemobi-aksjeantallet.
 
-## 6. Reproducerbar produksjon
+## 7. Reproducerbar produksjon
 
 - frontend direkte avhengigheter er pinnet;
 - `package-lock.json` låser npm-grafen;
@@ -118,40 +132,26 @@ En gammel rapportert Bemobi-eierprosent eksponeres ikke som dagens eierandel. NA
 - backend direkte Python-avhengigheter er pinnet til versjoner som passerte CI;
 - backend/scheduler bruker eksplisitt `Europe/Oslo`;
 - produksjonsimage inkluderer timezone-data;
-- CI validerer Compose **og bygger faktiske backend/frontend Docker-images**.
+- CI validerer Compose og bygger faktiske backend/frontend Docker-images;
+- CI kjører Python dependency-check, frontend production audit og Nginx-konfigurasjonstest.
 
-## 7. Faktisk Pi-gate
+## 8. Cloud production gate
 
-Når Raspberry Pi-en er tilgjengelig:
+Se `docs/cloud-deployment.md` for komplett oppsett. Før systemet kalles fullt driftsklart:
 
-```bash
-cp .env.example .env
-mkdir -p data/raw data/backups
-docker compose build
-```
+1. opprett persistent cloud disk og sett `DATA_DIR`;
+2. bygg produksjonsimage;
+3. bootstrap produksjonsdatabasen;
+4. kjør `preflight --strict` og verifiser `READY`;
+5. start stacken;
+6. verifiser web/API gjennom HTTPS-endepunktet;
+7. kontroller `job_runs`, scheduler og backup gjennom minst ett døgn;
+8. restart/redeploy og bekreft at databasen består;
+9. gjør en faktisk restore-test;
+10. aktiver off-host backup/snapshot;
+11. bekreft at bare web-tjenesten er eksponert eksternt og at secrets ligger utenfor Git.
 
-Kjør bootstrap, deretter:
-
-```bash
-docker compose run --rm api python -m app.jobs.preflight \
-  --database /data/otello.db \
-  --strict
-```
-
-Kun ved `READY`:
-
-```bash
-docker compose up -d
-```
-
-Før systemet kalles fullt driftsklart:
-
-1. kontroller scheduler/job_runs gjennom minst ett døgn;
-2. bekreft at daglig backup blir opprettet og er integritetsvalidert;
-3. gjør en faktisk restore-test;
-4. bekreft at web/API bare eksponeres gjennom ønsket lokal/Cloudflare-tilgang.
-
-## 8. Otello 1H26 – neste finansielle gate
+## 9. Otello 1H26 – neste finansielle gate
 
 Etter rapporten 21.08.2026:
 
