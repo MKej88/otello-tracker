@@ -149,3 +149,60 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
             assert component["ex_date"] == "2024-12-18"
             assert component["payment_date"] == "2025-01-07"
             assert component["quality"] == "REPORTED_CALIBRATED"
+
+
+def test_august_2026_jcp_receivable_starts_ex_date_and_ends_on_payment(tmp_path):
+    db = str(tmp_path / "august-2026-jcp-lifecycle.db")
+    init_database(db)
+    seed_curated_history(db)
+
+    with get_connection(db) as connection:
+        _seed_daily_fx(connection, "2022-06-30", "2026-08-28")
+        connection.commit()
+
+    rebuild_other_net_assets_anchors(db)
+    result = rebuild_daily_other_net_assets(db, end_date="2026-08-28")
+    assert result["written"] > 0
+    assert result["skipped_missing_fx"] == 0
+    assert result["skipped_missing_receivable_fx"] == 0
+
+    with get_connection(db) as connection:
+        action = connection.execute(
+            """
+            SELECT id FROM corporate_actions
+            WHERE external_action_id = 'bemobi-2026-08-28-jcp-2q26'
+            """
+        ).fetchone()
+        assert action is not None
+
+        before_ex = _daily(connection, "2026-08-16")
+        ex_day = _daily(connection, "2026-08-17")
+        day_before_payment = _daily(connection, "2026-08-27")
+        payment_day = _daily(connection, "2026-08-28")
+
+        assert before_ex is not None
+        assert ex_day is not None
+        assert day_before_payment is not None
+        assert payment_day is not None
+        assert Decimal(before_ex["associated_receivable_nok"]) == 0
+        assert before_ex["receivable_quality"] == "NONE"
+
+        expected_gross_nok = Decimal("6275058.12783696") * Decimal("2")
+        assert Decimal(ex_day["associated_receivable_nok"]) == expected_gross_nok
+        assert ex_day["receivable_quality"] == "ESTIMATED_GROSS"
+        assert Decimal(day_before_payment["associated_receivable_nok"]) == expected_gross_nok
+        assert day_before_payment["receivable_quality"] == "ESTIMATED_GROSS"
+
+        components = json.loads(ex_day["receivable_components_json"])
+        assert len(components) == 1
+        component = components[0]
+        assert component["corporate_action_id"] == action["id"]
+        assert component["action_type"] == "JCP"
+        assert component["ex_date"] == "2026-08-17"
+        assert component["payment_date"] == "2026-08-28"
+        assert component["holding_shares"] == 32719588
+        assert Decimal(component["gross_brl"]) == Decimal("6275058.12783696")
+        assert component["quality"] == "ESTIMATED_GROSS"
+
+        assert Decimal(payment_day["associated_receivable_nok"]) == 0
+        assert payment_day["receivable_quality"] == "NONE"
