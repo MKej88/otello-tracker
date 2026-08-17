@@ -63,6 +63,38 @@ jobs:
       - name: Verify backend reference timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
 
-# Cloudflare Worker/D1 build and deploy jobs are added during Phase 15 once the
-# Wrangler project and D1 bindings exist. Docker is retained only as a parity/reference
-# implementation during that migration and is not the production target.
+  phase15-generate-schema:
+    name: Temporary D1 schema generator
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'phase-15-1-d1-schema-parity' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Generate consolidated schema
+        run: python cloudflare/tools/generate_d1_schema.py
+      - name: Commit generated schema when changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- cloudflare/migrations/0001_initial_schema.sql && git ls-files --error-unmatch cloudflare/migrations/0001_initial_schema.sql >/dev/null 2>&1; then
+            exit 0
+          fi
+          CONTENT="$(base64 -w0 cloudflare/migrations/0001_initial_schema.sql)"
+          API_URL="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/cloudflare/migrations/0001_initial_schema.sql"
+          EXISTING_SHA="$(curl --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "${API_URL}?ref=${HEAD_BRANCH}" | jq -r '.sha // empty')"
+          if [ -n "$EXISTING_SHA" ]; then
+            PAYLOAD="$(jq -nc --arg message 'Phase 15.1: generate D1 schema [skip ci]' --arg content "$CONTENT" --arg branch "$HEAD_BRANCH" --arg sha "$EXISTING_SHA" '{message:$message,content:$content,branch:$branch,sha:$sha}')"
+          else
+            PAYLOAD="$(jq -nc --arg message 'Phase 15.1: generate D1 schema [skip ci]' --arg content "$CONTENT" --arg branch "$HEAD_BRANCH" '{message:$message,content:$content,branch:$branch}')"
+          fi
+          curl --fail --silent --show-error -X PUT -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$API_URL" -d "$PAYLOAD" >/dev/null
+
+# Cloudflare Worker/D1 build and deploy jobs are added incrementally during Phase 15.
+# Docker remains only a regression/reference implementation and is not the production target.
