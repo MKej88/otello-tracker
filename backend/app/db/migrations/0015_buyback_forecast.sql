@@ -1,4 +1,7 @@
 ALTER TABLE buyback_programs ADD COLUMN max_price_nok TEXT;
+ALTER TABLE buybacks ADD COLUMN period_start TEXT;
+
+CREATE INDEX idx_buybacks_period_start ON buybacks(period_start);
 
 CREATE TABLE market_activity (
     id INTEGER PRIMARY KEY,
