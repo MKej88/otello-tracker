@@ -98,3 +98,14 @@ def test_buyback_forecast_ignores_expired_active_program(tmp_path) -> None:
     result = buyback_forecast(database, as_of_date="2026-08-17")
     assert result["ready"] is False
     assert result["status"] == "NO_ACTIVE_PROGRAM"
+
+
+def test_buyback_forecast_does_not_keep_serving_an_old_forecast_week(tmp_path) -> None:
+    database = str(tmp_path / "stale-program.db")
+    init_database(database)
+    seed_otec_activity_history(database)
+    _seed_program(database, status="ACTIVE")
+    result = buyback_forecast(database, as_of_date="2026-08-24")
+    assert result["ready"] is False
+    assert result["status"] == "PROGRAM_STATUS_STALE"
+    assert result["forecast_week"]["to"] == "2026-08-21"
