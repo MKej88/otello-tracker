@@ -196,7 +196,8 @@ def test_eod_finalization_stores_last_not_close(tmp_path) -> None:
 
     assert result["status"] == "ok"
     assert result["price_type"] == "LAST"
-    assert result["quality"] == "EOD_LAST_TRADE"
+    assert result["quality"] == "DIRECT"
+    assert result["price_semantics"] == "EOD_LAST_TRADE"
     assert Decimal(result["price_nok"]) == Decimal("17.23")
     assert feed.eod_otec_check_done(database, "2026-08-17") is True
 
@@ -211,7 +212,8 @@ def test_eod_finalization_stores_last_not_close(tmp_path) -> None:
         ).fetchall()
     assert len(rows) == 1
     assert rows[0]["price_type"] == "LAST"
-    assert rows[0]["quality"] == "EOD_LAST_TRADE"
+    assert rows[0]["quality"] == "DIRECT"
+    assert '"feed_mode": "EOD_LAST_TRADE"' in rows[0]["metadata_json"]
     assert "FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE" in rows[0]["metadata_json"]
 
 
