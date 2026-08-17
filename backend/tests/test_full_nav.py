@@ -34,7 +34,9 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
             row["as_of_date"]: row
             for row in connection.execute(
                 """
-                SELECT as_of_date, other_net_assets_reported, precision_status, restated
+                SELECT as_of_date, other_net_assets_reported,
+                       associated_receivable_reported, base_other_net_assets_reported,
+                       precision_status, restated
                 FROM other_net_assets_reported_anchors ORDER BY as_of_date
                 """
             )
@@ -42,10 +44,17 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
         assert len(rows) == 8
         assert rows["2022-06-30"]["other_net_assets_reported"] == "1400000"
         assert rows["2022-06-30"]["precision_status"] == "ROUNDED_0_1M"
+
         assert rows["2023-12-31"]["other_net_assets_reported"] == "3261000"
+        assert rows["2023-12-31"]["associated_receivable_reported"] == "3237000"
+        assert rows["2023-12-31"]["base_other_net_assets_reported"] == "24000"
         assert rows["2023-12-31"]["restated"] == 1
+
         assert rows["2024-12-31"]["other_net_assets_reported"] == "2987000"
+        assert rows["2024-12-31"]["associated_receivable_reported"] == "3452000"
+        assert rows["2024-12-31"]["base_other_net_assets_reported"] == "-465000"
         assert rows["2024-12-31"]["restated"] == 1
+
         assert rows["2025-06-30"]["other_net_assets_reported"] == "-5000"
         assert rows["2025-12-31"]["other_net_assets_reported"] == "2974000"
 
@@ -56,7 +65,7 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
               AND extraction_method = 'MANUAL'
             """
         ).fetchone()["n"]
-        assert provenance == 8 * 5
+        assert provenance == 8 * 7
 
 
 def test_other_net_assets_daily_interpolates_in_usd_and_marks_post_anchor_forecast(tmp_path):
@@ -142,8 +151,9 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
             INSERT INTO other_net_assets_reported_anchors(
                 as_of_date, total_assets_reported, cash_reported, bemobi_carrying_reported,
                 total_liabilities_reported, reported_currency, other_net_assets_reported,
+                associated_receivable_reported, base_other_net_assets_reported,
                 precision_status, restated, source_document_id
-            ) VALUES ('2022-06-30','0','0','0','0','USD','1400000','EXACT',0,?)
+            ) VALUES ('2022-06-30','0','0','0','0','USD','1400000','0','1400000','EXACT',0,?)
             """,
             (doc_id,),
         )
@@ -152,8 +162,13 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
             """
             INSERT INTO other_net_assets_daily_estimates(
                 estimate_date, amount_usd, usd_nok_rate, amount_nok, quality,
-                start_anchor_id, end_anchor_id, inputs_hash, notes
-            ) VALUES ('2022-06-30','1400000','10','14000000','REPORTED_ANCHOR',?,?, 'ona-hash','test')
+                start_anchor_id, end_anchor_id, inputs_hash, notes,
+                base_amount_usd, base_amount_nok, associated_receivable_nok,
+                receivable_quality, receivable_components_json
+            ) VALUES (
+                '2022-06-30','1400000','10','14000000','REPORTED_ANCHOR',?,?,
+                'ona-hash','test','1400000','14000000','0','NONE','[]'
+            )
             """,
             (anchor_id, anchor_id),
         )
@@ -170,7 +185,7 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
         full = connection.execute(
             """
             SELECT nav_total_nok, nav_per_share_nok, other_net_assets_nok,
-                   shares_outstanding, nav_scope
+                   shares_outstanding, nav_scope, components_json
             FROM nav_snapshots WHERE calculation_version=?
             """,
             (FULL_CALCULATION_VERSION,),
@@ -180,6 +195,7 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
         assert Decimal(full["nav_total_nok"]) == Decimal("1014000000")
         assert Decimal(full["nav_per_share_nok"]) - Decimal("10") == Decimal("14000000") / Decimal("100000000")
         assert Decimal(full["other_net_assets_nok"]) == Decimal("14000000")
+        assert '"associated_receivable_nok": "0"' in full["components_json"]
         assert connection.execute(
             "SELECT COUNT(*) n FROM nav_snapshots WHERE calculation_version=? AND substr(as_of_at,1,10)<'2022-06-30'",
             (FULL_CALCULATION_VERSION,),
