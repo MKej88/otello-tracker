@@ -24,7 +24,9 @@ src/
   dashboard_service.py
   buyback_service.py
   oslo_calendar.py
+  b3_calendar.py
   otec_ingestion.py
+  bmob3_ingestion.py
   scheduled.py
 
 migrations/
@@ -65,6 +67,25 @@ Semantikken er bevisst lik SQLite-referansen: Euronext-transaksjonen lagres som 
 
 Intradagspayloaden er eksplisitt størrelsesbegrenset. ZIP-en holdes bounded, mens CSV-medlemmet leses sekvensielt direkte fra ZIP-strømmen i stedet for å ekspanderes til én stor bytes-/tekstbuffer. Den store `CURRENT_TRADING_DAY`-filen er derfor **ikke** flyttet inn i denne banen; EOD/gap recovery implementeres separat med en eksplisitt Worker/R2-strategi.
 
+## Phase 15.4.2 – BMOB3 intradag og EOD LAST
+
+BMOB3 er koblet til samme 30-minutters Cron og er CI-validert mot referanseimplementasjonen:
+
+```text
+Cron */30 * * * *
+  -> B3 delayed BMOB3 JSON
+  -> 15 min effective market timestamp
+  -> market_prices LAST/DIRECT
+  -> etter 19:15 São Paulo: idempotent EOD LAST
+  -> offisiell COTAHIST CLOSE kan senere oppgradere samme handelsdag
+```
+
+B3-responsen er begrenset til 256 KiB. Worker-versjonen bruker ikke hop-by-hop-headeren `Connection`; en egen regresjonstest låser dette fordi Cloudflare ikke tillater denne headeren i Worker-subrequests.
+
+EOD-verdien merkes eksplisitt som en siste forsinket webkurs, **ikke** som offisiell COTAHIST-sluttkurs. Den tyngre daglige COTAHIST-jobben beholdes derfor som sterkere kilde i full refresh.
+
+Scheduler-isolasjonen gjør at en feil i én markedsfeed ikke automatisk stopper den andre: kjøringen registreres som `PARTIAL` når bare én kilde feiler, og `FAILED` først når begge markedsfeedene feiler.
+
 ## D1
 
 `0001_initial_schema.sql` er en frosset baseline generert fra SQLite-referansen og skal ikke håndredigeres. Senere datamodellendringer ligger i additive D1-migreringer. `0002_reference_data.sql` oppretter stabile sources/instruments, `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser, og `0004_option_liability.sql` legger til opsjonsfeltene for FULL NAV.
@@ -82,7 +103,7 @@ python cloudflare/tools/generate_d1_schema.py --check
 
 `tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
 
-En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-regresjonstester.
+En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1 og 15.4.2 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC- og BMOB3-regresjonstester.
 
 ## Ytelseshardening
 
@@ -139,7 +160,6 @@ pywrangler dev --config wrangler.worker-test.jsonc
 
 ```text
 OTEC EOD + gap recovery
-BMOB3 delayed/EOD
 NewsWeb incremental
 Dirty-state cash/NAV, inkludert option-aware FULL NAV
 ```
