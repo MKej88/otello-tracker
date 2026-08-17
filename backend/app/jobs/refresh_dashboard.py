@@ -21,6 +21,7 @@ from app.marketdata.backfill import (
     market_data_status,
 )
 from app.marketdata.ecb_fx import fetch_ecb_csv
+from app.marketdata.euronext_delayed import refresh_otec_delayed_price
 from app.nav import (
     daily_cash_status,
     daily_nav_status,
@@ -67,6 +68,7 @@ def run_refresh(
     b3_year: int | None = None,
     fetch_ecb: bool = True,
     fetch_b3: bool = True,
+    fetch_otec_delayed: bool = True,
     fetch_buybacks: bool = True,
     fetch_bemobi_news: bool = True,
     otec_euronext_csv: str | None = None,
@@ -78,6 +80,12 @@ def run_refresh(
     later model layers, so a temporary upstream outage degrades the result rather than
     destroying the dashboard. FULL NAV remains a separate snapshot series and never
     overwrites CORE.
+
+    OTEC current pricing uses Euronext's official public delayed Oslo EQUITIES trade file.
+    It is stored as LAST, never mislabeled as CLOSE. The current trading day is attempted
+    first, followed by the previous trading day only if OTEC has no trade in today's file.
+    Explicit historical target dates skip this live-only source rather than importing a
+    future/current trade into a historical rebuild.
 
     NewsWeb has two roles. A rights-safe archive stores metadata and a body hash for all
     OTEC regulatory messages from 2020 onward. The buyback adapter then uses original
@@ -92,6 +100,7 @@ def run_refresh(
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
+    today = date.today()
     year = b3_year or end_day.year
     fx_start = (end_day - timedelta(days=max(2, fx_lookback_days))).isoformat()
 
@@ -122,6 +131,20 @@ def run_refresh(
         steps["b3"] = _safe_step("b3", update_b3, errors)
     else:
         steps["b3"] = {"skipped": True}
+
+    if fetch_otec_delayed and end_day == today:
+        steps["otec_delayed"] = _safe_step(
+            "otec_delayed",
+            lambda: refresh_otec_delayed_price(database_path),
+            errors,
+        )
+    elif fetch_otec_delayed:
+        steps["otec_delayed"] = {
+            "skipped": True,
+            "reason": "live_source_not_used_for_historical_target",
+        }
+    else:
+        steps["otec_delayed"] = {"skipped": True}
 
     if fetch_bemobi_news:
         bemobi_news = _safe_step(
@@ -262,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--b3-year", type=int, default=None, help="Defaults to target-date year")
     parser.add_argument("--skip-ecb", action="store_true")
     parser.add_argument("--skip-b3", action="store_true")
+    parser.add_argument("--skip-otec-delayed", action="store_true")
     parser.add_argument("--skip-buybacks", action="store_true")
     parser.add_argument("--skip-bemobi-news", action="store_true")
     parser.add_argument("--otec-csv", default=None, help="Optional fresh Euronext OTEC CSV")
@@ -279,6 +303,7 @@ def main() -> None:
         b3_year=args.b3_year,
         fetch_ecb=not args.skip_ecb,
         fetch_b3=not args.skip_b3,
+        fetch_otec_delayed=not args.skip_otec_delayed,
         fetch_buybacks=not args.skip_buybacks,
         fetch_bemobi_news=not args.skip_bemobi_news,
         otec_euronext_csv=args.otec_csv,
