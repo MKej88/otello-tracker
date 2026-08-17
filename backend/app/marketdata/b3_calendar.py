@@ -25,8 +25,8 @@ def _easter_sunday(year: int) -> date:
 def b3_market_holidays(year: int) -> set[date]:
     """Recurring non-trading dates for the B3 listed-equities market.
 
-    The rules match B3's published 2026 market calendar. Provider-date validation remains
-    a second line of defence for any exceptional closure B3 may announce separately.
+    The rules match B3's published market calendar. Provider-date validation remains a
+    second line of defence for exceptional closures B3 may announce separately.
     """
     easter = _easter_sunday(year)
     return {
@@ -40,6 +40,7 @@ def b3_market_holidays(year: int) -> set[date]:
         date(year, 9, 7),             # Independence Day
         date(year, 10, 12),           # Our Lady of Aparecida
         date(year, 11, 2),            # All Souls' Day
+        date(year, 11, 15),           # Proclamation of the Republic
         date(year, 11, 20),           # Black Awareness Day
         date(year, 12, 24),           # Christmas Eve - no equity session
         date(year, 12, 25),           # Christmas
