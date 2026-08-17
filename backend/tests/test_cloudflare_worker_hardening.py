@@ -37,6 +37,7 @@ class CountingRepository:
     async def all(self, sql: str, parameters=()):
         self.query_count += 1
         if "FROM market_activity" in sql:
+            assert "ORDER BY ma.trading_date DESC, ma.id DESC" in sql
             start = date(2026, 6, 29)
             rows = []
             current = start
@@ -51,7 +52,7 @@ class CountingRepository:
                         }
                     )
                 current += timedelta(days=1)
-            return rows
+            return rows[::-1]
         if "FROM buybacks b" in sql and "b.program_id=?" in sql:
             return [
                 {
