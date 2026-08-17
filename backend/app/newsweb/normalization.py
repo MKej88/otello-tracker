@@ -28,6 +28,10 @@ def normalize_weekly_body(text: str) -> str:
             "Since the initiation of this share buyback program",
         ),
         (
+            "Sine the initiation of the share buyback program",
+            "Since the initiation of this share buyback program",
+        ),
+        (
             "Since the initiation of the share buyback program",
             "Since the initiation of this share buyback program",
         ),
