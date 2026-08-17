@@ -160,31 +160,47 @@ Status: **Ferdig og merget**
 
 ### Fase 9.3 – Oslo Børs NewsWeb originalkilde og daglige buybacks
 
-Status: **Implementert og live-validert på feature branch**
+Status: **Ferdig og merget**
 
-- [x] reverse-engineeret NewsWeb sin offentlige server-side API-kontrakt fra egen webapp
-- [x] direkte OTEC-discovery via `/v1/newsreader/list`, issuerId `7759`
-- [x] original melding via `/v1/newsreader/message?messageId=...`
-- [x] PDF-vedlegg via `/v1/newsreader/attachment?messageId=...&attachmentId=...`
-- [x] NEWSWEB registreres som offisiell EXCHANGE-kilde
+- [x] direkte OTEC-discovery via NewsWeb, issuerId `7759`
+- [x] original melding og transaksjonsvedlegg fra Oslo Børs NewsWeb
+- [x] NEWSWEB registrert som offisiell EXCHANGE-kilde
 - [x] strict OTEC/XOSL-validering før lagring
 - [x] transaksjons-PDF parses deterministisk på handelslinjenivå
 - [x] hver handel avstemmes antall × kurs = beløp
-- [x] daglige summer avstemmes mot ExecBuy, ukens aksjer, beløp og VWAP
-- [x] små dokumenterte avrundings-/kildeavvik merkes RECONCILED; større avvik stopper import
+- [x] daglige summer avstemmes mot ukens aksjetall, beløp og VWAP
 - [x] daglige buybacks lagres separat med attachment-ID, hash og provenance
-- [x] cash bruker `OTELLO_BUYBACK_DAILY` på faktiske handelsdatoer der vedlegg finnes
-- [x] ukentlig cash-summary fjernes først etter validert daglig detalj
-- [x] manglende transaksjons-PDF beholder Phase 9.2-fallbacken
-- [x] live-validert melding 678028: fem handelsdager, totalt 65 300 aksjer
-- [x] live-validert historisk tilfelle med immateriell beløpsdifferanse som RECONCILED
-- [x] PDF-er lagres ikke permanent; kun nødvendige avledede fakta/hash/provenance
-- [x] backend unit tests og live NewsWeb-smoke grønne
+- [x] cash bruker `OTELLO_BUYBACK_DAILY` på faktiske handelsdatoer der vedlegg validerer
+- [x] manglende/problematiske vedlegg beholder Phase 9.2-fallbacken
+- [x] full live-backfill 01.07.2024–17.08.2026: 91/91 meldinger, 350 handelsdager, 75 uker med daglig cash, 0 hard errors
+- [x] backend- og frontend-CI grønne på main etter merge
+
+### Fase 9.4 – Full NewsWeb-historikk fra 2020
+
+Status: **Implementert og under siste live-validering på feature branch**
+
+- [x] alle OTEC-NewsWeb-meldinger hentes fra 01.01.2020 og fremover
+- [x] første funne OTEC-melding i vinduet er 11.02.2020
+- [x] live-validert fullarkiv: 539/539 meldinger gjennom 14.08.2026, 0 arkivfeil
+- [x] rettighetsbevisst lagring: metadata, message-ID, URL og SHA256; full meldingstekst lagres ikke permanent
+- [x] deterministisk klassifisering i RESULTS/BUYBACK/DIVIDEND/JCP/CAPITAL/M_AND_A/GUIDANCE/CORPORATE/OTHER
+- [x] `REVIEW_REQUIRED` brukes for ukjente/OTHER-meldinger; klassifisering alene endrer aldri NAV
+- [x] inkrementell refresh overlapper 14 dager i stedet for å hente hele arkivet hver gang
+- [x] 2023 legacy-buyback-format støttes uten å gjøre hovedparseren løsere
+- [x] issuer-typoen `Sine the initiation` normaliseres eksplisitt
+- [x] første buyback-uke i juni 2023 håndteres med en strengt avgrenset kumulativ-inferens
+- [x] historiske 2020–2022 buyback-relaterte meldinger kartlagt; ulike tender/daily-formater tvinges ikke gjennom ukesparseren
+- [x] verifiserte 2021 tender-buybacks modellert separat: 12,0m × 33,75; 12,45m × 33,00; 11,2m × 26,50
+- [x] verifiserte 2021 treasury/share-count-hendelser lagt inn idempotent
+- [x] NewsWeb USD 100m AdColony-betaling 27.10.2021 modellert kun når historisk ECB USD/NOK finnes
+- [x] feil provenance-ID for mai-2021-tender avdekket og korrigert fra ikke-OTEC `532327` til OTEC `532648`
+- [x] verifiserte historiske hendelser er egen refresh-step; arkivklassifisering kan ikke automatisk påvirke cash/NAV
+- [ ] siste full historisk live-smoke grønn etter 2023 legacy-parser
 - [ ] ordinær PR-CI + merge til main
 
 ## Neste prioriteringer
 
-1. Merge Fase 9.3 etter ordinær CI.
+1. Fullfør Fase 9.4 live-smoke, PR og merge.
 2. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
 3. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
 4. Fase 10: Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
