@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
-from repository import D1Repository
+from performance_repository import PerformanceD1Repository
 
 API_VERSION = "0.11.1"
 
@@ -41,12 +41,12 @@ async def add_response_hardening(request: Request, call_next):
     return response
 
 
-def _repository(request: Request) -> D1Repository:
+def _repository(request: Request) -> PerformanceD1Repository:
     env = request.scope.get("env")
     database = getattr(env, "DB", None) if env is not None else None
     if database is None:
         raise HTTPException(status_code=503, detail="D1 binding unavailable")
-    return D1Repository(database)
+    return PerformanceD1Repository(database)
 
 
 @app.get("/api/health")
