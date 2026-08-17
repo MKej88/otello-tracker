@@ -59,6 +59,6 @@ jobs:
       - name: Build backend and frontend images
         run: docker compose build api web
       - name: Verify nginx configuration
-        run: docker compose run --rm --no-deps web nginx -t
+        run: docker compose run --rm --no-deps --add-host api:127.0.0.1 web nginx -t
       - name: Verify backend production timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
