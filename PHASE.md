@@ -98,14 +98,28 @@ Dokumentasjon: `docs/d1-bootstrap.md`.
 
 ### 15.3 – Worker API og D1 repository
 
-Status: **Neste**
+Status: **Ferdig og CI-validert lokalt; remote deploy venter på faktisk D1-ressurs**
 
-- [ ] Cloudflare Python Worker/FastAPI med eksisterende dashboard API-kontrakter
-- [ ] D1 repository/data-access-lag
-- [ ] summary/history/forecast parity mot referansebackend
-- [ ] React static assets på samme Worker/custom domain
+- [x] Cloudflare Python Worker/FastAPI med eksisterende dashboard API-kontrakter
+- [x] read-only D1 repository/data-access-lag med parameterbinding
+- [x] D1 readiness i `/api/health`
+- [x] eksakt `summary` parity mot referansebackend
+- [x] eksakt `history` parity mot referansebackend
+- [x] eksakt `buybacks/forecast` parity mot referansebackend
+- [x] uendret Safe Harbour-/buyback methodology version og punktestimatnivå
+- [x] Oslo Børs-kalender parity mot referanseimplementasjonen
+- [x] Python Worker dry-run build i CI
+- [x] faktisk lokal `workerd` HTTP-smoketest mot D1
+- [x] React/Vite koblet til samme Worker med Workers Static Assets
+- [x] `/api/*` kjøres Worker-first mens frontend-assets serveres direkte
+- [x] SPA-fallback for frontend-ruter
+- [ ] deploye mot faktisk remote `otello-nav` etter Phase 15.2 cutover-snapshot/import
+
+Dokumentasjon: `docs/worker-api.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
+
+Status: **Neste**
 
 - [ ] OTEC delayed/EOD
 - [ ] BMOB3 delayed/EOD
