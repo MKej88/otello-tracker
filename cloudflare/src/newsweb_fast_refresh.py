@@ -117,7 +117,8 @@ async def collect_newsweb_fast(
     history_start = await history_start_for_refresh(repository)
     buyback_start = await buyback_start_for_refresh(repository)
     combined_start = min(history_start, buyback_start)
-    revalidate_on = revalidation_date or datetime.now(UTC).date().isoformat()
+    utc_today = datetime.now(UTC).date().isoformat()
+    revalidate_on = revalidation_date or min(utc_today, to_date)
 
     discovered = await discover_otec_messages(combined_start, to_date, fetcher=fetcher)
     existing = await _existing_newsweb_documents(repository, from_date=combined_start)
