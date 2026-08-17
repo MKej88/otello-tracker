@@ -60,6 +60,14 @@ def _previous_oslo_trading_day(day: date) -> date:
     return candidate
 
 
+def _eod_is_authoritative_for_cycle(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    if result.get("status") in {"ok", "no_trade"}:
+        return True
+    return result.get("status") == "skipped" and result.get("reason") == "eod_already_finalized"
+
+
 def run_fast_refresh(
     database_path: str,
     *,
@@ -69,9 +77,9 @@ def run_fast_refresh(
     """Refresh only sources/layers that can matter intraday.
 
     Heavy annual/history providers (B3 COTAHIST, ECB, CVM and MFN fallback) deliberately
-    live in the daily full refresh. OTEC intraday pricing uses only Euronext's small
-    15-minute/hour delayed windows. The full current-day trade file is fetched at most
-    once after the Oslo session to persist an end-of-day LAST, never mislabeled CLOSE.
+    live in the daily full refresh. OTEC normally uses Euronext's small 15-minute/hour
+    delayed windows. After the Oslo session, the one EOD finalization gets priority so a
+    cold start cannot download the full current-day file twice in the same cycle.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -98,12 +106,7 @@ def run_fast_refresh(
         }
 
     if end_day == today:
-        steps["otec_delayed"] = _safe_step(
-            "otec_delayed",
-            lambda: refresh_otec_intraday_price(database_path, now=now),
-            errors,
-        )
-        steps["otec_eod"] = _safe_step(
+        eod_result = _safe_step(
             "otec_eod",
             lambda: maybe_finalize_otec_eod(
                 database_path,
@@ -112,6 +115,18 @@ def run_fast_refresh(
             ),
             errors,
         )
+        steps["otec_eod"] = eod_result
+        if _eod_is_authoritative_for_cycle(eod_result):
+            steps["otec_delayed"] = {
+                "skipped": True,
+                "reason": "eod_finalized_for_session",
+            }
+        else:
+            steps["otec_delayed"] = _safe_step(
+                "otec_delayed",
+                lambda: refresh_otec_intraday_price(database_path, now=now),
+                errors,
+            )
     else:
         steps["otec_delayed"] = {
             "skipped": True,
