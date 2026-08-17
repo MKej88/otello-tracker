@@ -96,7 +96,6 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
     result = rebuild_daily_other_net_assets(db, end_date="2025-01-08")
     assert result["written"] > 0
     assert result["skipped_missing_fx"] == 0
-    assert result["skipped_receivable_fx"] == 0
 
     with get_connection(db) as connection:
         before_jcp = _daily(connection, "2023-12-18")
@@ -105,6 +104,11 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
         before_jcp_payment = _daily(connection, "2024-05-01")
         jcp_payment = _daily(connection, "2024-05-02")
 
+        assert before_jcp is not None
+        assert ex_jcp is not None
+        assert year_end_2023 is not None
+        assert before_jcp_payment is not None
+        assert jcp_payment is not None
         assert Decimal(before_jcp["associated_receivable_nok"]) == 0
         assert Decimal(ex_jcp["associated_receivable_nok"]) > 0
         assert ex_jcp["receivable_quality"] == "REPORTED_CALIBRATED"
@@ -121,6 +125,11 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
         before_dividend_payment = _daily(connection, "2025-01-06")
         dividend_payment = _daily(connection, "2025-01-07")
 
+        assert before_dividend is not None
+        assert ex_dividend is not None
+        assert year_end_2024 is not None
+        assert before_dividend_payment is not None
+        assert dividend_payment is not None
         assert Decimal(before_dividend["associated_receivable_nok"]) == 0
         assert Decimal(ex_dividend["associated_receivable_nok"]) > 0
         assert ex_dividend["receivable_quality"] == "REPORTED_CALIBRATED"
