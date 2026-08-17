@@ -74,19 +74,49 @@ def _decimal(value: str) -> Decimal:
 
 
 def normalize_weekly_body(text: str) -> str:
+    """Mirror the documented SQLite normalization without changing financial values."""
     clean = " ".join(text.split())
-    clean = clean.replace(
-        "announcing a share buyback program",
-        "announcing the initiation of the share buyback program",
+    replacements = (
+        (
+            "stock exchange notices from",
+            "stock exchange notice from",
+        ),
+        (
+            "announcing a share buyback program",
+            "announcing the initiation of the share buyback program",
+        ),
+        (
+            "announcing the continuation of the share buyback program",
+            "announcing the initiation of the share buyback program",
+        ),
+        (
+            "Since the initiation of this continuation of the share buyback program",
+            "Since the initiation of this share buyback program",
+        ),
+        (
+            "Since the initiation of this continuation of the buyback program",
+            "Since the initiation of this share buyback program",
+        ),
+        (
+            "Sine the initiation of the share buyback program",
+            "Since the initiation of this share buyback program",
+        ),
+        (
+            "Since the initiation of the share buyback program",
+            "Since the initiation of this share buyback program",
+        ),
+        (
+            "maximum number of shares that can be purchased under this continuation of the buyback program is",
+            "maximum number of shares that can be purchased under this buyback program is",
+        ),
+        (
+            "maximum number of shares that can be purchased is",
+            "maximum number of shares that can be purchased under this buyback program is",
+        ),
     )
-    clean = clean.replace(
-        "Since the initiation of the share buyback program",
-        "Since the initiation of this share buyback program",
-    )
-    clean = clean.replace(
-        "maximum number of shares that can be purchased is",
-        "maximum number of shares that can be purchased under this buyback program is",
-    )
+    for old, new in replacements:
+        clean = clean.replace(old, new)
+
     clean = re.sub(
         r"(average price of NOK\s+)(\d+),(\d{1,4})(?=\s)",
         lambda match: f"{match.group(1)}{match.group(2)}.{match.group(3)}",
