@@ -27,9 +27,15 @@ data/*.db-shm
 data/*.db-wal
 data/backups/*
 data/raw/*
+data/d1-bootstrap/*
 !data/.gitkeep
 !data/backups/.gitkeep
 !data/raw/.gitkeep
+!data/d1-bootstrap/.gitkeep
+
+# Portable D1 bootstrap packages can contain the full historical dataset.
+cloudflare/bootstrap/*.sql
+cloudflare/bootstrap/*.json
 
 # Market-data downloads anywhere in project
 COTAHIST_*.ZIP
