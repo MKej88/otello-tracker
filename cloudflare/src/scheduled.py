@@ -6,12 +6,14 @@ from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_buybacks import collect_newsweb_buybacks
     from .newsweb_ingestion import collect_newsweb_history
     from .otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
     from .repository import D1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from nav_refresh import refresh_dirty_nav_layers
     from newsweb_buybacks import collect_newsweb_buybacks
     from newsweb_ingestion import collect_newsweb_history
     from otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
@@ -99,7 +101,7 @@ async def run_fast_refresh(
     *,
     scheduled_time_ms: Any | None = None,
 ) -> dict[str, Any]:
-    """Run bounded 30-minute ingestion and persist an auditable D1 job record."""
+    """Run bounded 30-minute ingestion and dirty-state NAV refresh in D1."""
     repository = D1WriteRepository(database)
     scheduled_at = _scheduled_datetime(scheduled_time_ms)
     started_at = _scheduled_iso(scheduled_time_ms)
@@ -109,7 +111,7 @@ async def run_fast_refresh(
         metadata={
             "trigger": "cloudflare_cron",
             "cron": FAST_REFRESH_CRON,
-            "phase": "15.4.4",
+            "phase": "15.4.5",
         },
     )
 
@@ -190,9 +192,34 @@ async def run_fast_refresh(
     if isinstance(news_buybacks, dict):
         records_written += int(news_buybacks.get("ingested") or 0)
 
+    dirty_nav = await _safe_async_step(
+        "dirty_nav",
+        lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
+        steps=steps,
+        errors=errors,
+    )
+    if isinstance(dirty_nav, dict):
+        records_written += len(dirty_nav.get("dirty_layers") or [])
+        if dirty_nav.get("status") == "partial":
+            errors.append(
+                {
+                    "step": "dirty_nav",
+                    "error": "NAV-lag mangler nødvendige input: "
+                    + ", ".join(dirty_nav.get("not_ready_layers") or []),
+                    "error_type": "DirtyNavPartial",
+                }
+            )
+
     attempted_sources = 3
-    failed_sources = len({item["step"].split("_")[0] for item in errors})
-    if errors and failed_sources >= attempted_sources:
+    source_prefixes = {"otec", "bmob3", "newsweb"}
+    failed_sources = len(
+        {
+            item["step"].split("_")[0]
+            for item in errors
+            if item["step"].split("_")[0] in source_prefixes
+        }
+    )
+    if failed_sources >= attempted_sources:
         status = "FAILED"
     elif errors:
         status = "PARTIAL"
@@ -201,10 +228,10 @@ async def run_fast_refresh(
 
     error_message = "; ".join(item["error"] for item in errors)[:4000] or None
     metadata = {
-        "phase": "15.4.4",
+        "phase": "15.4.5",
         "steps": steps,
         "source_errors": errors,
-        "pending_fast_paths": ["DIRTY_NAV"],
+        "dirty_nav_enabled": True,
     }
     await repository.finish_job(
         job_id,
