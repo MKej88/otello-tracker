@@ -12,36 +12,52 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Inspect official delayed-trade parameter values
+      - name: Extract official delayed-trade parameter values
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import html
           import re
           import urllib.request
 
           page_url = 'https://marketdata.euronext.com/data-reporting-service/trades-file'
           headers = {'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)'}
-          req = urllib.request.Request(page_url, headers=headers)
-          with urllib.request.urlopen(req, timeout=30) as response:
+          with urllib.request.urlopen(urllib.request.Request(page_url, headers=headers), timeout=30) as response:
               page = response.read().decode('utf-8', errors='replace')
-          print('PAGE_LEN', len(page))
 
-          for token in ('downloadFile', 'typeFile', 'timeSelection', 'tradingLocation', 'Current Trading Day', 'Oslo'):
-              print('TOKEN', token)
-              start = 0
-              count = 0
-              while True:
-                  idx = page.lower().find(token.lower(), start)
-                  if idx < 0:
-                      break
-                  count += 1
-                  left = max(0, idx - 1800)
-                  right = min(len(page), idx + 3000)
-                  snippet = re.sub(r'\s+', ' ', page[left:right])
-                  print('OCCURRENCE', count, snippet[:4800])
-                  start = idx + len(token)
-                  if count >= 10:
-                      break
-              print('COUNT', count)
+          def compact(value):
+              return re.sub(r'\s+', ' ', html.unescape(value)).strip()
+
+          for label in ('Current Trading Day', 'Oslo'):
+              print('===', label, '===')
+              for match in re.finditer(re.escape(label), page, flags=re.I):
+                  left = max(0, match.start() - 1200)
+                  right = min(len(page), match.end() + 1200)
+                  snippet = page[left:right]
+                  attrs = re.findall(
+                      r'(?:value|data-value|data-id|id|name|for)=["\']([^"\']*)["\']',
+                      snippet,
+                      flags=re.I,
+                  )
+                  tags = re.findall(r'<(?:input|button|label|option|li|div)\b[^>]*>', snippet, flags=re.I)
+                  print('ATTRS', sorted(set(compact(v) for v in attrs if v)))
+                  for tag in tags[-12:]:
+                      print('TAG', compact(tag)[:1000])
+                  print('TEXT', compact(snippet)[-2200:])
+                  print('---')
+
+          # Also print all candidate input/radio values around the two React state names.
+          for state in ('timeSelection', 'tradingLocation'):
+              print('=== STATE', state, '===')
+              for match in re.finditer(state, page, flags=re.I):
+                  snippet = page[max(0, match.start()-1600):min(len(page), match.end()+2400)]
+                  attrs = re.findall(
+                      r'(?:value|data-value|data-id|id|name|for)=["\']([^"\']*)["\']',
+                      snippet,
+                      flags=re.I,
+                  )
+                  print('ATTRS', sorted(set(compact(v) for v in attrs if v)))
+                  print('TEXT', compact(snippet)[:3200])
+                  print('---')
           PY
