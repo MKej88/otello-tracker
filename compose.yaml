@@ -11,8 +11,6 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     volumes:
       - ./data:/data
-    ports:
-      - "${API_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 30s
@@ -29,7 +27,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-3000}:80"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:80"
 
 networks:
   default:
