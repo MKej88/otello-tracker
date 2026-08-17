@@ -119,10 +119,11 @@ Dokumentasjon: `docs/worker-api.md`.
 
 ### 15.3.1 – Cloudflare hardening før ingestion
 
-Status: **Implementert – CI-verifisering pågår**
+Status: **Ferdig og CI-validert**
 
 - [x] buyback forecast bruker én bounded OTEC activity-read i stedet for to D1-queries per historisk programuke
 - [x] eksplisitt query-budget-regresjonstest på ready-path
+- [x] bounded activity-vindu beholder alltid de nyeste radene før kronologisk modellberegning
 - [x] D1-spesifikke ytelsesindekser for buyback-program og NAV-serie
 - [x] populated SQLite → D1 → `workerd` → HTTP parity-test i CI
 - [x] eksakt JSON-sammenligning av summary/history/forecast mot referansebackend
