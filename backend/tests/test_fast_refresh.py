@@ -84,3 +84,15 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
         "start_date": "2026-08-17",
         "end_date": "2026-08-17",
     }
+
+
+def test_eod_result_skips_intraday_when_session_is_finalized() -> None:
+    assert fast._eod_is_authoritative_for_cycle({"status": "ok"}) is True
+    assert fast._eod_is_authoritative_for_cycle({"status": "no_trade"}) is True
+    assert fast._eod_is_authoritative_for_cycle(
+        {"status": "skipped", "reason": "eod_already_finalized"}
+    ) is True
+    assert fast._eod_is_authoritative_for_cycle(
+        {"status": "skipped", "reason": "before_eod_cutoff"}
+    ) is False
+    assert fast._eod_is_authoritative_for_cycle(None) is False
