@@ -1,27 +1,41 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from .nav_refresh import refresh_dirty_nav_layers
-    from .newsweb_buybacks import collect_newsweb_buybacks
-    from .newsweb_ingestion import collect_newsweb_history
-    from .otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
-    from .repository import D1WriteRepository
+    from .newsweb_fast_refresh import collect_newsweb_fast
+    from .oslo_calendar import is_oslo_bors_trading_day
+    from .otec_ingestion import (
+        EOD_FINALIZE_AFTER as OTEC_EOD_FINALIZE_AFTER,
+        INTRADAY_BOOTSTRAP_AFTER as OTEC_BOOTSTRAP_AFTER,
+        eod_otec_check_done,
+        maybe_finalize_otec_eod,
+        refresh_otec_with_gap_recovery,
+    )
+    from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from nav_refresh import refresh_dirty_nav_layers
-    from newsweb_buybacks import collect_newsweb_buybacks
-    from newsweb_ingestion import collect_newsweb_history
-    from otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
-    from repository import D1WriteRepository
+    from newsweb_fast_refresh import collect_newsweb_fast
+    from oslo_calendar import is_oslo_bors_trading_day
+    from otec_ingestion import (
+        EOD_FINALIZE_AFTER as OTEC_EOD_FINALIZE_AFTER,
+        INTRADAY_BOOTSTRAP_AFTER as OTEC_BOOTSTRAP_AFTER,
+        eod_otec_check_done,
+        maybe_finalize_otec_eod,
+        refresh_otec_with_gap_recovery,
+    )
+    from performance_repository import PerformanceD1WriteRepository
 
 FAST_REFRESH_CRON = "*/30 * * * *"
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
+PHASE = "15.4.7"
 
 
 def _scheduled_datetime(scheduled_time_ms: Any | None) -> datetime:
@@ -58,7 +72,9 @@ async def _safe_async_step(
     *,
     steps: dict[str, Any],
     errors: list[dict[str, str]],
+    timings_ms: dict[str, float],
 ) -> Any:
+    started = perf_counter()
     try:
         result = await fn()
         steps[name] = result
@@ -68,6 +84,8 @@ async def _safe_async_step(
         errors.append(error)
         steps[name] = {"status": "error", **error}
         return None
+    finally:
+        timings_ms[name] = round((perf_counter() - started) * 1000, 2)
 
 
 def _append_nested_errors(
@@ -96,13 +114,39 @@ def _append_nested_errors(
         )
 
 
+async def _otec_refresh_plan(repository, scheduled_at: datetime) -> dict[str, Any]:
+    local = scheduled_at.astimezone(OSLO_TZ)
+    target_date = local.date().isoformat()
+    if not is_oslo_bors_trading_day(local.date()):
+        return {
+            "should_poll": False,
+            "reason": "not_trading_day",
+            "target_date": target_date,
+        }
+    local_time = local.time().replace(tzinfo=None)
+    if local_time < OTEC_BOOTSTRAP_AFTER:
+        return {
+            "should_poll": False,
+            "reason": "before_bootstrap_cutoff",
+            "target_date": target_date,
+        }
+    if local_time >= OTEC_EOD_FINALIZE_AFTER and await eod_otec_check_done(repository, target_date):
+        return {
+            "should_poll": False,
+            "reason": "eod_already_finalized",
+            "target_date": target_date,
+        }
+    return {"should_poll": True, "reason": "market_window", "target_date": target_date}
+
+
 async def run_fast_refresh(
     database: Any,
     *,
     scheduled_time_ms: Any | None = None,
 ) -> dict[str, Any]:
-    """Run bounded 30-minute ingestion and dirty-state NAV refresh in D1."""
-    repository = D1WriteRepository(database)
+    """Run the bounded 30-minute ingestion path with cheap no-change behavior."""
+    run_started = perf_counter()
+    repository = PerformanceD1WriteRepository(database)
     scheduled_at = _scheduled_datetime(scheduled_time_ms)
     started_at = _scheduled_iso(scheduled_time_ms)
     job_id = await repository.start_job(
@@ -111,47 +155,78 @@ async def run_fast_refresh(
         metadata={
             "trigger": "cloudflare_cron",
             "cron": FAST_REFRESH_CRON,
-            "phase": "15.4.5",
+            "phase": PHASE,
         },
     )
 
     steps: dict[str, Any] = {}
     errors: list[dict[str, str]] = []
+    timings_ms: dict[str, float] = {}
     records_written = 0
 
-    otec = await _safe_async_step(
-        "otec_delayed",
-        lambda: refresh_otec_with_gap_recovery(repository=repository, now=scheduled_at),
+    plan = await _safe_async_step(
+        "otec_plan",
+        lambda: _otec_refresh_plan(repository, scheduled_at),
         steps=steps,
         errors=errors,
+        timings_ms=timings_ms,
     )
-    if isinstance(otec, dict) and otec.get("found"):
-        records_written += 1
+    should_poll_otec = not isinstance(plan, dict) or bool(plan.get("should_poll", True))
 
-    if isinstance(otec, dict) and otec.get("status") in {"ok", "no_trade"}:
-        otec_eod = await _safe_async_step(
-            "otec_eod",
-            lambda: maybe_finalize_otec_eod(
-                repository=repository,
-                now=scheduled_at,
-                current_refresh=otec,
-            ),
+    if should_poll_otec:
+        otec = await _safe_async_step(
+            "otec_delayed",
+            lambda: refresh_otec_with_gap_recovery(repository=repository, now=scheduled_at),
             steps=steps,
             errors=errors,
+            timings_ms=timings_ms,
         )
-        if isinstance(otec_eod, dict) and otec_eod.get("status") == "ok":
+        if isinstance(otec, dict) and otec.get("found"):
             records_written += 1
+
+        if isinstance(otec, dict) and otec.get("status") in {"ok", "no_trade"}:
+            otec_eod = await _safe_async_step(
+                "otec_eod",
+                lambda: maybe_finalize_otec_eod(
+                    repository=repository,
+                    now=scheduled_at,
+                    current_refresh=otec,
+                ),
+                steps=steps,
+                errors=errors,
+                timings_ms=timings_ms,
+            )
+            if isinstance(otec_eod, dict) and otec_eod.get("status") == "ok":
+                records_written += 1
+        else:
+            steps["otec_eod"] = {
+                "status": "skipped",
+                "reason": "current_otec_refresh_failed",
+            }
     else:
+        reason = str(plan.get("reason")) if isinstance(plan, dict) else "outside_market_window"
+        target_date = plan.get("target_date") if isinstance(plan, dict) else None
+        otec = {
+            "status": "skipped",
+            "reason": reason,
+            "target_date": target_date,
+            "network_fetches_avoided": True,
+        }
+        steps["otec_delayed"] = otec
         steps["otec_eod"] = {
             "status": "skipped",
-            "reason": "current_otec_refresh_failed",
+            "reason": reason,
+            "target_date": target_date,
         }
+        timings_ms["otec_delayed"] = 0.0
+        timings_ms["otec_eod"] = 0.0
 
     bmob3_eod = await _safe_async_step(
         "bmob3_eod",
         lambda: maybe_finalize_bmob3_eod(repository=repository, now=scheduled_at),
         steps=steps,
         errors=errors,
+        timings_ms=timings_ms,
     )
     if isinstance(bmob3_eod, dict) and bmob3_eod.get("status") == "ok":
         records_written += 1
@@ -161,42 +236,45 @@ async def run_fast_refresh(
             "status": "skipped",
             "reason": "eod_finalized_for_session",
         }
+        timings_ms["bmob3_delayed"] = 0.0
     else:
         bmob3 = await _safe_async_step(
             "bmob3_delayed",
             lambda: refresh_bmob3_intraday_price(repository=repository, now=scheduled_at),
             steps=steps,
             errors=errors,
+            timings_ms=timings_ms,
         )
         if isinstance(bmob3, dict) and bmob3.get("status") == "ok":
             records_written += 1
 
     newsweb_date = scheduled_at.astimezone(OSLO_TZ).date().isoformat()
-    news_history = await _safe_async_step(
-        "newsweb_history",
-        lambda: collect_newsweb_history(repository, to_date=newsweb_date),
+    newsweb = await _safe_async_step(
+        "newsweb_fast",
+        lambda: collect_newsweb_fast(repository, to_date=newsweb_date),
         steps=steps,
         errors=errors,
+        timings_ms=timings_ms,
     )
-    _append_nested_errors("newsweb_history", news_history, errors=errors)
-    if isinstance(news_history, dict):
+    if isinstance(newsweb, dict):
+        news_history = newsweb.get("history") or {}
+        news_buybacks = newsweb.get("buybacks") or {}
+        steps["newsweb_history"] = news_history
+        steps["newsweb_buybacks"] = news_buybacks
         records_written += int(news_history.get("archived") or 0)
-
-    news_buybacks = await _safe_async_step(
-        "newsweb_buybacks",
-        lambda: collect_newsweb_buybacks(repository, to_date=newsweb_date),
-        steps=steps,
-        errors=errors,
-    )
-    _append_nested_errors("newsweb_buybacks", news_buybacks, errors=errors)
-    if isinstance(news_buybacks, dict):
         records_written += int(news_buybacks.get("ingested") or 0)
+        _append_nested_errors("newsweb_history", news_history, errors=errors)
+        _append_nested_errors("newsweb_buybacks", news_buybacks, errors=errors)
+    else:
+        steps["newsweb_history"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
+        steps["newsweb_buybacks"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
 
     dirty_nav = await _safe_async_step(
         "dirty_nav",
         lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
         steps=steps,
         errors=errors,
+        timings_ms=timings_ms,
     )
     if isinstance(dirty_nav, dict):
         records_written += len(dirty_nav.get("dirty_layers") or [])
@@ -227,11 +305,28 @@ async def run_fast_refresh(
         status = "SUCCESS"
 
     error_message = "; ".join(item["error"] for item in errors)[:4000] or None
+    total_ms = round((perf_counter() - run_started) * 1000, 2)
     metadata = {
-        "phase": "15.4.5",
+        "phase": PHASE,
         "steps": steps,
         "source_errors": errors,
         "dirty_nav_enabled": True,
+        "performance": {
+            "total_ms_before_finish_job": total_ms,
+            "step_timings_ms": timings_ms,
+            "repository": repository.performance_metrics(),
+            "newsweb_full_messages_fetched": (
+                int(newsweb.get("full_messages_fetched") or 0)
+                if isinstance(newsweb, dict)
+                else None
+            ),
+            "newsweb_existing_skipped": (
+                int(newsweb.get("skipped_existing") or 0)
+                if isinstance(newsweb, dict)
+                else None
+            ),
+            "otec_network_fetch_avoided": not should_poll_otec,
+        },
     }
     await repository.finish_job(
         job_id,
@@ -247,6 +342,11 @@ async def run_fast_refresh(
         "records_written": records_written,
         "steps": steps,
         "source_errors": errors,
+        "performance": {
+            **metadata["performance"],
+            "repository_after_finish_job": repository.performance_metrics(),
+            "total_ms": round((perf_counter() - run_started) * 1000, 2),
+        },
     }
 
 
