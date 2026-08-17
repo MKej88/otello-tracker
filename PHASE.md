@@ -1,254 +1,120 @@
 # Prosjektstatus
 
-## Fase 1 – Fundament
+Sist oppdatert: **17.08.2026**
+
+## Nåværende fase – Phase 13: Pre-live hardening
+
+Målet med Phase 13 er at repoet ikke bare fungerer i utvikling, men har en eksplisitt og testbar vei til Raspberry Pi-produksjon.
+
+### 13.1 – Produksjons-bootstrap og preflight
 
 Status: **Ferdig**
 
-- [x] FastAPI-backend
-- [x] React/TypeScript-frontend
-- [x] Docker Compose + nginx
-- [x] GitHub Actions CI
-- [x] mørkt dashboard-skjelett
+- [x] ren database kan migreres og seeds med kuraterte historiske fakta
+- [x] full ECB BRL/NOK + USD/NOK fra 10.02.2021
+- [x] alle B3 COTAHIST-år fra 2021 til inneværende år
+- [x] historisk OTEC importeres fra validert Euronext-/Investing-CSV
+- [x] streng `preflight --strict`
+- [x] SQLite-integritet og migreringsnivå
+- [x] kontroll av OTEC/BMOB3/FX historisk dekning
+- [x] kontroll av FX-vindu for hvert rapporterte ikke-NOK cash-anker
+- [x] NewsWeb/buyback-dekning
+- [x] cash/CORE/ONA/FULL og dashboard-readiness
 
-## Fase 2 – Database og datamodell
+Dokumentasjon: `docs/pre-live-hardening.md`.
 
-Status: **Ferdig**
-
-- [x] SQLite med versjonerte/idempotente migreringer
-- [x] WAL, foreign keys og busy timeout
-- [x] markedsdata, FX, Bemobi-beholdning og OTEC-aksjetall
-- [x] cash-ankre og cash-bevegelser
-- [x] buybacks og corporate actions
-- [x] NAV-snapshots
-- [x] meglerestimater/konsensus-tabeller
-- [x] kilde-, dokument- og feltbasert provenance/audit trail
-- [x] jobbstatus og kildehelse
-
-## Fase 3 – Historiske Otello-ankre
+### 13.2 – Scheduler, ytelse, jobbstatus og backup
 
 Status: **Ferdig**
 
-- [x] kuraterte Otello-rapportankre fra 2021
-- [x] rapportert cash i original valuta
-- [x] registrerte/egne/utestående OTEC-aksjer
-- [x] Bemobi IPO- og greenshoe-beholdning
-- [x] historiske aksjekanselleringer
-- [x] NOK 21-distribusjonen i 2022
-- [x] kildeprovenance til rapport/melding
+- [x] lett fast refresh hvert 30. minutt
+- [x] delayed OTEC + inkrementell NewsWeb i fastløpet
+- [x] ingen B3-årsfil/ECB/CVM/MFN-fullarbeid hvert 30. minutt
+- [x] full refresh standard én gang per døgn
+- [x] full/fast/backup-jobber lagres i `job_runs`
+- [x] SQLite backup-API mot levende WAL-database
+- [x] backup må passere `PRAGMA integrity_check`
+- [x] standard backupkatalog `/data/backups`
 
-## Fase 4 – Historiske markedsdata
+Kjent driftsoppgave: automatisk retention/sletting av gamle backuper er ikke aktivert. Diskforbruk skal overvåkes, og restore skal testes på faktisk Pi før full driftsklar-erklæring.
 
-Status: **Ferdig og live-validert**
+### 13.3 – Datoferskhet og GUI
 
-- [x] BMOB3 fra offisiell B3 COTAHIST, 10.02.2021 → 14.08.2026
-- [x] BRL/NOK og USD/NOK fra ECB
-- [x] OTEC-historikk fra Investing + offisiell Euronext-overlapp
-- [x] reversering av OTEC dividend-adjustment før NOK 21-utdelingen
-- [x] 498/498 overlappende OTEC-dager avstemt eksakt mot Euronext
-- [x] DIRECT/RECONSTRUCTED datakvalitet
-- [x] robust B3-nedlasting med retry og manuell ZIP-fallback
-- [x] CORE NAV på rapportankre
+Status: **Ferdig**
 
-## Fase 5 – Daglig cash og daglig CORE NAV
+- [x] OTEC/BMOB3/BRL-NOK komponentdatoer i dashboard-API
+- [x] `ALIGNED`, `MIXED`, `STALE`, `UNKNOWN`
+- [x] MIXED markeres som indikativt uten å endre NAV-beregningen
+- [x] GUI oppdaterer data automatisk hvert 2. minutt
+- [x] gammel rapportert Bemobi-eierandel vises ikke som dagens prosent
+- [x] verifisert Bemobi-aksjeantall brukes fortsatt i NAV
 
-Status: **Ferdig og live-validert**
+### 13.4 – Reproducerbarhet, tidssone og produksjons-CI
 
-- [x] rapporterte cash-ankre konverteres med historisk ECB FX
-- [x] kjente corporate actions legges på faktiske datoer
-- [x] residual cash drift avstemmer eksakt mot neste rapporterte anker
-- [x] daglig cash-kurve
-- [x] daglig Bemobi-markedsverdi
-- [x] daglig CORE NAV/aksje
-- [x] daglig OTEC-rabatt
-- [x] eksplisitt BACKFILLED/ESTIMATED/DEGRADED/FORECAST_PARTIAL-kvalitet
-- [x] historiske residualdiagnoser
-- [x] etter fase 6.4: ingen halvårsperioder står igjen som HIGH_RESIDUAL
+Status: **Implementert – sluttvalideres i CI før merge**
 
-## Fase 6 – Otello-buybacks og cash-avstemming
+- [x] frontend direkte avhengigheter pinnet
+- [x] `package-lock.json` generert fra GitHub CI
+- [x] frontend bruker `npm ci` i Docker og CI
+- [x] backend direkte Python-avhengigheter pinnet til testede versjoner
+- [x] eksplisitt `Europe/Oslo` i backend/scheduler
+- [x] backend-image inkluderer `tzdata`
+- [x] CI bygger faktiske produksjons-Docker-images, ikke bare Compose-konfigurasjon
+- [x] README og produksjonsinstruksjoner synkronisert
 
-Status: **Ferdig for kjent historikk til 14.08.2026**
+## Funksjonell historikk
 
-- [x] deterministisk parser for ukentlige buyback-statusmeldinger
-- [x] idempotent oppdatering av buybacks, cash og treasury shares
-- [x] historisk buyback-backfill 2022, 2024, 2025 og 2026
-- [x] full 2025-buyback-kjede avstemt
-- [x] 2026-dekning avstemt gjennom 14.08.2026
-- [x] originale utstederavvik beholdes i metadata og korrigeres aldri lydløst
-- [x] effektive aksjekapitalankre etter kanselleringer
-- [x] H1 2022 AdColony-innbetaling og Bemobi-skatt modellert
-- [x] H1 2022 residual redusert fra ca. NOK 1,399 mrd. til ca. NOK 129m
-- [x] ingen perioder er lenger flagget HIGH_RESIDUAL
+Følgende hoveddeler er ferdige fra tidligere faser:
 
-## Fase 7 – Live dashboard
+- [x] FastAPI + React/TypeScript + Docker Compose/nginx
+- [x] SQLite med versjonerte migreringer, WAL, FK og provenance
+- [x] historiske Otello-rapportankre fra 2021
+- [x] BMOB3 fra B3 og BRL/NOK/USD/NOK fra ECB
+- [x] OTEC historisk kurshåndtering og Euronext-overlapp
+- [x] daglig cash og CORE NAV
+- [x] FULL NAV med øvrige nettoeiendeler/-forpliktelser
+- [x] NewsWeb fullhistorikk fra 2020 og klassifisering
+- [x] originale NewsWeb buyback-transaksjonsvedlegg og daglig cash-timing
+- [x] historiske aksjetall/kanselleringer og buyback-programmer
+- [x] CVM Bemobi-nyheter
+- [x] Bemobi-utbytte/JCP og skattebehandling
+- [x] Euronext delayed OTEC LAST
+- [x] Safe Harbour-basert buyback-prognose og walk-forward-backtest
+- [x] live dashboard med NAV, rabatt, buyback, Bemobi og modellstatus
 
-Status: **Ferdig og merget**
+## Neste obligatoriske produksjonsporter
 
-- [x] demo-KPI-er fjernet fra API og frontend
-- [x] database-backed `/api/dashboard/summary`
-- [x] `/api/dashboard/history` med bounded/downsampled historikk
-- [x] reelle NAV-, OTEC-, BMOB3-, FX- og cash-KPI-er
-- [x] reelle dagsendringer i stedet for hardkodede prosenter
-- [x] SVG-graf for NAV vs OTEC uten tung chart-avhengighet
-- [x] SVG-graf for historisk NAV-rabatt og gjennomsnitt
-- [x] siste buyback og treasury shares i dashboardet
-- [x] Bemobi-eksponering fra databasen
-- [x] tydelig ESTIMATED/DEGRADED-status
-- [x] `not_ready` på tom database i stedet for demo/falske tall
-- [x] backend- og frontend-CI grønn
+### A. Faktisk Raspberry Pi-database
 
-## Fase 8 – Samlet refresh-pipeline
+Når Pi-en er tilgjengelig:
 
-Status: **Ferdig og merget**
+1. `docker compose build`
+2. bootstrap ren `/data/otello.db` med den validerte historiske OTEC-filen
+3. kjør `python -m app.jobs.preflight --strict`
+4. verifiser `READY`
+5. start stacken
+6. kontroller `job_runs`, scheduler, backup og GUI over minst ett døgn
+7. gjør en faktisk restore-test fra backup
 
-- [x] én kommando for databaseinit + historikk + markedsdata + buybacks + cash + NAV
-- [x] nylig ECB-FX oppdateres automatisk
-- [x] gjeldende B3 COTAHIST-år oppdateres automatisk
-- [x] buybacks samles før cash/NAV-rebuild
-- [x] optional OTEC Euronext/Investing CSV-import i samme jobb
-- [x] upstream-feil stopper ikke resten av modellen
-- [x] `source_errors` viser nøyaktig hvilken kilde som feilet
-- [x] dashboard-staleness beregnes eksplisitt
-- [x] `--strict` kan brukes av scheduler/CI
-- [x] tester for fail-soft og staleness
-- [ ] stabil gratis programmatisk OTEC EOD-kilde; inntil da brukes staleness + CSV-import
-- [ ] produksjonsscheduler på Raspberry Pi
+### B. Otello 1H26 – 21.08.2026
 
-## Fase 9 – FULL NAV
+Dagens cash/ONA etter siste rapportanker kan legitimt være `FORECAST_PARTIAL`/estimert. Når 1H26 publiseres:
 
-Status: **Ferdig og merget**
+1. importer nye rapporterte cash-/balanseankre
+2. avstem ONA
+3. rebuild CORE/FULL
+4. kontroller residualer og share count
+5. kjør preflight på nytt
 
-- [x] separat rapporttabell for øvrige nettoeiendeler/-forpliktelser (ONA)
-- [x] rapportformel: total assets − cash − Bemobi carrying value − total liabilities
-- [x] åtte sikre rapportankre fra 30.06.2022 til 31.12.2025
-- [x] 2023/2024 bruker siste restaterte tall fra Annual Report 2025
-- [x] hvert anker avstemmes matematisk før lagring
-- [x] feltbasert provenance til rapport og rapportlokasjon
-- [x] rapport-native USD beholdes og konverteres med historisk USD/NOK
-- [x] daglig ONA interpoleres i USD mellom rapportankre
-- [x] post-FY25 ONA markeres `FORECAST_PARTIAL`
-- [x] separat `FULL` NAV-serie; CORE-serien overskrives aldri
-- [x] invariant-test: FULL NAV = CORE NAV + ONA
-- [x] `/api/nav/other-net-assets` og `/api/nav/full`
-- [x] refresh-pipelinen bygger CORE → ONA → FULL i riktig rekkefølge
-- [x] ingen FULL-historikk før 30.06.2022 uten dokumentert ONA
+Før dette skal dashboardet ikke late som dagens cash/ONA er rapportert.
 
-### Fase 9.1 – Receivable-aware FULL NAV
+## Etter pre-live
 
-Status: **Ferdig og merget**
+Når produksjonsportene over er bestått kan neste funksjonelle utvikling fortsette, blant annet:
 
-- [x] Bemobi-utbyttefordringer skilles fra base ONA
-- [x] fordring oppstår fra rettighets-/ex-dato og faller bort på betalingsdato
-- [x] 31.12.2023 avstemmes mot rapportert associated-company receivable USD 3,237m
-- [x] 31.12.2024 avstemmes mot USD 3,452m
-- [x] ikke-kalibrerte korte fordringer merkes ESTIMATED_GROSS
-- [x] regresjonstester mot dobbelttelling fordring → cash
-
-### Fase 9.2 – Integrity & security hardening
-
-Status: **Ferdig og merget**
-
-- [x] FULL brukes bare når den er like fersk som CORE
-- [x] svakere buyback-kilder kan ikke overskrive sterkere offisielle fakta
-- [x] buyback-uker som krysser cash-anker håndteres konservativt uten dobbelttelling
-- [x] robust lokalisert Investing CSV-parser + plausibilitetskontroll
-- [x] BACKFILLED/ESTIMATED/DEGRADED propageres gjennom NAV
-- [x] share-count staleness vurderes uavhengig av cash
-- [x] API-porten eksponeres ikke direkte fra Docker
-- [x] News/MFN-tid bruker Europe/Oslo DST
-- [x] source-document refresh bevarer provenance og oppdaterer hash/metadata
-- [x] regresjonstester for integritetsfunnene
-
-### Fase 9.3 – Oslo Børs NewsWeb originalkilde og daglige buybacks
-
-Status: **Ferdig og merget**
-
-- [x] direkte OTEC-discovery via NewsWeb, issuerId `7759`
-- [x] original melding og transaksjonsvedlegg fra Oslo Børs NewsWeb
-- [x] NEWSWEB registrert som offisiell EXCHANGE-kilde
-- [x] strict OTEC/XOSL-validering før lagring
-- [x] transaksjons-PDF parses deterministisk på handelslinjenivå
-- [x] hver handel avstemmes antall × kurs = beløp
-- [x] daglige summer avstemmes mot ukens aksjetall, beløp og VWAP
-- [x] daglige buybacks lagres separat med attachment-ID, hash og provenance
-- [x] cash bruker `OTELLO_BUYBACK_DAILY` på faktiske handelsdatoer der vedlegg validerer
-- [x] manglende/problematiske vedlegg beholder Phase 9.2-fallbacken
-- [x] full live-backfill 01.07.2024–17.08.2026: 91/91 meldinger, 350 handelsdager, 75 uker med daglig cash, 0 hard errors
-- [x] backend- og frontend-CI grønne på main etter merge
-
-### Fase 9.4 – Full NewsWeb-historikk fra 2020
-
-Status: **Ferdig, live-validert og merget**
-
-- [x] alle OTEC-NewsWeb-meldinger hentes fra 01.01.2020 og fremover
-- [x] første funne OTEC-melding i vinduet er 11.02.2020
-- [x] fullarkiv live-validert: 539/539 meldinger gjennom 14.08.2026, 0 arkivfeil
-- [x] 2023–2026 buyback-kjede live-validert: 141/141 statusmeldinger, 0 parserfeil
-- [x] 416 daglige buyback-handelsrader og 92 uker med validert daglig cash-timing
-- [x] rettighetsbevisst lagring: metadata, message-ID, URL og SHA256; full meldingstekst lagres ikke permanent
-- [x] deterministisk klassifisering i RESULTS/BUYBACK/DIVIDEND/JCP/CAPITAL/M_AND_A/GUIDANCE/CORPORATE/OTHER
-- [x] `REVIEW_REQUIRED` brukes for ukjente/OTHER-meldinger; klassifisering alene endrer aldri NAV
-- [x] inkrementell refresh overlapper 14 dager i stedet for å hente hele arkivet hver gang
-- [x] 2023 legacy-buyback-format støttes uten å gjøre hovedparseren løsere
-- [x] issuer-typoen `Sine the initiation` normaliseres eksplisitt
-- [x] første buyback-uke i juni 2023 håndteres med en strengt avgrenset kumulativ-inferens
-- [x] historiske 2020–2022 buyback-relaterte meldinger kartlagt; ulike tender/daily-formater tvinges ikke gjennom ukesparseren
-- [x] verifiserte 2021 tender-buybacks modellert separat: 12,0m × 33,75; 12,45m × 33,00; 11,2m × 26,50
-- [x] verifiserte 2021 treasury/share-count-hendelser lagt inn idempotent
-- [x] NewsWeb USD 100m AdColony-betaling 27.10.2021 modellert kun når historisk ECB USD/NOK finnes
-- [x] feil provenance-ID for mai-2021-tender avdekket og korrigert fra ikke-OTEC `532327` til OTEC `532648`
-- [x] verifiserte historiske hendelser er egen refresh-step; arkivklassifisering kan ikke automatisk påvirke cash/NAV
-- [x] PR #21 merget og backend/frontend-CI grønn på `main`
-
-## Fase 10 – Bemobi selskapsmeldinger og utdelinger
-
-Status: **Pågår**
-
-### Fase 10.1 – Tax-aware Bemobi dividend/JCP
-
-Status: **Ferdig og merget**
-
-- [x] historiske Bemobi-utdelinger splittet fra 8 aggregater til 11 komponentnivå-hendelser
-- [x] blandet 2024-utdeling splittet i ordinært utbytte + JCP
-- [x] desember 2025 splittet i JCP + to utbyttekomponenter
-- [x] mai 2026 korrigert til offisiell JCP med eksakt brutto/netto og dokumentert 17,5 % kildeskatt
-- [x] brutto rettighet beholdes i corporate action/FULL NAV-fordring
-- [x] dokumentert JCP-kildeskatt bokføres som separat negativ `TAX`-cash-bevegelse
-- [x] skatt gjettes aldri når sats/netto ikke er dokumentert
-- [x] blandede komponenter kalibreres samlet mot én rapportert Bemobi-fordring uten dobbelttelling
-- [x] produksjonsoppgradering fra gamle aggregater er idempotent og testet
-- [x] midlertidige FX-gap sletter ikke tidligere gyldige skattejusteringer
-- [x] PR #22 merget og backend/frontend-CI grønn på `main`
-
-### Fase 10.2 – Offisiell CVM selskapsmeldingsfeed
-
-Status: **Implementert og live-validert på feature branch; PR/merge gjenstår**
-
-- [x] offisielle CVM IPE-årsarkiver brukes som automatisert primærfeed
-- [x] Bemobi filtreres eksakt på CNPJ `09.042.817/0001-05` og CVM-kode `25500`
-- [x] første backfill dekker 2021–2026; senere refresh laster bare manglende historiske år + inneværende/foregående år
-- [x] structured metadata, CVM-lenke, versjon og metadata-hash lagres; dokumenttekst lagres ikke automatisk
-- [x] konservativ klassifisering i RESULTS/BUYBACK/DIVIDEND/JCP/CAPITAL/M_AND_A/GUIDANCE/CORPORATE/OTHER
-- [x] usikre utbetalinger/OTHER markeres `REVIEW_REQUIRED`
-- [x] alle CVM-versjoner beholdes; superseded-versjoner merkes `IGNORED` og skjules som standard i API
-- [x] CVM `Protocolo_Entrega` behandles ikke som globalt unik; external ID inkluderer download-identitet, versjon og logisk fingerprint
-- [x] portugisisk JCP-formulering både med og uten «o» i «juros sobre o capital próprio» støttes eksplisitt
-- [x] metadata-klassifisering setter aldri `financial_effect_applied=true` og kan ikke alene endre cash/NAV
-- [x] refresh-step `bemobi_cvm_news` med fail-soft/source-errors
-- [x] API `/api/bemobi/news` og `/api/bemobi/news/status`
-- [x] full livebackfill: 523 Bemobi-rader oppdaget, 280 relevante versjoner, 280/280 lagret uten kollisjon
-- [x] 254 gjeldende meldinger, 45 `REVIEW_REQUIRED`, 0 kildefeil
-- [x] gjeldende kategori-fordeling: 52 RESULTS, 20 BUYBACK, 21 JCP, 15 DIVIDEND, 5 M_AND_A, 3 CAPITAL, 109 CORPORATE, 29 OTHER
-- [x] live kontrollsignaler inkluderer 7AZ-oppkjøpet, Bemobi-buyback og august-2026 JCP-relaterte meldinger
-- [x] 88 backendtester + full CVM-livebackfill grønn
-- [ ] ordinær PR-CI + merge til `main`
-- [ ] valider eksakte økonomiske vilkår for august 2026 JCP før eventuell cash/NAV-effekt
-
-## Neste prioriteringer
-
-1. Kjør ordinær PR-CI og merge Fase 10.2.
-2. Valider eksakte økonomiske vilkår i august 2026 JCP-meldingen og koble den først da til corporate actions/cash/FULL NAV.
-3. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
-4. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
-5. Bemobi broker-consensus tracker før Q3.
-6. E-postrapporter og varsler.
-7. Raspberry Pi + Cloudflare Tunnel/Access deployment.
+- meglerkonsensus før Bemobi-rapporter
+- aksjonærdata der lovlig og teknisk forsvarlig
+- e-post-/ukerapporter
+- bedre navigasjon/undersider i GUI
+- varsling på source/job health
+- sikker automatisk backup-retention når restore-rutinen er etablert
