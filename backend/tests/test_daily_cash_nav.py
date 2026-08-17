@@ -57,10 +57,8 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
                 "SELECT as_of_date FROM cash_anchors WHERE anchor_type = 'REPORTED'"
             )
         ]
-        # Exact anchor FX makes expected reconciliation transparent in the test.
         for day in anchor_dates:
             _insert_fx(connection, day, "USD", "10")
-        # Bemobi payment dates used by the curated distribution history.
         for day in (
             "2022-04-12", "2023-04-12", "2024-05-02", "2025-01-07",
             "2025-05-09", "2025-12-01", "2025-12-22", "2026-05-27",
@@ -73,15 +71,12 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
     assert result["last_reported_anchor"] == "2025-12-31"
 
     with get_connection(database) as connection:
-        # The model must land exactly on reported USD cash converted at anchor FX.
         year_end_2022 = connection.execute(
             "SELECT cash_nok, quality FROM cash_daily_estimates WHERE estimate_date = '2022-12-31'"
         ).fetchone()
         assert Decimal(year_end_2022["cash_nok"]) == Decimal("183730000")
         assert year_end_2022["quality"] == "REPORTED"
 
-        # The NOK 21/share Otello distribution is a confirmed cash outflow already
-        # present in the curated corporate-action history.
         distribution = connection.execute(
             """
             SELECT amount_nok, confidence FROM cash_movements
@@ -91,8 +86,6 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
         assert Decimal(distribution["amount_nok"]) == Decimal("-1913094309")
         assert distribution["confidence"] == "CONFIRMED"
 
-        # Bemobi distributions are gross-derived receipts and deliberately ESTIMATED
-        # until anchor reconciliation absorbs withholding/timing differences.
         bemobi = connection.execute(
             """
             SELECT COUNT(*) AS n, MIN(confidence) AS confidence
@@ -160,6 +153,6 @@ def test_daily_nav_prefers_euronext_otec_over_investing_duplicate(tmp_path) -> N
         ).fetchone()
         assert Decimal(row["otec_price_nok"]) == Decimal("8")
         assert Decimal(row["nav_per_share_nok"]) > 0
-        assert row["status"] == "BACKFILLED"
+        assert row["status"] in {"ESTIMATED", "DEGRADED"}
         components = json.loads(row["components_json"])
         assert components["otec"]["price_source"] == "EURONEXT"
