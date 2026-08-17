@@ -6,6 +6,8 @@ from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlencode
 
+from bounded_response import read_response_text
+
 API_BASE = "https://api3.oslo.oslobors.no/v1/newsreader"
 WEB_BASE = "https://newsweb.oslobors.no"
 OTEC_ISSUER_ID = 7759
@@ -71,19 +73,11 @@ async def _post_json(
         status = getattr(response, "status", "unknown")
         raise RuntimeError(f"NewsWeb API feilet med HTTP {status}")
 
-    content_length = response.headers.get("content-length")
-    if content_length:
-        try:
-            declared = int(str(content_length))
-        except ValueError as exc:
-            raise ValueError("Ugyldig Content-Length fra NewsWeb") from exc
-        if declared > MAX_JSON_BYTES:
-            raise ValueError("NewsWeb JSON-respons overstiger Worker-grensen")
-
-    text = str(await response.text())
-    payload_bytes = text.encode("utf-8")
-    if len(payload_bytes) > MAX_JSON_BYTES:
-        raise ValueError("NewsWeb JSON-respons overstiger Worker-grensen")
+    text = await read_response_text(
+        response,
+        max_bytes=MAX_JSON_BYTES,
+        label="NewsWeb JSON-respons",
+    )
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
