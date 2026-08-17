@@ -7,7 +7,7 @@ from app.buybacks.forecast import buyback_forecast
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.db.repository import create_source_document
-from app.marketdata.backfill import market_data_status
+from app.marketdata.backfill import import_euronext_otec_csv, market_data_status
 from app.marketdata.oslo_calendar import is_oslo_bors_trading_day, oslo_bors_trading_days
 
 
@@ -56,9 +56,14 @@ def test_market_data_status_is_empty_on_clean_database(tmp_path) -> None:
 def test_market_data_status_is_partial_when_only_one_component_exists(tmp_path) -> None:
     database = str(tmp_path / "partial-market.db")
     init_database(database)
-    seed_otec_activity_history(database)
-    # Activity volume is deliberately separate from market_prices, so this is still empty.
-    assert market_data_status(database)["status"] == "empty"
+    import_euronext_otec_csv(
+        "Date,Closing Price\n14/08/2026,17.20\n",
+        database_path=database,
+    )
+    result = market_data_status(database)
+    assert result["status"] == "partial"
+    assert result["OTEC"]["count"] == 1
+    assert set(result["missing_components"]) == {"BMOB3", "BRL_NOK", "USD_NOK"}
 
 
 def test_oslo_calendar_matches_euronext_2026_full_day_closures() -> None:
