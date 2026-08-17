@@ -141,7 +141,11 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
         assert dividend_payment["receivable_quality"] == "NONE"
 
         components = json.loads(year_end_2024["receivable_components_json"])
-        assert len(components) == 1
-        assert components[0]["ex_date"] == "2024-12-18"
-        assert components[0]["payment_date"] == "2025-01-07"
-        assert components[0]["quality"] == "REPORTED_CALIBRATED"
+        assert len(components) == 2
+        assert {component["action_type"] for component in components} == {"DIVIDEND", "JCP"}
+        assert {component["component_group"] for component in components} == {"bemobi-2024-12-11-mixed"}
+        assert sum(Decimal(component["amount_nok"]) for component in components) == Decimal("34520000")
+        for component in components:
+            assert component["ex_date"] == "2024-12-18"
+            assert component["payment_date"] == "2025-01-07"
+            assert component["quality"] == "REPORTED_CALIBRATED"
