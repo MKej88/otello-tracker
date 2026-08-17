@@ -27,6 +27,9 @@ src/
   b3_calendar.py
   otec_ingestion.py
   bmob3_ingestion.py
+  newsweb_client.py
+  newsweb_ingestion.py
+  newsweb_buybacks.py
   scheduled.py
 
 migrations/
@@ -84,7 +87,7 @@ B3-responsen er begrenset til 256 KiB. Worker-versjonen bruker ikke hop-by-hop-h
 
 EOD-verdien merkes eksplisitt som en siste forsinket webkurs, **ikke** som offisiell COTAHIST-sluttkurs. Den tyngre daglige COTAHIST-jobben beholdes derfor som sterkere kilde i full refresh.
 
-Scheduler-isolasjonen gjør at en feil i én markedsfeed ikke automatisk stopper den andre: kjøringen registreres som `PARTIAL` når bare én kilde feiler, og `FAILED` først når begge markedsfeedene feiler.
+Scheduler-isolasjonen gjør at en feil i én markedsfeed ikke automatisk stopper den andre: kjøringen registreres som `PARTIAL` når bare én kilde feiler, og `FAILED` først når alle aktive hovedkilder feiler.
 
 ## Phase 15.4.3 – OTEC EOD og gap recovery
 
@@ -103,7 +106,35 @@ Når den rullerende dekningen er frisk, finaliseres dagens siste kjente OTEC-han
 
 `CURRENT_TRADING_DAY` brukes bare til kaldstart/gap recovery. Den komprimerte recovery-ZIP-en har en hard grense på 32 MiB som kontrolleres mot `Content-Length` **før** `arrayBuffer()` når serveren oppgir lengden. Den utpakkede CSV-en materialiseres aldri som én stor tekstbuffer; bare OTEC-rader beholdes i Python.
 
-Dette er et fail-safe valg mot Workers' 128 MiB minnegrense. Dersom en recovery-ZIP er større enn 32 MiB, feiler OTEC-steget kontrollert og scheduled job blir `PARTIAL` dersom BMOB3 fortsatt fungerer. Store recovery-payloads er eksplisitt kandidat for R2 + Workflow i Phase 15.5/15.6, der Cloudflare kan strømme data til R2 uten å holde hele objektet i Worker-minnet.
+Dette er et fail-safe valg mot Workers' 128 MiB minnegrense. Dersom en recovery-ZIP er større enn 32 MiB, feiler OTEC-steget kontrollert og scheduled job blir `PARTIAL` dersom andre kilder fortsatt fungerer. Store recovery-payloads er eksplisitt kandidat for R2 + Workflow i Phase 15.5/15.6, der Cloudflare kan strømme data til R2 uten å holde hele objektet i Worker-minnet.
+
+## Phase 15.4.4 – NewsWeb incremental
+
+NewsWeb er nå en Worker-native inkrementell D1-write-path i samme 30-minutters Cron:
+
+```text
+NewsWeb history
+  -> 14 dagers overlapp fra siste arkiverte melding
+  -> issuer 7759 / OTEC / XOSL-validering
+  -> recursive split hvis API-listen melder overflow
+  -> korrigerte/superseded meldinger filtreres ut
+  -> kilde-dokument + company_news i D1
+
+NewsWeb buybacks
+  -> 21 dagers overlapp fra siste daglige/ukentlige buyback-fakta
+  -> ukentlig status parseres med samme normalisering som referansen
+  -> buyback_programs / buybacks
+  -> CONFIRMED fallback-kontantbevegelse
+  -> treasury/outstanding share count
+```
+
+JSON-responsen er begrenset til 5 MiB, og `Content-Length` kontrolleres før body-lesing når den finnes. Full meldingstekst lagres ikke i D1; vi lagrer SHA-256, metadata og de strukturerte faktaene som trengs for dashboardet.
+
+Parseren er regresjonstestet mot dokumenterte NewsWeb-varianter fra 2023–2025, inkludert legacy første programuke, `Sine the initiation`-feilen, `continuation`-ordlyd og desimalkomma. En egen test skriver ukesfakta mot database bygget fra de faktiske D1-migreringene og verifiserer idempotens.
+
+Kildeprioriteten er bevart fra referanseimplementasjonen: Euronext-fakta rangeres foran NewsWeb når begge finnes. En lik eller svakere kilde får derfor ikke overskrive motstridende sterkere buyback-fakta uten at kjøringen stopper for kontroll.
+
+PDF-vedlegg blir bevisst **ikke** lastet ned og tolket hvert 30. minutt. Ukesmeldingen gir fortsatt bekreftet ukesbeløp, treasury shares og fallback-kontantbevegelse. Daglige PDF-transaksjoner og NewsWeb-PDF-arkiv legges til i full refresh/R2 i Phase 15.5/15.6; de kan da erstatte ukentlig fallback med mer presise daglige kontantbevegelser.
 
 ## D1
 
@@ -122,7 +153,7 @@ python cloudflare/tools/generate_d1_schema.py --check
 
 `tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
 
-En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.3 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC- og BMOB3-regresjonstester.
+En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.4 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-, BMOB3- og NewsWeb-regresjonstester.
 
 ## Ytelseshardening
 
@@ -145,7 +176,7 @@ Cache-policy:
 - summary: 30 sekunder
 - history: 15 minutter
 - buyback forecast: 15 minutter
-- fingerprintede `/assets/*`: immutable langtids-cache
+- fingerprintede Vite-assets: immutable langtids-cache
 
 ## Kontoressurser som gjenstår
 
@@ -178,7 +209,6 @@ pywrangler dev --config wrangler.worker-test.jsonc
 ## Neste del av Phase 15.4
 
 ```text
-NewsWeb incremental
 Dirty-state cash/NAV, inkludert option-aware FULL NAV
 ```
 
