@@ -26,6 +26,7 @@ type BuybackForecast = {
     from: string;
     to: string;
     expected_trading_days: number;
+    trading_dates?: string[];
   };
   volume_model?: {
     adv20_shares: number;
@@ -58,6 +59,13 @@ type BuybackForecast = {
   };
 };
 
+type MarketTimestamps = {
+  status?: string;
+  otec?: { date?: string | null };
+  bmob3?: { date?: string | null };
+  brl_nok?: { date?: string | null };
+};
+
 type Summary = {
   ready: boolean;
   data_status: string;
@@ -83,6 +91,7 @@ type Summary = {
   bmob3_price_quality?: string | null;
   bmob3_price_source?: string | null;
   quality_notes?: string | null;
+  market_timestamps?: MarketTimestamps;
   changes?: ChangeSet;
   latest_buyback?: Buyback | null;
   message?: string;
@@ -108,6 +117,7 @@ type History = {
   points: HistoryPoint[];
 };
 
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
 const initialHistory: History = { ready: false, data_status: "loading", points: [] };
 const initialForecast: BuybackForecast = { ready: false, status: "loading" };
@@ -139,6 +149,13 @@ function dateLabel(value?: string | null) {
   if (!value) return "–";
   const [year, month, day] = value.split("-");
   return `${day}.${month}.${year}`;
+}
+
+function shortDate(value?: string | null) {
+  if (!value) return "–";
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${day}.${month}`;
 }
 
 function changeLabel(change: number | null | undefined, unit = "%") {
@@ -217,30 +234,45 @@ export default function App() {
   const [apiOk, setApiOk] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/dashboard/summary").then((response) => {
-        if (!response.ok) throw new Error("Summary API-feil");
-        return response.json() as Promise<Summary>;
-      }),
-      fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
-        if (!response.ok) throw new Error("History API-feil");
-        return response.json() as Promise<History>;
-      }),
-      fetch("/api/buybacks/forecast").then((response) => {
-        if (!response.ok) return initialForecast;
-        return response.json() as Promise<BuybackForecast>;
-      }).catch(() => initialForecast)
-    ])
-      .then(([summaryData, historyData, forecastData]) => {
-        setSummary(summaryData);
-        setHistory(historyData);
-        setForecast(forecastData);
-        setApiOk(true);
-      })
-      .catch(() => {
-        setApiOk(false);
-        setSummary({ ready: false, data_status: "error", message: "Kunne ikke hente dashboarddata." });
-      });
+    let active = true;
+
+    const loadDashboard = () => {
+      Promise.all([
+        fetch("/api/dashboard/summary").then((response) => {
+          if (!response.ok) throw new Error("Summary API-feil");
+          return response.json() as Promise<Summary>;
+        }),
+        fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
+          if (!response.ok) throw new Error("History API-feil");
+          return response.json() as Promise<History>;
+        }),
+        fetch("/api/buybacks/forecast").then((response) => {
+          if (!response.ok) return initialForecast;
+          return response.json() as Promise<BuybackForecast>;
+        }).catch(() => initialForecast)
+      ])
+        .then(([summaryData, historyData, forecastData]) => {
+          if (!active) return;
+          setSummary(summaryData);
+          setHistory(historyData);
+          setForecast(forecastData);
+          setApiOk(true);
+        })
+        .catch(() => {
+          if (!active) return;
+          setApiOk(false);
+          setSummary((current) => current.ready
+            ? current
+            : { ready: false, data_status: "error", message: "Kunne ikke hente dashboarddata." });
+        });
+    };
+
+    loadDashboard();
+    const timer = window.setInterval(loadDashboard, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const changes = summary.changes;
@@ -257,12 +289,15 @@ export default function App() {
   const estimated = !degraded && summary.data_status === "ESTIMATED";
   const qualityWarning = degraded || estimated;
   const latestBuyback = summary.latest_buyback;
-  const ownership = summary.bemobi_ownership_pct ?? 0;
+  const ownership = summary.bemobi_ownership_pct;
+  const ownershipChart = ownership ?? 0;
   const scope = summary.model_scope ?? "CORE";
   const navStatusLabel = degraded ? "DEGRADERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
   const forecastEstimate = forecast.estimate;
   const forecastWeek = forecast.forecast_week;
   const forecastConfidence = forecastEstimate?.confidence ?? "VENTER";
+  const timestamps = summary.market_timestamps;
+  const timestampStatus = timestamps?.status ?? "UNKNOWN";
 
   return (
     <div className="shell">
@@ -357,8 +392,8 @@ export default function App() {
           <article className="card">
             <div className="cardHeader"><div><span className="label">Underliggende verdi</span><h2>Bemobi-eksponering</h2></div></div>
             <div className="exposure">
-              <div className="donut" style={{ background: `conic-gradient(#3f8cff 0 ${Math.max(0, Math.min(100, ownership))}%, #182b45 ${Math.max(0, Math.min(100, ownership))}% 100%)` }}>
-                <span>{summary.ready ? `${value(ownership, 1)}%` : "–"}</span>
+              <div className="donut" style={{ background: `conic-gradient(#3f8cff 0 ${Math.max(0, Math.min(100, ownershipChart))}%, #182b45 ${Math.max(0, Math.min(100, ownershipChart))}% 100%)` }}>
+                <span>{summary.ready && ownership != null ? `${value(ownership, 1)}%` : "–"}</span>
               </div>
               <div className="placeholderRows grow">
                 <div><span>BMOB3-aksjer</span><strong>{summary.bemobi_shares != null ? integer.format(summary.bemobi_shares) : "–"}</strong></div>
@@ -383,6 +418,14 @@ export default function App() {
           </article>
         </section>
       </main>
+
+      <div className={`freshnessBadge freshness-${timestampStatus.toLowerCase()}`} title="Datoene på markedsinputene som inngår i siste NAV">
+        <span className="freshnessDot" />
+        <strong>{timestampStatus}</strong>
+        <span>OTEC {shortDate(timestamps?.otec?.date)}</span>
+        <span>BMOB3 {shortDate(timestamps?.bmob3?.date)}</span>
+        <span>FX {shortDate(timestamps?.brl_nok?.date)}</span>
+      </div>
     </div>
   );
 }
