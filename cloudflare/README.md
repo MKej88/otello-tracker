@@ -7,7 +7,7 @@ Denne katalogen er den aktive Cloudflare-native produksjonsimplementasjonen.
 - **Python Workers + FastAPI** – dashboard-API og portert Python-forretningslogikk
 - **Workers Static Assets** – React/Vite frontend
 - **D1** – strukturert produksjonsdatabase
-- **R2** – PDF/råkilder/arkiv i senere fase
+- **R2** – PDF/råkilder/arkiv og store recovery-payloads i senere fase
 - **Cron Triggers** – 30-minutters fast refresh i Phase 15.4
 - **Workflows** – tyngre fullrefresh og retries i Phase 15.5
 - **Workers Secrets / Secrets Store** – produksjonssecrets
@@ -65,7 +65,7 @@ Cron */30 * * * *
 
 Semantikken er bevisst lik SQLite-referansen: Euronext-transaksjonen lagres som `LAST`/`DIRECT` og omtales ikke som offisiell sluttkurs.
 
-Intradagspayloaden er eksplisitt størrelsesbegrenset. ZIP-en holdes bounded, mens CSV-medlemmet leses sekvensielt direkte fra ZIP-strømmen i stedet for å ekspanderes til én stor bytes-/tekstbuffer. Den store `CURRENT_TRADING_DAY`-filen er derfor **ikke** flyttet inn i denne banen; EOD/gap recovery implementeres separat med en eksplisitt Worker/R2-strategi.
+Intradagspayloaden er eksplisitt størrelsesbegrenset. ZIP-en holdes bounded, mens CSV-medlemmet leses sekvensielt direkte fra ZIP-strømmen i stedet for å ekspanderes til én stor bytes-/tekstbuffer.
 
 ## Phase 15.4.2 – BMOB3 intradag og EOD LAST
 
@@ -86,6 +86,25 @@ EOD-verdien merkes eksplisitt som en siste forsinket webkurs, **ikke** som offis
 
 Scheduler-isolasjonen gjør at en feil i én markedsfeed ikke automatisk stopper den andre: kjøringen registreres som `PARTIAL` når bare én kilde feiler, og `FAILED` først når begge markedsfeedene feiler.
 
+## Phase 15.4.3 – OTEC EOD og gap recovery
+
+Worker-banen følger referansens 75-minutters overlap-prinsipp, men unngår en stor dagsfil i normal drift:
+
+```text
+30-minutters OTEC refresh
+  -> LAST_15_MINUTES
+  -> LAST_HOUR
+  -> hvis nylig frisk OTEC-poll: ingen dagsfil
+  -> ved kaldstart/poll-gap > 75 min: CURRENT_TRADING_DAY
+  -> etter 16:45 Oslo: EOD fra dokumentert rolling coverage + siste D1-handel
+```
+
+Når den rullerende dekningen er frisk, finaliseres dagens siste kjente OTEC-handel direkte fra D1. EOD-raden er fortsatt `LAST` / `DIRECT` og merkes `FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE`; vi hevder dermed ikke å ha Euronexts offisielle closing-price-felt.
+
+`CURRENT_TRADING_DAY` brukes bare til kaldstart/gap recovery. Den komprimerte recovery-ZIP-en har en hard grense på 32 MiB som kontrolleres mot `Content-Length` **før** `arrayBuffer()` når serveren oppgir lengden. Den utpakkede CSV-en materialiseres aldri som én stor tekstbuffer; bare OTEC-rader beholdes i Python.
+
+Dette er et fail-safe valg mot Workers' 128 MiB minnegrense. Dersom en recovery-ZIP er større enn 32 MiB, feiler OTEC-steget kontrollert og scheduled job blir `PARTIAL` dersom BMOB3 fortsatt fungerer. Store recovery-payloads er eksplisitt kandidat for R2 + Workflow i Phase 15.5/15.6, der Cloudflare kan strømme data til R2 uten å holde hele objektet i Worker-minnet.
+
 ## D1
 
 `0001_initial_schema.sql` er en frosset baseline generert fra SQLite-referansen og skal ikke håndredigeres. Senere datamodellendringer ligger i additive D1-migreringer. `0002_reference_data.sql` oppretter stabile sources/instruments, `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser, og `0004_option_liability.sql` legger til opsjonsfeltene for FULL NAV.
@@ -103,7 +122,7 @@ python cloudflare/tools/generate_d1_schema.py --check
 
 `tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
 
-En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1 og 15.4.2 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC- og BMOB3-regresjonstester.
+En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.3 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC- og BMOB3-regresjonstester.
 
 ## Ytelseshardening
 
@@ -159,7 +178,6 @@ pywrangler dev --config wrangler.worker-test.jsonc
 ## Neste del av Phase 15.4
 
 ```text
-OTEC EOD + gap recovery
 NewsWeb incremental
 Dirty-state cash/NAV, inkludert option-aware FULL NAV
 ```

@@ -3,12 +3,15 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time as dt_time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
 
+from oslo_calendar import is_oslo_bors_trading_day
 from repository import D1WriteRepository
 
 OTEC_ISIN = "NO0010040611"
@@ -17,17 +20,31 @@ OSLO_VENUE = "XOSL"
 TRADING_LOCATION = "OSL"
 FILE_TYPE = "EQUITIES"
 INTRADAY_SELECTIONS = ("LAST_15_MINUTES", "LAST_HOUR")
+FULL_DAY_SELECTION = "CURRENT_TRADING_DAY"
 DOWNLOAD_URL = (
     "https://marketdata.euronext.com/data-reporting-service/trades-file/download/"
     "{file_type}/{time_selection}/{trading_location}"
 )
+TRADES_PAGE_URL = "https://marketdata.euronext.com/data-reporting-service/trades-file"
 
-# Phase 15.4.1 deliberately accepts only the small rolling Euronext windows. The
-# parser streams the CSV member from the ZIP and never materialises the expanded
-# CSV as one Python bytes/string object. A full trading-day payload belongs in the
-# separate EOD/recovery step where its Worker/R2 strategy can be bounded explicitly.
+OSLO_TZ = ZoneInfo("Europe/Oslo")
+RECENT_POLL_COVERAGE_MINUTES = 75
+INTRADAY_BOOTSTRAP_AFTER = dt_time(9, 15)
+EOD_FINALIZE_AFTER = dt_time(16, 45)
+
+# Rolling files are the normal 30-minute path. The compressed response is bounded and
+# the expanded CSV member is read incrementally from the ZIP stream.
 MAX_INTRADAY_ZIP_BYTES = 24 * 1024 * 1024
 MAX_INTRADAY_CSV_BYTES = 64 * 1024 * 1024
+
+# CURRENT_TRADING_DAY is used only for cold-start/gap recovery. A Python Worker has a
+# 128 MiB memory ceiling, and JS ArrayBuffer -> Python conversion can temporarily create
+# more than one representation of the compressed payload. Keep the ZIP cap conservative.
+# Oversized files fail closed as PARTIAL and are a candidate for the R2/Workflow path in
+# Phase 15.5/15.6 instead of risking an OOM. The expanded CSV is never materialised whole.
+MAX_RECOVERY_ZIP_BYTES = 32 * 1024 * 1024
+MAX_RECOVERY_CSV_BYTES = 256 * 1024 * 1024
+
 _REQUIRED_FIELDS = {
     "TradingDateTime",
     "PublicationDateTime",
@@ -78,10 +95,17 @@ def _canonical_utc(value: str, *, field: str) -> str:
     )
 
 
+def _as_oslo_datetime(value: datetime | None) -> datetime:
+    current = value or datetime.now(OSLO_TZ)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=OSLO_TZ)
+    return current.astimezone(OSLO_TZ)
+
+
 def delayed_download_url(time_selection: str) -> str:
     selection = time_selection.strip().upper()
-    if selection not in INTRADAY_SELECTIONS:
-        raise ValueError(f"Ugyldig Worker intradag-selection: {time_selection}")
+    if selection not in {*INTRADAY_SELECTIONS, FULL_DAY_SELECTION}:
+        raise ValueError(f"Ugyldig Euronext time selection: {time_selection}")
     return DOWNLOAD_URL.format(
         file_type=FILE_TYPE,
         time_selection=selection,
@@ -94,12 +118,18 @@ def _normalise_header(line: str) -> list[str]:
     return [value.strip().strip('"') for value in values]
 
 
-def parse_euronext_intraday_trades(payload: bytes) -> list[DelayedTrade]:
-    """Stream and parse only OTEC trades from a bounded delayed Euronext ZIP."""
+def _parse_euronext_trades(
+    payload: bytes,
+    *,
+    max_zip_bytes: int,
+    max_csv_bytes: int,
+    payload_label: str,
+) -> list[DelayedTrade]:
+    """Parse only OTEC rows while streaming the expanded CSV member from a bounded ZIP."""
     if not payload:
         raise ValueError("Euronext delayed endpoint returnerte tom fil")
-    if len(payload) > MAX_INTRADAY_ZIP_BYTES:
-        raise ValueError("Euronext intradag-ZIP overstiger Worker-grensen")
+    if len(payload) > max_zip_bytes:
+        raise ValueError(f"Euronext {payload_label}-ZIP overstiger Worker-grensen")
 
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
@@ -112,8 +142,8 @@ def parse_euronext_intraday_trades(payload: bytes) -> list[DelayedTrade]:
         if len(csv_members) != 1:
             raise ValueError(f"Euronext delayed ZIP forventet én CSV, fant {len(csv_members)}")
         info = archive.getinfo(csv_members[0])
-        if info.file_size > MAX_INTRADAY_CSV_BYTES:
-            raise ValueError("Euronext intradag-CSV overstiger Worker-grensen")
+        if info.file_size > max_csv_bytes:
+            raise ValueError(f"Euronext {payload_label}-CSV overstiger streaming-grensen")
 
         with archive.open(csv_members[0], "r") as raw_stream:
             with io.TextIOWrapper(raw_stream, encoding="utf-8-sig", newline="") as text_stream:
@@ -182,12 +212,30 @@ def parse_euronext_intraday_trades(payload: bytes) -> list[DelayedTrade]:
                 return trades
 
 
-def latest_otec_trade(payload: bytes) -> DelayedTrade | None:
-    trades = parse_euronext_intraday_trades(payload)
-    if not trades:
+def parse_euronext_intraday_trades(payload: bytes) -> list[DelayedTrade]:
+    return _parse_euronext_trades(
+        payload,
+        max_zip_bytes=MAX_INTRADAY_ZIP_BYTES,
+        max_csv_bytes=MAX_INTRADAY_CSV_BYTES,
+        payload_label="intradag",
+    )
+
+
+def parse_euronext_recovery_trades(payload: bytes) -> list[DelayedTrade]:
+    return _parse_euronext_trades(
+        payload,
+        max_zip_bytes=MAX_RECOVERY_ZIP_BYTES,
+        max_csv_bytes=MAX_RECOVERY_CSV_BYTES,
+        payload_label="recovery",
+    )
+
+
+def _latest_trade(trades: list[DelayedTrade], *, target_date: str | None = None) -> DelayedTrade | None:
+    candidates = trades if target_date is None else [trade for trade in trades if trade.trading_date == target_date]
+    if not candidates:
         return None
     return max(
-        trades,
+        candidates,
         key=lambda item: (
             _parse_utc_timestamp(item.trading_datetime, field="TradingDateTime"),
             _parse_utc_timestamp(item.publication_datetime, field="PublicationDateTime"),
@@ -196,15 +244,28 @@ def latest_otec_trade(payload: bytes) -> DelayedTrade | None:
     )
 
 
-async def _response_bytes(response: Any) -> bytes:
+def latest_otec_trade(payload: bytes) -> DelayedTrade | None:
+    return _latest_trade(parse_euronext_intraday_trades(payload))
+
+
+def latest_otec_recovery_trade(payload: bytes, *, target_date: str | None = None) -> DelayedTrade | None:
+    return _latest_trade(parse_euronext_recovery_trades(payload), target_date=target_date)
+
+
+async def _response_bytes(
+    response: Any,
+    *,
+    max_bytes: int,
+    payload_label: str,
+) -> bytes:
     content_length = response.headers.get("content-length")
     if content_length:
         try:
             declared = int(str(content_length))
         except ValueError as exc:
             raise ValueError("Ugyldig Content-Length fra Euronext") from exc
-        if declared > MAX_INTRADAY_ZIP_BYTES:
-            raise ValueError("Euronext intradag-ZIP overstiger Worker-grensen")
+        if declared > max_bytes:
+            raise ValueError(f"Euronext {payload_label}-ZIP overstiger Worker-grensen")
 
     buffer = await response.arrayBuffer()
     try:
@@ -219,14 +280,16 @@ async def _response_bytes(response: Any) -> bytes:
         payload = converted.tobytes()
     else:
         payload = bytes(converted)
-    if len(payload) > MAX_INTRADAY_ZIP_BYTES:
-        raise ValueError("Euronext intradag-ZIP overstiger Worker-grensen")
+    if len(payload) > max_bytes:
+        raise ValueError(f"Euronext {payload_label}-ZIP overstiger Worker-grensen")
     return payload
 
 
-async def download_euronext_intraday(
+async def _download_euronext(
     time_selection: str,
     *,
+    max_bytes: int,
+    payload_label: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> tuple[str, bytes]:
     selection = time_selection.strip().upper()
@@ -246,7 +309,35 @@ async def download_euronext_intraday(
     if not bool(getattr(response, "ok", False)):
         status = getattr(response, "status", "unknown")
         raise RuntimeError(f"Euronext delayed-data feilet med HTTP {status}")
-    return url, await _response_bytes(response)
+    return url, await _response_bytes(response, max_bytes=max_bytes, payload_label=payload_label)
+
+
+async def download_euronext_intraday(
+    time_selection: str,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[str, bytes]:
+    selection = time_selection.strip().upper()
+    if selection not in INTRADAY_SELECTIONS:
+        raise ValueError(f"Ugyldig Worker intradag-selection: {time_selection}")
+    return await _download_euronext(
+        selection,
+        max_bytes=MAX_INTRADAY_ZIP_BYTES,
+        payload_label="intradag",
+        fetcher=fetcher,
+    )
+
+
+async def download_euronext_recovery(
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[str, bytes]:
+    return await _download_euronext(
+        FULL_DAY_SELECTION,
+        max_bytes=MAX_RECOVERY_ZIP_BYTES,
+        payload_label="recovery",
+        fetcher=fetcher,
+    )
 
 
 async def import_delayed_otec_trade(
@@ -256,20 +347,28 @@ async def import_delayed_otec_trade(
     time_selection: str,
     source_url: str,
 ) -> dict[str, Any]:
-    trade = latest_otec_trade(payload)
+    selection = time_selection.strip().upper()
+    if selection == FULL_DAY_SELECTION:
+        trade = latest_otec_recovery_trade(payload)
+        payload_policy = "BOUNDED_FULL_DAY_ZIP_STREAMED_CSV_MEMBER"
+        feed_mode = "WORKER_GAP_RECOVERY"
+    else:
+        trade = latest_otec_trade(payload)
+        payload_policy = "BOUNDED_ROLLING_WINDOW_STREAMED_ZIP_MEMBER"
+        feed_mode = "WORKER_INTRADAY"
     if trade is None:
         return {
             "found": False,
-            "time_selection": time_selection,
+            "time_selection": selection,
             "source_url": source_url,
         }
 
     digest = hashlib.sha256(payload).hexdigest()
     metadata = {
         "feed": "DELAYED_PUBLIC_TRADE_FILE",
-        "feed_mode": "WORKER_INTRADAY",
+        "feed_mode": feed_mode,
         "file_type": FILE_TYPE,
-        "time_selection": time_selection,
+        "time_selection": selection,
         "trading_location": TRADING_LOCATION,
         "isin": OTEC_ISIN,
         "venue": trade.venue,
@@ -278,15 +377,13 @@ async def import_delayed_otec_trade(
         "publication_datetime": trade.publication_datetime,
         "delay_policy": "EURONEXT_DELAYED_DATA_MAX_15_MINUTES",
         "price_semantics": "LATEST_REPORTED_TRADE_NOT_OFFICIAL_CLOSE",
-        "payload_policy": "BOUNDED_ROLLING_WINDOW_STREAMED_ZIP_MEMBER",
+        "payload_policy": payload_policy,
     }
     document_id = await repository.create_source_document(
         source_code="EURONEXT",
-        external_id=(
-            f"otec-delayed-{time_selection.lower()}-{trade.trading_date}-{digest[:20]}"
-        ),
+        external_id=f"otec-delayed-{selection.lower()}-{trade.trading_date}-{digest[:20]}",
         document_type="DELAYED_MARKET_DATA_FILE",
-        title=f"Euronext delayed Oslo equity trades - {time_selection}",
+        title=f"Euronext delayed Oslo equity trades - {selection}",
         url=source_url,
         published_at=trade.publication_datetime,
         content_sha256=digest,
@@ -306,7 +403,7 @@ async def import_delayed_otec_trade(
     )
     return {
         "found": True,
-        "time_selection": time_selection,
+        "time_selection": selection,
         "price_id": price_id,
         "trading_date": trade.trading_date,
         "trading_datetime": trade.trading_datetime,
@@ -354,3 +451,256 @@ async def refresh_otec_intraday(
         "selected": None,
         "attempts": attempts,
     }
+
+
+def _otec_step_healthy(metadata_json: Any) -> bool:
+    try:
+        metadata = json.loads(str(metadata_json or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return False
+    steps = metadata.get("steps")
+    if isinstance(steps, dict):
+        step = steps.get("otec_delayed")
+        return isinstance(step, dict) and step.get("status") != "error"
+    # Phase 15.4.1 wrote the OTEC result directly under `otec` and failed the job on
+    # exceptions, so a successful/partial row with this key is healthy coverage.
+    return isinstance(metadata.get("otec"), dict)
+
+
+async def recent_otec_poll_covered(
+    repository: D1WriteRepository,
+    *,
+    now: datetime,
+) -> bool:
+    rows = await repository.all(
+        """
+        SELECT finished_at, metadata_json
+        FROM job_runs
+        WHERE job_name='cloudflare_fast_refresh'
+          AND status IN ('SUCCESS','PARTIAL')
+          AND finished_at IS NOT NULL
+        ORDER BY finished_at DESC, id DESC
+        LIMIT 8
+        """
+    )
+    current_utc = now.astimezone(UTC)
+    for row in rows:
+        if not _otec_step_healthy(row.get("metadata_json")):
+            continue
+        try:
+            finished = _parse_utc_timestamp(str(row["finished_at"]), field="finished_at")
+        except (KeyError, ValueError):
+            continue
+        age_seconds = (current_utc - finished).total_seconds()
+        if 0 <= age_seconds <= RECENT_POLL_COVERAGE_MINUTES * 60:
+            return True
+        if age_seconds > RECENT_POLL_COVERAGE_MINUTES * 60:
+            return False
+    return False
+
+
+async def refresh_otec_with_gap_recovery(
+    database: Any | None = None,
+    *,
+    repository: D1WriteRepository | None = None,
+    now: datetime | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Refresh OTEC cheaply and use one bounded day file only when overlap is insufficient."""
+    if repository is None:
+        if database is None:
+            raise ValueError("D1 database eller repository må oppgis")
+        repository = D1WriteRepository(database)
+
+    current = _as_oslo_datetime(now)
+    small = await refresh_otec_intraday(repository=repository, fetcher=fetcher)
+    if small.get("found"):
+        return {"gap_recovery": False, **small}
+
+    today = current.date()
+    if not is_oslo_bors_trading_day(today):
+        return {"gap_recovery": False, "gap_recovery_skipped": "not_trading_day", **small}
+    if current.time().replace(tzinfo=None) < INTRADAY_BOOTSTRAP_AFTER:
+        return {
+            "gap_recovery": False,
+            "gap_recovery_skipped": "before_bootstrap_cutoff",
+            **small,
+        }
+    if await recent_otec_poll_covered(repository, now=current):
+        return {
+            "gap_recovery": False,
+            "gap_recovery_skipped": "recent_poll_covered_by_last_hour",
+            **small,
+        }
+
+    url, payload = await download_euronext_recovery(fetcher=fetcher)
+    recovered = await import_delayed_otec_trade(
+        repository,
+        payload,
+        time_selection=FULL_DAY_SELECTION,
+        source_url=url,
+    )
+    return {
+        "feed_mode": "worker_intraday",
+        "gap_recovery": True,
+        "small_windows": small,
+        "status": "ok" if recovered.get("found") else "no_trade",
+        "selected": FULL_DAY_SELECTION if recovered.get("found") else None,
+        **recovered,
+    }
+
+
+async def eod_otec_check_done(repository: D1WriteRepository, target_date: str) -> bool:
+    row = await repository.first(
+        """
+        SELECT 1 AS ok
+        FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='EURONEXT' AND sd.external_id=?
+        LIMIT 1
+        """,
+        (f"otec-eod-last-check-{target_date}",),
+    )
+    return row is not None
+
+
+async def _latest_stored_otec_for_date(
+    repository: D1WriteRepository,
+    target_date: str,
+) -> dict[str, Any] | None:
+    return await repository.first(
+        """
+        SELECT mp.id, mp.observed_at, mp.price, mp.currency, mp.source_document_id,
+               mp.metadata_json
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='OTEC'
+          AND s.code='EURONEXT'
+          AND mp.trading_date=?
+          AND mp.price_type='LAST'
+        ORDER BY mp.observed_at DESC, mp.id DESC
+        LIMIT 1
+        """,
+        (target_date,),
+    )
+
+
+async def finalize_otec_eod_from_coverage(
+    repository: D1WriteRepository,
+    *,
+    target_date: str,
+    current_refresh: dict[str, Any],
+) -> dict[str, Any]:
+    """Finalize the session from rolling-feed coverage without claiming official CLOSE."""
+    if await eod_otec_check_done(repository, target_date):
+        return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
+
+    latest = await _latest_stored_otec_for_date(repository, target_date)
+    metadata: dict[str, Any] = {
+        "feed": "DELAYED_PUBLIC_TRADE_FILE",
+        "feed_mode": "EOD_LAST_TRADE",
+        "target_date": target_date,
+        "finalization_method": "ROLLING_WINDOW_COVERAGE",
+        "current_refresh_status": current_refresh.get("status"),
+        "current_refresh_selected": current_refresh.get("selected"),
+        "current_refresh_gap_recovery": bool(current_refresh.get("gap_recovery")),
+        "price_semantics": "FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE",
+        "official_close_upgrade": "EWS prevInstrSess.closPx requires Euronext authKey",
+        "payload_policy": "NO_FULL_DAY_FETCH_WHEN_ROLLING_COVERAGE_IS_CURRENT",
+        "found": latest is not None,
+    }
+    published_at = str(latest["observed_at"]) if latest is not None else None
+    document_id = await repository.create_source_document(
+        source_code="EURONEXT",
+        external_id=f"otec-eod-last-check-{target_date}",
+        document_type="EOD_MARKET_DATA_CHECK",
+        title=f"OTEC Euronext delayed EOD last-trade check {target_date}",
+        url=TRADES_PAGE_URL,
+        published_at=published_at,
+        metadata={
+            **metadata,
+            "original_source_document_id": (
+                int(latest["source_document_id"])
+                if latest is not None and latest.get("source_document_id") is not None
+                else None
+            ),
+        },
+    )
+    if latest is None:
+        return {
+            "status": "no_trade",
+            "feed_mode": "eod_last_trade",
+            "target_date": target_date,
+            "price_type": None,
+            "quality": None,
+            "finalization_method": "rolling_window_coverage",
+            "source_url": TRADES_PAGE_URL,
+        }
+
+    price_id = await repository.upsert_market_price(
+        symbol=OTEC_SYMBOL,
+        observed_at=str(latest["observed_at"]),
+        trading_date=target_date,
+        price_type="LAST",
+        price=str(latest["price"]),
+        currency=str(latest["currency"]),
+        source_code="EURONEXT",
+        source_document_id=document_id,
+        quality="DIRECT",
+        metadata={
+            **metadata,
+            "original_market_price_id": int(latest["id"]),
+            "original_source_document_id": (
+                int(latest["source_document_id"])
+                if latest.get("source_document_id") is not None
+                else None
+            ),
+        },
+    )
+    return {
+        "status": "ok",
+        "feed_mode": "eod_last_trade",
+        "target_date": target_date,
+        "price_id": price_id,
+        "price_type": "LAST",
+        "quality": "DIRECT",
+        "price_semantics": "EOD_LAST_TRADE",
+        "price_nok": str(latest["price"]),
+        "trading_datetime": str(latest["observed_at"]),
+        "finalization_method": "rolling_window_coverage",
+        "source_url": TRADES_PAGE_URL,
+    }
+
+
+async def maybe_finalize_otec_eod(
+    database: Any | None = None,
+    *,
+    repository: D1WriteRepository | None = None,
+    now: datetime | None = None,
+    current_refresh: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Finalize OTEC once after close when the current refresh proves live coverage."""
+    if repository is None:
+        if database is None:
+            raise ValueError("D1 database eller repository må oppgis")
+        repository = D1WriteRepository(database)
+
+    current = _as_oslo_datetime(now)
+    target_date = current.date().isoformat()
+    if not is_oslo_bors_trading_day(current.date()):
+        return {"status": "skipped", "reason": "not_trading_day", "target_date": target_date}
+    if current.time().replace(tzinfo=None) < EOD_FINALIZE_AFTER:
+        return {"status": "skipped", "reason": "before_eod_cutoff", "target_date": target_date}
+    if await eod_otec_check_done(repository, target_date):
+        return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
+    if not isinstance(current_refresh, dict):
+        return {"status": "skipped", "reason": "missing_current_refresh", "target_date": target_date}
+    if current_refresh.get("status") not in {"ok", "no_trade"}:
+        return {"status": "skipped", "reason": "current_refresh_not_healthy", "target_date": target_date}
+
+    return await finalize_otec_eod_from_coverage(
+        repository,
+        target_date=target_date,
+        current_refresh=current_refresh,
+    )

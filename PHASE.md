@@ -159,7 +159,7 @@ Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
-Status: **Pågår – 15.4.1 OTEC intradag og 15.4.2 BMOB3 delayed/EOD er ferdige og CI-validerte**
+Status: **Pågår – 15.4.1–15.4.3 er ferdige og CI-validerte**
 
 #### 15.4.1 – OTEC intradag + Cron
 
@@ -190,12 +190,22 @@ Status: **Pågår – 15.4.1 OTEC intradag og 15.4.2 BMOB3 delayed/EOD er ferdig
 - [x] egen regresjonstest låser Cloudflare-headerkravet
 - [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
 
+#### 15.4.3 – OTEC EOD + gap recovery
+
+- [x] referansens 75-minutters overlap/gap-detection er portert til D1/Worker
+- [x] `CURRENT_TRADING_DAY` brukes bare ved kaldstart eller OTEC-poll-gap over 75 minutter
+- [x] komprimert recovery-ZIP har hard 32 MiB grense som kontrolleres før body-buffering når `Content-Length` finnes
+- [x] utpakket CSV leses sekvensielt fra ZIP-strømmen; bare OTEC-rader beholdes i Python
+- [x] normal EOD etter 16:45 Oslo finaliseres fra frisk rolling-window-dekning og siste D1-handel uten ny dagsfil
+- [x] EOD beholdes som `LAST` / `DIRECT` og merkes eksplisitt som siste rapporterte handel, ikke offisiell `CLOSE`
+- [x] for stor recovery-payload feiler kontrollert slik at scheduled job kan bli `PARTIAL` fremfor Worker-OOM
+- [x] recovery-payload over Worker-grensen er eksplisitt flyttet til R2/Workflow-sporet i 15.5/15.6
+- [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
+
 #### Gjenstår i 15.4
 
-- [ ] OTEC EOD / `CURRENT_TRADING_DAY` + gap recovery med eksplisitt bounded/streaming/R2-strategi
 - [ ] NewsWeb incremental som Worker-native write-path
 - [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
-- [ ] store payloads håndteres streaming/bounded og ikke som ukritiske full-memory CPython-filer
 
 Dokumentasjon: `cloudflare/README.md`.
 
@@ -206,11 +216,12 @@ Dokumentasjon: `cloudflare/README.md`.
 - [ ] NewsWeb reconciliation
 - [ ] source-specific retries
 - [ ] data-health/preflight
+- [ ] OTEC recovery via R2/Workflow når dagsfil overskrider fast-path-grensen
 
 ### 15.6 – R2 og kildearkiv
 
 - [ ] NewsWeb PDF
-- [ ] rå CSV/ZIP ved behov
+- [ ] rå CSV/ZIP ved behov, inkludert store OTEC recovery-filer
 - [ ] historiske importfiler
 - [ ] eksport/snapshot
 
