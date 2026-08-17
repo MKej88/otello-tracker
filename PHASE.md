@@ -177,11 +177,13 @@ Status: **Ferdig og merget**
 
 ### Fase 9.4 – Full NewsWeb-historikk fra 2020
 
-Status: **Implementert og under siste live-validering på feature branch**
+Status: **Implementert og live-validert på feature branch; PR/merge gjenstår**
 
 - [x] alle OTEC-NewsWeb-meldinger hentes fra 01.01.2020 og fremover
 - [x] første funne OTEC-melding i vinduet er 11.02.2020
-- [x] live-validert fullarkiv: 539/539 meldinger gjennom 14.08.2026, 0 arkivfeil
+- [x] fullarkiv live-validert: 539/539 meldinger gjennom 14.08.2026, 0 arkivfeil
+- [x] 2023–2026 buyback-kjede live-validert: 141/141 statusmeldinger, 0 parserfeil
+- [x] 416 daglige buyback-handelsrader og 92 uker med validert daglig cash-timing
 - [x] rettighetsbevisst lagring: metadata, message-ID, URL og SHA256; full meldingstekst lagres ikke permanent
 - [x] deterministisk klassifisering i RESULTS/BUYBACK/DIVIDEND/JCP/CAPITAL/M_AND_A/GUIDANCE/CORPORATE/OTHER
 - [x] `REVIEW_REQUIRED` brukes for ukjente/OTHER-meldinger; klassifisering alene endrer aldri NAV
@@ -195,12 +197,12 @@ Status: **Implementert og under siste live-validering på feature branch**
 - [x] NewsWeb USD 100m AdColony-betaling 27.10.2021 modellert kun når historisk ECB USD/NOK finnes
 - [x] feil provenance-ID for mai-2021-tender avdekket og korrigert fra ikke-OTEC `532327` til OTEC `532648`
 - [x] verifiserte historiske hendelser er egen refresh-step; arkivklassifisering kan ikke automatisk påvirke cash/NAV
-- [ ] siste full historisk live-smoke grønn etter 2023 legacy-parser
+- [x] 77 backendtester passerte i full live-smoke
 - [ ] ordinær PR-CI + merge til main
 
 ## Neste prioriteringer
 
-1. Fullfør Fase 9.4 live-smoke, PR og merge.
+1. Kjør ordinær PR-CI og merge Fase 9.4.
 2. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
 3. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
 4. Fase 10: Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
