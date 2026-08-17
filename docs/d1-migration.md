@@ -1,6 +1,6 @@
-# D1-migrering og schema parity
+# D1-migrering, schema parity og data parity
 
-Phase 15.1 etablerer databasestrukturen for Cloudflare-produksjonen. Målet er at D1 skal ha samme strukturelle og finansielle semantikk som den validerte SQLite-referansen før API/jobber flyttes.
+Phase 15 etablerer databasestrukturen og dataflyttingen for Cloudflare-produksjonen. Målet er at D1 skal ha samme strukturelle og finansielle semantikk som den validerte SQLite-referansen før API/jobber flyttes.
 
 ## Prinsipp
 
@@ -41,17 +41,9 @@ og feiler dersom den committede D1-filen har driftet fra referanseschemaet.
 
 ## Foreign keys
 
-D1 håndhever foreign keys. Det genererte bootstrap-schemaet bruker derfor:
+D1 håndhever foreign keys. Det genererte bootstrap-schemaet bruker derfor `defer_foreign_keys` under opprettelse/import. Finansielle relasjoner, `ON DELETE`-regler og øvrige constraints beholdes, og både schema- og dataparitet avsluttes med `PRAGMA foreign_key_check`.
 
-```sql
-PRAGMA defer_foreign_keys = ON;
-...
-PRAGMA defer_foreign_keys = OFF;
-```
-
-under opprettelsen. Finansielle relasjoner, `ON DELETE`-regler og øvrige constraints beholdes.
-
-## Parity-tester
+## Schema parity – Phase 15.1
 
 `backend/tests/test_d1_schema_parity.py` oppretter to tomme databaser:
 
@@ -69,7 +61,22 @@ Testene sammenligner:
 - `PRAGMA foreign_key_check`;
 - NewsWeb-triggeradferd som beskytter provenance/klassifisering.
 
-Dette er strukturparitet. Finansiell **dataparitet** kommer i Phase 15.2 når historiske rader flyttes.
+## Data parity – Phase 15.2
+
+Phase 15.2 er implementert som en separat, repeterbar bootstrap-pipeline. Den tar en validert SQLite-snapshot og lager:
+
+```text
+bootstrap.sql
+manifest.json
+```
+
+Manifestet inneholder radtall, kolonneorden og logisk SHA-256 per relevant tabell, samt én global SHA-256 og finansielle kontrollpunkter for CORE/FULL NAV, market/FX coverage, cash, ONA, share count, Bemobi-holding og buybacks.
+
+`sources` og `instruments` opprettes fortsatt av `0002_reference_data.sql`, men bootstrapen bevarer og kontrollerer ID-er og de opprinnelige migreringsmetadataene slik at D1-snapshoten blir logisk identisk med SQLite-kilden.
+
+Historisk finans-/markedsdata flyttes; gamle runtime-tabeller (`job_runs`, `source_health`, `runtime_state`) resettes med vilje fordi de beskriver den gamle prosessens miljøtilstand, ikke historiske finansielle fakta.
+
+Detaljert bruk og cutover-runbook: [`docs/d1-bootstrap.md`](d1-bootstrap.md).
 
 ## Lokal Wrangler/D1-validering
 
@@ -79,9 +86,7 @@ CI bruker en egen konto-uavhengig konfigurasjon:
 cloudflare/wrangler.schema-test.jsonc
 ```
 
-Den bruker en lokal D1-instans og trenger ingen ekte Cloudflare database-ID eller secret.
-
-Schema og referansedata kan valideres lokalt med:
+Schema og referansedata valideres lokalt med:
 
 ```bash
 npx --yes wrangler@4 d1 migrations apply DB \
@@ -89,7 +94,9 @@ npx --yes wrangler@4 d1 migrations apply DB \
   --config cloudflare/wrangler.schema-test.jsonc
 ```
 
-Deretter kan integrity checks kjøres med for eksempel:
+Phase 15.2 bygger deretter en deterministisk referansesnapshot, eksporterer bootstrap-pakken, importerer den gjennom Wranglers faktiske lokale D1-runtime og krever eksakt manifest-/nøkkeltallsparitet.
+
+Manuell integrity check kan kjøres med:
 
 ```bash
 npx --yes wrangler@4 d1 execute DB \
@@ -108,25 +115,11 @@ npx wrangler d1 create otello-nav --location=weur
 
 Den returnerte database-ID-en legges i den endelige Wrangler-konfigurasjonen, ikke i eksempelkonfigurasjonen.
 
-Deretter anvendes migrations mot remote D1 etter at lokale parity-tester er grønne.
-
-## Historiske data – Phase 15.2
-
-Phase 15.1 flytter **ikke** markeds-/NAV-/buybackhistorikken til en ekte D1-instans.
-
-Phase 15.2 skal:
-
-1. bygge en validert SQLite-referansedatabase;
-2. eksportere innholdet til SQL/importformat;
-3. importere radene til D1 i kontrollert rekkefølge;
-4. sammenligne row counts, nøkkelrader og finansielle kontrollsummer;
-5. sammenligne CORE NAV, FULL NAV og buyback-output mot referansen.
-
-Rå SQLite-databasefil skal ikke brukes som produksjonslager i R2. R2 er kildearkiv; D1 er den strukturerte produksjonsdatabasen.
+Deretter anvendes migrations mot remote D1 og den konkrete validerte produksjons-bootstrapen importeres. Remote import er ikke gjennomført i Phase 15.2 fordi den faktiske D1-ressursen ennå ikke er opprettet.
 
 ## Endringskontroll
 
-Phase 15.1 endrer ikke:
+Phase 15.1–15.2 endrer ikke:
 
 - NAV-formelen;
 - cash-modellen;
@@ -135,4 +128,4 @@ Phase 15.1 endrer ikke:
 - Safe Harbour-backtesten;
 - markedsdatakildenes finansielle prioritet.
 
-En senere D1-adapter må produsere samme output før Cloudflare-versjonen får overta som produksjonsmaster.
+D1-adapteren i neste fase må produsere samme API-output før Cloudflare-versjonen får overta som produksjonsmaster.
