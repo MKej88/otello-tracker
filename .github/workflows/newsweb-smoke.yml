@@ -8,43 +8,50 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe NewsWeb message API
+      - name: Probe NewsWeb message and attachment API
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --quiet pypdf
           python - <<'PY'
+          import io
           import json
           import urllib.request
-          import urllib.error
+          from pypdf import PdfReader
 
-          message_id = "678028"
-          hosts = [
-              "https://api3.oslo.oslobors.no/v1/newsreader",
-              "https://api3.dublin.oslobors.no/v1/newsreader",
-          ]
-          for base in hosts:
-              url = f"{base}/message?messageId={message_id}"
-              print("TRY", url)
-              req = urllib.request.Request(
-                  url,
-                  data=b"{}",
-                  method="POST",
-                  headers={
-                      "Content-Type": "application/json",
-                      "Accept": "application/json",
-                      "Origin": "https://newsweb.oslobors.no",
-                      "Referer": "https://newsweb.oslobors.no/",
-                      "User-Agent": "otello-tracker/phase-9.3",
-                  },
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      body = r.read().decode("utf-8", "replace")
-                      print("STATUS", r.status, "TYPE", r.headers.get("content-type"), "LEN", len(body))
-                      data = json.loads(body)
-                      print(json.dumps(data, ensure_ascii=False, indent=2)[:30000])
-                      raise SystemExit(0)
-              except Exception as exc:
-                  print("ERROR", type(exc).__name__, str(exc))
-          raise SystemExit(1)
+          base = "https://api3.oslo.oslobors.no/v1/newsreader"
+          message_id = 678028
+          headers = {
+              "Accept": "application/json",
+              "Origin": "https://newsweb.oslobors.no",
+              "Referer": "https://newsweb.oslobors.no/",
+              "User-Agent": "otello-tracker/phase-9.3",
+          }
+          req = urllib.request.Request(
+              f"{base}/message?messageId={message_id}",
+              data=b"{}",
+              method="POST",
+              headers={**headers, "Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              data = json.loads(r.read().decode("utf-8"))
+          message = data["data"]["message"]
+          print("MESSAGE", message["messageId"], message["issuerSign"], message["publishedTime"])
+          print("BODY", message["body"])
+          print("ATTACHMENTS", json.dumps(message["attachments"], ensure_ascii=False))
+
+          attachment = message["attachments"][0]
+          attachment_url = f"{base}/attachment?messageId={message_id}&attachmentId={attachment['id']}"
+          req = urllib.request.Request(
+              attachment_url,
+              headers={"Accept": "application/pdf", "User-Agent": "otello-tracker/phase-9.3"},
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              pdf = r.read()
+              print("PDF", r.status, r.headers.get("content-type"), len(pdf), attachment_url)
+          reader = PdfReader(io.BytesIO(pdf))
+          text = "\n".join(page.extract_text() or "" for page in reader.pages)
+          print("PDF_TEXT_BEGIN")
+          print(text[:30000])
+          print("PDF_TEXT_END")
           PY
