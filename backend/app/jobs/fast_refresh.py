@@ -100,7 +100,7 @@ def run_fast_refresh(
     if end_day == today:
         steps["otec_delayed"] = _safe_step(
             "otec_delayed",
-            lambda: refresh_otec_intraday_price(database_path),
+            lambda: refresh_otec_intraday_price(database_path, now=now),
             errors,
         )
         steps["otec_eod"] = _safe_step(
