@@ -45,6 +45,7 @@ _REQUIRED_COLUMNS = {
     "Link_Download",
 }
 _SPACE_RE = re.compile(r"\s+")
+_JCP_RE = re.compile(r"juros sobre (?:o )?capital proprio")
 
 
 @dataclass(frozen=True)
@@ -88,18 +89,22 @@ class CVMIPERecord:
 
     @property
     def external_id(self) -> str:
-        if self.protocol:
-            key = self.protocol
-        else:
-            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.download_url).query)
-            protocol = (query.get("numProtocolo") or [""])[0]
-            sequence = (query.get("numSequencia") or [""])[0]
-            if protocol or sequence:
-                key = f"download-{protocol}-{sequence}-v{self.version_number}"
-            else:
-                canonical = json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)
-                key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
-        return f"cvm-ipe:{self.archive_year}:{key}"
+        # CVM's Protocolo_Entrega is not guaranteed to be unique across every metadata
+        # row in an annual IPE archive. Include download identity, version and a short
+        # logical-row fingerprint so distinct official rows can never overwrite each
+        # other while exact reruns stay idempotent.
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.download_url).query)
+        download_protocol = (query.get("numProtocolo") or [""])[0]
+        sequence = (query.get("numSequencia") or [""])[0]
+        source_key = self.protocol or f"download-{download_protocol}-{sequence}"
+        if not source_key.strip("-"):
+            canonical = json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)
+            source_key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+        return (
+            f"cvm-ipe:{self.archive_year}:{source_key}:"
+            f"{download_protocol or 'na'}-{sequence or 'na'}:"
+            f"v{self.version_number}:{self.logical_key[:12]}"
+        )
 
 
 def _norm(value: str | None) -> str:
@@ -111,6 +116,10 @@ def _norm(value: str | None) -> str:
 
 def _clean(value: str | None) -> str:
     return _SPACE_RE.sub(" ", html.unescape(value or "")).strip()
+
+
+def _mentions_jcp(text: str) -> bool:
+    return _JCP_RE.search(text) is not None or re.search(r"\bjcp\b", text) is not None
 
 
 def _decode_csv(raw: bytes) -> str:
@@ -219,7 +228,6 @@ def _is_relevant(record: CVMIPERecord) -> bool:
     if category == "assembleia":
         important = (
             "dividend",
-            "juros sobre capital proprio",
             "jcp",
             "recompra",
             "aumento de capital",
@@ -229,7 +237,7 @@ def _is_relevant(record: CVMIPERecord) -> bool:
             "fusao",
             "incorporacao",
         )
-        return species == "ata" or any(term in subject for term in important)
+        return species == "ata" or _mentions_jcp(subject) or any(term in subject for term in important)
     return False
 
 
@@ -274,7 +282,7 @@ def classify_cvm_ipe_record(record: CVMIPERecord) -> tuple[str, bool, str]:
     ):
         return "M_AND_A", False, "CVM subject explicitly describes a business transaction"
 
-    has_jcp = "juros sobre capital proprio" in combined or re.search(r"\bjcp\b", combined) is not None
+    has_jcp = _mentions_jcp(combined)
     has_dividend = "dividend" in combined
     if has_jcp:
         if has_dividend:
