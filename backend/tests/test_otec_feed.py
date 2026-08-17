@@ -5,10 +5,10 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import app.marketdata.otec_feed as feed
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.marketdata.euronext_delayed import OTEC_ISIN
-import app.marketdata.otec_feed as feed
 
 
 HEADER = [
@@ -56,7 +56,23 @@ def _zip(rows):
     return buffer.getvalue()
 
 
-def test_intraday_feed_uses_small_delayed_windows(monkeypatch) -> None:
+def test_intraday_feed_uses_small_windows_and_skips_full_file_with_recent_poll(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "recent.db")
+    init_database(database)
+    oslo = ZoneInfo("Europe/Oslo")
+    now = datetime(2026, 8, 17, 12, 0, tzinfo=oslo)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO job_runs(job_name, started_at, finished_at, status, metadata_json)
+            VALUES ('fast_refresh', ?, ?, 'SUCCESS', '{}')
+            """,
+            ("2026-08-17T09:29:00+00:00", "2026-08-17T09:30:00+00:00"),
+        )
+        connection.commit()
+
     captured = {}
 
     def fake_refresh(database_path=None, *, selections, timeout):
@@ -66,13 +82,87 @@ def test_intraday_feed_uses_small_delayed_windows(monkeypatch) -> None:
         return {"status": "no_trade", "selected": None, "attempts": []}
 
     monkeypatch.setattr(feed, "refresh_otec_delayed_price", fake_refresh)
-    result = feed.refresh_otec_intraday_price("example.db")
+    monkeypatch.setattr(
+        feed,
+        "download_euronext_delayed_equities",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full file not expected")),
+    )
 
-    assert captured["database_path"] == "example.db"
+    result = feed.refresh_otec_intraday_price(database, now=now)
+
+    assert captured["database_path"] == database
     assert captured["selections"] == ("LAST_15_MINUTES", "LAST_HOUR")
     assert captured["timeout"] == 45
     assert result["feed_mode"] == "delayed_intraday"
     assert result["status"] == "no_trade"
+    assert result["gap_recovery"] is False
+    assert result["gap_recovery_skipped"] == "recent_poll_covered_by_last_hour"
+
+
+def test_intraday_cold_start_recovers_trade_outside_last_hour(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "cold-start.db")
+    init_database(database)
+    oslo = ZoneInfo("Europe/Oslo")
+    now = datetime(2026, 8, 17, 14, 0, tzinfo=oslo)
+    calls = []
+
+    monkeypatch.setattr(
+        feed,
+        "refresh_otec_delayed_price",
+        lambda *_args, **_kwargs: {"status": "no_trade", "selected": None, "attempts": []},
+    )
+
+    def fake_download(selection, *, timeout=120, attempts=3):
+        calls.append((selection, timeout))
+        return "https://example/current-day", b"current-day-payload"
+
+    def fake_import(payload, *, time_selection, source_url, database_path):
+        assert payload == b"current-day-payload"
+        assert time_selection == "CURRENT_TRADING_DAY"
+        assert source_url == "https://example/current-day"
+        assert database_path == database
+        return {
+            "found": True,
+            "price_nok": "17.15",
+            "trading_date": "2026-08-17",
+        }
+
+    monkeypatch.setattr(feed, "download_euronext_delayed_equities", fake_download)
+    monkeypatch.setattr(feed, "import_delayed_otec_trade", fake_import)
+
+    result = feed.refresh_otec_intraday_price(database, now=now)
+
+    assert calls == [("CURRENT_TRADING_DAY", 120)]
+    assert result["gap_recovery"] is True
+    assert result["status"] == "ok"
+    assert result["selected"] == "CURRENT_TRADING_DAY"
+    assert result["price_nok"] == "17.15"
+
+
+def test_intraday_small_window_trade_never_uses_full_file(monkeypatch) -> None:
+    oslo = ZoneInfo("Europe/Oslo")
+    monkeypatch.setattr(
+        feed,
+        "refresh_otec_delayed_price",
+        lambda *_args, **_kwargs: {
+            "status": "ok",
+            "found": True,
+            "selected": "LAST_15_MINUTES",
+            "price_nok": "17.20",
+        },
+    )
+    monkeypatch.setattr(
+        feed,
+        "download_euronext_delayed_equities",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full file not expected")),
+    )
+
+    result = feed.refresh_otec_intraday_price(
+        "unused.db",
+        now=datetime(2026, 8, 17, 14, 0, tzinfo=oslo),
+    )
+    assert result["gap_recovery"] is False
+    assert result["selected"] == "LAST_15_MINUTES"
 
 
 def test_eod_finalization_stores_last_not_close(tmp_path) -> None:
