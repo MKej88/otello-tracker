@@ -94,3 +94,31 @@ SET buyback_id = (
 )
 WHERE movement_type = 'OTELLO_BUYBACK'
   AND buyback_id IS NULL;
+
+-- Once transaction-level NewsWeb detail exists, a later legacy Euronext/MFN collection
+-- must not recreate the weekly cash summary and double count the same repurchases.
+CREATE TRIGGER prevent_weekly_buyback_cash_when_daily
+BEFORE INSERT ON cash_movements
+WHEN NEW.movement_type = 'OTELLO_BUYBACK'
+ AND EXISTS (
+     SELECT 1
+     FROM buybacks b
+     JOIN buyback_daily_transactions d ON d.weekly_buyback_id = b.id
+     WHERE b.trade_date = NEW.movement_date
+ )
+BEGIN
+    SELECT RAISE(IGNORE);
+END;
+
+-- The shared weekly parser predates NewsWeb and labels unknown source codes as mirrors.
+-- Normalize the database record at source level so NewsWeb provenance is unambiguously
+-- official even while the legacy parser remains backward-compatible with MFN.
+CREATE TRIGGER normalize_newsweb_regulatory_document
+AFTER INSERT ON source_documents
+WHEN NEW.source_id = (SELECT id FROM sources WHERE code = 'NEWSWEB')
+ AND NEW.document_type = 'REGULATORY_NEWS_MIRROR'
+BEGIN
+    UPDATE source_documents
+    SET document_type = 'REGULATORY_NEWS'
+    WHERE id = NEW.id;
+END;
