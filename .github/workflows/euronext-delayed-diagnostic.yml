@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Inspect official Oslo equity trade files
+      - name: Inspect unzipped official Oslo equity schema
         shell: bash
         run: |
           set -euo pipefail
@@ -26,6 +26,7 @@ jobs:
           import re
           import urllib.error
           import urllib.request
+          import zipfile
           from pathlib import Path
 
           base = 'https://marketdata.euronext.com/data-reporting-service/trades-file/download/EQUITIES'
@@ -41,7 +42,7 @@ jobs:
                       payload = response.read(100 * 1024 * 1024)
                       lines.append(
                           f'STATUS={response.status} CONTENT_TYPE={response.headers.get("Content-Type")!r} '
-                          f'CONTENT_DISPOSITION={response.headers.get("Content-Disposition")!r} BYTES={len(payload)}'
+                          f'CONTENT_DISPOSITION={response.headers.get("Content-Disposition")!r} ZIP_BYTES={len(payload)}'
                       )
               except urllib.error.HTTPError as exc:
                   lines.append(f'HTTP_ERROR={exc.code}')
@@ -50,11 +51,24 @@ jobs:
                   lines.append(f'ERROR={exc!r}')
                   continue
 
+              try:
+                  with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                      members = [name for name in archive.namelist() if not name.endswith('/')]
+                      lines.append(f'ZIP_MEMBERS={members!r}')
+                      csv_members = [name for name in members if name.lower().endswith('.csv')]
+                      if len(csv_members) != 1:
+                          lines.append(f'CSV_MEMBER_ERROR={len(csv_members)}')
+                          continue
+                      raw = archive.read(csv_members[0])
+              except Exception as exc:
+                  lines.append(f'ZIP_ERROR={exc!r}')
+                  continue
+
               text = None
               encoding_used = None
               for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
                   try:
-                      text = payload.decode(encoding)
+                      text = raw.decode(encoding)
                       encoding_used = encoding
                       break
                   except UnicodeDecodeError:
@@ -62,35 +76,35 @@ jobs:
               if text is None:
                   lines.append('DECODE_ERROR')
                   continue
-              lines.append(f'ENCODING={encoding_used} LINE_COUNT={len(text.splitlines())}')
+
               first_line = text.splitlines()[0] if text.splitlines() else ''
               delimiter = ';' if first_line.count(';') >= first_line.count(',') else ','
-              lines.append(f'DELIMITER={delimiter!r} HEADER_RAW={first_line[:5000]!r}')
+              lines.append(
+                  f'CSV_BYTES={len(raw)} ENCODING={encoding_used} LINE_COUNT={len(text.splitlines())} '
+                  f'DELIMITER={delimiter!r}'
+              )
+              reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+              fieldnames = reader.fieldnames or []
+              lines.append(f'FIELDS={fieldnames!r}')
 
-              try:
-                  reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-                  fieldnames = reader.fieldnames or []
-                  lines.append(f'FIELDS={fieldnames!r}')
-                  otec_rows = []
-                  total_rows = 0
-                  for row in reader:
-                      total_rows += 1
-                      joined = ' | '.join(str(value or '') for value in row.values()).upper()
-                      if 'NO0010040611' in joined or re.search(r'(^|[^A-Z0-9])OTEC([^A-Z0-9]|$)', joined):
-                          otec_rows.append(row)
-                  lines.append(f'TOTAL_ROWS={total_rows} OTEC_ROWS={len(otec_rows)}')
-                  for row in otec_rows[-25:]:
-                      lines.append('OTEC_ROW=' + repr(dict(row))[:12000])
-              except Exception as exc:
-                  lines.append(f'CSV_ERROR={exc!r}')
+              otec_rows = []
+              total_rows = 0
+              for row in reader:
+                  total_rows += 1
+                  joined = ' | '.join(str(value or '') for value in row.values()).upper()
+                  if 'NO0010040611' in joined or re.search(r'(^|[^A-Z0-9])OTEC([^A-Z0-9]|$)', joined):
+                      otec_rows.append(row)
+              lines.append(f'TOTAL_ROWS={total_rows} OTEC_ROWS={len(otec_rows)}')
+              for row in otec_rows[-30:]:
+                  lines.append('OTEC_ROW=' + repr(dict(row))[:16000])
 
-          Path('euronext-equities-diagnostic.txt').write_text('\n'.join(lines), encoding='utf-8')
+          Path('euronext-equities-unzipped-diagnostic.txt').write_text('\n'.join(lines), encoding='utf-8')
           PY
       - name: Commit diagnostic result
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add euronext-equities-diagnostic.txt
-          git commit -m 'Phase 11: equity file diagnostic result [skip ci]'
+          git add euronext-equities-unzipped-diagnostic.txt
+          git commit -m 'Phase 11: unzipped schema diagnostic [skip ci]'
           git push
