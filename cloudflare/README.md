@@ -8,7 +8,7 @@ Denne katalogen er den aktive Cloudflare-native produksjonsimplementasjonen.
 - **Workers Static Assets** – React/Vite frontend
 - **D1** – strukturert produksjonsdatabase
 - **R2** – PDF/råkilder/arkiv i senere fase
-- **Cron Triggers** – fast refresh i Phase 15.4
+- **Cron Triggers** – 30-minutters fast refresh i Phase 15.4
 - **Workflows** – tyngre fullrefresh og retries i Phase 15.5
 - **Workers Secrets / Secrets Store** – produksjonssecrets
 
@@ -24,11 +24,14 @@ src/
   dashboard_service.py
   buyback_service.py
   oslo_calendar.py
+  otec_ingestion.py
+  scheduled.py
 
 migrations/
   0001_initial_schema.sql
   0002_reference_data.sql
   0003_query_indexes.sql
+  0004_option_liability.sql
 ```
 
 Worker-rutene er:
@@ -42,9 +45,31 @@ GET /api/buybacks/forecast
 
 React/Vite ligger på samme Worker-origin. `/api/*` er Worker-first, mens øvrige paths serveres som Static Assets med SPA-fallback.
 
+WorkerEntrypoint har i tillegg en `scheduled(self, controller, env, ctx)`-handler. `wrangler.jsonc` kobler denne til `*/30 * * * *` for den lette innhentingsbanen.
+
+## Phase 15.4.1 – OTEC intradag
+
+Første write-path er CI-validert:
+
+```text
+Cron */30 * * * *
+  -> Euronext LAST_15_MINUTES
+  -> ved behov LAST_HOUR
+  -> OTEC ISIN/XOSL/NOK-filter
+  -> kilde-dokument i D1
+  -> idempotent market_prices LAST/DIRECT
+  -> job_runs
+```
+
+Semantikken er bevisst lik SQLite-referansen: Euronext-transaksjonen lagres som `LAST`/`DIRECT` og omtales ikke som offisiell sluttkurs.
+
+Intradagspayloaden er eksplisitt størrelsesbegrenset. ZIP-en holdes bounded, mens CSV-medlemmet leses sekvensielt direkte fra ZIP-strømmen i stedet for å ekspanderes til én stor bytes-/tekstbuffer. Den store `CURRENT_TRADING_DAY`-filen er derfor **ikke** flyttet inn i denne banen; EOD/gap recovery implementeres separat med en eksplisitt Worker/R2-strategi.
+
 ## D1
 
-`0001_initial_schema.sql` genereres fra den fullt migrerte SQLite-referansen og skal ikke håndredigeres. `0002_reference_data.sql` oppretter stabile sources/instruments. `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser og endrer ikke finansielle data eller constraints.
+`0001_initial_schema.sql` er en frosset baseline generert fra SQLite-referansen og skal ikke håndredigeres. Senere datamodellendringer ligger i additive D1-migreringer. `0002_reference_data.sql` oppretter stabile sources/instruments, `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser, og `0004_option_liability.sql` legger til opsjonsfeltene for FULL NAV.
+
+`repository.py` inneholder nå både read-laget og et avgrenset `D1WriteRepository` for scheduled ingestion. Skrivelaget bruker parameterbinding og beholder idempotente unique-key-semantikker for `source_documents` og `market_prices`.
 
 Regenerer/verifiser basis-schema:
 
@@ -57,7 +82,7 @@ python cloudflare/tools/generate_d1_schema.py --check
 
 `tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
 
-Phase 15.3.1 går ett steg videre: en populated Worker-fixture importeres til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden.
+En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-regresjonstester.
 
 ## Ytelseshardening
 
@@ -110,16 +135,13 @@ pywrangler deploy --dry-run --config wrangler.worker-test.jsonc
 pywrangler dev --config wrangler.worker-test.jsonc
 ```
 
-## Neste fase
-
-Phase 15.4 porter write-paths eksplisitt til Worker/D1:
+## Neste del av Phase 15.4
 
 ```text
-scheduled */30 * * * *
-  -> OTEC delayed/EOD
-  -> BMOB3 delayed/EOD
-  -> NewsWeb incremental
-  -> dirty-state cash/NAV
+OTEC EOD + gap recovery
+BMOB3 delayed/EOD
+NewsWeb incremental
+Dirty-state cash/NAV, inkludert option-aware FULL NAV
 ```
 
-Dagens synkrone SQLite `fast_refresh.py` skal ikke kopieres direkte inn i Worker-runtime. Nettverkskall, payloadgrenser og D1-writes skal tilpasses Cloudflare eksplisitt.
+Dagens synkrone SQLite `fast_refresh.py` skal ikke kopieres direkte inn i Worker-runtime. Nettverkskall, payloadgrenser og D1-writes tilpasses Cloudflare eksplisitt, og tyngre/større payloads flyttes til Workflow/R2 når det er riktigere enn å buffre dem i Worker-minnet.
