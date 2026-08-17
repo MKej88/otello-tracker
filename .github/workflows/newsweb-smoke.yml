@@ -17,17 +17,16 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run backend tests
         working-directory: backend
-        run: pytest -q
+        run: PYTHONPATH=. pytest -q
       - name: Live NewsWeb cross-anchor integration
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          PYTHONPATH=. python - <<'PY'
           import json
           import tempfile
           from pathlib import Path
-          from decimal import Decimal
 
           from app.db.connection import get_connection
           from app.db.migration_runner import init_database
