@@ -1,1 +1,1 @@
-backend=success frontend=success docker=success tested_merge_sha=33fc15780f545c3a2e2f2d8102203e60e65ffbf6
+backend=success frontend=success docker=success cleanup=success tested_merge_sha=2284cfc65bfaf4542845c3ff8313e5ccc900017d
