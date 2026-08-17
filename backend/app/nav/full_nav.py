@@ -9,7 +9,7 @@ from app.db.connection import get_connection
 from app.db.repository import decimal_text
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 
-FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
+FULL_CALCULATION_VERSION = "full-market-nav-daily-v3-option-aware"
 
 
 def _hash(payload: dict[str, Any]) -> str:
@@ -43,7 +43,11 @@ def rebuild_daily_full_nav(
                    o.amount_nok AS ona_nok, o.quality AS ona_quality,
                    o.base_amount_usd, o.base_amount_nok,
                    o.associated_receivable_nok, o.receivable_quality,
-                   o.receivable_components_json, o.inputs_hash AS ona_inputs_hash
+                   o.receivable_components_json, o.inputs_hash AS ona_inputs_hash,
+                   o.option_liability_nok, o.option_liability_usd,
+                   o.option_fair_value_per_option_nok, o.option_recognition_fraction,
+                   o.option_spot_nok, o.option_strike_nok,
+                   o.option_quality, o.option_inputs_json
             FROM nav_snapshots n
             JOIN other_net_assets_daily_estimates o
               ON o.estimate_date = substr(n.as_of_at, 1, 10)
@@ -74,6 +78,7 @@ def rebuild_daily_full_nav(
                 row["core_status"] == "ESTIMATED"
                 or row["ona_quality"] == "INTERPOLATED"
                 or row["receivable_quality"] not in {"NONE", "REPORTED_CALIBRATED"}
+                or row["option_quality"] in {"INTERPOLATED_TO_REPORTED", "FORECAST_MARK_TO_MARKET"}
             )
             if degraded:
                 status = "DEGRADED"
@@ -83,6 +88,7 @@ def rebuild_daily_full_nav(
                 status = "BACKFILLED"
 
             receivable_components = json.loads(row["receivable_components_json"] or "[]")
+            option_inputs = json.loads(row["option_inputs_json"] or "{}")
             components = {
                 "scope": "FULL",
                 "core_snapshot_id": row["core_snapshot_id"],
@@ -93,27 +99,40 @@ def rebuild_daily_full_nav(
                     "amount_usd_equivalent": row["amount_usd"],
                     "usd_nok": row["usd_nok_rate"],
                     "amount_nok": row["ona_nok"],
-                    "base_amount_usd": row["base_amount_usd"],
-                    "base_amount_nok": row["base_amount_nok"],
+                    "base_ex_option_amount_usd": row["base_amount_usd"],
+                    "base_ex_option_amount_nok": row["base_amount_nok"],
                     "associated_receivable_nok": row["associated_receivable_nok"],
                     "receivable_quality": row["receivable_quality"],
                     "receivable_components": receivable_components,
+                    "option_liability": {
+                        "amount_nok": row["option_liability_nok"],
+                        "amount_usd": row["option_liability_usd"],
+                        "fair_value_per_option_nok": row["option_fair_value_per_option_nok"],
+                        "recognition_fraction": row["option_recognition_fraction"],
+                        "spot_nok": row["option_spot_nok"],
+                        "strike_nok": row["option_strike_nok"],
+                        "quality": row["option_quality"],
+                        "inputs": option_inputs,
+                    },
                     "quality": row["ona_quality"],
                     "inputs_hash": row["ona_inputs_hash"],
                 },
             }
             inputs_hash = _hash(components)
             quality_notes = (
-                "FULL NAV = stored CORE NAV + receivable-aware other net assets/liabilities. "
-                "Base ONA is interpolated in USD between report anchors. Bemobi distribution receivables "
-                "are valued separately from entitlement/ex-date until payment and then removed as cash receives the distribution."
+                "FULL NAV = stored CORE NAV + option-aware other net assets/liabilities. "
+                "Base ONA excludes both Bemobi distribution receivables and the cash-settled Otello option obligation. "
+                "Bemobi receivables are valued separately from entitlement/ex-date until payment. "
+                "From 15 Sep 2025 the option obligation is marked to market from OTEC using the reported Black-Scholes framework and is calibrated to the audited USD 314k liability at 31 Dec 2025."
             )
             if row["ona_quality"] == "FORECAST_PARTIAL":
-                quality_notes += " Base ONA is carried forward after the latest report and is therefore partial forecast data."
+                quality_notes += " Base ONA excluding the option obligation is carried forward after the latest report and is therefore partial forecast data."
             elif row["ona_quality"] == "INTERPOLATED":
-                quality_notes += " Base ONA is interpolated between reported anchors and is therefore estimated for this date."
+                quality_notes += " Base ONA excluding the option obligation is interpolated between reported anchors and is therefore estimated for this date."
             if row["receivable_quality"] == "ESTIMATED_GROSS":
                 quality_notes += " At least one active Bemobi receivable is gross-estimated because no report-date receivable anchor exists inside its lifecycle."
+            if row["option_quality"] == "FORECAST_MARK_TO_MARKET":
+                quality_notes += " The option liability uses the latest reported risk-free-rate/volatility assumptions until a new Otello report supplies updated valuation inputs."
 
             connection.execute(
                 """
