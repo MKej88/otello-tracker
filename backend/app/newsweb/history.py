@@ -79,7 +79,13 @@ def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
     return "OTHER", True, "no high-confidence title rule"
 
 
-def _metadata(message: NewsWebMessage, category: str, reason: str) -> dict[str, Any]:
+def _nav_impact(category: str) -> str:
+    return "POTENTIAL" if category in {
+        "DIVIDEND", "JCP", "BUYBACK", "M_AND_A", "CAPITAL", "GUIDANCE"
+    } else "NONE"
+
+
+def _metadata(message: NewsWebMessage, category: str, reason: str, review: bool) -> dict[str, Any]:
     return {
         "source_quality": "OFFICIAL_ORIGINAL",
         "newsweb_message_id": message.message_id,
@@ -99,6 +105,7 @@ def _metadata(message: NewsWebMessage, category: str, reason: str) -> dict[str, 
         "body_length": len(message.body),
         "archive_category": category,
         "classification_reason": reason,
+        "requires_review": review,
         "body_persisted": False,
     }
 
@@ -106,6 +113,7 @@ def _metadata(message: NewsWebMessage, category: str, reason: str) -> dict[str, 
 def _upsert(message: NewsWebMessage, database_path: str | None) -> dict[str, Any]:
     category, review, reason = classify_newsweb_message(message)
     digest = hashlib.sha256(message.body.encode("utf-8")).hexdigest()
+    processing_status = "REVIEW_REQUIRED" if review else "PARSED"
     with get_connection(database_path) as connection:
         otec_id = instrument_id(connection, "OTEC")
         document_id = create_source_document(
@@ -117,7 +125,7 @@ def _upsert(message: NewsWebMessage, database_path: str | None) -> dict[str, Any
             url=message.public_url,
             published_at=message.published_at,
             content_sha256=digest,
-            metadata=_metadata(message, category, reason),
+            metadata=_metadata(message, category, reason, review),
         )
         connection.execute(
             "UPDATE source_documents SET issuer_instrument_id=? WHERE id=?",
@@ -126,20 +134,28 @@ def _upsert(message: NewsWebMessage, database_path: str | None) -> dict[str, Any
         connection.execute(
             """
             INSERT INTO company_news(
-                issuer_instrument_id, published_at, title, category, summary,
-                source_document_id, requires_review, notes
-            ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+                issuer_instrument_id, source_document_id, headline, published_at,
+                category, nav_impact, processing_status, summary, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
             ON CONFLICT(source_document_id) DO UPDATE SET
                 issuer_instrument_id=excluded.issuer_instrument_id,
+                headline=excluded.headline,
                 published_at=excluded.published_at,
-                title=excluded.title,
                 category=excluded.category,
+                nav_impact=excluded.nav_impact,
+                processing_status=excluded.processing_status,
                 summary=NULL,
-                requires_review=excluded.requires_review,
-                notes=excluded.notes
+                notes=excluded.notes,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
             """,
             (
-                otec_id, message.published_at, message.title, category, document_id, int(review),
+                otec_id,
+                document_id,
+                message.title,
+                message.published_at,
+                category,
+                _nav_impact(category),
+                processing_status,
                 f"NewsWeb archive classification: {reason}. Full message body is not persisted.",
             ),
         )
@@ -222,7 +238,7 @@ def newsweb_history_status(database_path: str | None = None) -> dict[str, Any]:
     with get_connection(database_path) as connection:
         rows = connection.execute(
             """
-            SELECT cn.published_at, cn.category, cn.requires_review
+            SELECT cn.published_at, cn.category, cn.processing_status
             FROM company_news cn
             JOIN source_documents sd ON sd.id=cn.source_document_id
             JOIN sources s ON s.id=sd.source_id
@@ -239,7 +255,7 @@ def newsweb_history_status(database_path: str | None = None) -> dict[str, Any]:
         "count": len(rows),
         "from": str(rows[0]["published_at"])[:10],
         "to": str(rows[-1]["published_at"])[:10],
-        "requires_review": sum(int(row["requires_review"]) for row in rows),
+        "requires_review": sum(row["processing_status"] == "REVIEW_REQUIRED" for row in rows),
         "by_year": dict(sorted(years.items())),
         "by_category": dict(sorted(categories.items())),
     }
