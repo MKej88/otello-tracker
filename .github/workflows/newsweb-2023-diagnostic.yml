@@ -1,0 +1,31 @@
+name: NewsWeb 2023 diagnostic
+
+on:
+  push:
+    branches: [phase-9-4-full-newsweb-history-clean]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Inspect three 2023 NewsWeb messages
+        working-directory: backend
+        run: |
+          PYTHONPATH=. python - <<'PY'
+          import re
+          from app.newsweb.client import fetch_message
+          from app.newsweb.normalization import normalize_weekly_body
+          for mid in (594072, 594609, 594995):
+              msg = fetch_message(mid, timeout=45)
+              body = normalize_weekly_body(msg.body)
+              print(f"MESSAGE {mid} TITLE={msg.title}")
+              print(body[:2200])
+              print("---")
+          PY
