@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.db.connection import get_connection
+from app.marketdata.oslo_calendar import oslo_bors_trading_days
 
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
@@ -33,13 +34,6 @@ def _next_monday(after: date) -> date:
     return after + timedelta(days=delta)
 
 
-def _weekday_count(start: date, end: date) -> int:
-    return sum(
-        1 for offset in range((end - start).days + 1)
-        if (start + timedelta(days=offset)).weekday() < 5
-    )
-
-
 def _activity_before(connection, day: date, *, limit: int = LOOKBACK_DAYS):
     return connection.execute(
         """
@@ -64,15 +58,20 @@ def _activity_in_period(connection, start: date, end: date):
     ).fetchall()
 
 
-def _active_program(connection):
+def _active_program(connection, as_of: date):
     return connection.execute(
         """
-        SELECT p.id, p.external_program_id, p.start_date, p.max_shares, p.max_price_nok,
+        SELECT p.id, p.external_program_id, p.start_date, p.end_date, p.status,
+               p.max_shares, p.max_price_nok,
                b.trade_date AS latest_period_end, b.cumulative_program_shares,
                b.treasury_shares_after
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
+        WHERE p.status='ACTIVE'
+          AND (p.start_date IS NULL OR p.start_date <= ?)
+          AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
-        """
+        """,
+        (as_of.isoformat(), as_of.isoformat()),
     ).fetchone()
 
 
@@ -171,16 +170,12 @@ def buyback_forecast(
     """
     as_of = date.fromisoformat(as_of_date) if as_of_date else date.today()
     with get_connection(database_path) as connection:
-        program = _active_program(connection)
+        program = _active_program(connection, as_of)
         if program is None:
             return {"ready": False, "status": "NO_ACTIVE_PROGRAM", "methodology_version": METHOD_VERSION}
         latest_end = date.fromisoformat(program["latest_period_end"])
         period_start = _next_monday(latest_end)
         period_end = period_start + timedelta(days=4)
-        if as_of < period_start:
-            # Forecast is still the week after the latest announcement even when called on
-            # the weekend immediately before that week.
-            pass
 
         lookback = _activity_before(connection, period_start)
         if len(lookback) < LOOKBACK_DAYS:
@@ -192,9 +187,38 @@ def buyback_forecast(
                 "methodology_version": METHOD_VERSION,
             }
         adv20 = sum(int(item["volume_shares"]) for item in lookback) / LOOKBACK_DAYS
-        expected_days = _weekday_count(period_start, period_end)
-        capacity = float(SAFE_HARBOUR_SHARE) * adv20 * expected_days
+        trading_days = oslo_bors_trading_days(period_start, period_end)
+        expected_days = len(trading_days)
         remaining = max(0, int(program["max_shares"]) - int(program["cumulative_program_shares"] or 0))
+        if remaining == 0:
+            return {
+                "ready": False,
+                "status": "PROGRAM_EXHAUSTED",
+                "methodology_version": METHOD_VERSION,
+                "as_of_date": as_of.isoformat(),
+                "program": {
+                    "external_id": program["external_program_id"],
+                    "start_date": program["start_date"],
+                    "end_date": program["end_date"],
+                    "max_shares": int(program["max_shares"]),
+                    "cumulative_shares": int(program["cumulative_program_shares"] or 0),
+                    "remaining_shares": 0,
+                },
+            }
+        if expected_days == 0:
+            return {
+                "ready": False,
+                "status": "NO_TRADING_DAYS",
+                "methodology_version": METHOD_VERSION,
+                "forecast_week": {
+                    "from": period_start.isoformat(),
+                    "to": period_end.isoformat(),
+                    "expected_trading_days": 0,
+                    "trading_dates": [],
+                },
+            }
+
+        capacity = float(SAFE_HARBOUR_SHARE) * adv20 * expected_days
         capacity_estimate = min(capacity, float(remaining))
         history = _program_history(connection, int(program["id"]), int(program["max_shares"]))
         recent = history[-RECENT_PROGRAM_WEEKS:]
@@ -252,6 +276,7 @@ def buyback_forecast(
             "program": {
                 "external_id": program["external_program_id"],
                 "start_date": program["start_date"],
+                "end_date": program["end_date"],
                 "max_shares": int(program["max_shares"]),
                 "cumulative_shares": int(program["cumulative_program_shares"] or 0),
                 "remaining_shares": remaining,
@@ -261,6 +286,7 @@ def buyback_forecast(
                 "from": period_start.isoformat(),
                 "to": period_end.isoformat(),
                 "expected_trading_days": expected_days,
+                "trading_dates": [item.isoformat() for item in trading_days],
             },
             "volume_model": {
                 "adv20_shares": round(adv20, 1),
