@@ -53,7 +53,13 @@ async def _existing_newsweb_documents(
     *,
     from_date: str,
 ) -> dict[str, dict[str, Any]]:
-    """Load only the bounded overlap-window provenance index for fast refresh."""
+    """Load a bounded logical-ID provenance index for the fast refresh.
+
+    Immutable content versions created by the 15.4.6 policy carry
+    ``logical_external_id``. Collapse those version rows back onto the provider's logical
+    ID and retain the newest fetch timestamp so a changed body is revalidated once, not on
+    every subsequent 30-minute run.
+    """
     rows = await repository.all(
         """
         SELECT sd.external_id, sd.metadata_json, sd.fetched_at
@@ -64,14 +70,20 @@ async def _existing_newsweb_documents(
         """,
         (f"{from_date}T00:00:00Z",),
     )
-    return {
-        str(row["external_id"]): {
-            **_metadata(row.get("metadata_json")),
-            "_fetched_at": row.get("fetched_at"),
-        }
-        for row in rows
-        if row.get("external_id")
-    }
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        external_id = str(row.get("external_id") or "")
+        if not external_id:
+            continue
+        metadata = _metadata(row.get("metadata_json"))
+        logical_id = str(metadata.get("logical_external_id") or external_id)
+        fetched_at = str(row.get("fetched_at") or "")
+        previous = result.get(logical_id)
+        previous_fetched = str(previous.get("_fetched_at") or "") if previous else ""
+        if previous is not None and previous_fetched >= fetched_at:
+            continue
+        result[logical_id] = {**metadata, "_fetched_at": fetched_at}
+    return result
 
 
 def _revalidation_due(
