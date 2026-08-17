@@ -1,4 +1,5 @@
-from datetime import date as real_date
+from datetime import date as real_date, datetime
+from zoneinfo import ZoneInfo
 
 import app.jobs.fast_refresh as fast
 from app.db.migration_runner import init_database
@@ -25,8 +26,13 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
     monkeypatch.setattr(fast, "activity_check_done", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         fast,
-        "refresh_otec_delayed_price",
-        lambda *_args, **_kwargs: calls.setdefault("otec", True) or {"status": "ok"},
+        "refresh_otec_intraday_price",
+        lambda *_args, **_kwargs: calls.setdefault("otec_intraday", True) or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        fast,
+        "maybe_finalize_otec_eod",
+        lambda *_args, **kwargs: calls.setdefault("eod_kwargs", kwargs) or {"status": "skipped"},
     )
 
     def news_history(*_args, **kwargs):
@@ -59,10 +65,13 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
         lambda *_args, **_kwargs: {"ready": True, "data_status": "BACKFILLED", "as_of_date": "2026-08-17"},
     )
 
-    result = fast.run_fast_refresh(database, target_date="2026-08-17")
+    now = datetime(2026, 8, 17, 12, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    result = fast.run_fast_refresh(database, target_date="2026-08-17", now=now)
 
     assert result["refresh_mode"] == "fast"
     assert result["status"] == "ok"
+    assert calls["otec_intraday"] is True
+    assert calls["eod_kwargs"] == {"target_date": "2026-08-17", "now": now}
     assert calls["history_kwargs"] == {"to_date": "2026-08-17"}
     # Important: no explicit historical from_date. The NewsWeb collector selects its own
     # latest-21-day overlap, so the 30-minute cycle does not refetch from 2023.
@@ -75,3 +84,15 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
         "start_date": "2026-08-17",
         "end_date": "2026-08-17",
     }
+
+
+def test_eod_result_skips_intraday_when_session_is_finalized() -> None:
+    assert fast._eod_is_authoritative_for_cycle({"status": "ok"}) is True
+    assert fast._eod_is_authoritative_for_cycle({"status": "no_trade"}) is True
+    assert fast._eod_is_authoritative_for_cycle(
+        {"status": "skipped", "reason": "eod_already_finalized"}
+    ) is True
+    assert fast._eod_is_authoritative_for_cycle(
+        {"status": "skipped", "reason": "before_eod_cutoff"}
+    ) is False
+    assert fast._eod_is_authoritative_for_cycle(None) is False

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from app.buybacks import (
@@ -15,9 +15,12 @@ from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
-from app.marketdata.euronext_delayed import (
-    download_euronext_delayed_equities,
-    refresh_otec_delayed_price,
+from app.marketdata.euronext_delayed import download_euronext_delayed_equities
+from app.marketdata.oslo_calendar import is_oslo_bors_trading_day
+from app.marketdata.otec_feed import (
+    finalize_otec_eod_from_payload,
+    maybe_finalize_otec_eod,
+    refresh_otec_intraday_price,
 )
 from app.nav import rebuild_daily_cash, rebuild_daily_core_nav, rebuild_daily_full_nav
 from app.newsweb import (
@@ -50,16 +53,33 @@ def _latest_otec_date(database_path: str, target_date: str) -> str | None:
     return row["d"] if row and row["d"] else None
 
 
+def _previous_oslo_trading_day(day: date) -> date:
+    candidate = day - timedelta(days=1)
+    while not is_oslo_bors_trading_day(candidate):
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _eod_is_authoritative_for_cycle(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    if result.get("status") in {"ok", "no_trade"}:
+        return True
+    return result.get("status") == "skipped" and result.get("reason") == "eod_already_finalized"
+
+
 def run_fast_refresh(
     database_path: str,
     *,
     target_date: str | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Refresh only sources/layers that can matter intraday.
 
     Heavy annual/history providers (B3 COTAHIST, ECB, CVM and MFN fallback) deliberately
-    live in the daily full refresh. This path keeps the 30-minute production cycle small:
-    delayed OTEC, incremental NewsWeb, buyback cash and the latest NAV snapshot.
+    live in the daily full refresh. OTEC normally uses Euronext's small 15-minute/hour
+    delayed windows. After the Oslo session, the one EOD finalization gets priority so a
+    cold start cannot download the full current-day file twice in the same cycle.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -86,13 +106,33 @@ def run_fast_refresh(
         }
 
     if end_day == today:
-        steps["otec_delayed"] = _safe_step(
-            "otec_delayed",
-            lambda: refresh_otec_delayed_price(database_path),
+        eod_result = _safe_step(
+            "otec_eod",
+            lambda: maybe_finalize_otec_eod(
+                database_path,
+                target_date=end,
+                now=now,
+            ),
             errors,
         )
+        steps["otec_eod"] = eod_result
+        if _eod_is_authoritative_for_cycle(eod_result):
+            steps["otec_delayed"] = {
+                "skipped": True,
+                "reason": "eod_finalized_for_session",
+            }
+        else:
+            steps["otec_delayed"] = _safe_step(
+                "otec_delayed",
+                lambda: refresh_otec_intraday_price(database_path, now=now),
+                errors,
+            )
     else:
         steps["otec_delayed"] = {
+            "skipped": True,
+            "reason": "live_source_not_used_for_historical_target",
+        }
+        steps["otec_eod"] = {
             "skipped": True,
             "reason": "live_source_not_used_for_historical_target",
         }
@@ -100,12 +140,24 @@ def run_fast_refresh(
     if end_day == today and today.weekday() < 5 and not activity_check_done(database_path):
         def previous_activity() -> Any:
             url, payload = download_euronext_delayed_equities("PREVIOUS_TRADING_DAY")
-            return ingest_previous_trading_day_activity(
+            activity_result = ingest_previous_trading_day_activity(
                 payload,
                 source_url=url,
                 database_path=database_path,
                 check_date=today.isoformat(),
             )
+            # Reuse the same complete Euronext payload to finalize yesterday's price.
+            # This catches days where the Pi was offline at the same-day EOD checkpoint
+            # without issuing another large download.
+            previous_day = _previous_oslo_trading_day(today).isoformat()
+            eod_result = finalize_otec_eod_from_payload(
+                payload,
+                source_url=url,
+                target_date=previous_day,
+                database_path=database_path,
+                source_selection="PREVIOUS_TRADING_DAY",
+            )
+            return {"activity": activity_result, "eod_price": eod_result}
 
         steps["otec_previous_day_activity"] = _safe_step(
             "otec_previous_day_activity", previous_activity, errors
