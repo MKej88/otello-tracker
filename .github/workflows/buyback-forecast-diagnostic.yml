@@ -23,5 +23,5 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
-      - name: Run buyback forecast backtest
-        run: PYTHONPATH=. python -m app.jobs.backtest_buyback_forecast --to 2026-08-14
+      - name: Run regime-sensitive buyback forecast backtest
+        run: PYTHONPATH=. python -m app.jobs.backtest_buyback_forecast_v2 --to 2026-08-14
