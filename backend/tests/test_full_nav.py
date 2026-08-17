@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
-from app.db.repository import upsert_fx_rate
+from app.db.repository import upsert_fx_rate, upsert_market_price
 from app.history import seed_curated_history
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION
 from app.nav.full_nav import FULL_CALCULATION_VERSION, rebuild_daily_full_nav
@@ -36,6 +36,7 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
                 """
                 SELECT as_of_date, other_net_assets_reported,
                        associated_receivable_reported, base_other_net_assets_reported,
+                       option_liability_reported, base_other_net_assets_ex_option_reported,
                        precision_status, restated
                 FROM other_net_assets_reported_anchors ORDER BY as_of_date
                 """
@@ -57,6 +58,8 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
 
         assert rows["2025-06-30"]["other_net_assets_reported"] == "-5000"
         assert rows["2025-12-31"]["other_net_assets_reported"] == "2974000"
+        assert rows["2025-12-31"]["option_liability_reported"] == "314000"
+        assert rows["2025-12-31"]["base_other_net_assets_ex_option_reported"] == "3288000"
 
         provenance = connection.execute(
             """
@@ -65,10 +68,10 @@ def test_reported_other_net_assets_reconcile_and_preserve_restatements(tmp_path)
               AND extraction_method = 'MANUAL'
             """
         ).fetchone()["n"]
-        assert provenance == 8 * 7
+        assert provenance == 8 * 9
 
 
-def test_other_net_assets_daily_interpolates_in_usd_and_marks_post_anchor_forecast(tmp_path):
+def test_other_net_assets_daily_marks_post_anchor_option_liability_to_market(tmp_path):
     db = str(tmp_path / "ona.db")
     init_database(db)
     seed_curated_history(db)
@@ -83,26 +86,58 @@ def test_other_net_assets_daily_interpolates_in_usd_and_marks_post_anchor_foreca
                 ("2026-01-01", "10"),
             ],
         )
+        upsert_market_price(
+            connection,
+            symbol="OTEC",
+            observed_at="2025-12-31T15:30:00Z",
+            trading_date="2025-12-31",
+            price_type="CLOSE",
+            price="18.15",
+            currency="NOK",
+            source_code="MANUAL",
+        )
         connection.commit()
 
     anchors = rebuild_other_net_assets_anchors(db)
     assert anchors["written"] >= 3
     daily = rebuild_daily_other_net_assets(db, end_date="2026-01-01")
     assert daily["written"] > 0
+    assert daily["skipped_missing_option_inputs"] == 0
 
     with get_connection(db) as connection:
         first = connection.execute(
             "SELECT amount_usd, amount_nok, quality FROM other_net_assets_daily_estimates WHERE estimate_date='2022-06-30'"
         ).fetchone()
+        year_end = connection.execute(
+            """
+            SELECT amount_usd, base_amount_usd, option_liability_usd, option_quality, quality
+            FROM other_net_assets_daily_estimates WHERE estimate_date='2025-12-31'
+            """
+        ).fetchone()
         after = connection.execute(
-            "SELECT amount_usd, amount_nok, quality FROM other_net_assets_daily_estimates WHERE estimate_date='2026-01-01'"
+            """
+            SELECT amount_usd, amount_nok, base_amount_usd, option_liability_usd,
+                   option_quality, quality
+            FROM other_net_assets_daily_estimates WHERE estimate_date='2026-01-01'
+            """
         ).fetchone()
         assert first["amount_usd"] == "1400000"
         assert Decimal(first["amount_nok"]) == Decimal("14000000")
         assert first["quality"] == "REPORTED_ANCHOR"
-        assert after["amount_usd"] == "2974000"
-        assert Decimal(after["amount_nok"]) == Decimal("29740000")
+
+        assert year_end["amount_usd"] == "2974000"
+        assert Decimal(year_end["base_amount_usd"]) == Decimal("3288000")
+        assert Decimal(year_end["option_liability_usd"]) == Decimal("314000")
+        assert year_end["option_quality"] == "REPORTED_CALIBRATED"
+
+        assert after is not None
         assert after["quality"] == "FORECAST_PARTIAL"
+        assert after["option_quality"] == "FORECAST_MARK_TO_MARKET"
+        assert Decimal(after["option_liability_usd"]) > 0
+        assert Decimal(after["amount_usd"]) == (
+            Decimal(after["base_amount_usd"]) - Decimal(after["option_liability_usd"])
+        )
+        assert Decimal(after["amount_nok"]) == Decimal(after["amount_usd"]) * Decimal("10")
 
 
 def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
@@ -196,6 +231,7 @@ def test_full_nav_is_separate_and_exactly_core_plus_other_net_assets(tmp_path):
         assert Decimal(full["nav_per_share_nok"]) - Decimal("10") == Decimal("14000000") / Decimal("100000000")
         assert Decimal(full["other_net_assets_nok"]) == Decimal("14000000")
         assert '"associated_receivable_nok": "0"' in full["components_json"]
+        assert '"option_liability"' in full["components_json"]
         assert connection.execute(
             "SELECT COUNT(*) n FROM nav_snapshots WHERE calculation_version=? AND substr(as_of_at,1,10)<'2022-06-30'",
             (FULL_CALCULATION_VERSION,),
