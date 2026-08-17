@@ -47,7 +47,7 @@ Bevisst ikke endret i 14.3: NAV-formelen, buyback-estimator/backtest og automati
 
 ### 14.4 – Cloud-first produksjonsoppsett
 
-Status: **Implementert – merge kun ved grønn CI**
+Status: **Ferdig og CI-validert**
 
 - [x] repoet er ryddet for tidligere lokal maskinvare-spesifikk produksjonsplan
 - [x] én aktiv cloud app-host/region med Docker Compose er standard produksjonsarkitektur
@@ -60,6 +60,7 @@ Status: **Implementert – merge kun ved grønn CI**
 - [x] SQLite-begrensningen mot horisontal multi-host skalering er eksplisitt dokumentert
 - [x] off-host backup/snapshot er produksjonskrav i tillegg til lokale SQLite-snapshots
 - [x] CI validerer `.env.production.example` mot Compose
+- [x] backend, frontend, Docker/cloud-config og oppryddingskontroll passerte CI før merge
 - [ ] provider-spesifikk deploy fra GitHub Actions – avventer valg av cloud-provider
 - [ ] automatisk object-storage backup/retention – avventer valg av cloud-provider
 
