@@ -7,6 +7,7 @@ from .client import (
     fetch_attachment,
     fetch_message,
 )
+from .history import collect_newsweb_history, newsweb_history_status
 from .normalization import normalize_weekly_body
 from .trade_parser import parse_buyback_transaction_text
 
@@ -22,10 +23,12 @@ __all__ = [
     "NewsWebAttachment",
     "NewsWebMessage",
     "collect_newsweb_buybacks",
+    "collect_newsweb_history",
     "discover_otec_messages",
     "fetch_attachment",
     "fetch_message",
     "newsweb_buyback_status",
+    "newsweb_history_status",
     "normalize_weekly_body",
     "parse_buyback_transaction_text",
     "sync_newsweb_daily_buyback_cash",
