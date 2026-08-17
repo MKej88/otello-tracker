@@ -19,15 +19,24 @@ def _canonical_hash(payload: dict[str, Any]) -> str:
 
 
 def _preferred_price(connection, symbol: str, as_of_date: str):
+    """Prefer the freshest authoritative price while keeping CLOSE stronger than LAST.
+
+    Historical imports remain CLOSE. Euronext's public delayed trade file is intraday and
+    therefore stored as LAST, never mislabeled as an official close. A newer Euronext
+    LAST can still beat an older trading date, and official Euronext data beats a same-day
+    third-party fallback. If both Euronext CLOSE and LAST exist on the same date, CLOSE
+    wins because it has the stronger price semantic.
+    """
     floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
     return connection.execute(
         """
-        SELECT mp.id, mp.trading_date, mp.price, mp.quality, mp.source_document_id,
+        SELECT mp.id, mp.trading_date, mp.observed_at, mp.price_type,
+               mp.price, mp.quality, mp.source_document_id,
                s.code AS source_code
         FROM market_prices mp
         JOIN instruments i ON i.id = mp.instrument_id
         JOIN sources s ON s.id = mp.source_id
-        WHERE i.symbol = ? AND mp.price_type = 'CLOSE'
+        WHERE i.symbol = ? AND mp.price_type IN ('CLOSE', 'LAST')
           AND mp.trading_date <= ? AND mp.trading_date >= ?
         ORDER BY mp.trading_date DESC,
                  CASE s.code
@@ -36,7 +45,13 @@ def _preferred_price(connection, symbol: str, as_of_date: str):
                    WHEN 'INVESTING' THEN 2
                    ELSE 5
                  END,
+                 CASE mp.price_type
+                   WHEN 'CLOSE' THEN 0
+                   WHEN 'LAST' THEN 1
+                   ELSE 5
+                 END,
                  CASE mp.quality WHEN 'DIRECT' THEN 0 ELSE 1 END,
+                 mp.observed_at DESC,
                  mp.id DESC
         LIMIT 1
         """,
@@ -137,8 +152,8 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
     cash = _cash(connection, as_of_date)
 
     required = {
-        "BMOB3 close": bmob3,
-        "OTEC close": otec,
+        "BMOB3 market price": bmob3,
+        "OTEC market price": otec,
         "BRL/NOK": brl_nok,
         "Bemobi holding": holding,
         "OTEC share count": shares,
@@ -175,6 +190,8 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
         "CORE daily NAV uses Bemobi market value plus anchored/estimated cash. "
         "Other net assets/liabilities are excluded."
     )
+    if otec["price_type"] == "LAST":
+        notes += " OTEC uses Euronext's delayed latest reported trade, not an official closing price."
     if forecast_partial:
         notes += " Cash is a partial post-anchor forecast using known corporate-action flows only."
     if high_residual:
@@ -188,6 +205,8 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
         "bmob3": {
             "price_id": bmob3["id"],
             "price_date": bmob3["trading_date"],
+            "price_observed_at": bmob3["observed_at"],
+            "price_type": bmob3["price_type"],
             "price_brl": bmob3["price"],
             "price_source": bmob3["source_code"],
             "price_quality": bmob3["quality"],
@@ -200,6 +219,8 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
         "otec": {
             "price_id": otec["id"],
             "price_date": otec["trading_date"],
+            "price_observed_at": otec["observed_at"],
+            "price_type": otec["price_type"],
             "price_nok": otec["price"],
             "price_source": otec["source_code"],
             "price_quality": otec["quality"],
