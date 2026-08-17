@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import statistics
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -13,7 +12,6 @@ SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
 RECENT_PROGRAM_WEEKS = 8
 METHOD_VERSION = "otec-buyback-safe-harbour-program-v1"
-_PERIOD_RE = re.compile(r"during (\d{4}-\d{2}-\d{2})[–-](\d{4}-\d{2}-\d{2})")
 
 
 @dataclass(frozen=True)
@@ -66,15 +64,6 @@ def _activity_in_period(connection, start: date, end: date):
     ).fetchall()
 
 
-def _period_from_description(description: str | None) -> tuple[date, date] | None:
-    if not description:
-        return None
-    match = _PERIOD_RE.search(description)
-    if match is None:
-        return None
-    return date.fromisoformat(match.group(1)), date.fromisoformat(match.group(2))
-
-
 def _active_program(connection):
     return connection.execute(
         """
@@ -90,29 +79,22 @@ def _active_program(connection):
 def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
     rows = connection.execute(
         """
-        SELECT b.trade_date, b.shares, b.cumulative_program_shares, cm.description
+        SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares
         FROM buybacks b
-        LEFT JOIN cash_movements cm
-          ON cm.movement_type='OTELLO_BUYBACK' AND cm.movement_date=b.trade_date
-        WHERE b.program_id=? ORDER BY b.trade_date, b.id
+        WHERE b.program_id=? AND b.period_start IS NOT NULL
+        ORDER BY b.trade_date, b.id
         """,
         (program_id,),
     ).fetchall()
-    result: list[ProgramWeek] = []
-    for row in rows:
-        period = _period_from_description(row["description"])
-        if period is None:
-            continue
-        start, end = period
-        result.append(
-            ProgramWeek(
-                period_start=start,
-                period_end=end,
-                actual_shares=int(row["shares"]),
-                cumulative_shares=int(row["cumulative_program_shares"]),
-            )
+    return [
+        ProgramWeek(
+            period_start=date.fromisoformat(row["period_start"]),
+            period_end=date.fromisoformat(row["trade_date"]),
+            actual_shares=int(row["shares"]),
+            cumulative_shares=int(row["cumulative_program_shares"]),
         )
-    return result
+        for row in rows
+    ]
 
 
 def _program_history(connection, program_id: int, max_shares: int) -> list[dict[str, Any]]:
