@@ -18,7 +18,7 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         run: PYTHONPATH=. pytest -q
-      - name: Live NewsWeb cross-anchor integration
+      - name: Live NewsWeb integration
         working-directory: backend
         shell: bash
         run: |
@@ -32,66 +32,66 @@ jobs:
           from app.db.migration_runner import init_database
           from app.history import seed_curated_history
           from app.newsweb import collect_newsweb_buybacks, sync_newsweb_daily_buyback_cash
-          from app.nav.cash_curve import _known_movements
 
           with tempfile.TemporaryDirectory() as tmp:
               db = str(Path(tmp) / "newsweb-live.db")
               init_database(db)
               seed_curated_history(db)
 
-              result = collect_newsweb_buybacks(
-                  db,
-                  from_date="2025-06-25",
-                  to_date="2025-07-10",
+              historical = collect_newsweb_buybacks(
+                  db, from_date="2025-06-25", to_date="2025-07-10"
               )
-              print("COLLECT", json.dumps(result, indent=2, ensure_ascii=False, default=str))
-              if result["errors"]:
-                  raise SystemExit(f"NewsWeb live collector errors: {result['errors']}")
-              if result["ingested"] < 1 or result["daily_rows"] < 1:
-                  raise SystemExit("NewsWeb live collector returned no daily buyback data")
+              print("HISTORICAL", json.dumps(historical, indent=2, ensure_ascii=False, default=str))
+              if historical["errors"]:
+                  raise SystemExit(f"Historical NewsWeb errors: {historical['errors']}")
+              if historical["daily_rows"] < 1:
+                  raise SystemExit("Expected at least one historical attachment with daily detail")
+              missing = [r for r in historical["results"] if r.get("message_id") == 650769]
+              if not missing or missing[0].get("daily_status") != "NO_TRANSACTION_ATTACHMENT":
+                  raise SystemExit("Expected 2025-07-04 week to retain weekly fallback")
+              reconciled = [r for r in historical["results"] if r.get("daily_status") == "RECONCILED"]
+              if not reconciled:
+                  raise SystemExit("Expected immaterial historical amount difference to be RECONCILED")
+
+              current = collect_newsweb_buybacks(
+                  db, from_date="2026-07-11", to_date="2026-07-11"
+              )
+              print("CURRENT", json.dumps(current, indent=2, ensure_ascii=False, default=str))
+              if current["errors"]:
+                  raise SystemExit(f"Current NewsWeb errors: {current['errors']}")
+              message = [r for r in current["results"] if r.get("message_id") == 678028]
+              if not message:
+                  raise SystemExit("Expected NewsWeb message 678028")
+              detail = message[0]
+              if detail.get("daily_rows") != 5:
+                  raise SystemExit(f"Expected 5 daily rows, got {detail.get('daily_rows')}")
+              if detail.get("daily_reconciliation", {}).get("shares") != 65300:
+                  raise SystemExit("Expected 65,300 shares in message 678028 attachment")
 
               sync = sync_newsweb_daily_buyback_cash(db)
               print("SYNC", json.dumps(sync, indent=2, ensure_ascii=False, default=str))
-              if sync["weeks_synced"] < 1:
-                  raise SystemExit("No NewsWeb daily buyback weeks synced to cash")
+              if sync["weeks_synced"] < 2:
+                  raise SystemExit("Expected at least two attachment-backed weeks synced to cash")
 
               with get_connection(db) as connection:
                   rows = connection.execute(
                       """
-                      SELECT d.trade_date, d.shares, d.amount_nok, b.trade_date period_end
-                      FROM buyback_daily_transactions d
-                      JOIN buybacks b ON b.id=d.weekly_buyback_id
-                      WHERE d.trade_date BETWEEN '2025-06-25' AND '2025-07-10'
-                      ORDER BY d.trade_date
+                      SELECT movement_date, amount_nok
+                      FROM cash_movements
+                      WHERE movement_type='OTELLO_BUYBACK_DAILY'
+                        AND buyback_id=(SELECT id FROM buybacks WHERE trade_date='2026-07-10' ORDER BY id LIMIT 1)
+                      ORDER BY movement_date
                       """
                   ).fetchall()
-                  print("DAILY", [dict(row) for row in rows])
-                  if not rows:
-                      raise SystemExit("No live daily transaction rows")
-
-                  crossing = [row for row in rows if row["trade_date"] == "2025-06-30"]
-                  after = [row for row in rows if row["trade_date"] > "2025-06-30"]
-                  if not crossing or not after:
-                      raise SystemExit("Expected NewsWeb week crossing the 2025-06-30 cash anchor")
-
-                  movements = _known_movements(connection, "2025-06-30", "2025-07-10")
-                  daily_movements = [
-                      item for item in movements
-                      if item["movement_type"] == "OTELLO_BUYBACK_DAILY"
-                  ]
-                  if any(item["movement_date"] <= "2025-06-30" for item in daily_movements):
-                      raise SystemExit("Pre/at-anchor daily buyback leaked into post-anchor cash")
-                  if not daily_movements:
-                      raise SystemExit("Expected post-anchor NewsWeb daily cash movements")
-
-                  weekly_cash = connection.execute(
+                  if len(rows) != 5:
+                      raise SystemExit(f"Expected 5 NewsWeb daily cash rows for 2026-07-10 week, got {len(rows)}")
+                  weekly = connection.execute(
                       """
-                      SELECT COUNT(*) n FROM cash_movements cm
-                      JOIN buyback_daily_transactions d ON d.weekly_buyback_id=cm.buyback_id
-                      WHERE cm.movement_type='OTELLO_BUYBACK'
-                        AND d.trade_date BETWEEN '2025-06-25' AND '2025-07-10'
+                      SELECT COUNT(*) n FROM cash_movements
+                      WHERE movement_type='OTELLO_BUYBACK'
+                        AND buyback_id=(SELECT id FROM buybacks WHERE trade_date='2026-07-10' ORDER BY id LIMIT 1)
                       """
                   ).fetchone()["n"]
-                  if weekly_cash != 0:
+                  if weekly != 0:
                       raise SystemExit("Weekly cash summary remains alongside NewsWeb daily cash")
           PY
