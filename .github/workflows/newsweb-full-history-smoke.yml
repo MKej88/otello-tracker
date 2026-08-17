@@ -53,10 +53,11 @@ jobs:
               print("ARCHIVE_STATUS", json.dumps(archive_status, indent=2, ensure_ascii=False))
               if archive["errors"]:
                   raise SystemExit(f"Archive errors: {archive['errors'][:10]}")
-              if archive["archived"] < 450:
+              if archive["archived"] < 500:
                   raise SystemExit(f"Too few archived messages: {archive['archived']}")
-              if archive_status.get("from") > "2020-01-31":
-                  raise SystemExit(f"Archive does not reach 2020: {archive_status}")
+              # NewsWeb's first OTEC message in the requested 2020+ window is 11 Feb 2020.
+              if archive_status.get("from") > "2020-02-29":
+                  raise SystemExit(f"Archive does not reach the first 2020 OTEC records: {archive_status}")
 
               with get_connection(db) as connection:
                   body_leak = connection.execute(
