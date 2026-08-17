@@ -37,6 +37,8 @@ type Summary = {
   bemobi_ownership_pct?: number | null;
   shares_outstanding?: number | null;
   cash_quality?: string | null;
+  cash_calibration_quality?: string | null;
+  share_count_quality?: string | null;
   otec_price_quality?: string | null;
   otec_price_source?: string | null;
   bmob3_price_quality?: string | null;
@@ -206,9 +208,12 @@ export default function App() {
   ], [summary, changes]);
 
   const degraded = summary.data_status === "DEGRADED" || summary.cash_quality === "FORECAST_PARTIAL";
+  const estimated = !degraded && summary.data_status === "ESTIMATED";
+  const qualityWarning = degraded || estimated;
   const latestBuyback = summary.latest_buyback;
   const ownership = summary.bemobi_ownership_pct ?? 0;
   const scope = summary.model_scope ?? "CORE";
+  const navStatusLabel = degraded ? "DEGRADERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
 
   return (
     <div className="shell">
@@ -239,10 +244,14 @@ export default function App() {
           </div>
         </header>
 
-        {degraded && (
+        {qualityWarning && (
           <div className="modelWarning">
-            <strong>2026 er foreløpig estimert.</strong>
-            <span>Cash og øvrige nettoeiendeler bygger på siste rapporterte ankere og kjente bevegelser frem til neste rapport.</span>
+            <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>
+            <span>
+              {degraded
+                ? "Minst én viktig input er ufullstendig, gammel eller bygger på en usikker modell. Se modellstatus før NAV brukes som beslutningsgrunnlag."
+                : "Mellom rapportdatoer brukes forankrede estimater for blant annet cash og øvrige nettoeiendeler. Rapporterte ankere beholdes separat."}
+            </span>
           </div>
         )}
         {!summary.ready && summary.message && <div className="modelWarning neutralWarning">{summary.message}</div>}
@@ -307,9 +316,11 @@ export default function App() {
           <article className="card">
             <div className="cardHeader"><div><span className="label">System</span><h2>Modellstatus</h2></div></div>
             <div className="sourceList">
-              <div><span>{scope} NAV</span><span className={summary.ready ? "sourceOk" : "sourceWait"}>{summary.ready ? "KLAR" : "VENTER"}</span></div>
+              <div><span>{scope} NAV</span><span className={qualityWarning ? "sourceWarn" : summary.ready ? "sourceOk" : "sourceWait"}>{navStatusLabel}</span></div>
               {scope === "FULL" && <div><span>Øvrige nettoeiendeler</span><span className="sourceOk">{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)}m` : "–"}</span></div>}
-              <div><span>Cash</span><span className={degraded ? "sourceWarn" : "sourceOk"}>{summary.cash_quality ?? "–"}</span></div>
+              <div><span>Cash</span><span className={qualityWarning ? "sourceWarn" : "sourceOk"}>{summary.cash_quality ?? "–"}</span></div>
+              {summary.cash_calibration_quality && <div><span>Cash-avstemming</span><span className={summary.cash_calibration_quality === "HIGH_RESIDUAL" ? "sourceWarn" : "sourceOk"}>{summary.cash_calibration_quality}</span></div>}
+              {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{summary.share_count_quality}</span></div>}
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
             </div>
