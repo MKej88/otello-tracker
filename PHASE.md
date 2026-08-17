@@ -51,7 +51,7 @@ Status: **Ferdig**
 
 ### 13.4 – Reproducerbarhet, tidssone og produksjons-CI
 
-Status: **Implementert – sluttvalideres i CI før merge**
+Status: **Ferdig og CI-validert**
 
 - [x] frontend direkte avhengigheter pinnet
 - [x] `package-lock.json` generert fra GitHub CI
