@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.db.d1_bootstrap import (
+from app.db.d1_bootstrap_package import (
     DATA_TABLES,
     OPERATIONAL_TABLES,
     build_manifest,
@@ -96,6 +96,8 @@ def test_bootstrap_sql_uses_reference_seed_instead_of_reinserting_identities(tmp
 
     assert 'INSERT INTO "sources"' not in sql
     assert 'INSERT INTO "instruments"' not in sql
+    assert 'UPDATE "sources"' in sql
+    assert 'UPDATE "instruments"' in sql
     for table in DATA_TABLES:
         expected_rows = manifest["tables"][table]["row_count"]
         actual_inserts = sql.count(f'INSERT INTO "{table}"')
