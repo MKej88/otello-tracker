@@ -11,7 +11,7 @@ Cloudflare-migreringen har nå kommet gjennom read-only dashboardet:
 - **15.1:** D1-schema og structural parity – ferdig
 - **15.2:** deterministisk SQLite → D1 bootstrap/data parity – ferdig lokalt
 - **15.3:** Python Worker + FastAPI + D1 read API + React Static Assets – ferdig lokalt
-- **15.3.1:** Cloudflare hardening, query-budget og populated-D1 HTTP parity – ferdig når CI er grønn
+- **15.3.1:** Cloudflare hardening, query-budget og populated-D1 HTTP parity – ferdig og CI-validert
 - **15.4:** scheduled ingestion – neste fase
 
 Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md), [docs/d1-migration.md](docs/d1-migration.md), [docs/d1-bootstrap.md](docs/d1-bootstrap.md), [docs/worker-api.md](docs/worker-api.md) og [docs/production-readiness.md](docs/production-readiness.md).
@@ -54,6 +54,7 @@ Hardening-fasen før write-paths/scheduling gjør følgende uten å endre finans
 
 - buyback-prognosen leser OTEC-aktivitet én gang per kall i stedet for to D1-spørringer per historisk programuke;
 - full ready-path er beskyttet av en eksplisitt D1 query-budget-test;
+- bounded activity-vinduet beholder de nyeste radene og returnerer dem kronologisk til den uendrede modellen;
 - D1 får egne read-performance-indekser for buyback-program og NAV-serie;
 - CI bygger et populated referansedatasett, eksporterer det til ekte lokal Wrangler D1, starter faktisk `workerd` og krever eksakt HTTP-JSON-paritet mot SQLite-referansen;
 - statiske assets får CSP og øvrige sikkerhetsheadere via `frontend/public/_headers`;
