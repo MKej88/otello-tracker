@@ -62,3 +62,30 @@ jobs:
         run: docker compose run --rm --no-deps --add-host api:127.0.0.1 web nginx -t
       - name: Verify backend production timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
+
+  phase14-report:
+    name: Temporary Phase 14.3 result report
+    if: ${{ always() && github.event_name == 'pull_request' && github.head_ref == 'phase-14-3-security-performance' }}
+    needs: [backend, frontend, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Post compact CI result to this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BODY="PHASE14_3_CI backend=${BACKEND_RESULT} frontend=${FRONTEND_RESULT} docker=${DOCKER_RESULT} sha=${GITHUB_SHA}"
+          PAYLOAD="$(jq -nc --arg body "$BODY" '{body:$body}')"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -d "$PAYLOAD"
