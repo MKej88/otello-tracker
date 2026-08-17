@@ -26,18 +26,28 @@ def _insert_fx(connection, day: str, base: str, rate: str) -> None:
     )
 
 
-def _insert_price(connection, day: str, symbol: str, price: str, source: str) -> None:
+def _insert_price(
+    connection,
+    day: str,
+    symbol: str,
+    price: str,
+    source: str,
+    *,
+    price_type: str = "CLOSE",
+    observed_at: str | None = None,
+) -> None:
     connection.execute(
         """
         INSERT INTO market_prices(
             instrument_id, observed_at, trading_date, price_type, price, currency,
             source_id, quality, metadata_json
-        ) VALUES (?, ?, ?, 'CLOSE', ?, ?, ?, 'DIRECT', '{}')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'DIRECT', '{}')
         """,
         (
             _instrument_id(connection, symbol),
-            f"{day}T16:30:00Z",
+            observed_at or f"{day}T16:30:00Z",
             day,
+            price_type,
             price,
             "NOK" if symbol == "OTEC" else "BRL",
             _source_id(connection, source),
@@ -120,27 +130,30 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
         assert forecast["quality"] == "FORECAST_PARTIAL"
 
 
+def _seed_nav_dependencies(connection, day: str) -> None:
+    anchor_dates = [
+        row["as_of_date"]
+        for row in connection.execute(
+            "SELECT as_of_date FROM cash_anchors WHERE anchor_type = 'REPORTED'"
+        )
+    ]
+    for anchor_day in anchor_dates:
+        _insert_fx(connection, anchor_day, "USD", "10")
+    for brl_day in (
+        "2022-04-12", "2023-04-12", "2024-05-02", "2025-01-07",
+        "2025-05-09", "2025-12-01", "2025-12-22", "2026-05-27", day,
+    ):
+        _insert_fx(connection, brl_day, "BRL", "2")
+    _insert_price(connection, day, "BMOB3", "20", "B3")
+
+
 def test_daily_nav_prefers_euronext_otec_over_investing_duplicate(tmp_path) -> None:
     database = str(tmp_path / "nav.db")
     init_database(database)
     seed_curated_history(database)
 
     with get_connection(database) as connection:
-        anchor_dates = [
-            row["as_of_date"]
-            for row in connection.execute(
-                "SELECT as_of_date FROM cash_anchors WHERE anchor_type = 'REPORTED'"
-            )
-        ]
-        for day in anchor_dates:
-            _insert_fx(connection, day, "USD", "10")
-        for day in (
-            "2022-04-12", "2023-04-12", "2024-05-02", "2025-01-07",
-            "2025-05-09", "2025-12-01", "2025-12-22", "2026-05-27",
-        ):
-            _insert_fx(connection, day, "BRL", "2")
-        _insert_fx(connection, "2024-06-28", "BRL", "2")
-        _insert_price(connection, "2024-06-28", "BMOB3", "20", "B3")
+        _seed_nav_dependencies(connection, "2024-06-28")
         _insert_price(connection, "2024-06-28", "OTEC", "8", "EURONEXT")
         _insert_price(connection, "2024-06-28", "OTEC", "99", "INVESTING")
         connection.commit()
@@ -163,4 +176,86 @@ def test_daily_nav_prefers_euronext_otec_over_investing_duplicate(tmp_path) -> N
         assert Decimal(row["nav_per_share_nok"]) > 0
         assert row["status"] in {"ESTIMATED", "DEGRADED"}
         components = json.loads(row["components_json"])
+        assert components["otec"]["price_source"] == "EURONEXT"
+        assert components["otec"]["price_type"] == "CLOSE"
+
+
+def test_daily_nav_prefers_official_euronext_last_over_same_day_investing_close(tmp_path) -> None:
+    database = str(tmp_path / "nav-last.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        _seed_nav_dependencies(connection, "2024-06-28")
+        _insert_price(connection, "2024-06-28", "OTEC", "99", "INVESTING", price_type="CLOSE")
+        _insert_price(
+            connection,
+            "2024-06-28",
+            "OTEC",
+            "8.25",
+            "EURONEXT",
+            price_type="LAST",
+            observed_at="2024-06-28T14:00:00Z",
+        )
+        connection.commit()
+
+    rebuild_daily_cash(database, end_date="2025-12-31")
+    rebuild_daily_core_nav(database, start_date="2024-06-28", end_date="2024-06-28")
+
+    with get_connection(database) as connection:
+        row = connection.execute(
+            """
+            SELECT otec_price_nok, components_json, quality_notes
+            FROM nav_snapshots
+            WHERE calculation_version = 'core-market-nav-daily-v1'
+            """
+        ).fetchone()
+        assert Decimal(row["otec_price_nok"]) == Decimal("8.25")
+        components = json.loads(row["components_json"])
+        assert components["otec"]["price_source"] == "EURONEXT"
+        assert components["otec"]["price_type"] == "LAST"
+        assert "delayed latest reported trade" in row["quality_notes"]
+
+
+def test_daily_nav_prefers_euronext_close_over_euronext_last_on_same_date(tmp_path) -> None:
+    database = str(tmp_path / "nav-close-over-last.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        _seed_nav_dependencies(connection, "2024-06-28")
+        _insert_price(
+            connection,
+            "2024-06-28",
+            "OTEC",
+            "8.25",
+            "EURONEXT",
+            price_type="LAST",
+            observed_at="2024-06-28T14:00:00Z",
+        )
+        _insert_price(
+            connection,
+            "2024-06-28",
+            "OTEC",
+            "8.40",
+            "EURONEXT",
+            price_type="CLOSE",
+            observed_at="2024-06-28T16:30:00Z",
+        )
+        connection.commit()
+
+    rebuild_daily_cash(database, end_date="2025-12-31")
+    rebuild_daily_core_nav(database, start_date="2024-06-28", end_date="2024-06-28")
+
+    with get_connection(database) as connection:
+        row = connection.execute(
+            """
+            SELECT otec_price_nok, components_json
+            FROM nav_snapshots
+            WHERE calculation_version = 'core-market-nav-daily-v1'
+            """
+        ).fetchone()
+        assert Decimal(row["otec_price_nok"]) == Decimal("8.40")
+        components = json.loads(row["components_json"])
+        assert components["otec"]["price_type"] == "CLOSE"
         assert components["otec"]["price_source"] == "EURONEXT"
