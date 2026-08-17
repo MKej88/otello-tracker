@@ -60,9 +60,11 @@ Status: **Ferdig som arkitekturvalg**
 
 Status: **Ferdig og CI-validert**
 
-- [x] konsolidert D1-schema genereres deterministisk fra fullt migrert SQLite-referanse
+- [x] D1 baseline-schema ble generert deterministisk fra migrert SQLite-referanse
 - [x] `schema_migrations` holdes utenfor fordi Wrangler/D1 fører migreringshistorikken
-- [x] alle tabeller og endelige felt fra migrasjon 0001–0016 er med
+- [x] baseline inneholder opprinnelig struktur gjennom SQLite 0016
+- [x] senere schemaendringer legges til som additive D1-migreringer; baseline `0001` er frosset
+- [x] current schema parity er validert gjennom SQLite 0017 / D1 0004
 - [x] foreign keys, delete/update-regler og constraints er bevart
 - [x] eksplisitte/partial/unique indekser er bevart
 - [x] NewsWeb/buyback-triggerne er bevart
@@ -72,7 +74,6 @@ Status: **Ferdig og CI-validert**
 - [x] lokal Wrangler D1 kjører migrations uten feil
 - [x] `PRAGMA foreign_key_check` er tom etter migrering
 - [x] 12 sources og 2 instrumenter seeds i lokal D1
-- [x] backend-regresjonspakken passerer med D1 parity-testene inkludert
 
 Dokumentasjon: `docs/d1-migration.md`.
 
@@ -133,7 +134,28 @@ Status: **Ferdig og CI-validert**
 - [x] fingerprintede Vite-assets får immutable langtids-cache
 - [x] README/Worker-dokumentasjon oppdatert til faktisk fase
 
-Bevisst ikke endret: NAV-formel, cash/ONA-metodikk, Safe Harbour-regler, buyback-estimator, markedsdataprioritet eller historiske data.
+### 15.3.2 – Opsjonsforpliktelse i FULL NAV
+
+Status: **Ferdig og CI-validert på implementasjonen**
+
+- [x] kuraterte vilkår for 4,1m kontantoppgjorte Otello-opsjoner fra 15.09.2025
+- [x] strike NOK 12,5637 med eksplisitt nedjustering for senere betalte Otello-utdelinger
+- [x] Black-Scholes mark-to-market koblet til historisk/løpende OTEC-kurs
+- [x] rapportert ONA dekomponeres som `base ONA ex option + Bemobi receivable - option liability`
+- [x] 31.12.2025 avstemmes eksakt mot rapportert opsjonsforpliktelse på USD 314k
+- [x] historisk ONA-bane før tildelingsdato beholdes uendret
+- [x] tildeling → 31.12.2025 rekonstrueres mot rapportert årssluttanker
+- [x] etter 31.12.2025 holdes recognition factor konstant inntil ny rapport eller kvalifiserende Bemobi-salg gir nytt evidensgrunnlag
+- [x] siste rapporterte risikofri rente/volatilitet brukes etter siste rapport og merkes forecast
+- [x] opsjonsforpliktelsen faller/stiger med mark-to-market og trekkes eksplisitt fra FULL NAV
+- [x] SQLite-migrasjon 0017 og D1-migrasjon 0004
+- [x] D1 bootstrap/schema/data parity inkluderer opsjonsfeltene
+- [x] populated D1 → Worker → HTTP parity fortsatt grønn
+- [x] CORE NAV og buyback-metodikk er uendret
+
+**Konsekvens:** FULL NAV og historisk rabatt fra 15.09.2025 kan endres når referansedatabasen bygges på nytt. Det er tilsiktet fordi opsjonsforpliktelsen nå verdsettes eksplisitt per dato i stedet for bare å ligge implisitt i rapportert total gjeld på rapportdatoen.
+
+Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
@@ -142,7 +164,7 @@ Status: **Neste**
 - [ ] OTEC delayed/EOD som Worker-native fetch + D1-write
 - [ ] BMOB3 delayed/EOD som Worker-native fetch + D1-write
 - [ ] NewsWeb incremental som Worker-native write-path
-- [ ] dirty-state cash/NAV på D1
+- [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
 - [ ] Cron Trigger `*/30 * * * *`
 - [ ] store payloads håndteres streaming/bounded og ikke som ukritiske full-memory CPython-filer
 
@@ -181,7 +203,7 @@ Phase 13-funksjonaliteten beholdes som referanse og regresjonsgrunnlag:
 - [x] freshness
 - [x] dependency/CI hardening
 
-Under Cloudflare-migreringen skal nye resultater sammenlignes mot denne implementasjonen slik at NAV-formel, buyback-modell og datakvalitet ikke endres utilsiktet.
+Under Cloudflare-migreringen skal nye resultater sammenlignes mot denne implementasjonen slik at finanslogikk, buyback-modell og datakvalitet ikke endres utilsiktet. Phase 15.3.2 er et eksplisitt og kildebegrunnet unntak: FULL NAV er forbedret med daglig opsjonsforpliktelse.
 
 ## Funksjonell historikk
 
@@ -192,6 +214,7 @@ Under Cloudflare-migreringen skal nye resultater sammenlignes mot denne implemen
 - [x] BMOB3/B3 og ECB FX
 - [x] OTEC Euronext delayed/historikk
 - [x] cash, CORE og FULL NAV
+- [x] option-aware FULL NAV fra 15.09.2025
 - [x] NewsWeb og buybacks
 - [x] CVM/Bemobi-utbytte/JCP
 - [x] Safe Harbour buyback-prognose/backtest
@@ -204,6 +227,8 @@ Når rapporten publiseres:
 
 1. importer nye rapporterte cash-/balanseankre;
 2. avstem ONA;
-3. rebuild CORE/FULL;
-4. kontroller residualer/share count;
-5. bruk disse som nye referanseverdier for Cloudflare/D1 parity-testene.
+3. hent og avstem ny rapportert opsjonsforpliktelse og eventuelle oppdaterte Black-Scholes-input;
+4. kontroller om Bemobi-salg/retur av proveny har endret exercisability/recognition;
+5. rebuild CORE/FULL og historisk rabatt;
+6. kontroller residualer/share count;
+7. bruk disse som nye referanseverdier for Cloudflare/D1 parity-testene.

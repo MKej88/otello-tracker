@@ -6,15 +6,16 @@ Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-r
 
 Kjernemodellen og live-feedene finnes i den validerte SQLite-referanseimplementasjonen. Produksjonsmålet er **Cloudflare-native**.
 
-Cloudflare-migreringen har nå kommet gjennom read-only dashboardet:
+Cloudflare-migreringen har nå kommet gjennom read-only dashboardet og opsjonsjustert FULL NAV:
 
 - **15.1:** D1-schema og structural parity – ferdig
 - **15.2:** deterministisk SQLite → D1 bootstrap/data parity – ferdig lokalt
 - **15.3:** Python Worker + FastAPI + D1 read API + React Static Assets – ferdig lokalt
 - **15.3.1:** Cloudflare hardening, query-budget og populated-D1 HTTP parity – ferdig og CI-validert
+- **15.3.2:** Otello opsjonsforpliktelse i FULL NAV – ferdig og CI-validert på implementasjonen
 - **15.4:** scheduled ingestion – neste fase
 
-Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md), [docs/d1-migration.md](docs/d1-migration.md), [docs/d1-bootstrap.md](docs/d1-bootstrap.md), [docs/worker-api.md](docs/worker-api.md) og [docs/production-readiness.md](docs/production-readiness.md).
+Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md), [docs/d1-migration.md](docs/d1-migration.md), [docs/d1-bootstrap.md](docs/d1-bootstrap.md), [docs/worker-api.md](docs/worker-api.md), [docs/option-liability.md](docs/option-liability.md) og [docs/production-readiness.md](docs/production-readiness.md).
 
 ## Produksjonsarkitektur – Cloudflare
 
@@ -48,9 +49,9 @@ GET /api/buybacks/forecast
 
 React/Vite serveres som Workers Static Assets på samme origin. `/api/*` kjøres Worker-first og frontend-ruter har SPA-fallback.
 
-## Phase 15.3.1 hardening
+## Cloudflare hardening
 
-Hardening-fasen før write-paths/scheduling gjør følgende uten å endre finansielle modeller:
+Hardening-fasen før write-paths/scheduling gjør følgende uten å endre buyback-metodikken:
 
 - buyback-prognosen leser OTEC-aktivitet én gang per kall i stedet for to D1-spørringer per historisk programuke;
 - full ready-path er beskyttet av en eksplisitt D1 query-budget-test;
@@ -72,13 +73,14 @@ cloudflare/migrations/
   0001_initial_schema.sql
   0002_reference_data.sql
   0003_query_indexes.sql
+  0004_option_liability.sql
 ```
 
-`0001_initial_schema.sql` genereres deterministisk fra den migrerte SQLite-referansen. `0003` inneholder Cloudflare/D1-spesifikke ytelsesindekser som ikke endrer datamodellens finansielle semantikk.
+`0001_initial_schema.sql` er nå en **frosset baseline**. Senere datamodellendringer skal legges til som additive, nummererte D1-migreringer. CI validerer baseline + additive migreringer mot den nyeste SQLite-referansestrukturen. `0003` inneholder D1-spesifikke ytelsesindekser, og `0004` legger til feltene for opsjonsforpliktelsen.
 
 ## Historisk bootstrap
 
-Phase 15.2 kan eksportere en validert SQLite-snapshot til portabel D1-SQL med radtall, SHA-256 per tabell, global logisk hash og kontrollverdier for NAV, market/FX, cash, ONA, share count, holdings og buybacks. Den konkrete produksjonssnapshoten tas først ved cutover til faktisk remote `otello-nav`.
+Phase 15.2 kan eksportere en validert SQLite-snapshot til portabel D1-SQL med radtall, SHA-256 per tabell, global logisk hash og kontrollverdier for NAV, market/FX, cash, ONA, share count, holdings og buybacks. Opsjonsfeltene inngår nå i samme logiske parity-kontroll. Den konkrete produksjonssnapshoten tas først ved cutover til faktisk remote `otello-nav`.
 
 ## NAV-definisjoner
 
@@ -100,6 +102,18 @@ Rapportert ONA:
 Total assets - cash - Bemobi carrying value - total liabilities
 ```
 
+Fra 15.09.2025 dekomponeres ONA videre:
+
+```text
+ONA = base ONA ex option
+    + Bemobi distribution receivables
+    - Otello cash-settled option liability
+```
+
+Opsjonsforpliktelsen mark-to-marketes med OTEC-kurs og Otellos rapporterte Black-Scholes-rammeverk. På 31.12.2025 kalibreres modellen eksakt mot den rapporterte forpliktelsen på USD 314k. Etter siste rapport holdes den regnskapsmessige recognition-faktoren konstant frem til ny rapport eller et kvalifiserende Bemobi-salg gir nytt evidensgrunnlag; bare markedsverdien endres løpende. CORE NAV påvirkes ikke.
+
+Se [docs/option-liability.md](docs/option-liability.md) for full metodikk.
+
 Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. `ALIGNED`, `MIXED`, `STALE` og `UNKNOWN` beskriver dato-/ferskhetsstatus på markedsinputene.
 
 ## Datakilder
@@ -109,7 +123,7 @@ Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. `ALIGNED`, `M
 - **Euronext:** OTEC delayed/historikk
 - **NewsWeb:** Otello-meldinger og buybacks
 - **CVM:** Bemobi selskapsmeldinger
-- **Otello-rapporter:** kuraterte finansielle ankere
+- **Otello-rapporter:** kuraterte finansielle ankere og opsjonsvilkår/-forpliktelse
 - **MFN:** sekundær fallback/discovery
 - **Investing.com CSV:** kun manuell historisk OTEC-fallback
 
@@ -132,7 +146,7 @@ Cron Trigger
 D1 writes
     |
     v
-dirty-state cash/NAV
+dirty-state cash/NAV + option-aware FULL NAV
 ```
 
 Store payloads og tyngre jobber skal behandles innenfor Worker-limits og ved behov flyttes til Workflow/R2 i stedet for å lastes ukritisk inn i Worker-minnet.
@@ -187,7 +201,7 @@ Før Cloudflare-go-live skal:
 7. GitHub → Cloudflare deploy være grønn;
 8. custom domain/HTTPS og observability fungere;
 9. D1 recovery/Time Travel testes;
-10. siste rapporterte Otello-ankre avstemmes før produksjon.
+10. siste rapporterte Otello-ankre, inkludert opsjonsforpliktelse og eventuelle nye Black-Scholes-input, avstemmes før produksjon.
 
 ## Secrets
 

@@ -8,19 +8,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0016"
+LATEST_SQLITE_MIGRATION = "0017"
 
-# These rows are created by Cloudflare migration 0002. They are included in the
-# parity manifest, but deliberately not emitted into the bootstrap SQL.
 REFERENCE_TABLES = (
     "sources",
     "instruments",
 )
 
-# Parent tables precede children so the generated SQL is safe even when each
-# statement is committed independently by the D1 execution layer. The order also
-# keeps weekly buyback cash ahead of daily transactions so insert-safety triggers
-# cannot change a previously valid source snapshot during bootstrap.
 DATA_TABLES = (
     "source_documents",
     "company_news",
@@ -47,8 +41,6 @@ DATA_TABLES = (
     "provenance_records",
 )
 
-# Old scheduler history and runtime dirtiness are intentionally reset when D1 becomes
-# authoritative. They are environment state, not historical financial facts.
 OPERATIONAL_TABLES = (
     "job_runs",
     "source_health",
@@ -121,19 +113,11 @@ def _table_manifest(connection: sqlite3.Connection, table: str) -> dict[str, Any
     for row in _ordered_rows(connection, table):
         canonical = [_canonical_value(row[column]) for column in columns]
         hasher.update(
-            json.dumps(
-                canonical,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
+            json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         )
         hasher.update(b"\n")
         count += 1
-    return {
-        "columns": columns,
-        "row_count": count,
-        "sha256": hasher.hexdigest(),
-    }
+    return {"columns": columns, "row_count": count, "sha256": hasher.hexdigest()}
 
 
 def _decimal_sum(connection: sqlite3.Connection, table: str, column: str) -> str:
@@ -174,27 +158,14 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
         )
     ]
     nav_columns = (
-        "nav_scope",
-        "as_of_at",
-        "nav_total_nok",
-        "nav_per_share_nok",
-        "otec_price_nok",
-        "discount_pct",
-        "bemobi_value_nok",
-        "cash_estimate_nok",
-        "other_net_assets_nok",
-        "shares_outstanding",
-        "status",
-        "calculation_version",
+        "nav_scope", "as_of_at", "nav_total_nok", "nav_per_share_nok",
+        "otec_price_nok", "discount_pct", "bemobi_value_nok", "cash_estimate_nok",
+        "other_net_assets_nok", "shares_outstanding", "status", "calculation_version",
     )
     for scope in scopes:
         nav[scope] = _latest_row(
-            connection,
-            "nav_snapshots",
-            "as_of_at",
-            nav_columns,
-            where_sql="WHERE nav_scope = ?",
-            parameters=(scope,),
+            connection, "nav_snapshots", "as_of_at", nav_columns,
+            where_sql="WHERE nav_scope = ?", parameters=(scope,),
         )
 
     market_coverage = [
@@ -202,8 +173,7 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
         for row in connection.execute(
             """
             SELECT i.symbol, i.exchange_mic, p.price_type,
-                   COUNT(*) AS row_count,
-                   MIN(p.trading_date) AS date_from,
+                   COUNT(*) AS row_count, MIN(p.trading_date) AS date_from,
                    MAX(p.trading_date) AS date_to
             FROM market_prices p
             JOIN instruments i ON i.id = p.instrument_id
@@ -216,10 +186,8 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
         dict(row)
         for row in connection.execute(
             """
-            SELECT base_currency, quote_currency,
-                   COUNT(*) AS row_count,
-                   MIN(observed_at) AS observed_from,
-                   MAX(observed_at) AS observed_to
+            SELECT base_currency, quote_currency, COUNT(*) AS row_count,
+                   MIN(observed_at) AS observed_from, MAX(observed_at) AS observed_to
             FROM fx_rates
             GROUP BY base_currency, quote_currency
             ORDER BY base_currency, quote_currency
@@ -239,52 +207,28 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
             "date_to": connection.execute("SELECT MAX(trade_date) FROM buybacks").fetchone()[0],
         },
         "buyback_daily": {
-            "row_count": connection.execute(
-                "SELECT COUNT(*) FROM buyback_daily_transactions"
-            ).fetchone()[0],
-            "shares": connection.execute(
-                "SELECT COALESCE(SUM(shares), 0) FROM buyback_daily_transactions"
-            ).fetchone()[0],
-            "amount_nok": _decimal_sum(
-                connection, "buyback_daily_transactions", "amount_nok"
-            ),
+            "row_count": connection.execute("SELECT COUNT(*) FROM buyback_daily_transactions").fetchone()[0],
+            "shares": connection.execute("SELECT COALESCE(SUM(shares), 0) FROM buyback_daily_transactions").fetchone()[0],
+            "amount_nok": _decimal_sum(connection, "buyback_daily_transactions", "amount_nok"),
         },
         "cash_latest": _latest_row(
-            connection,
-            "cash_daily_estimates",
-            "estimate_date",
+            connection, "cash_daily_estimates", "estimate_date",
             ("estimate_date", "cash_nok", "quality", "inputs_hash"),
         ),
         "ona_latest": _latest_row(
-            connection,
-            "other_net_assets_daily_estimates",
-            "estimate_date",
+            connection, "other_net_assets_daily_estimates", "estimate_date",
             (
-                "estimate_date",
-                "amount_usd",
-                "usd_nok_rate",
-                "amount_nok",
-                "base_amount_nok",
-                "associated_receivable_nok",
-                "quality",
-                "inputs_hash",
+                "estimate_date", "amount_usd", "usd_nok_rate", "amount_nok",
+                "base_amount_nok", "associated_receivable_nok", "option_liability_nok",
+                "option_quality", "quality", "inputs_hash",
             ),
         ),
         "share_count_latest": _latest_row(
-            connection,
-            "otello_share_counts",
-            "effective_from",
-            (
-                "effective_from",
-                "total_shares",
-                "treasury_shares",
-                "outstanding_shares",
-            ),
+            connection, "otello_share_counts", "effective_from",
+            ("effective_from", "total_shares", "treasury_shares", "outstanding_shares"),
         ),
         "bemobi_holding_latest": _latest_row(
-            connection,
-            "bemobi_holdings",
-            "effective_from",
+            connection, "bemobi_holdings", "effective_from",
             ("effective_from", "effective_to", "shares", "ownership_pct"),
         ),
     }
@@ -293,9 +237,7 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
 def _existing_tables(connection: sqlite3.Connection) -> set[str]:
     return {
         row["name"]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        )
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
 
 
@@ -320,9 +262,7 @@ def validate_source(connection: sqlite3.Connection) -> dict[str, Any]:
     if missing:
         errors.append(f"Missing bootstrap table(s): {', '.join(missing)}")
     if latest != LATEST_SQLITE_MIGRATION:
-        errors.append(
-            f"Expected SQLite migration {LATEST_SQLITE_MIGRATION}, found {latest!r}"
-        )
+        errors.append(f"Expected SQLite migration {LATEST_SQLITE_MIGRATION}, found {latest!r}")
 
     return {
         "ok": not errors,
@@ -339,9 +279,7 @@ def build_manifest(connection: sqlite3.Connection) -> dict[str, Any]:
     global_hasher = hashlib.sha256()
     for table in MANIFEST_TABLES:
         item = tables[table]
-        global_hasher.update(
-            f"{table}\0{item['row_count']}\0{item['sha256']}\n".encode("utf-8")
-        )
+        global_hasher.update(f"{table}\0{item['row_count']}\0{item['sha256']}\n".encode("utf-8"))
 
     return {
         "format_version": FORMAT_VERSION,
@@ -360,7 +298,7 @@ def build_sql(connection: sqlite3.Connection, manifest: dict[str, Any]) -> str:
         "-- GENERATED D1 HISTORICAL BOOTSTRAP. Do not edit by hand.",
         f"-- format: {FORMAT_VERSION}",
         f"-- logical_sha256: {manifest['logical_sha256']}",
-        "-- Apply only after Cloudflare migrations 0001 and 0002 on an otherwise fresh D1 database.",
+        "-- Apply only after the Cloudflare schema/reference migrations on an otherwise fresh D1 database.",
         "PRAGMA foreign_keys = ON;",
         "PRAGMA defer_foreign_keys = ON;",
         "",
@@ -373,9 +311,7 @@ def build_sql(connection: sqlite3.Connection, manifest: dict[str, Any]) -> str:
         lines.append(f"-- {table}")
         for row in _ordered_rows(connection, table):
             values = ", ".join(_sql_literal(row[column]) for column in columns)
-            lines.append(
-                f"INSERT INTO {_quote(table)} ({quoted_columns}) VALUES ({values});"
-            )
+            lines.append(f"INSERT INTO {_quote(table)} ({quoted_columns}) VALUES ({values});")
             rows_written += 1
         if rows_written == 0:
             lines.append("-- empty")
@@ -466,13 +402,7 @@ def compare_manifest(expected: dict[str, Any], actual: dict[str, Any]) -> dict[s
         expected_table = expected.get("tables", {}).get(table)
         actual_table = actual.get("tables", {}).get(table)
         if expected_table != actual_table:
-            mismatches.append(
-                {
-                    "table": table,
-                    "expected": expected_table,
-                    "actual": actual_table,
-                }
-            )
+            mismatches.append({"table": table, "expected": expected_table, "actual": actual_table})
 
     key_metrics_match = expected.get("key_metrics") == actual.get("key_metrics")
     logical_hash_match = expected.get("logical_sha256") == actual.get("logical_sha256")
@@ -486,10 +416,7 @@ def compare_manifest(expected: dict[str, Any], actual: dict[str, Any]) -> dict[s
     }
 
 
-def verify_database(
-    database_path: str | Path,
-    expected_manifest: dict[str, Any],
-) -> dict[str, Any]:
+def verify_database(database_path: str | Path, expected_manifest: dict[str, Any]) -> dict[str, Any]:
     resolved = resolve_d1_local_database(database_path)
     connection = _open_database(resolved, read_only=True)
     try:

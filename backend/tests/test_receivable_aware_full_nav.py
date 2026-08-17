@@ -4,7 +4,7 @@ import json
 
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
-from app.db.repository import upsert_fx_rate
+from app.db.repository import upsert_fx_rate, upsert_market_price
 from app.history import seed_curated_history
 from app.nav.other_net_assets import (
     rebuild_daily_other_net_assets,
@@ -15,6 +15,7 @@ from app.nav.other_net_assets import (
 def _seed_daily_fx(connection, start: str, end: str) -> None:
     current = date.fromisoformat(start)
     stop = date.fromisoformat(end)
+    option_grant = date(2025, 9, 15)
     while current <= stop:
         day = current.isoformat()
         upsert_fx_rate(
@@ -33,6 +34,17 @@ def _seed_daily_fx(connection, start: str, end: str) -> None:
             rate="2",
             source_code="MANUAL",
         )
+        if current >= option_grant:
+            upsert_market_price(
+                connection,
+                symbol="OTEC",
+                observed_at=f"{day}T15:30:00Z",
+                trading_date=day,
+                price_type="CLOSE",
+                price="18.15",
+                currency="NOK",
+                source_code="MANUAL",
+            )
         current += timedelta(days=1)
 
 
@@ -41,7 +53,8 @@ def _daily(connection, day: str):
         """
         SELECT amount_nok, base_amount_usd, base_amount_nok,
                associated_receivable_nok, receivable_quality,
-               receivable_components_json, quality
+               receivable_components_json, option_liability_nok,
+               option_liability_usd, option_quality, quality
         FROM other_net_assets_daily_estimates
         WHERE estimate_date = ?
         """,
@@ -49,7 +62,7 @@ def _daily(connection, day: str):
     ).fetchone()
 
 
-def test_reported_ona_is_decomposed_into_base_and_bemobi_receivable(tmp_path):
+def test_reported_ona_is_decomposed_into_base_bemobi_receivable_and_option_liability(tmp_path):
     db = str(tmp_path / "decomposition.db")
     init_database(db)
     seed_curated_history(db)
@@ -61,9 +74,11 @@ def test_reported_ona_is_decomposed_into_base_and_bemobi_receivable(tmp_path):
                 """
                 SELECT as_of_date, other_net_assets_reported,
                        associated_receivable_reported,
-                       base_other_net_assets_reported
+                       base_other_net_assets_reported,
+                       option_liability_reported,
+                       base_other_net_assets_ex_option_reported
                 FROM other_net_assets_reported_anchors
-                WHERE as_of_date IN ('2023-12-31', '2024-12-31')
+                WHERE as_of_date IN ('2023-12-31', '2024-12-31', '2025-12-31')
                 """
             )
         }
@@ -76,7 +91,16 @@ def test_reported_ona_is_decomposed_into_base_and_bemobi_receivable(tmp_path):
         assert rows["2024-12-31"]["associated_receivable_reported"] == "3452000"
         assert rows["2024-12-31"]["base_other_net_assets_reported"] == "-465000"
 
-        for row in rows.values():
+        fy25 = rows["2025-12-31"]
+        assert fy25["other_net_assets_reported"] == "2974000"
+        assert fy25["option_liability_reported"] == "314000"
+        assert fy25["base_other_net_assets_ex_option_reported"] == "3288000"
+        assert Decimal(fy25["base_other_net_assets_ex_option_reported"]) - Decimal(
+            fy25["option_liability_reported"]
+        ) == Decimal(fy25["other_net_assets_reported"])
+
+        for day in ("2023-12-31", "2024-12-31"):
+            row = rows[day]
             assert Decimal(row["other_net_assets_reported"]) == (
                 Decimal(row["base_other_net_assets_reported"])
                 + Decimal(row["associated_receivable_reported"])
@@ -151,7 +175,7 @@ def test_bemobi_receivable_lives_from_ex_date_until_day_before_payment(tmp_path)
             assert component["quality"] == "REPORTED_CALIBRATED"
 
 
-def test_august_2026_jcp_receivable_starts_ex_date_and_ends_on_payment(tmp_path):
+def test_august_2026_jcp_receivable_and_option_liability_coexist(tmp_path):
     db = str(tmp_path / "august-2026-jcp-lifecycle.db")
     init_database(db)
     seed_curated_history(db)
@@ -165,13 +189,12 @@ def test_august_2026_jcp_receivable_starts_ex_date_and_ends_on_payment(tmp_path)
     assert result["written"] > 0
     assert result["skipped_missing_fx"] == 0
     assert result["skipped_missing_receivable_fx"] == 0
+    assert result["skipped_missing_option_inputs"] == 0
+    assert result["option_model_days"] > 0
 
     with get_connection(db) as connection:
         action = connection.execute(
-            """
-            SELECT id FROM corporate_actions
-            WHERE external_action_id = 'bemobi-2026-08-28-jcp-2q26'
-            """
+            "SELECT id FROM corporate_actions WHERE external_action_id = 'bemobi-2026-08-28-jcp-2q26'"
         ).fetchone()
         assert action is not None
 
@@ -186,6 +209,8 @@ def test_august_2026_jcp_receivable_starts_ex_date_and_ends_on_payment(tmp_path)
         assert payment_day is not None
         assert Decimal(before_ex["associated_receivable_nok"]) == 0
         assert before_ex["receivable_quality"] == "NONE"
+        assert Decimal(before_ex["option_liability_nok"]) > 0
+        assert before_ex["option_quality"] == "FORECAST_MARK_TO_MARKET"
 
         expected_gross_nok = Decimal("6275058.12783696") * Decimal("2")
         assert Decimal(ex_day["associated_receivable_nok"]) == expected_gross_nok
