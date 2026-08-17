@@ -30,6 +30,8 @@ src/
   newsweb_client.py
   newsweb_ingestion.py
   newsweb_buybacks.py
+  option_liability.py
+  nav_refresh.py
   scheduled.py
 
 migrations/
@@ -136,11 +138,45 @@ Kildeprioriteten er bevart fra referanseimplementasjonen: Euronext-fakta rangere
 
 PDF-vedlegg blir bevisst **ikke** lastet ned og tolket hvert 30. minutt. Ukesmeldingen gir fortsatt bekreftet ukesbeløp, treasury shares og fallback-kontantbevegelse. Daglige PDF-transaksjoner og NewsWeb-PDF-arkiv legges til i full refresh/R2 i Phase 15.5/15.6; de kan da erstatte ukentlig fallback med mer presise daglige kontantbevegelser.
 
+## Phase 15.4.5 – Dirty-state cash og NAV
+
+Den lette Cron-banen avsluttes nå med en Worker-native D1-refresh av bare de verdsettelseslagene som faktisk har endrede input:
+
+```text
+markedsdata + NewsWeb
+  -> velg dagens modelldato når dagens markedsdata finnes,
+     ellers siste kjente OTEC-handelsdato
+  -> daily cash
+  -> option-aware daily ONA
+  -> CORE NAV
+  -> FULL NAV
+```
+
+Hvert lag bygger en deterministisk `inputs_hash`. Dersom hash og beregnet verdi er uendret, hoppes D1-write over. En vanlig 30-minutters poll uten nye relevante fakta omskriver derfor ikke cash-/ONA-/NAV-radene.
+
+**Cash** starter fra siste rapporterte kontantanker og fører bare kjente, eksplisitte kontantbevegelser videre. Ukentlige tilbakekjøp som krysser et rapportanker blir fortsatt ekskludert fra post-anchor-modellen for å unngå dobbelttelling. Etter siste rapporterte anker er kvaliteten derfor eksplisitt `FORECAST_PARTIAL`, ikke et skjult estimat på ukjente driftskostnader.
+
+**CORE NAV** bruker samme syvdagers lookback og samme kildeprioritet som SQLite-referansen. En offisiell/sterkere `CLOSE` på samme handelsdag vinner over `LAST`; Euronext/B3 vinner over tredjepartsfallback. BMOB3-verdi, BRL/NOK, cash og utestående Otello-aksjer inngår med samme status-/quality-semantikk som referansemodellen.
+
+**FULL NAV** bruker samme option-aware modell som Phase 15.3.2. Base ONA, eventuelle aktive Bemobi-fordringer og den kontantoppgjorte Otello-opsjonsforpliktelsen beregnes separat. Opsjonsforpliktelsen mark-to-marketes fra OTEC med den rapporterte Black-Scholes-rammen, strike-justeringer for relevante Otello-utdelinger og recognition factor kalibrert til rapportert USD 314k per 31.12.2025. Dermed gjør en reell OTEC-prisendring både ONA og FULL NAV dirty, mens cash forblir urørt dersom kontantinputene ikke har endret seg.
+
+Dirty-refreshen kjøres etter markeds- og NewsWeb-steget i samme `*/30 * * * *` Cron. Manglende NAV-input gir `PARTIAL` og blir synlig i `job_runs`; det skjules ikke som en vellykket NAV-oppdatering.
+
+Regresjonstestene dekker:
+
+- eksakt Worker/reference-paritet for opsjonsforpliktelsen;
+- første build + idempotent ny kjøring uten D1-rewrite;
+- at samme-dags `CLOSE` fortsatt er sterkere enn `LAST`;
+- at en faktisk ny OTEC-pris gjør option-aware ONA, CORE og FULL dirty, men ikke cash;
+- FULL NAV-paritet mot SQLite-referansen etter prisendringen.
+
+Hele Phase 15.4 er dermed implementert og kjøres gjennom backend-regresjon, lokal D1-paritet, Python Worker dry-run og faktisk `workerd` HTTP-paritet i CI.
+
 ## D1
 
 `0001_initial_schema.sql` er en frosset baseline generert fra SQLite-referansen og skal ikke håndredigeres. Senere datamodellendringer ligger i additive D1-migreringer. `0002_reference_data.sql` oppretter stabile sources/instruments, `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser, og `0004_option_liability.sql` legger til opsjonsfeltene for FULL NAV.
 
-`repository.py` inneholder nå både read-laget og et avgrenset `D1WriteRepository` for scheduled ingestion. Skrivelaget bruker parameterbinding og beholder idempotente unique-key-semantikker for `source_documents` og `market_prices`.
+`repository.py` inneholder både read-laget og et avgrenset `D1WriteRepository` for scheduled ingestion og dirty-state-beregninger. Skrivelaget bruker parameterbinding og beholder idempotente unique-key-semantikker for `source_documents` og `market_prices`.
 
 Regenerer/verifiser basis-schema:
 
@@ -153,11 +189,13 @@ python cloudflare/tools/generate_d1_schema.py --check
 
 `tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
 
-En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.4 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-, BMOB3- og NewsWeb-regresjonstester.
+En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.5 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-, BMOB3-, NewsWeb- og NAV-regresjonstester.
 
 ## Ytelseshardening
 
 Buyback-prognosen bruker en bounded OTEC activity-read per forecast i stedet for to D1-spørringer per historisk programuke. Ready-path har en query-budget-regresjonstest slik at D1-querybruk ikke vokser lineært med programmets alder.
+
+Dirty-state NAV bruker deterministiske input-hasher per lag slik at en uendret 30-minutters poll ikke gjør unødvendige D1-writes eller full historisk rebuild.
 
 D1 har egne indekser for:
 
@@ -206,10 +244,6 @@ pywrangler deploy --dry-run --config wrangler.worker-test.jsonc
 pywrangler dev --config wrangler.worker-test.jsonc
 ```
 
-## Neste del av Phase 15.4
+## Neste fase
 
-```text
-Dirty-state cash/NAV, inkludert option-aware FULL NAV
-```
-
-Dagens synkrone SQLite `fast_refresh.py` skal ikke kopieres direkte inn i Worker-runtime. Nettverkskall, payloadgrenser og D1-writes tilpasses Cloudflare eksplisitt, og tyngre/større payloads flyttes til Workflow/R2 når det er riktigere enn å buffre dem i Worker-minnet.
+Phase 15.5 flytter tyngre full refresh, source-specific retries, data-health/preflight og store recovery-payloads til Cloudflare Workflows/R2. Den 30-minutters fast-pathen i Phase 15.4 er ferdig og holdes bevisst bounded.
