@@ -12,6 +12,8 @@ from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
 B3_YEARLY_URL = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_A{year}.ZIP"
+B3_DAILY_URL = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D{date_ddmmyyyy}.ZIP"
+MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -95,25 +97,18 @@ def parse_cotahist_zip_file(path: str | Path, ticker: str) -> list[B3DailyClose]
     return parse_cotahist_zip_bytes(Path(path).read_bytes(), ticker)
 
 
-def download_cotahist_year(
-    year: int,
-    timeout: int = 60,
-    attempts: int = 4,
-) -> bytes:
-    """Download one official B3 annual COTAHIST ZIP with bounded retries.
-
-    B3's large annual files occasionally terminate mid-transfer. Retrying the whole
-    request is deliberately simpler and safer than accepting a partial ZIP. The payload
-    is returned only after it has a ZIP signature; the caller later validates its content.
-    """
-    if year < 1986 or year > date.today().year:
-        raise ValueError(f"Ugyldig B3-år: {year}")
+def _download_zip(
+    url: str,
+    *,
+    timeout: int,
+    attempts: int,
+    max_bytes: int | None = None,
+    missing_is_none: bool = False,
+) -> bytes | None:
     if attempts < 1:
         raise ValueError("attempts må være minst 1")
 
-    url = B3_YEARLY_URL.format(year=year)
     last_error: Exception | None = None
-
     for attempt in range(1, attempts + 1):
         request = Request(
             url,
@@ -124,16 +119,69 @@ def download_cotahist_year(
         )
         try:
             with urlopen(request, timeout=timeout) as response:
-                payload = response.read()
+                content_length = response.headers.get("Content-Length")
+                if max_bytes is not None and content_length:
+                    try:
+                        if int(content_length) > max_bytes:
+                            raise RuntimeError("B3 ZIP exceeds configured size limit")
+                    except ValueError:
+                        pass
+                payload = response.read((max_bytes + 1) if max_bytes is not None else -1)
+            if max_bytes is not None and len(payload) > max_bytes:
+                raise RuntimeError("B3 ZIP exceeds configured size limit")
             if not payload.startswith(b"PK"):
                 raise RuntimeError("B3 svarte ikke med en ZIP-fil")
             return payload
-        except (IncompleteRead, HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+        except HTTPError as exc:
+            if missing_is_none and exc.code == 404:
+                return None
             last_error = exc
-            if attempt < attempts:
-                time.sleep(min(2 ** (attempt - 1), 8))
+        except (IncompleteRead, URLError, TimeoutError, OSError, RuntimeError) as exc:
+            last_error = exc
+        if attempt < attempts:
+            time.sleep(min(2 ** (attempt - 1), 8))
 
-    raise RuntimeError(
-        f"B3-nedlasting av COTAHIST_A{year}.ZIP feilet etter {attempts} forsøk. "
-        "Last om nødvendig ned filen manuelt fra B3 og importer den lokale ZIP-filen."
-    ) from last_error
+    raise RuntimeError(f"B3 ZIP-nedlasting feilet etter {attempts} forsøk: {url}") from last_error
+
+
+def download_cotahist_day(
+    trading_day: date,
+    timeout: int = 30,
+    attempts: int = 3,
+) -> bytes | None:
+    """Download one small official B3 daily COTAHIST ZIP.
+
+    B3 returns 404 until the file for a session has been published. That is a normal
+    availability state rather than an error, so callers receive None and may fall back
+    to the previous B3 trading day. Daily files are size-bounded because production only
+    needs one compact completed-session file, not an unbounded response.
+    """
+    if trading_day.year < 1986 or trading_day > date.today():
+        raise ValueError(f"Ugyldig B3-handelsdato: {trading_day.isoformat()}")
+    url = B3_DAILY_URL.format(date_ddmmyyyy=trading_day.strftime("%d%m%Y"))
+    return _download_zip(
+        url,
+        timeout=timeout,
+        attempts=attempts,
+        max_bytes=MAX_DAILY_ZIP_BYTES,
+        missing_is_none=True,
+    )
+
+
+def download_cotahist_year(
+    year: int,
+    timeout: int = 60,
+    attempts: int = 4,
+) -> bytes:
+    """Download one official B3 annual COTAHIST ZIP with bounded retries.
+
+    The annual file is retained for bootstrap and historical backfill. Normal production
+    refreshes use the much smaller daily COTAHIST file instead.
+    """
+    if year < 1986 or year > date.today().year:
+        raise ValueError(f"Ugyldig B3-år: {year}")
+    url = B3_YEARLY_URL.format(year=year)
+    payload = _download_zip(url, timeout=timeout, attempts=attempts)
+    if payload is None:  # defensive; annual downloads never use missing_is_none
+        raise RuntimeError(f"B3-nedlasting av COTAHIST_A{year}.ZIP returnerte ingen fil")
+    return payload
