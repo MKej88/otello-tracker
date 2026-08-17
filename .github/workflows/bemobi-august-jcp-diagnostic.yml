@@ -5,53 +5,91 @@ on:
     branches: [phase-10-august-2026-jcp]
 
 jobs:
-  inspect:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install PDF parser
-        run: pip install 'pypdf>=5,<7'
-      - name: Inspect exact official CVM August 2026 shareholder notice
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Run backend tests
+        working-directory: backend
+        run: PYTHONPATH=. pytest -q
+      - name: Check official CVM filings after August 2026 record date
+        working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          PYTHONPATH=. python - <<'PY'
           import io
+          import json
           import re
           import urllib.request
           from pypdf import PdfReader
 
-          url = 'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&descTipo=IPE&CodigoInstituicao=1&numProtocolo=1556263&numSequencia=1080969&numVersao=2'
-          request = urllib.request.Request(
-              url,
-              headers={
-                  'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)',
-                  'Accept': 'application/pdf,text/html;q=0.9,*/*;q=0.8',
-              },
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  body = response.read(15 * 1024 * 1024)
-                  content_type = response.headers.get('Content-Type', '')
-                  final_url = response.geturl()
-          except Exception as exc:
-              print('FETCH_ERROR', repr(exc))
-              raise
+          from app.bemobi.cvm_ipe import download_cvm_ipe_year, parse_cvm_ipe_archive
 
-          print('META', {'content_type': content_type, 'bytes': len(body), 'final_url': final_url, 'magic': body[:16]})
-          if body.startswith(b'%PDF') or 'pdf' in content_type.lower():
+          records = parse_cvm_ipe_archive(download_cvm_ipe_year(2026, timeout=60), year=2026)
+          candidates = []
+          for record in records:
+              combined = ' | '.join((record.category, record.document_type, record.species, record.subject)).lower()
+              if max(record.reference_date[:10], record.delivery_date[:10]) < '2026-08-14':
+                  continue
+              if not any(term in combined for term in ('juros', 'dividend', 'provento', 'capital próprio', 'capital proprio')):
+                  continue
+              candidates.append(record)
+
+          print('POST_RECORD_CANDIDATES', len(candidates))
+          for record in candidates:
+              print('CANDIDATE', json.dumps({
+                  'reference_date': record.reference_date,
+                  'delivery_date': record.delivery_date,
+                  'category': record.category,
+                  'type': record.document_type,
+                  'species': record.species,
+                  'subject': record.subject,
+                  'version': record.version_number,
+                  'protocol': record.protocol,
+                  'url': record.download_url,
+              }, ensure_ascii=False))
+
+          # If CVM has a filing delivered after the 14 Aug record date that is clearly
+          # related to this JCP/proventos event, inspect it for final per-share terms.
+          inspected = []
+          for record in candidates:
+              delivered = record.delivery_date[:10]
+              if delivered <= '2026-08-14':
+                  continue
+              url = record.download_url
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)',
+                      'Accept': 'application/pdf,text/html;q=0.9,*/*;q=0.8',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = response.read(15 * 1024 * 1024)
+              except Exception as exc:
+                  print('INSPECT_ERROR', record.download_url, repr(exc))
+                  continue
+              if not body.startswith(b'%PDF'):
+                  continue
               reader = PdfReader(io.BytesIO(body))
-              text = '\n'.join((page.extract_text() or '') for page in reader.pages[:15])
-              text = re.sub(r'\n{3,}', '\n\n', text)
-              print('TEXT_BEGIN')
-              print(text[:50000])
-              print('TEXT_END')
-          else:
-              decoded = body.decode('utf-8', errors='replace')
-              print('BODY_BEGIN')
-              print(decoded[:30000])
-              print('BODY_END')
+              text = '\n'.join((page.extract_text() or '') for page in reader.pages[:12])
+              normalized = re.sub(r'\s+', ' ', text)
+              inspected.append({
+                  'delivery_date': delivered,
+                  'category': record.category,
+                  'subject': record.subject,
+                  'text': normalized[:12000],
+              })
+
+          print('POST_RECORD_INSPECTED', len(inspected))
+          for item in inspected:
+              print('POST_RECORD_TEXT', json.dumps(item, ensure_ascii=False))
           PY
