@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import lru_cache
 
 from app.db.runtime_state import get_runtime_state, set_runtime_state
 from app.history.curated import history_status as _history_status
@@ -23,8 +24,14 @@ from app.history.share_capital_2025 import (
 _CURATED_STATE_KEY = "curated_seed_fingerprint"
 
 
+@lru_cache(maxsize=1)
 def curated_seed_fingerprint() -> str:
-    """Hash every static manifest that can write curated reference facts."""
+    """Hash every static manifest that can write curated reference facts.
+
+    The manifests are packaged inside the immutable production image, so the fingerprint
+    only needs to be calculated once per process. A new deploy/container gets a fresh
+    process and therefore a fresh fingerprint automatically.
+    """
     payload = {
         "base": load_manifest(),
         "share_capital_2022": load_2022_share_capital_corrections(),
