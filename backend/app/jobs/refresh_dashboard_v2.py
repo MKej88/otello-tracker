@@ -6,6 +6,7 @@ from typing import Any
 from app.buybacks import (
     activity_check_done,
     ingest_previous_trading_day_activity,
+    market_activity_status,
     seed_otec_activity_history,
     sync_current_program_terms,
 )
@@ -28,7 +29,17 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
     fail-soft so they can never prevent NAV from refreshing.
     """
     init_database(database_path)
-    activity_seed = seed_otec_activity_history(database_path)
+    existing_activity = market_activity_status(database_path)
+    if existing_activity["status"] == "empty" or (existing_activity.get("count") or 0) < 500:
+        activity_seed: dict[str, Any] = seed_otec_activity_history(database_path)
+    else:
+        activity_seed = {
+            "skipped": True,
+            "reason": "historical_activity_already_seeded",
+            "count": existing_activity["count"],
+            "to": existing_activity["to"],
+        }
+
     result = run_core_refresh(database_path, **kwargs)
     result.setdefault("steps", {})["otec_activity_seed"] = activity_seed
 
