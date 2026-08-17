@@ -8,7 +8,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe NewsWeb message and attachment API
+      - name: Probe NewsWeb API and routes
         shell: bash
         run: |
           set -euo pipefail
@@ -16,42 +16,58 @@ jobs:
           python - <<'PY'
           import io
           import json
+          import re
           import urllib.request
           from pypdf import PdfReader
 
+          UA = "otello-tracker/phase-9.3"
           base = "https://api3.oslo.oslobors.no/v1/newsreader"
           message_id = 678028
           headers = {
               "Accept": "application/json",
               "Origin": "https://newsweb.oslobors.no",
               "Referer": "https://newsweb.oslobors.no/",
-              "User-Agent": "otello-tracker/phase-9.3",
+              "User-Agent": UA,
           }
           req = urllib.request.Request(
-              f"{base}/message?messageId={message_id}",
-              data=b"{}",
-              method="POST",
+              f"{base}/message?messageId={message_id}", data=b"{}", method="POST",
               headers={**headers, "Content-Type": "application/json"},
           )
           with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.loads(r.read().decode("utf-8"))
-          message = data["data"]["message"]
-          print("MESSAGE", message["messageId"], message["issuerSign"], message["publishedTime"])
-          print("BODY", message["body"])
+              message = json.loads(r.read().decode("utf-8"))["data"]["message"]
+          print("MESSAGE", message["messageId"], message["issuerSign"], message["issuerId"], message["publishedTime"])
           print("ATTACHMENTS", json.dumps(message["attachments"], ensure_ascii=False))
 
           attachment = message["attachments"][0]
           attachment_url = f"{base}/attachment?messageId={message_id}&attachmentId={attachment['id']}"
-          req = urllib.request.Request(
-              attachment_url,
-              headers={"Accept": "application/pdf", "User-Agent": "otello-tracker/phase-9.3"},
-          )
+          req = urllib.request.Request(attachment_url, headers={"Accept": "application/pdf", "User-Agent": UA})
           with urllib.request.urlopen(req, timeout=30) as r:
               pdf = r.read()
-              print("PDF", r.status, r.headers.get("content-type"), len(pdf), attachment_url)
-          reader = PdfReader(io.BytesIO(pdf))
-          text = "\n".join(page.extract_text() or "" for page in reader.pages)
-          print("PDF_TEXT_BEGIN")
-          print(text[:30000])
-          print("PDF_TEXT_END")
+          text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
+          print("PDF_LINES", len(text.splitlines()), "PDF_BYTES", len(pdf))
+          print(text[:3000])
+
+          # Discover route names from the current NewsWeb JS application itself.
+          app_urls = ["https://newsweb.oslobors.no/", "https://newsserviceweb.oslobors.no/"]
+          routes = set()
+          for app_url in app_urls:
+              try:
+                  html = urllib.request.urlopen(urllib.request.Request(app_url, headers={"User-Agent": UA}), timeout=30).read().decode("utf-8", "replace")
+              except Exception as exc:
+                  print("APP_ERROR", app_url, type(exc).__name__, exc)
+                  continue
+              scripts = re.findall(r'<script[^>]+src=["\']([^"\']+\.js)["\']', html, re.I)
+              print("APP", app_url, "SCRIPTS", scripts)
+              for src in scripts:
+                  js_url = urllib.parse.urljoin(app_url, src)
+                  try:
+                      js = urllib.request.urlopen(urllib.request.Request(js_url, headers={"User-Agent": UA}), timeout=30).read().decode("utf-8", "replace")
+                  except Exception as exc:
+                      print("JS_ERROR", js_url, type(exc).__name__, exc)
+                      continue
+                  for route in re.findall(r'newsreader/[A-Za-z0-9_?=&${}/.-]+', js):
+                      routes.add(route[:180])
+          print("ROUTES")
+          for route in sorted(routes):
+              print(route)
           PY
