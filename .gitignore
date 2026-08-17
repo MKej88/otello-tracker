@@ -11,6 +11,9 @@ frontend/dist/
 
 # Environment / secrets
 .env
+.env.*
+!.env.example
+!.env.production.example
 *.env.local
 
 # Runtime data
