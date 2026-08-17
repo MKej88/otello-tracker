@@ -1,0 +1,84 @@
+name: Bemobi August 2026 JCP diagnostic
+
+on:
+  push:
+    branches: [phase-10-august-2026-jcp]
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install PDF parser
+        run: pip install 'pypdf>=5,<7'
+      - name: Inspect official CVM August 2026 filings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          import io
+          import json
+          import re
+          import urllib.request
+          import zipfile
+          from pypdf import PdfReader
+
+          CNPJ = '09.042.817/0001-05'
+          archive_url = 'https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_2026.zip'
+          req = urllib.request.Request(archive_url, headers={'User-Agent': 'otello-tracker/1.0 private research'})
+          with urllib.request.urlopen(req, timeout=60) as response:
+              payload = response.read()
+          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+              member = next(name for name in zf.namelist() if name.lower().endswith('.csv'))
+              text = zf.read(member).decode('cp1252')
+          rows = list(csv.DictReader(io.StringIO(text), delimiter=';'))
+
+          matches = []
+          for row in rows:
+              if row.get('CNPJ_Companhia') != CNPJ:
+                  continue
+              date_ref = (row.get('Data_Referencia') or '')[:10]
+              delivered = (row.get('Data_Entrega') or '')[:10]
+              joined = ' | '.join(row.get(k) or '' for k in ('Categoria','Tipo','Especie','Assunto')).lower()
+              if max(date_ref, delivered) < '2026-08-10' or min(x for x in (date_ref, delivered) if x) > '2026-08-14':
+                  continue
+              if not any(term in joined for term in ('juros', 'dividend', 'capital próprio', 'capital proprio')):
+                  continue
+              matches.append(row)
+
+          print('MATCH_COUNT', len(matches))
+          for idx, row in enumerate(matches, 1):
+              selected = {k: row.get(k) for k in (
+                  'Data_Referencia','Categoria','Tipo','Especie','Assunto','Data_Entrega',
+                  'Tipo_Apresentacao','Protocolo_Entrega','Versao','Link_Download'
+              )}
+              print(f'ROW_{idx}', json.dumps(selected, ensure_ascii=False, indent=2))
+              url = row.get('Link_Download') or ''
+              if not url:
+                  continue
+              try:
+                  doc_req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0 otello-tracker private research'})
+                  with urllib.request.urlopen(doc_req, timeout=60) as response:
+                      body = response.read(15 * 1024 * 1024)
+                      ctype = response.headers.get('Content-Type','')
+                      final_url = response.geturl()
+                  print(f'DOC_{idx}_META', {'content_type': ctype, 'bytes': len(body), 'final_url': final_url, 'magic': body[:16]})
+                  if body.startswith(b'%PDF') or 'pdf' in ctype.lower():
+                      reader = PdfReader(io.BytesIO(body))
+                      extracted = '\n'.join((page.extract_text() or '') for page in reader.pages[:12])
+                      extracted = re.sub(r'\n{3,}', '\n\n', extracted)
+                      print(f'DOC_{idx}_TEXT_BEGIN')
+                      print(extracted[:40000])
+                      print(f'DOC_{idx}_TEXT_END')
+                  else:
+                      decoded = body.decode('utf-8', errors='replace')
+                      print(f'DOC_{idx}_BODY_BEGIN')
+                      print(decoded[:20000])
+                      print(f'DOC_{idx}_BODY_END')
+              except Exception as exc:
+                  print(f'DOC_{idx}_ERROR', repr(exc))
+          PY
