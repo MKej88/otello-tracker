@@ -5,11 +5,11 @@ from typing import Any, Awaitable, Callable
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
-    from .otec_ingestion import refresh_otec_intraday
+    from .otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
     from .repository import D1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
-    from otec_ingestion import refresh_otec_intraday
+    from otec_ingestion import maybe_finalize_otec_eod, refresh_otec_with_gap_recovery
     from repository import D1WriteRepository
 
 FAST_REFRESH_CRON = "*/30 * * * *"
@@ -77,7 +77,7 @@ async def run_fast_refresh(
         metadata={
             "trigger": "cloudflare_cron",
             "cron": FAST_REFRESH_CRON,
-            "phase": "15.4.2",
+            "phase": "15.4.3",
         },
     )
 
@@ -87,12 +87,31 @@ async def run_fast_refresh(
 
     otec = await _safe_async_step(
         "otec_delayed",
-        lambda: refresh_otec_intraday(repository=repository),
+        lambda: refresh_otec_with_gap_recovery(repository=repository, now=scheduled_at),
         steps=steps,
         errors=errors,
     )
     if isinstance(otec, dict) and otec.get("found"):
         records_written += 1
+
+    if isinstance(otec, dict) and otec.get("status") in {"ok", "no_trade"}:
+        otec_eod = await _safe_async_step(
+            "otec_eod",
+            lambda: maybe_finalize_otec_eod(
+                repository=repository,
+                now=scheduled_at,
+                current_refresh=otec,
+            ),
+            steps=steps,
+            errors=errors,
+        )
+        if isinstance(otec_eod, dict) and otec_eod.get("status") == "ok":
+            records_written += 1
+    else:
+        steps["otec_eod"] = {
+            "status": "skipped",
+            "reason": "current_otec_refresh_failed",
+        }
 
     bmob3_eod = await _safe_async_step(
         "bmob3_eod",
@@ -129,10 +148,10 @@ async def run_fast_refresh(
 
     error_message = "; ".join(item["error"] for item in errors) or None
     metadata = {
-        "phase": "15.4.2",
+        "phase": "15.4.3",
         "steps": steps,
         "source_errors": errors,
-        "pending_fast_paths": ["OTEC_EOD", "NEWSWEB", "DIRTY_NAV"],
+        "pending_fast_paths": ["NEWSWEB", "DIRTY_NAV"],
     }
     await repository.finish_job(
         job_id,
