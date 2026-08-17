@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history.newsweb_2021_events import seed_2021_newsweb_events
@@ -37,9 +35,9 @@ def test_2021_newsweb_events_seed_exact_tenders_cash_and_share_counts(tmp_path) 
             """
         ).fetchall()
         assert [(r["trade_date"], r["shares"], r["amount_nok"]) for r in buybacks] == [
-            ("2021-05-10", 12_000_000, "405000000"),
-            ("2021-09-06", 12_450_000, "410850000"),
-            ("2021-12-08", 11_200_000, "296800000"),
+            ("2021-05-10", 12_000_000, "405000000.00"),
+            ("2021-09-06", 12_450_000, "410850000.00"),
+            ("2021-12-08", 11_200_000, "296800000.00"),
         ]
         assert [r["treasury_shares_after"] for r in buybacks] == [13_727_702, 12_450_000, 11_200_000]
 
@@ -50,10 +48,10 @@ def test_2021_newsweb_events_seed_exact_tenders_cash_and_share_counts(tmp_path) 
             """
         ).fetchall()
         assert [(r["movement_date"], r["movement_type"], r["amount_nok"]) for r in cash] == [
-            ("2021-05-10", "OTELLO_BUYBACK", "-405000000"),
-            ("2021-09-06", "OTELLO_BUYBACK", "-410850000"),
-            ("2021-10-27", "OTHER", "850000000"),
-            ("2021-12-08", "OTELLO_BUYBACK", "-296800000"),
+            ("2021-05-10", "OTELLO_BUYBACK", "-405000000.00"),
+            ("2021-09-06", "OTELLO_BUYBACK", "-410850000.00"),
+            ("2021-10-27", "OTHER", "850000000.00"),
+            ("2021-12-08", "OTELLO_BUYBACK", "-296800000.00"),
         ]
         adcolony = cash[2]
         assert adcolony["amount_original"] == "100000000"
@@ -73,7 +71,6 @@ def test_2021_newsweb_events_seed_exact_tenders_cash_and_share_counts(tmp_path) 
             ("2021-12-08", 112_299_727, 11_200_000, 101_099_727),
         ]
 
-        # Idempotency: a second seed must update/reuse, not duplicate.
         assert connection.execute(
             "SELECT COUNT(*) n FROM buybacks WHERE trade_date LIKE '2021-%'"
         ).fetchone()["n"] == 3
@@ -109,9 +106,7 @@ def test_report_anchor_can_supersede_december_event_share_count(tmp_path) -> Non
     init_database(db)
     seed_2021_newsweb_events(db)
     with get_connection(db) as connection:
-        # Simulate the existing 31 Dec report anchor: it must win over 8 Dec event data.
-        source_id = connection.execute("SELECT id FROM sources WHERE code='MANUAL'").fetchone()["id"]
-        # Reuse any NewsWeb document as a foreign-key-safe source for this isolated lookup test.
+        # Reuse a NewsWeb source document as a foreign-key-safe source for this isolated lookup test.
         document_id = connection.execute(
             "SELECT id FROM source_documents ORDER BY id LIMIT 1"
         ).fetchone()["id"]
