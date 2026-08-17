@@ -148,3 +148,46 @@ def test_jcp_withholding_is_separate_cash_tax_and_reconciles_to_published_net(tm
             """
         ).fetchone()["n"]
         assert unknown == 0
+
+
+def test_existing_withholding_is_not_deleted_by_temporary_fx_gap(tmp_path) -> None:
+    database = str(tmp_path / "bemobi-tax-gap.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        for day in ("2024-05-02", "2025-01-07", "2025-12-22", "2026-05-27"):
+            _insert_brl_nok(connection, day)
+        connection.commit()
+
+    seed_bemobi_distributions(database)
+    with get_connection(database) as connection:
+        before = {
+            row["external_movement_id"]: row["amount_nok"]
+            for row in connection.execute(
+                """
+                SELECT external_movement_id, amount_nok FROM cash_movements
+                WHERE external_movement_id LIKE 'bemobi-withholding:%'
+                ORDER BY external_movement_id
+                """
+            ).fetchall()
+        }
+        assert len(before) == 4
+        connection.execute("DELETE FROM fx_rates WHERE base_currency = 'BRL' AND quote_currency = 'NOK'")
+        connection.commit()
+
+    result = seed_bemobi_distributions(database)
+    assert result["withholding_adjustments"]["deleted"] == 0
+
+    with get_connection(database) as connection:
+        after = {
+            row["external_movement_id"]: row["amount_nok"]
+            for row in connection.execute(
+                """
+                SELECT external_movement_id, amount_nok FROM cash_movements
+                WHERE external_movement_id LIKE 'bemobi-withholding:%'
+                ORDER BY external_movement_id
+                """
+            ).fetchall()
+        }
+        assert after == before
