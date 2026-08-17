@@ -8,6 +8,7 @@ from app.db.runtime_state import get_runtime_state, set_runtime_state
 from app.history.curated import history_status as _history_status
 from app.history.curated import load_manifest
 from app.history.curated import seed_curated_history as _seed_curated_history
+from app.history.option_program import load_option_program_manifest
 from app.history.other_net_assets import (
     load_other_net_assets_manifest,
     seed_other_net_assets_reported,
@@ -31,17 +32,13 @@ def curated_manifest_version() -> str:
 
 @lru_cache(maxsize=1)
 def curated_seed_fingerprint() -> str:
-    """Hash every static manifest that can write curated reference facts.
-
-    The manifests are packaged inside the immutable production image, so the fingerprint
-    only needs to be calculated once per process. A new deploy/container gets a fresh
-    process and therefore a fresh fingerprint automatically.
-    """
+    """Hash every static manifest that affects curated facts or derived NAV inputs."""
     payload = {
         "base": load_manifest(),
         "share_capital_2022": load_2022_share_capital_corrections(),
         "share_capital_2025": load_2025_share_capital_corrections(),
         "other_net_assets": load_other_net_assets_manifest(),
+        "option_program": load_option_program_manifest(),
     }
     raw = json.dumps(
         payload,
@@ -64,12 +61,13 @@ def seed_curated_history(database_path: str | None = None) -> dict:
         "2025": capital_2025,
     }
     result["other_net_assets"] = other_net_assets
+    result["option_program_version"] = load_option_program_manifest()["version"]
     set_runtime_state(_CURATED_STATE_KEY, curated_seed_fingerprint(), database_path)
     return result
 
 
 def seed_curated_history_if_needed(database_path: str | None = None) -> dict:
-    """Avoid rewriting immutable curated rows on every 30-minute refresh."""
+    """Avoid rewriting immutable curated rows on every fast refresh."""
     fingerprint = curated_seed_fingerprint()
     if get_runtime_state(_CURATED_STATE_KEY, database_path) == fingerprint:
         return {
@@ -89,6 +87,7 @@ def history_status(database_path: str | None = None) -> dict:
     corrections_2025 = load_2025_share_capital_corrections()
     rows = [*corrections_2022["share_counts"], *corrections_2025["share_counts"]]
     ona_manifest = load_other_net_assets_manifest()
+    option_manifest = load_option_program_manifest()
     result["manifest_version"] = corrections_2022["version"]
     result["effective_share_capital_corrections"] = {
         "count": len(rows),
@@ -100,6 +99,12 @@ def history_status(database_path: str | None = None) -> dict:
         "from": ona_manifest["anchors"][0]["as_of_date"],
         "to": ona_manifest["anchors"][-1]["as_of_date"],
         "known_gaps": ona_manifest.get("known_gaps", []),
+    }
+    result["option_program"] = {
+        "version": option_manifest["version"],
+        "grant_date": option_manifest["program"]["grant_date"],
+        "option_count": option_manifest["program"]["option_count"],
+        "strike_price_nok": option_manifest["program"]["strike_price_nok"],
     }
     return result
 
