@@ -1,5 +1,7 @@
+from datetime import date
 from http.client import IncompleteRead
 from io import BytesIO
+from urllib.error import HTTPError
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import app.marketdata.b3_cotahist as b3
@@ -27,11 +29,7 @@ def _line(ticker: str, factor: int, close_cents: int = 2271) -> str:
 
 
 def test_b3_zip_filters_ticker_before_validating_other_instruments() -> None:
-    """An unrelated COTAHIST instrument may use another quotation factor.
-
-    It must not make the BMOB3 import fail. This reproduces the issue discovered
-    during the first live B3 2025 backfill.
-    """
+    """An unrelated COTAHIST instrument may use another quotation factor."""
     output = BytesIO()
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -51,8 +49,9 @@ def test_b3_zip_filters_ticker_before_validating_other_instruments() -> None:
 
 
 class _FakeResponse:
-    def __init__(self, payload: bytes | Exception):
+    def __init__(self, payload: bytes | Exception, headers=None):
         self.payload = payload
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -60,10 +59,12 @@ class _FakeResponse:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         if isinstance(self.payload, Exception):
             raise self.payload
-        return self.payload
+        if size is None or size < 0:
+            return self.payload
+        return self.payload[:size]
 
 
 def test_b3_download_retries_incomplete_transfer(monkeypatch) -> None:
@@ -86,3 +87,27 @@ def test_b3_download_retries_incomplete_transfer(monkeypatch) -> None:
 
     assert payload == b"PKvalid-zip-placeholder"
     assert len(calls) == 2
+
+
+def test_daily_cotahist_404_is_normal_unavailable(monkeypatch) -> None:
+    def fake_urlopen(request, timeout):
+        raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(b3, "urlopen", fake_urlopen)
+    payload = b3.download_cotahist_day(date(2026, 8, 17), attempts=1)
+    assert payload is None
+
+
+def test_daily_cotahist_rejects_oversized_response(monkeypatch) -> None:
+    response = _FakeResponse(
+        b"PKtoo-big",
+        headers={"Content-Length": str(b3.MAX_DAILY_ZIP_BYTES + 1)},
+    )
+    monkeypatch.setattr(b3, "urlopen", lambda *_args, **_kwargs: response)
+
+    try:
+        b3.download_cotahist_day(date(2026, 8, 14), attempts=1)
+    except RuntimeError as exc:
+        assert "B3 ZIP-nedlasting feilet" in str(exc)
+    else:
+        raise AssertionError("oversized daily COTAHIST should fail")
