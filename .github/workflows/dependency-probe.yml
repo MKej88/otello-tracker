@@ -1,0 +1,22 @@
+name: Dependency probe
+
+on:
+  push:
+    branches: ["phase-13-4-production-ci-timezone"]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm list --depth=0
