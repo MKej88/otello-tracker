@@ -111,8 +111,8 @@ BEGIN
 END;
 
 -- The shared weekly parser predates NewsWeb and labels unknown source codes as mirrors.
--- Normalize the database record at source level so NewsWeb provenance is unambiguously
--- official even while the legacy parser remains backward-compatible with MFN.
+-- Normalize persisted provenance so NewsWeb is represented as the official original
+-- without changing the established MFN fallback behaviour.
 CREATE TRIGGER normalize_newsweb_regulatory_document
 AFTER INSERT ON source_documents
 WHEN NEW.source_id = (SELECT id FROM sources WHERE code = 'NEWSWEB')
@@ -120,5 +120,57 @@ WHEN NEW.source_id = (SELECT id FROM sources WHERE code = 'NEWSWEB')
 BEGIN
     UPDATE source_documents
     SET document_type = 'REGULATORY_NEWS'
+    WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER normalize_newsweb_program_note
+AFTER INSERT ON buyback_programs
+WHEN NEW.source_document_id IN (
+    SELECT sd.id FROM source_documents sd
+    JOIN sources s ON s.id = sd.source_id
+    WHERE s.code = 'NEWSWEB'
+)
+BEGIN
+    UPDATE buyback_programs
+    SET notes = replace(
+        NEW.notes,
+        'NEWSWEB mirror of Oslo Bors status',
+        'Oslo Bors NewsWeb original status'
+    )
+    WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER normalize_newsweb_share_note_insert
+AFTER INSERT ON otello_share_counts
+WHEN NEW.source_document_id IN (
+    SELECT sd.id FROM source_documents sd
+    JOIN sources s ON s.id = sd.source_id
+    WHERE s.code = 'NEWSWEB'
+)
+BEGIN
+    UPDATE otello_share_counts
+    SET notes = replace(
+        NEW.notes,
+        'NEWSWEB mirror of Oslo Bors status',
+        'Oslo Bors NewsWeb original status'
+    )
+    WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER normalize_newsweb_share_note_update
+AFTER UPDATE OF source_document_id, notes ON otello_share_counts
+WHEN NEW.source_document_id IN (
+    SELECT sd.id FROM source_documents sd
+    JOIN sources s ON s.id = sd.source_id
+    WHERE s.code = 'NEWSWEB'
+)
+ AND NEW.notes LIKE '%NEWSWEB mirror of Oslo Bors status%'
+BEGIN
+    UPDATE otello_share_counts
+    SET notes = replace(
+        NEW.notes,
+        'NEWSWEB mirror of Oslo Bors status',
+        'Oslo Bors NewsWeb original status'
+    )
     WHERE id = NEW.id;
 END;
