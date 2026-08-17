@@ -25,6 +25,11 @@ _CURATED_STATE_KEY = "curated_seed_fingerprint"
 
 
 @lru_cache(maxsize=1)
+def curated_manifest_version() -> str:
+    return str(load_manifest()["version"])
+
+
+@lru_cache(maxsize=1)
 def curated_seed_fingerprint() -> str:
     """Hash every static manifest that can write curated reference facts.
 
@@ -71,6 +76,7 @@ def seed_curated_history_if_needed(database_path: str | None = None) -> dict:
             "skipped": True,
             "reason": "curated_manifests_unchanged",
             "fingerprint": fingerprint,
+            "manifest_version": curated_manifest_version(),
         }
     result = seed_curated_history(database_path)
     result["fingerprint"] = fingerprint
@@ -99,6 +105,7 @@ def history_status(database_path: str | None = None) -> dict:
 
 
 __all__ = [
+    "curated_manifest_version",
     "curated_seed_fingerprint",
     "seed_curated_history",
     "seed_curated_history_if_needed",
