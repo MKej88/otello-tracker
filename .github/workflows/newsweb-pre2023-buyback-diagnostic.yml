@@ -15,30 +15,34 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: pip install -r requirements-dev.txt
-      - name: Diagnose old NewsWeb buybacks
+      - name: List classified old NewsWeb buybacks
         working-directory: backend
         run: |
           PYTHONPATH=. python - <<'PY'
           import json
           import tempfile
           from pathlib import Path
+          from app.db.connection import get_connection
           from app.db.migration_runner import init_database
-          from app.newsweb import collect_newsweb_buybacks
+          from app.newsweb import collect_newsweb_history
 
           with tempfile.TemporaryDirectory() as tmp:
               db = str(Path(tmp) / "old-buybacks.db")
               init_database(db)
-              result = collect_newsweb_buybacks(
+              result = collect_newsweb_history(
                   db, from_date="2020-01-01", to_date="2023-06-19", timeout=45
               )
-              print("SUMMARY", json.dumps({
-                  "discovered": result["discovered"],
-                  "ingested": result["ingested"],
-                  "daily_rows": result["daily_rows"],
-                  "attachment_review_count": result["attachment_review_count"],
-                  "no_attachment_count": result["no_attachment_count"],
-                  "no_purchase_count": result["no_purchase_count"],
-                  "errors": result["errors"],
-                  "warnings": result["warnings"],
-              }, indent=2, ensure_ascii=False, default=str))
+              with get_connection(db) as connection:
+                  rows = connection.execute(
+                      """
+                      SELECT sd.external_id, cn.published_at, cn.headline, cn.processing_status
+                      FROM company_news cn
+                      JOIN source_documents sd ON sd.id=cn.source_document_id
+                      JOIN sources s ON s.id=sd.source_id
+                      WHERE s.code='NEWSWEB' AND cn.category='BUYBACK'
+                      ORDER BY cn.published_at
+                      """
+                  ).fetchall()
+              print("ARCHIVE", json.dumps(result, indent=2, ensure_ascii=False, default=str))
+              print("BUYBACK_ROWS", json.dumps([dict(row) for row in rows], indent=2, ensure_ascii=False))
           PY
