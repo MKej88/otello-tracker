@@ -21,20 +21,49 @@ Denne katalogen er startpunktet for Cloudflare-native produksjon.
 
 Docker/SQLite beholdes kun som referanse under migreringen.
 
+## Phase 15.1 – D1 schema
+
+Ferdig strukturgrunnlag:
+
+```text
+migrations/
+  0001_initial_schema.sql   generert fra migrert SQLite-reference
+  0002_reference_data.sql  sources + OTEC/BMOB3 identities
+
+tools/
+  generate_d1_schema.py    generator + drift-check
+
+wrangler.schema-test.jsonc konto-uavhengig lokal D1-test
+```
+
+`0001_initial_schema.sql` redigeres ikke manuelt. Regenerer med:
+
+```bash
+python cloudflare/tools/generate_d1_schema.py
+```
+
+Kontroller uten å skrive:
+
+```bash
+python cloudflare/tools/generate_d1_schema.py --check
+```
+
+CI sammenligner D1 mot SQLite-referansen strukturelt og anvender begge migrations i lokal Wrangler D1-runtime. Se `docs/d1-migration.md`.
+
 ## Hvorfor Python Worker
 
-Cloudflare støtter FastAPI direkte i Python Workers. Det gjør at NAV-/buyback-/kildevalideringslogikk kan flyttes med minst mulig språkbytte.
+FastAPI/Python gjør at NAV-/buyback-/kildevalideringslogikk kan flyttes med minst mulig språkbytte.
 
-Den store endringen er persistence: dagens synkrone `sqlite3`-tilgang må erstattes med et D1 repository/data-access-lag via Worker bindings.
+Den store endringen er persistence: dagens synkrone `sqlite3`-tilgang erstattes med et D1 repository/data-access-lag via Worker bindings i en senere fase.
 
-`pyproject.example.toml` viser basisavhengighetene for Worker-runtime. `wrangler.example.jsonc` viser bindings, static assets og cron.
+`pyproject.example.toml` viser basisavhengighetene for Worker-runtime. `wrangler.example.jsonc` viser bindings, static assets, D1 migrations-katalog og cron.
 
 ## Kontoressurser som må opprettes
 
-Når Cloudflare-kontoen kobles til prosjektet:
+Når migreringen er klar for remote Cloudflare-ressurser:
 
 ```bash
-npx wrangler d1 create otello-nav
+npx wrangler d1 create otello-nav --location=weur
 npx wrangler r2 bucket create otello-source-archive
 ```
 
@@ -56,7 +85,7 @@ scheduled daily / Workflow
   -> full refresh + reconciliation
 ```
 
-## Lokal Cloudflare-utvikling – etter Phase 15.1
+## Lokal Cloudflare-utvikling
 
 Når Worker-entrypoint og D1-adapteren er lagt inn:
 
