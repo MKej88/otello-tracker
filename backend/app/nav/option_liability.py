@@ -186,25 +186,25 @@ def _anchor_recognition_fraction(connection, manifest: dict[str, Any]) -> Decima
 
 
 def _recognition_fraction(connection, manifest: dict[str, Any], current: date) -> Decimal | None:
+    """Reconstruct to the audited anchor, then hold the anchor factor until new evidence.
+
+    The report ties exercisability to a qualifying Bemobi disposal and return of proceeds,
+    not passage of time. We therefore do not mechanically accrete the accounting
+    recognition factor toward 100% after 31 Dec 2025. A future report or qualifying
+    disposal must explicitly update this assumption.
+    """
     grant = date.fromisoformat(manifest["program"]["grant_date"])
     report_anchor = date.fromisoformat(manifest["valuation_anchors"][-1]["as_of_date"])
-    settlement = date.fromisoformat(manifest["program"]["expected_settlement_date"])
     anchor_fraction = _anchor_recognition_fraction(connection, manifest)
     if anchor_fraction is None:
         return None
     if current <= grant:
         return Decimal("0")
-    if current == report_anchor:
+    if current >= report_anchor:
         return anchor_fraction
-    if current < report_anchor:
-        elapsed = Decimal((current - grant).days)
-        span = Decimal((report_anchor - grant).days)
-        return anchor_fraction * elapsed / span
-    if current >= settlement:
-        return Decimal("1")
-    elapsed = Decimal((current - report_anchor).days)
-    span = Decimal((settlement - report_anchor).days)
-    return anchor_fraction + (Decimal("1") - anchor_fraction) * elapsed / span
+    elapsed = Decimal((current - grant).days)
+    span = Decimal((report_anchor - grant).days)
+    return anchor_fraction * elapsed / span
 
 
 def option_liability_for_day(connection, as_of_date: str) -> dict[str, Any] | None:
@@ -265,6 +265,7 @@ def option_liability_for_day(connection, as_of_date: str) -> dict[str, Any] | No
         "fair_value_per_option_nok": decimal_text(fair_value),
         "gross_fair_value_nok": decimal_text(gross_fair_value),
         "recognition_fraction": decimal_text(recognition),
+        "recognition_policy": "HOLD_LAST_REPORTED_FACTOR_UNTIL_NEW_REPORT_OR_QUALIFYING_BEMOBI_DISPOSAL",
         "usd_nok_rate_id": usd_nok["id"],
         "usd_nok_rate_date": usd_nok["rate_date"],
         "usd_nok": usd_nok["rate"],
