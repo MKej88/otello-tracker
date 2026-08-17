@@ -16,60 +16,60 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Build compact official parameter report
+      - name: Resolve and test official file-type values
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import html
           import re
+          import urllib.error
           import urllib.parse
           import urllib.request
           from pathlib import Path
 
-          page_url = 'https://marketdata.euronext.com/data-reporting-service/trades-file'
+          base = 'https://marketdata.euronext.com'
+          page_url = base + '/data-reporting-service/trades-file'
           headers = {'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)'}
           with urllib.request.urlopen(urllib.request.Request(page_url, headers=headers), timeout=30) as response:
               page = response.read().decode('utf-8', errors='replace')
 
-          def compact(value):
-              return re.sub(r'\s+', ' ', html.unescape(value)).strip()
-
-          sources = [('PAGE', page)]
-          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', page, flags=re.I):
-              url = urllib.parse.urljoin(page_url, src)
-              if 'react-data-reporting' not in url:
-                  continue
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
-                      body = response.read(12 * 1024 * 1024).decode('utf-8', errors='replace')
-                  sources.append((url, body))
-              except Exception as exc:
-                  sources.append((url + ' ERROR', repr(exc)))
-
-          tokens = (
-              'Current Trading Day', 'Last 15 minutes', 'Last hour',
-              'Since Previous Trading Day', 'Previous Trading Day',
-              'Oslo', 'timeSelection', 'tradingLocation', 'PostTrade',
-              '/trades-file/download/'
+          file_types = []
+          pattern = re.compile(
+              r'<input[^>]+name=["\']fileType["\'][^>]+value=["\']([^"\']+)["\'][^>]*>\s*<label[^>]*>(.*?)</label>',
+              flags=re.I | re.S,
           )
-          lines = []
-          for source_name, body in sources:
-              lines.append(f'## SOURCE {source_name}')
-              for token in tokens:
-                  matches = list(re.finditer(re.escape(token), body, flags=re.I))
-                  lines.append(f'### TOKEN {token} count={len(matches)}')
-                  for match in matches[:8]:
-                      snippet = compact(body[max(0, match.start()-900):min(len(body), match.end()+1500)])
-                      lines.append(snippet[:2400])
+          for value, label in pattern.findall(page):
+              label = re.sub(r'<[^>]+>', '', label)
+              label = re.sub(r'\s+', ' ', label).strip()
+              file_types.append((value, label))
 
-          Path('euronext-parameter-diagnostic.txt').write_text('\n'.join(lines), encoding='utf-8')
+          lines = [f'FILE_TYPES={file_types!r}']
+          for value, label in file_types:
+              url = (
+                  base + '/data-reporting-service/trades-file/download/'
+                  + urllib.parse.quote(value, safe='')
+                  + '/CURRENT_TRADING_DAY/OSL'
+              )
+              request = urllib.request.Request(url, headers=headers, method='HEAD')
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      lines.append(
+                          f'HEAD value={value!r} label={label!r} status={response.status} '
+                          f'content_type={response.headers.get("Content-Type")!r} '
+                          f'content_disposition={response.headers.get("Content-Disposition")!r} url={url}'
+                      )
+              except urllib.error.HTTPError as exc:
+                  lines.append(f'HEAD value={value!r} label={label!r} status={exc.code} url={url}')
+              except Exception as exc:
+                  lines.append(f'HEAD value={value!r} label={label!r} error={exc!r} url={url}')
+
+          Path('euronext-download-diagnostic.txt').write_text('\n'.join(lines), encoding='utf-8')
           PY
       - name: Commit diagnostic result
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add euronext-parameter-diagnostic.txt
-          git commit -m 'Phase 11: diagnostic parameter result [skip ci]'
+          git add euronext-download-diagnostic.txt
+          git commit -m 'Phase 11: download diagnostic result [skip ci]'
           git push
