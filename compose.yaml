@@ -48,6 +48,7 @@ services:
   web:
     build:
       context: ./frontend
+    image: otello-web:local
     container_name: otello-web
     restart: unless-stopped
     security_opt:
