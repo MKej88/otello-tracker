@@ -28,6 +28,10 @@ def _to_python(value: Any) -> Any:
     return value
 
 
+def _versioned_external_id(external_id: str, content_sha256: str) -> str:
+    return f"{external_id}#sha256:{content_sha256[:20]}"
+
+
 class D1Repository:
     """Minimal data-access layer for dashboard API queries."""
 
@@ -58,9 +62,9 @@ class D1Repository:
 class D1WriteRepository(D1Repository):
     """Bound, idempotent D1 writes used by scheduled ingestion.
 
-    Phase 15.4 keeps write semantics aligned with the SQLite reference: provenance
-    documents are refreshed without losing prior metadata, financial values remain
-    decimal text, and market-price writes are idempotent on the existing unique key.
+    Content-bearing source documents are immutable across hash changes. A changed body
+    under the same provider ID is stored as a content-addressed version row so existing
+    facts retain the exact source snapshot they originally referenced.
     """
 
     async def run(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any:
@@ -100,7 +104,7 @@ class D1WriteRepository(D1Repository):
         if external_id is not None:
             existing = await self.first(
                 """
-                SELECT id, metadata_json
+                SELECT id, metadata_json, content_sha256
                 FROM source_documents
                 WHERE source_id=? AND external_id=?
                 LIMIT 1
@@ -108,6 +112,57 @@ class D1WriteRepository(D1Repository):
                 (sid, external_id),
             )
         if existing is not None:
+            previous_hash = str(existing.get("content_sha256") or "")
+            if content_sha256 and previous_hash and content_sha256 != previous_hash:
+                version_external_id = _versioned_external_id(external_id, content_sha256)
+                version = await self.first(
+                    """
+                    SELECT id FROM source_documents
+                    WHERE source_id=? AND external_id=?
+                    LIMIT 1
+                    """,
+                    (sid, version_external_id),
+                )
+                if version is not None:
+                    return int(version["id"])
+
+                version_metadata = {
+                    **metadata,
+                    "logical_external_id": external_id,
+                    "content_version_sha256": content_sha256,
+                    "original_source_document_id": int(existing["id"]),
+                    "provenance_policy": "IMMUTABLE_CONTENT_VERSION",
+                }
+                await self.run(
+                    """
+                    INSERT INTO source_documents(
+                        source_id, external_id, document_type, title, published_at, url,
+                        content_sha256, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sid,
+                        version_external_id,
+                        document_type,
+                        title,
+                        published_at,
+                        url,
+                        content_sha256,
+                        json.dumps(version_metadata, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+                version = await self.first(
+                    """
+                    SELECT id FROM source_documents
+                    WHERE source_id=? AND external_id=?
+                    LIMIT 1
+                    """,
+                    (sid, version_external_id),
+                )
+                if version is None:
+                    raise RuntimeError("D1 source_document-versjon ble skrevet, men kunne ikke leses tilbake")
+                return int(version["id"])
+
             try:
                 previous = json.loads(str(existing.get("metadata_json") or "{}"))
             except (TypeError, json.JSONDecodeError):
