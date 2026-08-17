@@ -6,9 +6,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from app.buybacks.euronext import parse_euronext_buyback_status
 from app.db.connection import get_connection
 from app.db.repository import create_source_document, decimal_text
-from app.newsweb.client import discover_otec_messages, fetch_message
+from app.newsweb.client import NewsWebMessage, discover_otec_messages, fetch_message
 
 BUYBACK_TITLE = "share buyback program status"
 _MONTHS = {
@@ -59,6 +60,42 @@ def parse_program_terms(text: str) -> dict[str, Any]:
     }
 
 
+def _period_starts_from_messages(
+    discovered: list[NewsWebMessage],
+    *,
+    external_program_id: str,
+    missing_period_ends: set[str],
+    latest_message: NewsWebMessage,
+    timeout: int,
+) -> dict[str, str]:
+    """Recover exact weekly period starts from original NewsWeb prose.
+
+    `buybacks.trade_date` historically stores the status period end. Phase 13 adds an
+    explicit period_start column because validated daily cash replaces the old weekly
+    cash movement and the forecast must not depend on cash-ledger descriptions.
+    """
+    found: dict[str, str] = {}
+    if not missing_period_ends:
+        return found
+
+    for listed in reversed(discovered):
+        if not missing_period_ends - found.keys():
+            break
+        message = latest_message if listed.message_id == latest_message.message_id else fetch_message(
+            listed.message_id, timeout=timeout
+        )
+        try:
+            parsed = parse_euronext_buyback_status(" ".join(message.body.split()))
+            parsed_program_id = f"otec-buyback-{_iso_date(parsed.program_reference_date)}"
+        except ValueError:
+            continue
+        if parsed_program_id != external_program_id:
+            continue
+        if parsed.period_end in missing_period_ends:
+            found[parsed.period_end] = parsed.period_start
+    return found
+
+
 def sync_current_program_terms(
     database_path: str | None = None,
     *,
@@ -94,6 +131,31 @@ def sync_current_program_terms(
             raise ValueError(
                 f"Program max_shares mismatch: database={program['max_shares']} message={terms['max_shares']}"
             )
+        missing_rows = connection.execute(
+            """
+            SELECT trade_date FROM buybacks
+            WHERE program_id=? AND period_start IS NULL
+            ORDER BY trade_date
+            """,
+            (int(program["id"]),),
+        ).fetchall()
+        missing_period_ends = {str(row["trade_date"]) for row in missing_rows}
+
+    recovered = _period_starts_from_messages(
+        discovered,
+        external_program_id=external_program_id,
+        missing_period_ends=missing_period_ends,
+        latest_message=message,
+        timeout=timeout,
+    )
+
+    with get_connection(database_path) as connection:
+        program = connection.execute(
+            "SELECT id, max_shares FROM buyback_programs WHERE external_program_id=?",
+            (external_program_id,),
+        ).fetchone()
+        if program is None:
+            return {"status": "not_ready", "reason": "program disappeared during sync"}
 
         document_id = create_source_document(
             connection,
@@ -115,6 +177,12 @@ def sync_current_program_terms(
             "UPDATE buyback_programs SET max_price_nok=? WHERE id=?",
             (decimal_text(terms["max_price_nok"]), int(program["id"])),
         )
+        for period_end, period_start in recovered.items():
+            connection.execute(
+                "UPDATE buybacks SET period_start=? WHERE program_id=? AND trade_date=?",
+                (period_start, int(program["id"]), period_end),
+            )
+
         exists = connection.execute(
             """
             SELECT 1 FROM provenance_records
@@ -138,6 +206,10 @@ def sync_current_program_terms(
                     decimal_text(terms["max_price_nok"]),
                 ),
             )
+        remaining_missing = connection.execute(
+            "SELECT COUNT(*) n FROM buybacks WHERE program_id=? AND period_start IS NULL",
+            (int(program["id"]),),
+        ).fetchone()["n"]
         connection.commit()
 
     return {
@@ -146,4 +218,6 @@ def sync_current_program_terms(
         "program_reference_date": terms["program_reference_date"],
         "max_price_nok": decimal_text(terms["max_price_nok"]),
         "max_shares": terms["max_shares"],
+        "period_starts_written": len(recovered),
+        "period_starts_missing": int(remaining_missing),
     }
