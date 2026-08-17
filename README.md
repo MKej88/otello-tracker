@@ -1,21 +1,20 @@
 # Otello NAV Dashboard
 
-Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-rabatt, tilbakekjøp, Bemobi-eksponering, selskapsmeldinger og datakvalitet.
+Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-rabatt, tilbakekjøp, Bemobi-eksponering og eksplisitt datakvalitet.
 
 ## Status 17.08.2026
 
-Kjernemodellen og live-feedene er implementert og testet. Produksjonsmålet er **Cloudflare-native**.
+Kjernemodellen og live-feedene finnes i den validerte SQLite-referanseimplementasjonen. Produksjonsmålet er **Cloudflare-native**.
 
-- **CORE NAV og FULL NAV:** historisk modell + daglig/indikativ live-serie
-- **NewsWeb:** historikk, originale buyback-meldinger og daglige transaksjoner
-- **Bemobi:** B3 delayed intradag, offisiell daglig CLOSE, CVM og utdelinger/JCP
-- **OTEC:** historisk kurs + Euronext delayed + EOD LAST
-- **Buyback-prognose:** Safe Harbour/ADV20-basert estimat med historisk validering
-- **Phase 14.1–14.3:** lette feeds, sikkerhet og produksjonsytelse
-- **Phase 14.5:** Cloudflare-native målarkitektur
-- **Phase 15.1:** D1-schema, referansedata og structural parity er CI-validert
+Cloudflare-migreringen har nå kommet gjennom read-only dashboardet:
 
-Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md), [docs/d1-migration.md](docs/d1-migration.md) og [docs/production-readiness.md](docs/production-readiness.md).
+- **15.1:** D1-schema og structural parity – ferdig
+- **15.2:** deterministisk SQLite → D1 bootstrap/data parity – ferdig lokalt
+- **15.3:** Python Worker + FastAPI + D1 read API + React Static Assets – ferdig lokalt
+- **15.3.1:** Cloudflare hardening, query-budget og populated-D1 HTTP parity – ferdig når CI er grønn
+- **15.4:** scheduled ingestion – neste fase
+
+Se [PHASE.md](PHASE.md), [docs/cloud-deployment.md](docs/cloud-deployment.md), [docs/d1-migration.md](docs/d1-migration.md), [docs/d1-bootstrap.md](docs/d1-bootstrap.md), [docs/worker-api.md](docs/worker-api.md) og [docs/production-readiness.md](docs/production-readiness.md).
 
 ## Produksjonsarkitektur – Cloudflare
 
@@ -29,41 +28,56 @@ Cloudflare Python Worker + Static Assets
   |
   +--> D1             strukturert produksjonsdata
   +--> R2             PDF/råkilder/arkiv
-  +--> Cron Triggers  30-minutters refresh
+  +--> Cron Triggers  fast refresh
   +--> Workflows      tyngre fullrefresh/retries
   +--> Secrets        API-nøkler
 ```
 
-React/Vite og FastAPI/Python beholdes. Dagens synkrone `sqlite3`-data-access kan ikke brukes som produksjonspersistence i Worker-runtime, så strukturert produksjonsdata flyttes til **Cloudflare D1**.
-
 Docker Compose/Nginx/SQLite beholdes som lokal regresjonsreferanse under migreringen, men er ikke produksjonsmålet.
 
-## Phase 15.1 – D1 schema parity
+## Implementert Worker API
 
-D1-bootstrapen er nå representert av to migrations:
+```text
+GET /api/health
+GET /api/dashboard/summary
+GET /api/dashboard/history
+GET /api/buybacks/forecast
+```
+
+`/api/health` gjør en faktisk D1-readiness-query. Dashboardets tre datakontrakter er differensielt parity-testet mot referansebackenden.
+
+React/Vite serveres som Workers Static Assets på samme origin. `/api/*` kjøres Worker-first og frontend-ruter har SPA-fallback.
+
+## Phase 15.3.1 hardening
+
+Hardening-fasen før write-paths/scheduling gjør følgende uten å endre finansielle modeller:
+
+- buyback-prognosen leser OTEC-aktivitet én gang per kall i stedet for to D1-spørringer per historisk programuke;
+- full ready-path er beskyttet av en eksplisitt D1 query-budget-test;
+- D1 får egne read-performance-indekser for buyback-program og NAV-serie;
+- CI bygger et populated referansedatasett, eksporterer det til ekte lokal Wrangler D1, starter faktisk `workerd` og krever eksakt HTTP-JSON-paritet mot SQLite-referansen;
+- statiske assets får CSP og øvrige sikkerhetsheadere via `frontend/public/_headers`;
+- Worker-genererte API-responser får egne sikkerhets- og cache-headere;
+- fingerprintede Vite-assets kan cache aggressivt, mens dynamiske API-kontrakter har korte/bundne cachevinduer.
+
+## D1
+
+D1 er planlagt som autoritativ produksjonsdatabase for market data, FX, holdings, cash, ONA, corporate actions, buybacks, CORE/FULL NAV, NewsWeb/CVM metadata og jobbstatus.
+
+D1-migreringene ligger i:
 
 ```text
 cloudflare/migrations/
   0001_initial_schema.sql
   0002_reference_data.sql
+  0003_query_indexes.sql
 ```
 
-`0001` genereres deterministisk fra sluttilstanden etter alle backend-migreringer. CI feiler hvis den driver fra SQLite-referansen.
+`0001_initial_schema.sql` genereres deterministisk fra den migrerte SQLite-referansen. `0003` inneholder Cloudflare/D1-spesifikke ytelsesindekser som ikke endrer datamodellens finansielle semantikk.
 
-Parity-testene verifiserer blant annet:
+## Historisk bootstrap
 
-- samme tabeller og kolonnedefinisjoner;
-- samme foreign keys og delete/update-regler;
-- samme eksplisitte, unique og partial indekser;
-- samme triggere;
-- samme stabile sources/instruments;
-- tom `PRAGMA foreign_key_check`.
-
-CI anvender også migrations i en ekte **lokal Wrangler D1-runtime**, ikke bare i Python `sqlite3`.
-
-Neste fase er **15.2: historisk SQLite → D1 bootstrap/data parity**.
-
-Detaljer: [docs/d1-migration.md](docs/d1-migration.md).
+Phase 15.2 kan eksportere en validert SQLite-snapshot til portabel D1-SQL med radtall, SHA-256 per tabell, global logisk hash og kontrollverdier for NAV, market/FX, cash, ONA, share count, holdings og buybacks. Den konkrete produksjonssnapshoten tas først ved cutover til faktisk remote `otello-nav`.
 
 ## NAV-definisjoner
 
@@ -85,7 +99,7 @@ Rapportert ONA:
 Total assets - cash - Bemobi carrying value - total liabilities
 ```
 
-Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. Hvis BMOB3 har fersk dagens pris før OTEC har handlet, kan dagens NAV bruke siste gyldige OTEC-pris og markeres `MIXED`/indikativt.
+Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. `ALIGNED`, `MIXED`, `STALE` og `UNKNOWN` beskriver dato-/ferskhetsstatus på markedsinputene.
 
 ## Datakilder
 
@@ -98,47 +112,31 @@ Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt. Hvis BMOB3 ha
 - **MFN:** sekundær fallback/discovery
 - **Investing.com CSV:** kun manuell historisk OTEC-fallback
 
-## Cloudflare-lagring
+## R2
 
-### D1
+R2 skal brukes til større/binære kildeobjekter som NewsWeb-PDF-er, rå CSV/ZIP-kilder, historiske importfiler og eksport/snapshots. R2 brukes ikke som SQLite-filsystem.
 
-D1 blir autoritativt produksjonslager for market data, cash, holdings, corporate actions, NAV, buybacks, NewsWeb/CVM-metadata og jobbstatus.
+## Neste fase – 15.4
 
-### R2
+Scheduled ingestion skal portere write-paths eksplisitt til Worker/D1 i stedet for å kopiere dagens synkrone SQLite-jobb:
 
-R2 brukes til større/binære objekter:
+```text
+Cron Trigger
+    |
+    +--> OTEC delayed/EOD
+    +--> BMOB3 delayed/EOD
+    +--> NewsWeb incremental
+    |
+    v
+D1 writes
+    |
+    v
+dirty-state cash/NAV
+```
 
-- NewsWeb-PDF-er
-- rå CSV/ZIP-kilder som skal arkiveres
-- historiske importfiler
-- eksport/snapshots
+Store payloads og tyngre jobber skal behandles innenfor Worker-limits og ved behov flyttes til Workflow/R2 i stedet for å lastes ukritisk inn i Worker-minnet.
 
-R2 brukes ikke som direkte SQLite-filsystem.
-
-## Scheduler på Cloudflare
-
-Fast refresh beholdes logisk hvert 30. minutt, men flyttes til **Cron Triggers**.
-
-Tyngre fullrefresh flyttes til **Workflows/scheduled jobs** med retries per kilde/trinn.
-
-Eksisterende Oslo-/São Paulo-kalenderlogikk skal fortsatt styre hvilke markeder som faktisk er åpne.
-
-## Migreringsplan
-
-1. **Ferdig:** Cloudflare målarkitektur og Worker/D1/R2 scaffold.
-2. **Ferdig:** D1-schema + structural parity.
-3. **Neste:** verifisert SQLite → D1 bootstrap/import og data parity.
-4. D1 repository/data-access-lag.
-5. Dashboardets read-only API på Cloudflare.
-6. OTEC/BMOB3/NewsWeb-writejobs.
-7. Cron Triggers og Workflows.
-8. R2 source archive.
-9. D1-preflight og datakvalitetskontroll.
-10. Auto-deploy fra `main` og custom domain.
-
-Detaljer: [docs/cloud-deployment.md](docs/cloud-deployment.md).
-
-## Lokal utvikling under migreringen
+## Lokal validering
 
 Backend:
 
@@ -149,7 +147,7 @@ python -m pip check
 PYTHONPATH=. pytest -q
 ```
 
-D1-schema/parity:
+D1:
 
 ```bash
 python cloudflare/tools/generate_d1_schema.py --check
@@ -165,29 +163,31 @@ npm audit --omit=dev --audit-level=high
 npm run build
 ```
 
-Docker-regresjon:
+Worker:
 
 ```bash
-docker compose config --quiet
-docker compose build api web
-docker run --rm --add-host api:127.0.0.1 otello-web:local nginx -t
+cd cloudflare
+python -m pip install workers-py==1.16.4 uv==0.12.3
+npm install --no-save wrangler@4.123.0
+pywrangler deploy --dry-run --config wrangler.worker-test.jsonc
+pywrangler dev --config wrangler.worker-test.jsonc
 ```
 
-Docker er lokal/reference CI, ikke endelig Cloudflare-produksjonsdeploy.
-
-## Produksjonsdata og secrets
-
-Ikke commit databasefiler, API-nøkler, rå markedsdata eller PDF-er. Cloudflare-secrets skal ligge utenfor Git.
-
-## Neste produksjonsporter
+## Produksjonsporter som gjenstår
 
 Før Cloudflare-go-live skal:
 
-1. historisk SQLite→D1-import være verifisert;
-2. dashboard-API gi samme tall som referanseimplementasjonen;
-3. fast/full refresh kjøre gjennom Cron/Workflows;
+1. den konkrete SQLite-cutover-snapshoten importeres og valideres mot remote D1;
+2. scheduled ingestion kjøre i Cron;
+3. full refresh/retries flyttes til Workflows;
 4. R2 source archive være på plass;
 5. D1 preflight/data-health passere;
-6. GitHub→Cloudflare deploy være grønn;
-7. custom domain/HTTPS fungere;
-8. Otello 1H26-ankrene etter 21.08.2026 være importert og avstemt.
+6. reell Worker CPU/memory/D1-bruk måles;
+7. GitHub → Cloudflare deploy være grønn;
+8. custom domain/HTTPS og observability fungere;
+9. D1 recovery/Time Travel testes;
+10. siste rapporterte Otello-ankre avstemmes før produksjon.
+
+## Secrets
+
+Databasefiler, API-nøkler, rå markedsdata og kilde-PDF-er skal ikke committes. Produksjonssecrets skal ligge i Cloudflare Workers Secrets/Secrets Store.
