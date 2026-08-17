@@ -17,6 +17,7 @@ jobs:
           import io
           import json
           import re
+          import urllib.parse
           import urllib.request
           from pypdf import PdfReader
 
@@ -47,7 +48,6 @@ jobs:
           print("PDF_LINES", len(text.splitlines()), "PDF_BYTES", len(pdf))
           print(text[:3000])
 
-          # Discover route names from the current NewsWeb JS application itself.
           app_urls = ["https://newsweb.oslobors.no/", "https://newsserviceweb.oslobors.no/"]
           routes = set()
           for app_url in app_urls:
