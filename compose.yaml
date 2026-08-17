@@ -2,6 +2,7 @@ services:
   api:
     build:
       context: ./backend
+    image: otello-backend:local
     container_name: otello-api
     restart: unless-stopped
     environment:
@@ -17,6 +18,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  scheduler:
+    image: otello-backend:local
+    container_name: otello-scheduler
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-Otello NAV Dashboard}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/otello.db}
+      REFRESH_INTERVAL_MINUTES: ${REFRESH_INTERVAL_MINUTES:-30}
+      REFRESH_RUN_ON_START: ${REFRESH_RUN_ON_START:-true}
+    volumes:
+      - ./data:/data
+    command: ["python", "-m", "app.jobs.scheduler"]
 
   web:
     build:
