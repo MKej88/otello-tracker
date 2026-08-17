@@ -32,7 +32,17 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
     monkeypatch.setattr(
         fast,
         "maybe_finalize_otec_eod",
-        lambda *_args, **kwargs: calls.setdefault("eod_kwargs", kwargs) or {"status": "skipped"},
+        lambda *_args, **kwargs: calls.setdefault("otec_eod_kwargs", kwargs) or {"status": "skipped"},
+    )
+    monkeypatch.setattr(
+        fast,
+        "refresh_bmob3_intraday_price",
+        lambda *_args, **_kwargs: calls.setdefault("bmob3_intraday", True) or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        fast,
+        "maybe_finalize_bmob3_eod",
+        lambda *_args, **kwargs: calls.setdefault("bmob3_eod_kwargs", kwargs) or {"status": "skipped"},
     )
 
     def news_history(*_args, **kwargs):
@@ -71,7 +81,9 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
     assert result["refresh_mode"] == "fast"
     assert result["status"] == "ok"
     assert calls["otec_intraday"] is True
-    assert calls["eod_kwargs"] == {"target_date": "2026-08-17", "now": now}
+    assert calls["bmob3_intraday"] is True
+    assert calls["otec_eod_kwargs"] == {"target_date": "2026-08-17", "now": now}
+    assert calls["bmob3_eod_kwargs"] == {"now": now}
     assert calls["history_kwargs"] == {"to_date": "2026-08-17"}
     # Important: no explicit historical from_date. The NewsWeb collector selects its own
     # latest-21-day overlap, so the 30-minute cycle does not refetch from 2023.
@@ -96,3 +108,42 @@ def test_eod_result_skips_intraday_when_session_is_finalized() -> None:
         {"status": "skipped", "reason": "before_eod_cutoff"}
     ) is False
     assert fast._eod_is_authoritative_for_cycle(None) is False
+
+
+def test_bmob3_eod_priority_skips_intraday(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "bmob3-eod.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    class FixedDate(real_date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 8, 17)
+
+    monkeypatch.setattr(fast, "date", FixedDate)
+    monkeypatch.setattr(
+        fast,
+        "market_activity_status",
+        lambda *_args, **_kwargs: {"status": "ok", "count": 600, "to": "2026-08-14"},
+    )
+    monkeypatch.setattr(fast, "activity_check_done", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(fast, "maybe_finalize_otec_eod", lambda *_args, **_kwargs: {"status": "ok"})
+    monkeypatch.setattr(fast, "maybe_finalize_bmob3_eod", lambda *_args, **_kwargs: {"status": "ok"})
+    monkeypatch.setattr(
+        fast,
+        "refresh_bmob3_intraday_price",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("intraday BMOB3 not expected")),
+    )
+    monkeypatch.setattr(fast, "collect_newsweb_history", lambda *_args, **_kwargs: {"errors": []})
+    monkeypatch.setattr(fast, "collect_newsweb_buybacks", lambda *_args, **_kwargs: {"errors": []})
+    monkeypatch.setattr(fast, "sync_newsweb_daily_buyback_cash", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(fast, "sync_current_program_terms", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(fast, "rebuild_daily_cash", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(fast, "_latest_otec_date", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fast, "dashboard_summary", lambda *_args, **_kwargs: {"ready": False})
+
+    result = fast.run_fast_refresh(database, target_date="2026-08-17")
+    assert result["steps"]["bmob3_delayed"] == {
+        "skipped": True,
+        "reason": "eod_finalized_for_session",
+    }
