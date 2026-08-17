@@ -1,12 +1,33 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from app.bemobi.cvm_ipe import collect_bemobi_cvm_news, years_for_refresh
 from app.db.runtime_state import get_runtime_state, set_runtime_state
 
-_STATE_PREFIX = "cvm_ipe_historical_complete:"
+_LAST_SUCCESS_PREFIX = "cvm_ipe_last_success:"
+PREVIOUS_YEAR_REFRESH_DAYS = 30
+
+
+def _refresh_due(year: int, current_year: int, today: date, database_path: str | None) -> bool:
+    if year == current_year:
+        return True
+    last_success = get_runtime_state(f"{_LAST_SUCCESS_PREFIX}{year}", database_path)
+    if not last_success:
+        return True
+    try:
+        last_day = date.fromisoformat(last_success[:10])
+    except ValueError:
+        return True
+    if year == current_year - 1:
+        # Keep a low-frequency correction check for the previous archive rather than
+        # assuming it can never receive a late/restated filing after year-end.
+        return today - last_day >= timedelta(days=PREVIOUS_YEAR_REFRESH_DAYS)
+    # Older archives are fetched only when years_for_refresh says their local coverage is
+    # missing. Once a successful archive has been stored, that function drops them from
+    # the candidate set; this branch is therefore only a defensive no-op guard.
+    return False
 
 
 def collect_bemobi_cvm_news_incremental(
@@ -14,28 +35,28 @@ def collect_bemobi_cvm_news_incremental(
     *,
     target_year: int | None = None,
     timeout: int = 45,
+    today: date | None = None,
 ) -> dict[str, Any]:
-    """Refresh the current CVM archive daily, but historical archives only until complete.
+    """Refresh CVM cheaply without giving up correction coverage.
 
-    CVM's IPE source is organized as annual ZIP files. Re-downloading the previous year
-    every day is wasteful on a Raspberry Pi. The current year remains rolling; older
-    years are marked complete only after a successful parse/upsert cycle and can be
-    retried automatically if an earlier attempt failed.
+    The current IPE year remains rolling. The previous year is checked at most every
+    30 days to catch late/restated metadata without downloading a second annual ZIP every
+    day. Older missing archives are fetched until a successful local copy exists.
     """
-    current = target_year or date.today().year
+    current_day = today or date.today()
+    current = target_year or current_day.year
     candidates = years_for_refresh(database_path, target_year=current)
     selected = [
         year
         for year in candidates
-        if year == current
-        or get_runtime_state(f"{_STATE_PREFIX}{year}", database_path) is None
+        if _refresh_due(year, current, current_day, database_path)
     ]
 
     if not selected:
         return {
             "years": [],
             "skipped": True,
-            "reason": "historical_cvm_archives_already_complete",
+            "reason": "cvm_archives_not_due",
             "errors": [],
         }
 
@@ -50,11 +71,14 @@ def collect_bemobi_cvm_news_incremental(
         for item in result.get("errors", [])
         if item.get("year") is not None
     }
-    for year in selected:
-        if year != current and year not in failed_years:
-            set_runtime_state(f"{_STATE_PREFIX}{year}", "complete", database_path)
+    successful = [year for year in selected if year not in failed_years]
+    for year in successful:
+        set_runtime_state(
+            f"{_LAST_SUCCESS_PREFIX}{year}",
+            current_day.isoformat(),
+            database_path,
+        )
 
-    result["historical_years_marked_complete"] = [
-        year for year in selected if year != current and year not in failed_years
-    ]
+    result["successful_years"] = successful
+    result["previous_year_refresh_days"] = PREVIOUS_YEAR_REFRESH_DAYS
     return result
