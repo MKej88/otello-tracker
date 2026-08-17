@@ -97,6 +97,75 @@ jobs:
           npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "PRAGMA foreign_key_check;"
           npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT COUNT(*) AS source_count FROM sources; SELECT COUNT(*) AS instrument_count FROM instruments; SELECT COUNT(*) AS nav_count FROM nav_snapshots;"
 
+  worker:
+    name: Cloudflare Python Worker API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Build dashboard static assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Install pinned Python Worker toolchain
+        run: python -m pip install workers-py==1.16.4 uv==0.12.3
+      - name: Install pinned Wrangler
+        run: npm install --no-save wrangler@4.123.0
+      - name: Apply schema to Worker local D1
+        run: npx wrangler d1 migrations apply DB --local --config wrangler.worker-test.jsonc
+      - name: Build Python Worker without deploying
+        run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
+      - name: Smoke-test Worker HTTP API and static assets against local D1
+        run: |
+          pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8787/api/health > /tmp/worker-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/otello-worker.log
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:8787/api/dashboard/summary > /tmp/worker-summary.json
+          curl -fsS 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' > /tmp/worker-history.json
+          curl -fsS 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' > /tmp/worker-forecast.json
+          curl -fsS http://127.0.0.1:8787/ > /tmp/worker-index.html
+          curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/worker-health.json').read_text())
+          summary = json.loads(Path('/tmp/worker-summary.json').read_text())
+          history = json.loads(Path('/tmp/worker-history.json').read_text())
+          forecast = json.loads(Path('/tmp/worker-forecast.json').read_text())
+          index = Path('/tmp/worker-index.html').read_text()
+          fallback = Path('/tmp/worker-spa-fallback.html').read_text()
+          assert health['status'] == 'ok'
+          assert health['environment'] == 'cloudflare'
+          assert summary['ready'] is False and summary['data_status'] == 'not_ready'
+          assert summary['market_timestamps']['status'] == 'UNKNOWN'
+          assert history['ready'] is False and history['points'] == []
+          assert forecast['ready'] is False and forecast['status'] == 'NO_ACTIVE_PROGRAM'
+          assert '<title>Otello NAV Dashboard</title>' in index
+          assert '<title>Otello NAV Dashboard</title>' in fallback
+          print('Worker HTTP + static asset smoke test passed')
+          PY
+
   docker-reference:
     name: Docker regression reference
     runs-on: ubuntu-latest
@@ -111,5 +180,4 @@ jobs:
       - name: Verify backend reference timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
 
-# Worker/API jobs are added incrementally during Phase 15.
 # Docker remains only a regression/reference implementation and is not the production target.
