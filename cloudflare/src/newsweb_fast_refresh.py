@@ -48,15 +48,21 @@ def _metadata(raw: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-async def _existing_newsweb_documents(repository) -> dict[str, dict[str, Any]]:
-    """Load the small NewsWeb provenance index once for the entire fast refresh."""
+async def _existing_newsweb_documents(
+    repository,
+    *,
+    from_date: str,
+) -> dict[str, dict[str, Any]]:
+    """Load only the bounded overlap-window provenance index for fast refresh."""
     rows = await repository.all(
         """
         SELECT sd.external_id, sd.metadata_json, sd.fetched_at
         FROM source_documents sd
         JOIN sources s ON s.id=sd.source_id
         WHERE s.code='NEWSWEB' AND sd.external_id IS NOT NULL
-        """
+          AND sd.published_at >= ?
+        """,
+        (f"{from_date}T00:00:00Z",),
     )
     return {
         str(row["external_id"]): {
@@ -114,7 +120,7 @@ async def collect_newsweb_fast(
     revalidate_on = revalidation_date or datetime.now(UTC).date().isoformat()
 
     discovered = await discover_otec_messages(combined_start, to_date, fetcher=fetcher)
-    existing = await _existing_newsweb_documents(repository)
+    existing = await _existing_newsweb_documents(repository, from_date=combined_start)
 
     history_results: list[dict[str, Any]] = []
     history_errors: list[dict[str, Any]] = []
