@@ -8,36 +8,44 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect NewsWeb list contract
+      - name: Probe NewsWeb OTEC list
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import re
+          import json
           import urllib.parse
           import urllib.request
 
-          UA = "otello-tracker/phase-9.3"
-          app_url = "https://newsweb.oslobors.no/"
-          html = urllib.request.urlopen(urllib.request.Request(app_url, headers={"User-Agent": UA}), timeout=30).read().decode("utf-8", "replace")
-          scripts = re.findall(r'<script[^>]+src=["\']([^"\']+\.js)["\']', html, re.I)
-          print("SCRIPTS", scripts)
-          for src in scripts:
-              js_url = urllib.parse.urljoin(app_url, src)
-              js = urllib.request.urlopen(urllib.request.Request(js_url, headers={"User-Agent": UA}), timeout=30).read().decode("utf-8", "replace")
-              print("JS_LEN", len(js), js_url)
-              for needle in ("newsreader/list", "newsreader/customQuery", "issuerId", "issuerIds", "fromDate", "toDate"):
-                  start = 0
-                  count = 0
-                  while True:
-                      pos = js.find(needle, start)
-                      if pos < 0 or count >= 8:
-                          break
-                      lo = max(0, pos - 1200)
-                      hi = min(len(js), pos + 1800)
-                      print(f"SNIPPET {needle} #{count+1}")
-                      print(js[lo:hi])
-                      print("END_SNIPPET")
-                      start = pos + len(needle)
-                      count += 1
+          base = "https://api3.oslo.oslobors.no/v1/newsreader"
+          params = {
+              "category": "",
+              "issuer": "7759",
+              "fromDate": "2026-06-01",
+              "toDate": "2026-08-17",
+              "market": "",
+              "messageTitle": "share buyback program status",
+          }
+          url = f"{base}/list?{urllib.parse.urlencode(params)}"
+          req = urllib.request.Request(
+              url,
+              data=b"{}",
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "Origin": "https://newsweb.oslobors.no",
+                  "Referer": "https://newsweb.oslobors.no/",
+                  "User-Agent": "otello-tracker/phase-9.3",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              payload = json.loads(r.read().decode("utf-8"))
+          print(json.dumps(payload, ensure_ascii=False, indent=2)[:50000])
+          data = payload.get("data", payload)
+          messages = data.get("messages", [])
+          print("COUNT", len(messages), "OVERFLOW", data.get("overflow"))
+          assert messages, "NewsWeb returned no OTEC buyback messages"
+          assert all(str(m.get("issuerId")) == "7759" for m in messages)
+          assert any(int(m.get("messageId", m.get("id", 0))) == 678028 for m in messages)
           PY
