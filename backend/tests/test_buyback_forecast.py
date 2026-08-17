@@ -70,25 +70,25 @@ def _seed_current_program(database: str) -> None:
             connection.execute(
                 """
                 INSERT INTO buybacks(
-                    program_id, trade_date, shares, avg_price_nok, amount_nok,
+                    program_id, period_start, trade_date, shares, avg_price_nok, amount_nok,
                     cumulative_program_shares, treasury_shares_after, source_document_id
-                ) VALUES (?, ?, ?, '17', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, '17', ?, ?, ?, ?)
                 """,
-                (program_id, end, shares, str(shares * 17), cumulative, 5_000_000 + cumulative, document_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO cash_movements(
-                    movement_date, movement_type, amount_nok, currency,
-                    description, source_document_id, confidence
-                ) VALUES (?, 'OTELLO_BUYBACK', '-1', 'NOK', ?, ?, 'CONFIRMED')
-                """,
-                (end, f"Otello buyback: {shares:,} shares during {start}–{end}.", document_id),
+                (
+                    program_id,
+                    start,
+                    end,
+                    shares,
+                    str(shares * 17),
+                    cumulative,
+                    5_000_000 + cumulative,
+                    document_id,
+                ),
             )
         connection.commit()
 
 
-def test_current_program_forecast_matches_walk_forward_backtest(tmp_path) -> None:
+def test_current_program_forecast_matches_walk_forward_backtest_without_weekly_cash(tmp_path) -> None:
     database = str(tmp_path / "forecast.db")
     init_database(database)
     seed_otec_activity_history(database)
