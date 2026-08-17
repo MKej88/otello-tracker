@@ -30,6 +30,10 @@ def instrument_id(connection: sqlite3.Connection, symbol: str) -> int:
     return int(row["id"])
 
 
+def _versioned_external_id(external_id: str, content_sha256: str) -> str:
+    return f"{external_id}#sha256:{content_sha256[:20]}"
+
+
 def create_source_document(
     connection: sqlite3.Connection,
     *,
@@ -42,7 +46,13 @@ def create_source_document(
     content_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> int:
-    """Create or refresh a source document without discarding prior provenance metadata."""
+    """Create an idempotent source snapshot while preserving changed historical content.
+
+    A stable external ID can be refreshed in place while its content hash is unchanged.
+    If the provider later serves different content under the same ID, the prior row is
+    left untouched and a content-addressed version row is created instead. Facts already
+    linked to the old source_document_id therefore keep their original provenance.
+    """
     sid = source_id(connection, source_code)
 
     if external_id is not None:
@@ -55,6 +65,46 @@ def create_source_document(
             (sid, external_id),
         ).fetchone()
         if existing is not None:
+            previous_hash = str(existing["content_sha256"] or "")
+            if content_sha256 and previous_hash and content_sha256 != previous_hash:
+                version_external_id = _versioned_external_id(external_id, content_sha256)
+                version = connection.execute(
+                    """
+                    SELECT id FROM source_documents
+                    WHERE source_id = ? AND external_id = ?
+                    """,
+                    (sid, version_external_id),
+                ).fetchone()
+                if version is not None:
+                    return int(version["id"])
+
+                version_metadata = {
+                    **(metadata or {}),
+                    "logical_external_id": external_id,
+                    "content_version_sha256": content_sha256,
+                    "original_source_document_id": int(existing["id"]),
+                    "provenance_policy": "IMMUTABLE_CONTENT_VERSION",
+                }
+                cursor = connection.execute(
+                    """
+                    INSERT INTO source_documents(
+                        source_id, external_id, document_type, title, published_at, url,
+                        content_sha256, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sid,
+                        version_external_id,
+                        document_type,
+                        title,
+                        published_at,
+                        url,
+                        content_sha256,
+                        json.dumps(version_metadata, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+                return int(cursor.lastrowid)
+
             try:
                 previous_metadata = json.loads(existing["metadata_json"] or "{}")
             except (TypeError, json.JSONDecodeError):
