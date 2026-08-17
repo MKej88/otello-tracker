@@ -6,13 +6,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from app.buybacks.euronext import parse_euronext_buyback_status
 from app.db.connection import get_connection
 from app.db.repository import create_source_document, decimal_text
 from app.newsweb.client import NewsWebMessage, discover_otec_messages, fetch_message
 from app.newsweb.normalization import normalize_weekly_body
 
 BUYBACK_TITLE = "share buyback program status"
+_PERIOD_RE = re.compile(
+    r"From (\d{1,2} [A-Za-z]+ \d{4}) through (\d{1,2} [A-Za-z]+ \d{4}),",
+    re.I,
+)
 _MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
     "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
@@ -71,9 +74,10 @@ def _period_starts_from_messages(
 ) -> dict[str, str]:
     """Recover exact weekly period starts from original NewsWeb prose.
 
-    `buybacks.trade_date` historically stores the status period end. Phase 13 adds an
-    explicit period_start column because validated daily cash replaces the old weekly
-    cash movement and the forecast must not depend on cash-ledger descriptions.
+    Only the program identity and literal `From ... through ...` dates are needed here.
+    Financial fields remain owned by the existing strict weekly parser. Keeping period
+    recovery narrower avoids coupling forecasting metadata to later prose variants in
+    cumulative/VWAP sentences.
     """
     found: dict[str, str] = {}
     if not missing_period_ends:
@@ -86,14 +90,19 @@ def _period_starts_from_messages(
             listed.message_id, timeout=timeout
         )
         try:
-            parsed = parse_euronext_buyback_status(normalize_weekly_body(message.body))
-            parsed_program_id = f"otec-buyback-{_iso_date(parsed.program_reference_date)}"
+            message_terms = parse_program_terms(message.body)
         except ValueError:
             continue
-        if parsed_program_id != external_program_id:
+        message_program_id = f"otec-buyback-{message_terms['program_reference_date']}"
+        if message_program_id != external_program_id:
             continue
-        if parsed.period_end in missing_period_ends:
-            found[parsed.period_end] = parsed.period_start
+        match = _PERIOD_RE.search(normalize_weekly_body(message.body))
+        if match is None:
+            continue
+        period_start = _iso_date(match.group(1))
+        period_end = _iso_date(match.group(2))
+        if period_end in missing_period_ends:
+            found[period_end] = period_start
     return found
 
 
