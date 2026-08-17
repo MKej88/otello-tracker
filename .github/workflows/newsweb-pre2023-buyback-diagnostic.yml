@@ -1,0 +1,44 @@
+name: NewsWeb pre-2023 buyback diagnostic
+
+on:
+  push:
+    branches: [phase-9-4-full-newsweb-history-clean]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Diagnose old NewsWeb buybacks
+        working-directory: backend
+        run: |
+          PYTHONPATH=. python - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+          from app.db.migration_runner import init_database
+          from app.newsweb import collect_newsweb_buybacks
+
+          with tempfile.TemporaryDirectory() as tmp:
+              db = str(Path(tmp) / "old-buybacks.db")
+              init_database(db)
+              result = collect_newsweb_buybacks(
+                  db, from_date="2020-01-01", to_date="2023-06-19", timeout=45
+              )
+              print("SUMMARY", json.dumps({
+                  "discovered": result["discovered"],
+                  "ingested": result["ingested"],
+                  "daily_rows": result["daily_rows"],
+                  "attachment_review_count": result["attachment_review_count"],
+                  "no_attachment_count": result["no_attachment_count"],
+                  "no_purchase_count": result["no_purchase_count"],
+                  "errors": result["errors"],
+                  "warnings": result["warnings"],
+              }, indent=2, ensure_ascii=False, default=str))
+          PY
