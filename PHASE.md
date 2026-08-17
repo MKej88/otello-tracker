@@ -159,7 +159,7 @@ Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
-Status: **Pågår – 15.4.1–15.4.3 er ferdige og CI-validerte**
+Status: **Pågår – 15.4.1–15.4.4 er ferdige og CI-validerte**
 
 #### 15.4.1 – OTEC intradag + Cron
 
@@ -202,9 +202,25 @@ Status: **Pågår – 15.4.1–15.4.3 er ferdige og CI-validerte**
 - [x] recovery-payload over Worker-grensen er eksplisitt flyttet til R2/Workflow-sporet i 15.5/15.6
 - [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
 
+#### 15.4.4 – NewsWeb incremental
+
+- [x] NewsWeb API-klient portert til Python Worker
+- [x] bounded 5 MiB JSON-respons med Content-Length-sjekk før body-lesing når tilgjengelig
+- [x] issuer 7759 / OTEC / XOSL-validering bevart
+- [x] recursive overflow-splitting og corrected/superseded-filter bevart
+- [x] 14-dagers overlappende history archive til source_documents/company_news
+- [x] full meldingstekst lagres ikke; SHA-256 + metadata + strukturerte fakta beholdes
+- [x] 21-dagers overlappende buyback-refresh
+- [x] ukentlig parser er lik referansen for dokumenterte 2023–2025 ordlydsvarianter
+- [x] buyback_programs, weekly buybacks, bekreftet fallback-cash og treasury/outstanding shares skrives idempotent til D1
+- [x] kildeprioritet bevart: NewsWeb overskriver ikke motstridende sterkere Euronext-fakta
+- [x] PDF/daglige buyback-transaksjoner er eksplisitt utsatt til full refresh/R2 i 15.5/15.6
+- [x] NewsWeb history + buybacks koblet til 30-minutters Cron
+- [x] test skriver mot database bygget fra faktiske D1-migreringer og verifiserer idempotens/source priority
+- [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
+
 #### Gjenstår i 15.4
 
-- [ ] NewsWeb incremental som Worker-native write-path
 - [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
 
 Dokumentasjon: `cloudflare/README.md`.
@@ -220,7 +236,7 @@ Dokumentasjon: `cloudflare/README.md`.
 
 ### 15.6 – R2 og kildearkiv
 
-- [ ] NewsWeb PDF
+- [ ] NewsWeb PDF og daglige buyback-transaksjoner
 - [ ] rå CSV/ZIP ved behov, inkludert store OTEC recovery-filer
 - [ ] historiske importfiler
 - [ ] eksport/snapshot
