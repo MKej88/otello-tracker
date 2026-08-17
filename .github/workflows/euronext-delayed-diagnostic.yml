@@ -12,11 +12,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Inspect public delayed-trades page and scripts
+      - name: Inspect and test official Oslo delayed-trades download
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import html as html_module
           import re
           import urllib.parse
           import urllib.request
@@ -25,42 +26,85 @@ jobs:
           headers = {'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)'}
           req = urllib.request.Request(page_url, headers=headers)
           with urllib.request.urlopen(req, timeout=30) as response:
-              html = response.read().decode('utf-8', errors='replace')
-              print('PAGE', response.status, response.geturl(), len(html))
+              page = response.read().decode('utf-8', errors='replace')
+              print('PAGE', response.status, response.geturl(), len(page))
 
-          print('FORM_LINES')
-          for line in html.splitlines():
-              lower = line.lower()
-              if any(term in lower for term in ('extract csv', 'trade', 'download', 'api', 'script src')):
-                  if len(line) < 5000:
-                      print(line[:5000])
-
-          srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)', html, flags=re.I)
-          print('SCRIPT_COUNT', len(srcs))
-          for src in srcs:
-              url = urllib.parse.urljoin(page_url, src)
-              print('SCRIPT', url)
-              try:
-                  req = urllib.request.Request(url, headers=headers)
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      body = response.read(10 * 1024 * 1024).decode('utf-8', errors='replace')
-              except Exception as exc:
-                  print('SCRIPT_ERROR', url, repr(exc))
+          selects = {}
+          for match in re.finditer(r'<select\b([^>]*)>(.*?)</select>', page, flags=re.I | re.S):
+              attrs, body = match.groups()
+              id_match = re.search(r'\bid=["\']([^"\']+)', attrs, flags=re.I)
+              name_match = re.search(r'\bname=["\']([^"\']+)', attrs, flags=re.I)
+              key = (id_match or name_match)
+              if not key:
                   continue
-              matches = []
-              for pattern in (
-                  r'.{0,300}trades-file.{0,500}',
-                  r'.{0,300}Extract CSV.{0,500}',
-                  r'.{0,300}extractCsv.{0,500}',
-                  r'.{0,300}download.{0,500}',
-                  r'.{0,300}/api/.{0,500}',
-                  r'.{0,300}axios.{0,500}',
-                  r'.{0,300}fetch\(.{0,500}',
-              ):
-                  matches.extend(re.findall(pattern, body, flags=re.I | re.S))
-              if matches:
-                  print('MATCHES_BEGIN', url)
-                  for match in matches[:40]:
-                      print(re.sub(r'\s+', ' ', match)[:1500])
-                  print('MATCHES_END', url)
+              key = key.group(1)
+              options = []
+              for option in re.finditer(r'<option\b([^>]*)>(.*?)</option>', body, flags=re.I | re.S):
+                  option_attrs, label = option.groups()
+                  value_match = re.search(r'\bvalue=["\']([^"\']*)', option_attrs, flags=re.I)
+                  value = html_module.unescape(value_match.group(1) if value_match else re.sub(r'<[^>]+>', '', label))
+                  label = html_module.unescape(re.sub(r'<[^>]+>', '', label)).strip()
+                  options.append((value, label))
+              selects[key] = options
+              print('SELECT', key, options)
+
+          def pick(needles):
+              for key, options in selects.items():
+                  for value, label in options:
+                      haystack = (value + ' ' + label).lower()
+                      if all(needle in haystack for needle in needles):
+                          return key, value, label
+              return None
+
+          type_pick = pick(['post', 'trade'])
+          time_pick = pick(['current', 'trading', 'day'])
+          oslo_pick = pick(['oslo'])
+          print('PICKS', type_pick, time_pick, oslo_pick)
+          if not (type_pick and time_pick and oslo_pick):
+              raise SystemExit('Could not resolve dropdown values for Post Trades / Current Trading Day / Oslo')
+
+          type_value = type_pick[1]
+          time_value = time_pick[1]
+          oslo_value = oslo_pick[1]
+          download_url = (
+              'https://marketdata.euronext.com/data-reporting-service/trades-file/download/'
+              + urllib.parse.quote(type_value, safe='') + '/'
+              + urllib.parse.quote(time_value, safe='') + '/'
+              + urllib.parse.quote(oslo_value, safe='')
+          )
+          print('DOWNLOAD_URL', download_url)
+
+          head_req = urllib.request.Request(download_url, method='HEAD', headers=headers)
+          with urllib.request.urlopen(head_req, timeout=60) as response:
+              print('HEAD', response.status, dict(response.headers))
+
+          get_req = urllib.request.Request(download_url, headers=headers)
+          with urllib.request.urlopen(get_req, timeout=120) as response:
+              payload = response.read(100 * 1024 * 1024)
+              print('GET', response.status, response.geturl(), response.headers.get('Content-Type'), len(payload))
+              print('CONTENT_DISPOSITION', response.headers.get('Content-Disposition'))
+
+          text = None
+          for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
+              try:
+                  text = payload.decode(encoding)
+                  print('ENCODING', encoding)
+                  break
+              except UnicodeDecodeError:
+                  pass
+          if text is None:
+              raise SystemExit('Could not decode downloaded delayed-trade file')
+
+          lines = text.splitlines()
+          print('LINE_COUNT', len(lines))
+          print('FIRST_LINES')
+          for line in lines[:8]:
+              print(line[:4000])
+
+          matches = [line for line in lines if 'OTEC' in line.upper() or 'NO0010040611' in line.upper() or 'OTELLO' in line.upper()]
+          print('OTEC_MATCHES', len(matches))
+          for line in matches[-20:]:
+              print('OTEC_LINE', line[:5000])
+          if not matches:
+              raise SystemExit('Official Oslo delayed-trade file contains no OTEC match')
           PY
