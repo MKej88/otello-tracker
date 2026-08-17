@@ -268,10 +268,15 @@ def import_delayed_otec_trade(
         "price_semantics": "LATEST_REPORTED_TRADE_NOT_OFFICIAL_CLOSE",
     }
     with get_connection(database_path) as connection:
+        # A delayed window changes throughout the session. Include the payload digest in
+        # the source identity so an older price never ends up pointing to metadata/hash
+        # from a later download. Repeating an identical payload remains idempotent.
         document_id = create_source_document(
             connection,
             source_code="EURONEXT",
-            external_id=f"otec-delayed-{time_selection.lower()}-{trade.trading_date}",
+            external_id=(
+                f"otec-delayed-{time_selection.lower()}-{trade.trading_date}-{digest[:20]}"
+            ),
             document_type="DELAYED_MARKET_DATA_FILE",
             title=f"Euronext delayed Oslo equity trades - {time_selection}",
             url=source_url,
