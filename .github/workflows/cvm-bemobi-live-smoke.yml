@@ -52,6 +52,16 @@ jobs:
                   raise SystemExit("No Bemobi CVM rows discovered")
               if status["status"] != "ok" or status["count"] <= 0:
                   raise SystemExit(f"Bad status: {status}")
+              if status["all_versions"] != result["archived"]:
+                  raise SystemExit(
+                      f"CVM archive lost/collided rows: persisted={status['all_versions']} "
+                      f"archived={result['archived']}"
+                  )
+              if status["count"] != result["latest_versions"]:
+                  raise SystemExit(
+                      f"Latest-version mismatch: status={status['count']} "
+                      f"collector={result['latest_versions']}"
+                  )
 
               with get_connection(db) as connection:
                   signals = connection.execute(
