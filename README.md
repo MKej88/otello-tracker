@@ -4,17 +4,17 @@ Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-r
 
 ## Status 17.08.2026
 
-Kjernemodellen og pre-live hardening er implementert:
+Kjernemodellen, pre-live-plattformen og de lette live-feedene er implementert:
 
-- **CORE NAV og FULL NAV:** historisk modell + daglig serie
+- **CORE NAV og FULL NAV:** historisk modell + daglig/indikativ live-serie
 - **NewsWeb:** historikk, originale buyback-meldinger og daglige transaksjoner
-- **Bemobi:** B3-priser, CVM-nyheter og skattejusterte utdelinger/JCP
-- **OTEC:** historisk kurs + Euronext delayed LAST
+- **Bemobi:** lett B3 delayed intradag, offisiell daglig CLOSE, CVM-nyheter og skattejusterte utdelinger/JCP
+- **OTEC:** historisk kurs + lette Euronext delayed-vinduer + EOD LAST
 - **Buyback-prognose:** Safe Harbour/ADV20-basert estimat med historisk validering
-- **Phase 13.1:** ren produksjons-bootstrap + streng preflight
-- **Phase 13.2:** lett 30-minutters refresh, daglig fullrefresh, jobbstatus og verifiserte SQLite-backuper
-- **Phase 13.3:** OTEC/BMOB3/FX-datoferskhet, automatisk GUI-refresh og vern mot gammel Bemobi-eierandel
-- **Phase 13.4:** dependency-lock, Europe/Oslo-tid og produksjons-Docker-build i CI
+- **Phase 13:** produksjons-bootstrap, preflight, scheduler/backup, freshness og reproducerbar CI
+- **Phase 14.1:** lett OTEC-feed med gap recovery og EOD-finalisering
+- **Phase 14.2:** lett BMOB3-feed med delayed LAST og liten offisiell daglig COTAHIST CLOSE
+- **Phase 14.3:** sikkerhet/Pi-ytelse, dirty-state for cash/seeds, inkrementelle tunge kilder og mixed-date live NAV
 
 Se [PHASE.md](PHASE.md) for gjeldende plan og [docs/pre-live-hardening.md](docs/pre-live-hardening.md) for produksjonsporten.
 
@@ -38,7 +38,7 @@ SQLite /data/otello.db
 
 FastAPI-porten publiseres ikke direkte til hosten. Web bindes som standard til `127.0.0.1:3000`, slik at en senere Cloudflare Tunnel/Access kan være eneste eksterne inngang.
 
-Alle produksjonstjenester bruker eksplisitt `Europe/Oslo`.
+Nginx har API-rate limiting, korte proxy-timeouts og sikkerhetsheadere/CSP. Compose-tjenestene kjører med `no-new-privileges`. Alle produksjonstjenester bruker eksplisitt `Europe/Oslo`.
 
 ## NAV-definisjoner
 
@@ -62,9 +62,11 @@ Total assets - cash - Bemobi carrying value - total liabilities
 
 FULL og CORE lagres som separate serier. Dashboardet foretrekker bare FULL når FULL er oppdatert til samme dato som CORE. Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt; de presenteres ikke som rapporterte tall.
 
+Live-modellen bruker samme NAV-formel og samme validerte lookbacks. Dersom BMOB3 har en fersk dagens pris før OTEC har handlet, kan dagens NAV derfor bruke siste gyldige OTEC-pris sammen med dagens BMOB3. Dashboardet viser da komponentdatoene og markerer snapshotet `MIXED`/indikativt i stedet for å late som markedene er synkroniserte.
+
 ## Viktigste datakilder
 
-- **B3 COTAHIST:** offisiell BMOB3 EOD-historikk
+- **B3:** offentlig 15-minutters delayed BMOB3 intradag + offisiell daglig COTAHIST CLOSE/historikk
 - **ECB:** BRL/NOK og USD/NOK
 - **Euronext:** OTEC delayed-pris og historisk markedsdata
 - **Oslo Børs NewsWeb:** offisielle Otello-meldinger og buyback-vedlegg
@@ -122,18 +124,18 @@ Produksjonsscheduler har to nivåer:
 
 ### Fast refresh – standard hvert 30. minutt
 
-- Euronext delayed OTEC
-- inkrementell NewsWeb-historikk
-- inkrementelle buybacks
+- OTEC `LAST_15_MINUTES` / `LAST_HOUR`, med gap recovery bare ved behov
+- BMOB3 liten delayed quote og separat EOD-logikk
+- inkrementell NewsWeb-historikk og buybacks
 - buyback cash/programdata
-- daglig cash
-- siste relevante CORE/FULL NAV-snapshot
+- cash-rebuild **bare når modellinput eller datohorisont faktisk er endret**
+- siste relevante CORE/FULL snapshot; dagens indikative snapshot kan bygges når ett av markedene har fersk dagens handel
 
-Den laster **ikke** ned hele B3-år, ECB-historikk, CVM-arkiver eller MFN-fallback hver halvtime.
+Fastløpet laster **ikke** ned hele B3-år, ECB-historikk, CVM-årsarkiver eller MFN-fallback hver halvtime. Kuraterte statiske manifests skrives heller ikke på nytt når fingerprinten er uendret.
 
 ### Full refresh – standard én gang per døgn
 
-Tar de tyngre kildene, avstemminger og full historisk rebuild. Jobbstatus lagres i `job_runs`.
+Tar tyngre kilder og avstemminger. NewsWeb-buybacks bruker automatisk sikkerhetsoverlapp fra siste kjente data i stedet for å starte i 2023 hver dag. CVM inneværende år er løpende; foregående år kontrolleres periodisk for korreksjoner i stedet for å lastes ned daglig. Fullrefresh primer cash dirty-state slik at neste fastsyklus ikke gjentar samme fullrebuild. Jobbstatus lagres i `job_runs`.
 
 ### Backup – standard én gang per døgn
 
@@ -141,7 +143,7 @@ SQLite sin backup-API brukes mot den levende WAL-databasen, og snapshotet må pa
 
 Automatisk sletting/retention er foreløpig **ikke** aktivert. Diskforbruket må overvåkes og en sikker rotasjon/restore-test skal gjøres som del av faktisk Pi-drift.
 
-## Dashboardets datoferskhet
+## Datakvalitet og kildevern
 
 Siste NAV-snapshot får en separat timestamp-status:
 
@@ -154,13 +156,16 @@ GUI-et oppdaterer seg automatisk hvert 2. minutt og viser inputdatoene.
 
 En gammel rapportert Bemobi-eierprosent vises ikke som om den var dagens prosent. NAV bruker det verifiserte antallet Bemobi-aksjer; prosent vises først når et oppdatert BMOB3-utestående aksjetall er verifisert.
 
-## Utvikling
+Endrende OTEC delayed-filer får immutabel payload-identitet, slik at en eldre markedspris aldri peker på hash/metadata fra en senere nedlasting. NewsWeb JSON/PDF har eksplisitte responsgrenser før parsing.
+
+## Utvikling og CI
 
 Backend:
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
+python -m pip check
 PYTHONPATH=. pytest -q
 ```
 
@@ -169,6 +174,7 @@ Frontend:
 ```bash
 cd frontend
 npm ci
+npm audit --omit=dev --audit-level=high
 npm run build
 ```
 
@@ -177,9 +183,10 @@ Docker/produksjonsimage:
 ```bash
 docker compose config --quiet
 docker compose build api web
+docker compose run --rm --no-deps --add-host api:127.0.0.1 web nginx -t
 ```
 
-CI kjører alle tre kontrollene på hver PR. Frontend bruker `package-lock.json`; direkte Python-avhengigheter er pinnet til testede versjoner.
+CI kjører backendtester/dependency-konsistens, låst frontend-build + produksjonsdependency-audit og faktisk produksjons-Docker/Nginx-validering på hver PR.
 
 ## Secrets og produksjonsdata
 
@@ -192,4 +199,4 @@ Kodebasen kan preflightes nå, men to operative/finansielle steg står igjen:
 1. Kjør bootstrap + `preflight --strict` mot den **faktiske** produksjonsdatabasen på Pi-en.
 2. Importer og avstem Otello 1H26 når rapporten publiseres 21.08.2026, slik at dagens forecast-partial cash/ONA erstattes med nye rapportankre.
 
-I tillegg bør backup-restore testes på Pi-en før systemet betraktes som fullt driftsklart.
+I tillegg skal backup-restore testes på Pi-en før systemet betraktes som fullt driftsklart. Automatisk backup-retention aktiveres først når den restore-rutinen er etablert.
