@@ -4,22 +4,28 @@ on:
   push:
     branches: [phase-11-otec-delayed-price]
 
+permissions:
+  contents: write
+
 jobs:
   inspect:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Extract official delayed-trade parameter values
+      - name: Build compact official parameter report
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import html
           import re
+          import urllib.parse
           import urllib.request
+          from pathlib import Path
 
           page_url = 'https://marketdata.euronext.com/data-reporting-service/trades-file'
           headers = {'User-Agent': 'Mozilla/5.0 (compatible; otello-tracker/1.0; private research)'}
@@ -29,35 +35,41 @@ jobs:
           def compact(value):
               return re.sub(r'\s+', ' ', html.unescape(value)).strip()
 
-          for label in ('Current Trading Day', 'Oslo'):
-              print('===', label, '===')
-              for match in re.finditer(re.escape(label), page, flags=re.I):
-                  left = max(0, match.start() - 1200)
-                  right = min(len(page), match.end() + 1200)
-                  snippet = page[left:right]
-                  attrs = re.findall(
-                      r'(?:value|data-value|data-id|id|name|for)=["\']([^"\']*)["\']',
-                      snippet,
-                      flags=re.I,
-                  )
-                  tags = re.findall(r'<(?:input|button|label|option|li|div)\b[^>]*>', snippet, flags=re.I)
-                  print('ATTRS', sorted(set(compact(v) for v in attrs if v)))
-                  for tag in tags[-12:]:
-                      print('TAG', compact(tag)[:1000])
-                  print('TEXT', compact(snippet)[-2200:])
-                  print('---')
+          sources = [('PAGE', page)]
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', page, flags=re.I):
+              url = urllib.parse.urljoin(page_url, src)
+              if 'react-data-reporting' not in url:
+                  continue
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+                      body = response.read(12 * 1024 * 1024).decode('utf-8', errors='replace')
+                  sources.append((url, body))
+              except Exception as exc:
+                  sources.append((url + ' ERROR', repr(exc)))
 
-          # Also print all candidate input/radio values around the two React state names.
-          for state in ('timeSelection', 'tradingLocation'):
-              print('=== STATE', state, '===')
-              for match in re.finditer(state, page, flags=re.I):
-                  snippet = page[max(0, match.start()-1600):min(len(page), match.end()+2400)]
-                  attrs = re.findall(
-                      r'(?:value|data-value|data-id|id|name|for)=["\']([^"\']*)["\']',
-                      snippet,
-                      flags=re.I,
-                  )
-                  print('ATTRS', sorted(set(compact(v) for v in attrs if v)))
-                  print('TEXT', compact(snippet)[:3200])
-                  print('---')
+          tokens = (
+              'Current Trading Day', 'Last 15 minutes', 'Last hour',
+              'Since Previous Trading Day', 'Previous Trading Day',
+              'Oslo', 'timeSelection', 'tradingLocation', 'PostTrade',
+              '/trades-file/download/'
+          )
+          lines = []
+          for source_name, body in sources:
+              lines.append(f'## SOURCE {source_name}')
+              for token in tokens:
+                  matches = list(re.finditer(re.escape(token), body, flags=re.I))
+                  lines.append(f'### TOKEN {token} count={len(matches)}')
+                  for match in matches[:8]:
+                      snippet = compact(body[max(0, match.start()-900):min(len(body), match.end()+1500)])
+                      lines.append(snippet[:2400])
+
+          Path('euronext-parameter-diagnostic.txt').write_text('\n'.join(lines), encoding='utf-8')
           PY
+      - name: Commit diagnostic result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add euronext-parameter-diagnostic.txt
+          git commit -m 'Phase 11: diagnostic parameter result [skip ci]'
+          git push
