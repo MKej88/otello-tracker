@@ -1,3 +1,5 @@
+from datetime import date as real_date
+
 import app.jobs.refresh_dashboard as refresh_module
 from app.jobs.refresh_dashboard import _safe_step, _staleness, run_refresh
 
@@ -43,12 +45,81 @@ def test_refresh_without_network_is_safe_on_fresh_database(tmp_path):
     assert result["target_date"] == "2026-08-14"
     assert result["steps"]["ecb"] == {"skipped": True}
     assert result["steps"]["b3"] == {"skipped": True}
+    assert result["steps"]["otec_delayed"] == {
+        "skipped": True,
+        "reason": "live_source_not_used_for_historical_target",
+    }
     assert result["steps"]["bemobi_cvm_news"] == {"skipped": True}
     assert result["steps"]["newsweb_history"] == {"skipped": True}
     assert result["steps"]["newsweb_2021_events"] == {"skipped": True}
     assert result["steps"]["buybacks"] == {"skipped": True}
     assert result["dashboard"]["ready"] is False
     assert result["market_data"]["status"] in {"empty", "degraded", "ok"}
+
+
+def test_refresh_runs_delayed_otec_only_for_live_target(tmp_path, monkeypatch):
+    db = str(tmp_path / "refresh-otec-live.db")
+    called: list[str] = []
+
+    class FixedDate(real_date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 8, 17)
+
+    monkeypatch.setattr(refresh_module, "date", FixedDate)
+    monkeypatch.setattr(
+        refresh_module,
+        "refresh_otec_delayed_price",
+        lambda *args, **kwargs: called.append("otec") or {
+            "status": "ok",
+            "selected": "CURRENT_TRADING_DAY",
+            "price_nok": "17.20",
+        },
+    )
+
+    result = run_refresh(
+        db,
+        target_date="2026-08-17",
+        fetch_ecb=False,
+        fetch_b3=False,
+        fetch_buybacks=False,
+        fetch_bemobi_news=False,
+    )
+
+    assert called == ["otec"]
+    assert result["steps"]["otec_delayed"] == {
+        "status": "ok",
+        "selected": "CURRENT_TRADING_DAY",
+        "price_nok": "17.20",
+    }
+
+
+def test_refresh_delayed_otec_failure_is_fail_soft(tmp_path, monkeypatch):
+    db = str(tmp_path / "refresh-otec-error.db")
+
+    class FixedDate(real_date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 8, 17)
+
+    monkeypatch.setattr(refresh_module, "date", FixedDate)
+    monkeypatch.setattr(
+        refresh_module,
+        "refresh_otec_delayed_price",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("euronext unavailable")),
+    )
+
+    result = run_refresh(
+        db,
+        target_date="2026-08-17",
+        fetch_ecb=False,
+        fetch_b3=False,
+        fetch_buybacks=False,
+        fetch_bemobi_news=False,
+    )
+
+    assert result["steps"]["otec_delayed"] is None
+    assert {"step": "otec_delayed", "error": "euronext unavailable"} in result["source_errors"]
 
 
 def test_refresh_runs_verified_2021_events_as_separate_model_step(tmp_path, monkeypatch):
