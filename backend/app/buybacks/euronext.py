@@ -81,6 +81,34 @@ class BuybackStatus:
         return f"otec-buyback-{self.program_reference_date}"
 
 
+def _parsed_values(parsed: BuybackStatus) -> dict[str, Any]:
+    return {
+        "shares": parsed.period_shares,
+        "avg_price_nok": decimal_text(parsed.period_avg_price_nok),
+        "amount_nok": decimal_text(parsed.period_amount_nok),
+        "cumulative_program_shares": parsed.cumulative_program_shares,
+        "cumulative_program_avg_price_nok": decimal_text(parsed.cumulative_program_avg_price_nok),
+        "cumulative_program_amount_nok": decimal_text(parsed.cumulative_program_amount_nok),
+        "treasury_shares_after": parsed.treasury_shares_after,
+    }
+
+
+def _assert_candidate_matches_existing(existing, parsed: BuybackStatus) -> None:
+    candidate = _parsed_values(parsed)
+    mismatches: list[str] = []
+    for field, expected in candidate.items():
+        actual = existing[field]
+        if actual is None and expected is None:
+            continue
+        if str(actual) != str(expected):
+            mismatches.append(f"{field}: lagret={actual}, kandidat={expected}")
+    if mismatches:
+        raise ValueError(
+            "Buyback-kilde med lik/lavere prioritet avviker fra lagret sterkere fakta; "
+            "krever kontroll: " + "; ".join(mismatches)
+        )
+
+
 def parse_euronext_buyback_status(text: str) -> BuybackStatus:
     """Parse Otello's standard weekly buyback-status announcement.
 
@@ -152,12 +180,7 @@ def ingest_buyback_status(
     source_metadata: dict[str, Any] | None = None,
     content_hash: str | None = None,
 ) -> dict:
-    """Persist one logical buyback period, preferring official evidence over mirrors.
-
-    Identity is program + period end, not source document. This prevents the same issuer
-    release from double-counting cash or shares when both Euronext and a public mirror are
-    available. A later stronger official source upgrades the stored provenance in place.
-    """
+    """Persist one logical buyback period, never letting weaker evidence rewrite stronger facts."""
     metadata = {"parser": "otec-buyback-status-v1", **(source_metadata or {})}
     if source_code == "EURONEXT":
         document_type = "REGULATORY_NEWS"
@@ -186,7 +209,7 @@ def ingest_buyback_status(
         )
 
         program = connection.execute(
-            "SELECT id, source_document_id FROM buyback_programs WHERE external_program_id = ?",
+            "SELECT id, max_shares, source_document_id FROM buyback_programs WHERE external_program_id = ?",
             (parsed.program_external_id,),
         ).fetchone()
         if program is None:
@@ -209,20 +232,31 @@ def ingest_buyback_status(
             program_id = int(cursor.lastrowid)
         else:
             program_id = int(program["id"])
-            program_document_id = _preferred_document_id(connection, program["source_document_id"], document_id)
-            connection.execute(
-                "UPDATE buyback_programs SET max_shares = ?, source_document_id = ? WHERE id = ?",
-                (parsed.max_program_shares, program_document_id, program_id),
-            )
+            old_priority = _source_priority(connection, program["source_document_id"])
+            new_priority = _source_priority(connection, document_id)
+            same_document = int(program["source_document_id"]) == document_id
+            if not same_document and new_priority >= old_priority and int(program["max_shares"] or 0) != parsed.max_program_shares:
+                raise ValueError(
+                    "Buyback-programdata fra lik/lavere prioritert kilde avviker fra lagret max_shares; krever kontroll"
+                )
+            if same_document or new_priority < old_priority:
+                connection.execute(
+                    "UPDATE buyback_programs SET max_shares = ?, source_document_id = ? WHERE id = ?",
+                    (parsed.max_program_shares, document_id, program_id),
+                )
 
         existing = connection.execute(
             """
-            SELECT id, source_document_id FROM buybacks
+            SELECT id, shares, avg_price_nok, amount_nok,
+                   cumulative_program_shares, cumulative_program_avg_price_nok,
+                   cumulative_program_amount_nok, treasury_shares_after, source_document_id
+            FROM buybacks
             WHERE program_id = ? AND trade_date = ?
             ORDER BY id LIMIT 1
             """,
             (program_id, parsed.period_end),
         ).fetchone()
+        source_applied = True
         if existing is None:
             cursor = connection.execute(
                 """
@@ -245,23 +279,32 @@ def ingest_buyback_status(
             preferred_document_id = document_id
         else:
             buyback_id = int(existing["id"])
-            preferred_document_id = _preferred_document_id(connection, existing["source_document_id"], document_id)
-            connection.execute(
-                """
-                UPDATE buybacks SET shares = ?, avg_price_nok = ?, amount_nok = ?,
-                    cumulative_program_shares = ?, cumulative_program_avg_price_nok = ?,
-                    cumulative_program_amount_nok = ?, treasury_shares_after = ?,
-                    source_document_id = ?
-                WHERE id = ?
-                """,
-                (
-                    parsed.period_shares, decimal_text(parsed.period_avg_price_nok),
-                    decimal_text(parsed.period_amount_nok), parsed.cumulative_program_shares,
-                    decimal_text(parsed.cumulative_program_avg_price_nok),
-                    decimal_text(parsed.cumulative_program_amount_nok), parsed.treasury_shares_after,
-                    preferred_document_id, buyback_id,
-                ),
-            )
+            old_priority = _source_priority(connection, existing["source_document_id"])
+            new_priority = _source_priority(connection, document_id)
+            same_document = int(existing["source_document_id"]) == document_id
+            may_replace = same_document or new_priority < old_priority
+            if not may_replace:
+                _assert_candidate_matches_existing(existing, parsed)
+                source_applied = False
+                preferred_document_id = int(existing["source_document_id"])
+            else:
+                preferred_document_id = document_id
+                connection.execute(
+                    """
+                    UPDATE buybacks SET shares = ?, avg_price_nok = ?, amount_nok = ?,
+                        cumulative_program_shares = ?, cumulative_program_avg_price_nok = ?,
+                        cumulative_program_amount_nok = ?, treasury_shares_after = ?,
+                        source_document_id = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        parsed.period_shares, decimal_text(parsed.period_avg_price_nok),
+                        decimal_text(parsed.period_amount_nok), parsed.cumulative_program_shares,
+                        decimal_text(parsed.cumulative_program_avg_price_nok),
+                        decimal_text(parsed.cumulative_program_amount_nok), parsed.treasury_shares_after,
+                        preferred_document_id, buyback_id,
+                    ),
+                )
 
         cash_rows = connection.execute(
             """
@@ -359,8 +402,6 @@ def ingest_buyback_status(
             for duplicate in share_rows[1:]:
                 connection.execute("DELETE FROM otello_share_counts WHERE id = ?", (duplicate["id"],))
 
-        # Defensive cleanup for databases that may have been populated before logical
-        # week de-duplication existed. Keep the best-provenance buyback row.
         duplicates = connection.execute(
             """
             SELECT id, source_document_id FROM buybacks
@@ -371,11 +412,9 @@ def ingest_buyback_status(
         ).fetchall()
         for duplicate in duplicates:
             if _source_priority(connection, duplicate["source_document_id"]) < _source_priority(connection, preferred_document_id):
-                connection.execute(
-                    "UPDATE buybacks SET source_document_id = ? WHERE id = ?",
-                    (duplicate["source_document_id"], buyback_id),
+                raise ValueError(
+                    "Fant eldre duplikat med sterkere provenance enn kanonisk buyback-rad; krever kontroll"
                 )
-                preferred_document_id = duplicate["source_document_id"]
             connection.execute("DELETE FROM buybacks WHERE id = ?", (duplicate["id"],))
 
         connection.commit()
@@ -392,6 +431,8 @@ def ingest_buyback_status(
         "treasury_shares_after": parsed.treasury_shares_after,
         "outstanding_shares_after": outstanding,
         "source_code": source_code,
+        "source_applied": source_applied,
+        "canonical_source_document_id": preferred_document_id,
     }
 
 

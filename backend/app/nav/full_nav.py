@@ -70,7 +70,18 @@ def rebuild_daily_full_nav(
                 or row["ona_quality"] == "FORECAST_PARTIAL"
                 or row["receivable_quality"] == "ESTIMATED_GROSS"
             )
-            status = "DEGRADED" if degraded else "BACKFILLED"
+            estimated = (
+                row["core_status"] == "ESTIMATED"
+                or row["ona_quality"] == "INTERPOLATED"
+                or row["receivable_quality"] not in {"NONE", "REPORTED_CALIBRATED"}
+            )
+            if degraded:
+                status = "DEGRADED"
+            elif estimated:
+                status = "ESTIMATED"
+            else:
+                status = "BACKFILLED"
+
             receivable_components = json.loads(row["receivable_components_json"] or "[]")
             components = {
                 "scope": "FULL",
@@ -99,6 +110,8 @@ def rebuild_daily_full_nav(
             )
             if row["ona_quality"] == "FORECAST_PARTIAL":
                 quality_notes += " Base ONA is carried forward after the latest report and is therefore partial forecast data."
+            elif row["ona_quality"] == "INTERPOLATED":
+                quality_notes += " Base ONA is interpolated between reported anchors and is therefore estimated for this date."
             if row["receivable_quality"] == "ESTIMATED_GROSS":
                 quality_notes += " At least one active Bemobi receivable is gross-estimated because no report-date receivable anchor exists inside its lifecycle."
 
@@ -152,7 +165,8 @@ def full_nav_status(database_path: str | None = None) -> dict[str, Any]:
             """
             SELECT COUNT(*) n, MIN(substr(as_of_at,1,10)) min_date,
                    MAX(substr(as_of_at,1,10)) max_date,
-                   SUM(CASE WHEN status = 'DEGRADED' THEN 1 ELSE 0 END) degraded
+                   SUM(CASE WHEN status = 'DEGRADED' THEN 1 ELSE 0 END) degraded,
+                   SUM(CASE WHEN status = 'ESTIMATED' THEN 1 ELSE 0 END) estimated
             FROM nav_snapshots
             WHERE calculation_version = ? AND nav_scope = 'FULL'
             """,
@@ -176,5 +190,6 @@ def full_nav_status(database_path: str | None = None) -> dict[str, Any]:
             "from": aggregate["min_date"],
             "to": aggregate["max_date"],
             "degraded": aggregate["degraded"],
+            "estimated": aggregate["estimated"],
             "latest": dict(latest) if latest is not None else None,
         }

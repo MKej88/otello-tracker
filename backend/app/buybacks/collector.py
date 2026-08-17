@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from app.buybacks.coverage import buyback_coverage_gaps
 from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext_buyback_status
@@ -16,6 +18,7 @@ MFN_BASE = "https://mfn.se"
 MFN_OTELLO_URL = f"{MFN_BASE}/all/a/otello-corporation"
 MFN_BUYBACK_MARKER = "otec-otello-corporation-share-buyback-program-status"
 EURONEXT_BUYBACK_SLUG = "otello-corporation-share-buyback-program-status"
+OSLO_TZ = ZoneInfo("Europe/Oslo")
 
 
 class _TextExtractor(HTMLParser):
@@ -66,7 +69,8 @@ def _publication_timestamp(text: str) -> str:
     match = re.search(r"(20\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})", text)
     if not match:
         raise ValueError("Fant ikke publiseringstidspunkt i MFN-mirror")
-    return f"{match.group(1)}T{match.group(2)}+02:00"
+    local = datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}").replace(tzinfo=OSLO_TZ)
+    return local.isoformat()
 
 
 def _canonical_euronext_url(text: str) -> str:

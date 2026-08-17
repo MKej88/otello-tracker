@@ -35,12 +35,34 @@ def _components(row) -> dict[str, Any]:
         return {}
 
 
-def _preferred_nav_series(connection) -> tuple[str, str]:
-    full = connection.execute(
-        "SELECT 1 FROM nav_snapshots WHERE calculation_version = ? AND nav_scope = 'FULL' LIMIT 1",
-        (FULL_CALCULATION_VERSION,),
+def _latest_series_date(connection, calculation_version: str, nav_scope: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT MAX(substr(as_of_at, 1, 10)) AS max_date
+        FROM nav_snapshots
+        WHERE calculation_version = ? AND nav_scope = ?
+        """,
+        (calculation_version, nav_scope),
     ).fetchone()
-    if full is not None:
+    return row["max_date"] if row is not None else None
+
+
+def _preferred_nav_series(connection) -> tuple[str, str]:
+    """Prefer FULL only when it is current with the latest CORE snapshot.
+
+    FULL is derived from CORE. If a downstream ONA/FULL rebuild fails, old FULL rows may
+    legitimately remain in SQLite while CORE has advanced. Returning that older FULL row
+    would make the dashboard look current while silently displaying stale NAV, so CORE is
+    preferred whenever the two series do not end on the same date.
+    """
+    core_date = _latest_series_date(connection, CORE_CALCULATION_VERSION, "CORE")
+    full_date = _latest_series_date(connection, FULL_CALCULATION_VERSION, "FULL")
+
+    if full_date is not None and core_date == full_date:
+        return FULL_CALCULATION_VERSION, "FULL"
+    if core_date is not None:
+        return CORE_CALCULATION_VERSION, "CORE"
+    if full_date is not None:
         return FULL_CALCULATION_VERSION, "FULL"
     return CORE_CALCULATION_VERSION, "CORE"
 
@@ -58,7 +80,7 @@ def _core_components_for_date(connection, as_of_at: str) -> dict[str, Any]:
 
 
 def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
-    """Return latest real KPIs, preferring FULL NAV and safely falling back to CORE."""
+    """Return latest real KPIs, preferring current FULL NAV and safely falling back to CORE."""
     with get_connection(database_path) as connection:
         calculation_version, model_scope = _preferred_nav_series(connection)
         rows = connection.execute(
@@ -146,6 +168,8 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "bemobi_ownership_pct": _float(holding["ownership_pct"]) if holding is not None else None,
             "shares_outstanding": int(latest["shares_outstanding"]),
             "cash_quality": cash.get("quality"),
+            "cash_calibration_quality": cash.get("calibration_quality"),
+            "share_count_quality": otec.get("share_count_quality"),
             "otec_price_quality": otec.get("price_quality"),
             "otec_price_source": otec.get("price_source"),
             "bmob3_price_quality": bmob3.get("price_quality"),
@@ -169,7 +193,7 @@ def dashboard_history(
     days: int = 365,
     max_points: int = 400,
 ) -> dict[str, Any]:
-    """Return bounded NAV/OTEC/discount history, preferring FULL where available."""
+    """Return bounded NAV/OTEC/discount history, preferring current FULL where available."""
     days = max(7, min(int(days), 3650))
     max_points = max(50, min(int(max_points), 1000))
 

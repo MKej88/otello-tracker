@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -13,6 +14,7 @@ from app.history.cash_events_2022 import seed_2022_cash_events
 from app.history.distributions import seed_bemobi_distributions
 
 MAX_LOOKBACK_DAYS = 7
+_BUYBACK_PERIOD_RE = re.compile(r"during\s+(20\d{2}-\d{2}-\d{2})[–-](20\d{2}-\d{2}-\d{2})", re.I)
 
 
 def _canonical_hash(payload: dict[str, Any]) -> str:
@@ -95,13 +97,7 @@ def _reported_anchors_nok(connection) -> list[dict[str, Any]]:
 
 
 def sync_corporate_action_cash_movements(database_path: str | None = None) -> dict[str, int]:
-    """Derive cash movements from corporate actions without pretending gross equals net.
-
-    OTEC distributions are confirmed NOK cash outflows. Bemobi distributions are derived
-    gross receipts based on Otello's eligible BMOB3 holding and the payment-date BRL/NOK
-    rate. Those receipts remain ESTIMATED until the next reported cash anchor reconciles
-    the period; withholding and other differences therefore flow into the residual.
-    """
+    """Derive cash movements from corporate actions without pretending gross equals net."""
     seed_bemobi_distributions(database_path)
     written = 0
     updated = 0
@@ -194,19 +190,48 @@ def sync_corporate_action_cash_movements(database_path: str | None = None) -> di
 
 
 def _known_movements(connection, start_exclusive: str, end_inclusive: str) -> list[dict[str, Any]]:
-    return [
-        dict(row)
-        for row in connection.execute(
-            """
-            SELECT id, movement_date, movement_type, amount_nok, confidence,
-                   corporate_action_id, source_document_id
-            FROM cash_movements
-            WHERE movement_date > ? AND movement_date <= ?
-            ORDER BY movement_date, id
-            """,
-            (start_exclusive, end_inclusive),
-        )
-    ]
+    """Return model movements, conservatively excluding weekly buybacks that straddle an anchor.
+
+    Weekly Otello status releases contain a total for a date range, not transaction-level
+    daily cash. If that range starts on/before a reported cash anchor and ends after it,
+    applying the full weekly amount after the anchor double-counts the pre-anchor portion.
+    Until daily attachment rows are ingested, the whole weekly amount is therefore excluded
+    from explicit post-anchor known flows and left to the anchored residual. The original
+    confirmed amount remains in the returned audit payload.
+    """
+    result: list[dict[str, Any]] = []
+    for row in connection.execute(
+        """
+        SELECT id, movement_date, movement_type, amount_nok, confidence,
+               corporate_action_id, source_document_id, description
+        FROM cash_movements
+        WHERE movement_date > ? AND movement_date <= ?
+        ORDER BY movement_date, id
+        """,
+        (start_exclusive, end_inclusive),
+    ):
+        item = dict(row)
+        item["model_amount_nok"] = item["amount_nok"]
+        item["timing_quality"] = "DIRECT_DATE"
+        if item["movement_type"] == "OTELLO_BUYBACK":
+            match = _BUYBACK_PERIOD_RE.search(item.get("description") or "")
+            if match:
+                period_start, period_end = match.groups()
+                item["period_start"] = period_start
+                item["period_end"] = period_end
+                if period_start <= start_exclusive < item["movement_date"]:
+                    item["model_amount_nok"] = "0"
+                    item["timing_quality"] = "CROSS_ANCHOR_EXCLUDED"
+                    item["model_note"] = (
+                        "Confirmed weekly buyback total straddles the reported cash anchor; "
+                        "excluded from explicit post-anchor flows to prevent double counting."
+                    )
+        result.append(item)
+    return result
+
+
+def _modeled_amount(item: dict[str, Any]) -> Decimal:
+    return Decimal(item.get("model_amount_nok", item["amount_nok"]))
 
 
 def rebuild_daily_cash(
@@ -238,13 +263,26 @@ def rebuild_daily_cash(
         connection.execute("DELETE FROM cash_daily_estimates")
         written = 0
         high_residual_periods: list[dict[str, str]] = []
+        cross_anchor_exclusions: list[dict[str, Any]] = []
 
         for start, end in zip(anchors, anchors[1:]):
             start_date = date.fromisoformat(start["date"])
             end_anchor_date = date.fromisoformat(end["date"])
             days = (end_anchor_date - start_date).days
             movements = _known_movements(connection, start["date"], end["date"])
-            known_total = sum((Decimal(item["amount_nok"]) for item in movements), Decimal("0"))
+            cross_anchor_exclusions.extend(
+                {
+                    "anchor_date": start["date"],
+                    "movement_id": item["id"],
+                    "movement_date": item["movement_date"],
+                    "amount_nok": item["amount_nok"],
+                    "period_start": item.get("period_start"),
+                    "period_end": item.get("period_end"),
+                }
+                for item in movements
+                if item.get("timing_quality") == "CROSS_ANCHOR_EXCLUDED"
+            )
+            known_total = sum((_modeled_amount(item) for item in movements), Decimal("0"))
             residual = end["cash_nok"] - start["cash_nok"] - known_total
             residual_per_day = residual / Decimal(days)
             residual_ratio = (
@@ -260,7 +298,7 @@ def rebuild_daily_cash(
                 "start_anchor": start,
                 "end_anchor": end,
                 "movements": movements,
-                "method": "linear-residual-between-reported-anchors-v1",
+                "method": "linear-residual-between-reported-anchors-v2-cross-anchor-safe",
             }
             inputs_hash = _canonical_hash(inputs)
             connection.execute(
@@ -276,13 +314,13 @@ def rebuild_daily_cash(
                     decimal_text(end["cash_nok"]), decimal_text(known_total),
                     decimal_text(residual), decimal_text(residual_per_day), days,
                     inputs_hash, quality,
-                    "Residual includes unmodelled operating cash flow, taxes, FX/revaluation and other cash movements. It is spread linearly only between reported anchors.",
+                    "Residual includes unmodelled operating cash flow, taxes, FX/revaluation and other cash movements. Weekly buyback totals that straddle the start anchor are excluded from explicit known flows to prevent pre-anchor double counting.",
                 ),
             )
 
             movements_by_date: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             for item in movements:
-                movements_by_date[item["movement_date"]] += Decimal(item["amount_nok"])
+                movements_by_date[item["movement_date"]] += _modeled_amount(item)
             cumulative_known = Decimal("0")
             for offset in range(days + 1):
                 current = start_date + timedelta(days=offset)
@@ -329,9 +367,21 @@ def rebuild_daily_cash(
         latest_date = date.fromisoformat(latest["date"])
         if final_date > latest_date:
             movements = _known_movements(connection, latest["date"], final_date.isoformat())
+            cross_anchor_exclusions.extend(
+                {
+                    "anchor_date": latest["date"],
+                    "movement_id": item["id"],
+                    "movement_date": item["movement_date"],
+                    "amount_nok": item["amount_nok"],
+                    "period_start": item.get("period_start"),
+                    "period_end": item.get("period_end"),
+                }
+                for item in movements
+                if item.get("timing_quality") == "CROSS_ANCHOR_EXCLUDED"
+            )
             by_date: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             for item in movements:
-                by_date[item["movement_date"]] += Decimal(item["amount_nok"])
+                by_date[item["movement_date"]] += _modeled_amount(item)
             cumulative = Decimal("0")
             for offset in range(1, (final_date - latest_date).days + 1):
                 current = latest_date + timedelta(days=offset)
@@ -342,7 +392,7 @@ def rebuild_daily_cash(
                     "last_reported_anchor": latest,
                     "date": current_text,
                     "known_movements_nok": decimal_text(cumulative),
-                    "method": "known-flows-only-forecast-v1",
+                    "method": "known-flows-only-forecast-v2-cross-anchor-safe",
                 }
                 connection.execute(
                     """
@@ -364,7 +414,7 @@ def rebuild_daily_cash(
                     (
                         current_text, decimal_text(cash_nok), latest["date"],
                         decimal_text(cumulative), _canonical_hash(payload),
-                        "Partial forecast from last reported cash anchor using known corporate-action flows only. Operating costs and unseeded buybacks are not accrued; do not treat as reported cash.",
+                        "Partial forecast from last reported cash anchor using known corporate-action flows only. Weekly buybacks that straddle the anchor are excluded rather than double-counted; operating costs and unseeded flows are not accrued.",
                     ),
                 )
                 written += 1
@@ -380,6 +430,7 @@ def rebuild_daily_cash(
         "sync_movements": sync_result,
         "cash_events_2022": cash_events_2022,
         "high_residual_periods": high_residual_periods,
+        "cross_anchor_buybacks_excluded": cross_anchor_exclusions,
     }
 
 
