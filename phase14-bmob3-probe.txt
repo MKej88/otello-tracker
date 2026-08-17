@@ -1,10 +1,10 @@
-probed_at_utc= 2026-08-17T14:50:49.762638+00:00
+probed_at_utc= 2026-08-17T14:51:12.865305+00:00
 
 URL https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/BMOB3
 status= 200
 content_type= application/json; charset=utf-8
 content_length= 275
-{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:50:50"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.582,"curPrc":22.56,"prcFlcn":-0.4051735},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":312}]}
+{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:51:13"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.585,"curPrc":22.55,"prcFlcn":-0.4493201},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":232}]}
 
 URL https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D14082026.ZIP
 status= 200
