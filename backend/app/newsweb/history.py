@@ -22,35 +22,28 @@ def _title(value: str) -> str:
 def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
     """Conservative archive classification only; never creates financial model effects."""
     title = _title(message.title)
-
-    results = (
+    if any(term in title for term in (
         "annual report", "quarterly report", "quarter report", "interim report",
         "half-year report", "half year report", "financial report", "financial results",
         "1q", "2q", "3q", "4q", "q1", "q2", "q3", "q4",
-    )
-    if any(term in title for term in results):
+    )):
         return "RESULTS", False, "result/report title"
-
     if any(term in title for term in (
         "buyback", "buy-back", "buy back", "purchase of own shares", "repurchase of shares"
     )):
         return "BUYBACK", False, "buyback title"
-
     if "jcp" in title or "interest on own capital" in title:
         return "JCP", False, "JCP title"
-
     if any(term in title for term in (
         "cash dividend", "ex-dividend", "ex dividend", "dividend to be paid",
         "distribution to shareholders", "return of capital"
     )):
         return "DIVIDEND", False, "distribution/dividend title"
-
     if any(term in title for term in (
         "share capital", "capital reduction", "share cancellation", "cancellation of shares",
         "cancellation of own shares", "treasury shares", "new share capital"
     )):
         return "CAPITAL", False, "capital/share-count title"
-
     # Generic "transaction" is intentionally not enough for M&A; insider notifications
     # frequently use that word as well.
     if any(term in title for term in (
@@ -61,12 +54,10 @@ def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
         "acquisition of", "divestment of", "merger with"
     )):
         return "M_AND_A", False, "explicit business transaction title"
-
     if any(term in title for term in (
         "financial outlook", "outlook update", "guidance", "profit warning"
     )):
         return "GUIDANCE", False, "guidance/outlook title"
-
     if any(term in title for term in (
         "general meeting", "annual general meeting", "extraordinary general meeting",
         "agm", "egm", "financial calendar", "mandatory notification", "primary insider",
@@ -75,7 +66,6 @@ def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
         "litigation", "lawsuit", "vewd"
     )):
         return "CORPORATE", False, "corporate/governance title"
-
     return "OTHER", True, "no high-confidence title rule"
 
 
@@ -128,10 +118,6 @@ def _upsert(message: NewsWebMessage, database_path: str | None) -> dict[str, Any
             metadata=_metadata(message, category, reason, review),
         )
         connection.execute(
-            "UPDATE source_documents SET issuer_instrument_id=? WHERE id=?",
-            (otec_id, document_id),
-        )
-        connection.execute(
             """
             INSERT INTO company_news(
                 issuer_instrument_id, source_document_id, headline, published_at,
@@ -149,13 +135,8 @@ def _upsert(message: NewsWebMessage, database_path: str | None) -> dict[str, Any
                 updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
             """,
             (
-                otec_id,
-                document_id,
-                message.title,
-                message.published_at,
-                category,
-                _nav_impact(category),
-                processing_status,
+                otec_id, document_id, message.title, message.published_at, category,
+                _nav_impact(category), processing_status,
                 f"NewsWeb archive classification: {reason}. Full message body is not persisted.",
             ),
         )
