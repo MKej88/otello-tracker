@@ -12,6 +12,7 @@ from app.history import seed_curated_history
 from app.nav.daily_nav import calculate_daily_core_nav
 from app.nav.full_nav import FULL_CALCULATION_VERSION, rebuild_daily_full_nav
 from app.nav.option_liability import option_liability_for_day as reference_option_liability
+from app.nav.other_net_assets import rebuild_other_net_assets_anchors
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE = ROOT / "cloudflare"
@@ -110,12 +111,25 @@ def _database(tmp_path: Path) -> tuple[str, str]:
     init_database(database)
     seed_curated_history(database)
     with get_connection(database) as connection:
-        _insert_fx(connection, "2025-12-31", "USD", "10")
-        _insert_fx(connection, target, "USD", "10")
+        ona_anchor_dates = {
+            str(row["as_of_date"])
+            for row in connection.execute(
+                "SELECT as_of_date FROM other_net_assets_reported_anchors"
+            ).fetchall()
+        }
+        # The normalized ONA layer deliberately depends on USD/NOK for every report
+        # anchor. Seed a deterministic rate at each anchor so this fixture represents
+        # the same bootstrap state that production D1 receives before fast refresh.
+        for anchor_day in sorted(ona_anchor_dates | {target}):
+            _insert_fx(connection, anchor_day, "USD", "10")
         _insert_fx(connection, target, "BRL", "2")
         _insert_price(connection, target, "OTEC", "18", "EURONEXT")
         _insert_price(connection, target, "BMOB3", "20", "B3")
         connection.commit()
+
+    normalized = rebuild_other_net_assets_anchors(database)
+    assert normalized["written"] > 0
+    assert normalized["skipped"] == []
     return database, target
 
 
