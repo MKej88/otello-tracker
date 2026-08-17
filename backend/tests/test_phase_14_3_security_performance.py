@@ -1,6 +1,7 @@
 import csv
 import io
 import zipfile
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -140,12 +141,13 @@ def test_cash_dirty_check_rebuilds_and_updates_signature_when_inputs_change(
     assert get_runtime_state("cash_curve_input_signature_v1", database) == "new-after"
 
 
-def test_incremental_cvm_refresh_marks_historical_year_complete_but_keeps_current_rolling(
+def test_incremental_cvm_refresh_keeps_current_rolling_and_previous_year_periodic(
     tmp_path, monkeypatch
 ) -> None:
     database = str(tmp_path / "cvm.db")
     init_database(database)
     calls: list[list[int]] = []
+    first_day = date(2026, 8, 17)
 
     monkeypatch.setattr(cvm_refresh, "years_for_refresh", lambda *_args, **_kwargs: [2025, 2026])
 
@@ -155,13 +157,29 @@ def test_incremental_cvm_refresh_marks_historical_year_complete_but_keeps_curren
 
     monkeypatch.setattr(cvm_refresh, "collect_bemobi_cvm_news", collect)
 
-    first = cvm_refresh.collect_bemobi_cvm_news_incremental(database, target_year=2026)
-    second = cvm_refresh.collect_bemobi_cvm_news_incremental(database, target_year=2026)
+    first = cvm_refresh.collect_bemobi_cvm_news_incremental(
+        database,
+        target_year=2026,
+        today=first_day,
+    )
+    second = cvm_refresh.collect_bemobi_cvm_news_incremental(
+        database,
+        target_year=2026,
+        today=first_day + timedelta(days=1),
+    )
+    third = cvm_refresh.collect_bemobi_cvm_news_incremental(
+        database,
+        target_year=2026,
+        today=first_day + timedelta(days=cvm_refresh.PREVIOUS_YEAR_REFRESH_DAYS),
+    )
 
-    assert calls == [[2025, 2026], [2026]]
-    assert first["historical_years_marked_complete"] == [2025]
-    assert second["historical_years_marked_complete"] == []
-    assert get_runtime_state("cvm_ipe_historical_complete:2025", database) == "complete"
+    assert calls == [[2025, 2026], [2026], [2025, 2026]]
+    assert first["successful_years"] == [2025, 2026]
+    assert second["successful_years"] == [2026]
+    assert third["successful_years"] == [2025, 2026]
+    assert get_runtime_state("cvm_ipe_last_success:2025", database) == (
+        first_day + timedelta(days=cvm_refresh.PREVIOUS_YEAR_REFRESH_DAYS)
+    ).isoformat()
 
 
 def test_newsweb_bounded_read_rejects_oversized_content_length_and_stream() -> None:
