@@ -136,9 +136,28 @@ def test_cvm_archive_parser_uses_official_columns_and_filters_bemobi() -> None:
     assert categories["ma-1"] == ("M_AND_A", False)
     assert categories["buyback-1"] == ("BUYBACK", False)
     assert categories["jcp-notice-v2"] == ("JCP", True)
-    # Governance minutes stay conservatively CORPORATE. The separate shareholder notice
-    # carries the explicit payout classification and review flag.
-    assert categories["board-jcp-1"] == ("CORPORATE", False)
+    assert categories["board-jcp-1"] == ("JCP", False)
+
+
+def test_external_id_does_not_collide_when_cvm_protocol_is_reused() -> None:
+    payload = _archive(
+        [
+            _row(
+                Protocolo_Entrega="same-protocol",
+                Assunto="Primeira comunicação",
+                Link_Download="https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?numProtocolo=100&numSequencia=1&numVersao=1",
+            ),
+            _row(
+                Protocolo_Entrega="same-protocol",
+                Assunto="Segunda comunicação",
+                Link_Download="https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?numProtocolo=100&numSequencia=2&numVersao=1",
+            ),
+        ]
+    )
+    records = parse_cvm_ipe_archive(payload, year=2026)
+    assert len(records) == 2
+    assert records[0].protocol == records[1].protocol
+    assert records[0].external_id != records[1].external_id
 
 
 def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeypatch) -> None:
@@ -159,8 +178,7 @@ def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeyp
     assert result["requires_review"] == 1
     assert result["categories"] == {
         "BUYBACK": 1,
-        "CORPORATE": 1,
-        "JCP": 1,
+        "JCP": 2,
         "M_AND_A": 1,
         "RESULTS": 1,
     }
@@ -177,7 +195,7 @@ def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeyp
     latest = list_bemobi_news(database, limit=20)
     assert latest["count"] == 5
     assert all(item["is_latest_version"] for item in latest["items"])
-    assert len([item for item in latest["items"] if item["category"] == "JCP"]) == 1
+    assert len([item for item in latest["items"] if item["category"] == "JCP"]) == 2
 
     all_versions = list_bemobi_news(database, limit=20, include_superseded=True)
     assert all_versions["count"] == 6
