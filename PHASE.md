@@ -159,14 +159,30 @@ Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
-Status: **Neste**
+Status: **Pågår – 15.4.1 OTEC intradag er ferdig og CI-validert**
 
-- [ ] OTEC delayed/EOD som Worker-native fetch + D1-write
+#### 15.4.1 – OTEC intradag + Cron
+
+- [x] eget D1 write-repository med parameterbinding og idempotente source/market-price writes
+- [x] Euronext `LAST_15_MINUTES` som Worker-native fetch + D1-write
+- [x] `LAST_HOUR` som overlapp/fallback når 15-minuttersvinduet ikke inneholder OTEC
+- [x] eksakt OTEC ISIN / XOSL / NOK / MONE-filter bevart fra referanseimplementasjonen
+- [x] `LAST` / `DIRECT`-semantikk og provenance bevart
+- [x] intradag-ZIP er størrelsesbegrenset og CSV-medlemmet leses sekvensielt fra ZIP-strømmen
+- [x] `job_runs` for planlagt innhenting
+- [x] Python Worker `scheduled(self, controller, env, ctx)`
+- [x] Cron Trigger `*/30 * * * *`
+- [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
+
+#### Gjenstår i 15.4
+
+- [ ] OTEC EOD / `CURRENT_TRADING_DAY` + gap recovery med eksplisitt bounded/streaming/R2-strategi
 - [ ] BMOB3 delayed/EOD som Worker-native fetch + D1-write
 - [ ] NewsWeb incremental som Worker-native write-path
 - [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
-- [ ] Cron Trigger `*/30 * * * *`
 - [ ] store payloads håndteres streaming/bounded og ikke som ukritiske full-memory CPython-filer
+
+Dokumentasjon: `cloudflare/README.md`.
 
 ### 15.5 – Full refresh Workflows
 
