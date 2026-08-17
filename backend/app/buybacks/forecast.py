@@ -112,7 +112,6 @@ def _program_history(connection, program_id: int, max_shares: int) -> list[dict[
         remaining = max(0, max_shares - previous_cumulative)
         capacity_estimate = min(capacity, float(remaining))
 
-        # Genuine walk-forward prediction: use only prior completed weeks in this program.
         if len(observed_utils) >= 2:
             factor = _median(observed_utils[-RECENT_PROGRAM_WEEKS:], 1.0)
         else:
@@ -176,6 +175,22 @@ def buyback_forecast(
         latest_end = date.fromisoformat(program["latest_period_end"])
         period_start = _next_monday(latest_end)
         period_end = period_start + timedelta(days=4)
+        trading_days = oslo_bors_trading_days(period_start, period_end)
+
+        if as_of > period_end:
+            return {
+                "ready": False,
+                "status": "PROGRAM_STATUS_STALE",
+                "methodology_version": METHOD_VERSION,
+                "as_of_date": as_of.isoformat(),
+                "latest_period_end": latest_end.isoformat(),
+                "forecast_week": {
+                    "from": period_start.isoformat(),
+                    "to": period_end.isoformat(),
+                    "expected_trading_days": len(trading_days),
+                    "trading_dates": [item.isoformat() for item in trading_days],
+                },
+            }
 
         lookback = _activity_before(connection, period_start)
         if len(lookback) < LOOKBACK_DAYS:
@@ -187,7 +202,6 @@ def buyback_forecast(
                 "methodology_version": METHOD_VERSION,
             }
         adv20 = sum(int(item["volume_shares"]) for item in lookback) / LOOKBACK_DAYS
-        trading_days = oslo_bors_trading_days(period_start, period_end)
         expected_days = len(trading_days)
         remaining = max(0, int(program["max_shares"]) - int(program["cumulative_program_shares"] or 0))
         if remaining == 0:
@@ -232,8 +246,6 @@ def buyback_forecast(
         ]
         band = _median(error_ratios, 0.12)
         low = max(0.0, base_case - capacity_estimate * band)
-        # The week-start ADV is not a legal hard cap for the entire coming week because
-        # the 20-day window rolls daily; permit a modest extension in the forecast band.
         high_reference = min(float(remaining), capacity_estimate * 1.10)
         high = min(high_reference, base_case + capacity_estimate * band)
 
