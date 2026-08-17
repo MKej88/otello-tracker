@@ -10,6 +10,7 @@ from app.buybacks.euronext import parse_euronext_buyback_status
 from app.db.connection import get_connection
 from app.db.repository import create_source_document, decimal_text
 from app.newsweb.client import NewsWebMessage, discover_otec_messages, fetch_message
+from app.newsweb.normalization import normalize_weekly_body
 
 BUYBACK_TITLE = "share buyback program status"
 _MONTHS = {
@@ -28,7 +29,7 @@ def _iso_date(value: str) -> str:
 
 
 def parse_program_terms(text: str) -> dict[str, Any]:
-    clean = " ".join(text.split())
+    clean = normalize_weekly_body(text)
     reference = re.search(
         r"(?:notice|stock exchange notice) from (\d{1,2} [A-Za-z]+ \d{4}) announcing the initiation of the share buyback program",
         clean,
@@ -85,7 +86,7 @@ def _period_starts_from_messages(
             listed.message_id, timeout=timeout
         )
         try:
-            parsed = parse_euronext_buyback_status(" ".join(message.body.split()))
+            parsed = parse_euronext_buyback_status(normalize_weekly_body(message.body))
             parsed_program_id = f"otec-buyback-{_iso_date(parsed.program_reference_date)}"
         except ValueError:
             continue
