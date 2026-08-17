@@ -1,30 +1,22 @@
 # Otello NAV Dashboard
 
-Privat investeringsdashboard for Otello/Bemobi med mål om:
+Privat investeringsdashboard for Otello/Bemobi med løpende NAV, historisk NAV-rabatt, tilbakekjøp, Bemobi-eksponering, selskapsmeldinger og datakvalitet.
 
-- løpende Otello-NAV
-- historisk NAV og NAV-rabatt
-- Otello-tilbakekjøp med korrekt cash-timing
-- Bemobi-eksponering, utbytte/JCP og selskapsmeldinger
-- Bemobi-meglerkonsensus før kvartalsrapporter
-- datakildestatus og senere e-postrapporter
+## Status 17.08.2026
 
-## Status
+Kjernemodellen og pre-live hardening er implementert:
 
-**Fase 1 – fundament:** ferdig  
-**Fase 2 – SQLite og datamodell:** ferdig  
-**Fase 3 – historiske Otello-rapportankre:** ferdig  
-**Fase 4 – historiske markedsdata:** ferdig og live-validert  
-**Fase 5 – daglig cash og CORE NAV:** ferdig og live-validert  
-**Fase 6 – buybacks/cash-avstemming:** ferdig for kjent historikk  
-**Fase 7 – live dashboard:** ferdig  
-**Fase 8 – samlet refresh-pipeline:** ferdig  
-**Fase 9/9.1 – FULL NAV + Bemobi-fordringer:** ferdig  
-**Fase 9.2 – integrity/security hardening:** ferdig  
-**Fase 9.3 – NewsWeb originalkilde og daglige buyback-transaksjoner:** ferdig og merget  
-**Fase 9.4 – full NewsWeb-historikk fra 2020:** implementert, siste live-validering/PR gjenstår
+- **CORE NAV og FULL NAV:** historisk modell + daglig serie
+- **NewsWeb:** historikk, originale buyback-meldinger og daglige transaksjoner
+- **Bemobi:** B3-priser, CVM-nyheter og skattejusterte utdelinger/JCP
+- **OTEC:** historisk kurs + Euronext delayed LAST
+- **Buyback-prognose:** Safe Harbour/ADV20-basert estimat med historisk validering
+- **Phase 13.1:** ren produksjons-bootstrap + streng preflight
+- **Phase 13.2:** lett 30-minutters refresh, daglig fullrefresh, jobbstatus og verifiserte SQLite-backuper
+- **Phase 13.3:** OTEC/BMOB3/FX-datoferskhet, automatisk GUI-refresh og vern mot gammel Bemobi-eierandel
+- **Phase 13.4:** dependency-lock, Europe/Oslo-tid og produksjons-Docker-build i CI
 
-Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/data-model.md) for datamodellen.
+Se [PHASE.md](PHASE.md) for gjeldende plan og [docs/pre-live-hardening.md](docs/pre-live-hardening.md) for produksjonsporten.
 
 ## Arkitektur
 
@@ -32,40 +24,31 @@ Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/dat
 Browser
   |
   v
-Nginx / React frontend
+Nginx / React
   |
   | /api/*
   v
-FastAPI backend (kun internt Docker-nettverk)
-  |
+FastAPI  ---- scheduler
+  |             |-- fast refresh hvert 30. min
+  |             |-- full refresh daglig
+  |             `-- SQLite backup daglig
   v
-SQLite
-  |
-  +-- B3 BMOB3-kurser
-  +-- Euronext/kuratert OTEC-kurshistorikk
-  +-- ECB BRL/NOK og USD/NOK
-  +-- Oslo Børs NewsWeb originalmeldinger/vedlegg
-  +-- Otello/Bemobi historikk
-  +-- daglig cash
-  +-- CORE NAV-snapshots
-  +-- rapporterte/daglige øvrige nettoeiendeler
-  +-- FULL NAV-snapshots
-  +-- buybacks / corporate actions
-  +-- meglerestimater / konsensus
-  +-- kilde- og provenance-spor
+SQLite /data/otello.db
 ```
 
-Samme containere er ment å kunne kjøres på Windows under utvikling og senere på Raspberry Pi. Web-porten bindes som standard til `127.0.0.1`; FastAPI-porten publiseres ikke direkte til hosten. Dette passer Cloudflare Tunnel-oppsettet og hindrer at API-et omgår Access via Pi-ens LAN-IP.
+FastAPI-porten publiseres ikke direkte til hosten. Web bindes som standard til `127.0.0.1:3000`, slik at en senere Cloudflare Tunnel/Access kan være eneste eksterne inngang.
+
+Alle produksjonstjenester bruker eksplisitt `Europe/Oslo`.
 
 ## NAV-definisjoner
 
-`CORE NAV` er:
+`CORE NAV`:
 
 ```text
 Bemobi markedsverdi + modellert/rapportert cash
 ```
 
-`FULL NAV` er:
+`FULL NAV`:
 
 ```text
 CORE NAV + øvrige nettoeiendeler/-forpliktelser (ONA)
@@ -77,171 +60,136 @@ Rapportert ONA beregnes fra Otellos konsoliderte balanse som:
 Total assets - cash - Bemobi carrying value - total liabilities
 ```
 
-ONA beholdes i rapportens USD, konverteres med historisk USD/NOK og interpoleres i USD mellom rapportankrene. Bemobi-utbyttefordringer modelleres separat fra base ONA fra rettighetsdato til betalingsdato for å unngå dobbeltelling mot cash. FULL NAV lagres som en separat serie og overskriver aldri CORE. Dashboardet foretrekker bare FULL når FULL er oppdatert til samme dato som CORE.
+FULL og CORE lagres som separate serier. Dashboardet foretrekker bare FULL når FULL er oppdatert til samme dato som CORE. Mellom rapporter merkes estimerte/forecast-komponenter eksplisitt; de presenteres ikke som rapporterte tall.
 
-FULL NAV starter foreløpig 30.06.2022. 2021 holdes CORE-only fordi AdColony-transaksjonen skapte vesentlige fordrings-/skattebalanser som må dokumenteres særskilt før de kan legges inn.
+## Viktigste datakilder
 
-## Datakilder
+- **B3 COTAHIST:** offisiell BMOB3 EOD-historikk
+- **ECB:** BRL/NOK og USD/NOK
+- **Euronext:** OTEC delayed-pris og historisk markedsdata
+- **Oslo Børs NewsWeb:** offisielle Otello-meldinger og buyback-vedlegg
+- **CVM:** Bemobi selskapsmeldinger
+- **Otello-rapporter:** kuraterte finansielle ankere
+- **MFN:** sekundær fallback/discovery, aldri autoritativ over offisielle kilder
+- **Investing.com CSV:** kun manuell historisk OTEC-fallback; ingen automatisert scraping
 
-- **B3 COTAHIST:** offisiell BMOB3 EOD-historikk, ujustert for corporate actions.
-- **ECB:** BRL/NOK og USD/NOK krysskurser.
-- **Euronext:** OTEC-priser og Otello-selskapsmeldinger/provenance.
-- **Oslo Børs NewsWeb:** offisiell originalkilde for OTEC-meldinger og vedlegg. Trackeren kan hente hele OTEC-arkivet fra 2020 og transaksjons-PDF-er for tilbakekjøp.
-- **Otello IR:** kuraterte rapporter og eldre utstedermeldinger.
-- **MFN:** sekundær mirror/discovery-fallback; får aldri overskrive sterkere offisielle fakta.
-- **Investing.com CSV:** manuell historisk OTEC-fallback med tydelig kvalitetsmerking; ikke automatisert scraping.
+## Produksjonsoppstart – viktig
 
-### Full NewsWeb-historikk
+En ny database er **ikke** klar bare fordi Docker-containerne starter. Før første live-start skal historiske data bootstrapes og preflight passere.
 
-Første backfill spør NewsWeb etter alle OTEC-meldinger fra `2020-01-01`. Første OTEC-melding som faktisk finnes i dette vinduet er 11.02.2020. En full live-validering fant 539 meldinger gjennom 14.08.2026.
+På Raspberry Pi/Linux eller annen Docker-host:
 
-Trackeren speiler ikke hele NewsWeb-innholdet. For arkivet lagres message-ID, publiseringstid, tittel, URL, klassifisering, attachment-metadata og SHA256 av meldingsteksten. Full meldingstekst og PDF-er lagres ikke permanent. Etter første backfill bruker refresh-jobben 14 dagers overlapp fra siste lagrede melding i stedet for å hente hele historikken på nytt.
-
-Meldinger klassifiseres deterministisk som blant annet `RESULTS`, `BUYBACK`, `DIVIDEND`, `JCP`, `CAPITAL`, `M_AND_A`, `GUIDANCE`, `CORPORATE` eller `OTHER`. `OTHER` merkes `REVIEW_REQUIRED`. **Klassifisering alene kan aldri endre NAV eller cash.** Bare separat verifiserte, testbare hendelser får finansiell modellvirkning.
-
-Phase 9.4 har blant annet verifisert tre store 2021-tender-buybacks og tilhørende treasury/share-count-hendelser, samt NewsWeb-meldingen om USD 100m AdColony-betaling 27.10.2021. USD-beløpet får bare NOK-verdi når historisk ECB USD/NOK finnes. Et feilaktig eldre provenance-oppslag ble også avdekket: message ID `532327` tilhører ikke OTEC; korrekt NewsWeb completion-melding for tenderen 10.05.2021 er `532648`.
-
-### NewsWeb og daglige buybacks
-
-Ukesmeldingen lagres fortsatt som audit-/avstemmingsfaktum. Når NewsWeb-meldingen har et `Transaksjonsoversikt`-vedlegg:
-
-1. PDF-en hentes transient fra NewsWeb attachment-API.
-2. Individuelle `B OTEC`-handler parses deterministisk.
-3. Hver linje avstemmes `antall × kurs = beløp`.
-4. Dagene aggregeres og avstemmes mot ukens aksjetall, beløp og VWAP.
-5. Cash bruker deretter faktiske handelsdatoer (`OTELLO_BUYBACK_DAILY`) i stedet for å legge hele ukesbeløpet på periodens sluttdato.
-
-Hvis et historisk NewsWeb-vedlegg mangler, beholdes Phase 9.2-fallbacken: en ukessum som krysser et rapportert cash-anker ekskluderes konservativt fra eksplisitt post-anchor cash og absorberes av ankerresidualen. Systemet later ikke som daglig timing er kjent.
-
-Historiske NewsWeb-buyback-meldinger har flere dokumenterte tekstformater. 2023-parseren har derfor en strengt avgrenset legacy-wrapper for utstederskrivefeilen `Sine the initiation` og første statusuke som mangler separat kumulativ/treasury-linje. Midt i et program tillates ikke slik inferens.
-
-## Datakvalitet
-
-- SQLite initialiseres automatisk ved appstart.
-- Migreringer ligger i `backend/app/db/migrations/` og kjøres bare én gang.
-- Foreign keys er aktivert på alle forbindelser; produksjonsfilen bruker WAL.
-- Finansielle desimaltall lagres som tekst og beregnes med Python `Decimal`.
-- Kildedata spores gjennom `sources`, `source_documents` og `provenance_records`.
-- Rå dokumenter og vår klassifisering/tolkning holdes separat.
-- Senere restatements får prioritet når de superseder tidligere rapporterte balanser.
-- NAV skiller mellom `BACKFILLED`, `ESTIMATED` og `DEGRADED`.
-- Manglende/forsinkede kilder gir synlig degradert status; de erstattes ikke med oppdiktede verdier.
-- Lavere prioriterte buyback-kilder kan kontrollere, men ikke overskrive, sterkere fakta.
-
-## Første oppstart med Docker
-
-På Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-docker compose up --build -d
+```bash
+cp .env.example .env
+mkdir -p data/raw data/backups
+docker compose build
 ```
 
-Åpne dashboardet på:
+Legg den validerte historiske OTEC-filen under `data/raw/`. Deretter, eksempel med Investing-exporten som allerede er brukt i prosjektet:
+
+```bash
+docker compose run --rm api python -m app.jobs.bootstrap_production \
+  --database /data/otello.db \
+  --otec-investing-csv /data/raw/Otello-Corporation-ASA-Stock-Price-History.csv \
+  --strict
+```
+
+Kjør deretter produksjonsporten eksplisitt:
+
+```bash
+docker compose run --rm api python -m app.jobs.preflight \
+  --database /data/otello.db \
+  --strict
+```
+
+Bare når den ender i `READY`:
+
+```bash
+docker compose up -d
+```
+
+Dashboardet ligger lokalt på:
 
 ```text
 http://localhost:3000
 ```
 
-API-et nås gjennom nginx på samme origin, for eksempel:
+Detaljene for alle readiness-kontroller står i [docs/pre-live-hardening.md](docs/pre-live-hardening.md).
 
-```text
-http://localhost:3000/api/health
-http://localhost:3000/api/system/database
-http://localhost:3000/api/system/history
-http://localhost:3000/api/system/market-data
-http://localhost:3000/api/nav/daily
-http://localhost:3000/api/nav/other-net-assets
-http://localhost:3000/api/nav/full
-http://localhost:3000/api/dashboard/summary
-http://localhost:3000/api/dashboard/history
-```
+## Scheduler og ytelse
 
-FastAPI-port `8000` er ikke publisert direkte fra Docker Compose.
+Produksjonsscheduler har to nivåer:
 
-## Historisk markedsdata-backfill
+### Fast refresh – standard hvert 30. minutt
 
-Kommandoene kjøres i backend-containeren eller direkte fra `backend/` med `PYTHONPATH=.`.
+- Euronext delayed OTEC
+- inkrementell NewsWeb-historikk
+- inkrementelle buybacks
+- buyback cash/programdata
+- daglig cash
+- siste relevante CORE/FULL NAV-snapshot
 
-### ECB – BRL/NOK og USD/NOK
+Den laster **ikke** ned hele B3-år, ECB-historikk, CVM-arkiver eller MFN-fallback hver halvtime.
 
-```bash
-python -m app.jobs.backfill_market_data --ecb --start 2021-02-10
-```
+### Full refresh – standard én gang per døgn
 
-### B3 – BMOB3
+Tar de tyngre kildene, avstemminger og full historisk rebuild. Jobbstatus lagres i `job_runs`.
 
-```bash
-python -m app.jobs.backfill_market_data --b3-year 2021 --b3-year 2022 --b3-year 2023 --b3-year 2024 --b3-year 2025 --b3-year 2026
-```
+### Backup – standard én gang per døgn
 
-B3-nedlasteren har retry. Manuell ZIP kan også importeres:
+SQLite sin backup-API brukes mot den levende WAL-databasen, og snapshotet må passere `PRAGMA integrity_check`. Backuper lagres som standard i `/data/backups`.
 
-```bash
-python -m app.jobs.backfill_market_data --b3-file 2025:/path/COTAHIST_A2025.ZIP
-```
+Automatisk sletting/retention er foreløpig **ikke** aktivert. Diskforbruket må overvåkes og en sikker rotasjon/restore-test skal gjøres som del av faktisk Pi-drift.
 
-### OTEC
+## Dashboardets datoferskhet
 
-Euronext CSV:
+Siste NAV-snapshot får en separat timestamp-status:
 
-```bash
-python -m app.jobs.backfill_market_data --otec-csv /path/OTEC.csv --otec-date-order DMY
-```
+- `ALIGNED` – OTEC, BMOB3 og BRL/NOK har kompatibel markedsdato
+- `MIXED` – gyldige inputs, men fra ulike markedsdatoer; NAV er indikativ
+- `STALE` – minst én markedsinput er for gammel
+- `UNKNOWN` – manglende timestamp-metadata
 
-Gratis Investing-export støttes som historisk fallback. Pre-09.08.2022-data merkes `RECONSTRUCTED` fordi NOK 21-utdelingen reverseres:
+GUI-et oppdaterer seg automatisk hvert 2. minutt og viser inputdatoene.
+
+En gammel rapportert Bemobi-eierprosent vises ikke som om den var dagens prosent. NAV bruker det verifiserte antallet Bemobi-aksjer; prosent vises først når et oppdatert BMOB3-utestående aksjetall er verifisert.
+
+## Utvikling
+
+Backend:
 
 ```bash
-python -m app.jobs.backfill_market_data --otec-investing-csv /path/OTEC-investing.csv
+cd backend
+pip install -r requirements-dev.txt
+PYTHONPATH=. pytest -q
 ```
 
-## Refresh og NAV
-
-CORE-only kan fortsatt bygges separat:
+Frontend:
 
 ```bash
-python -m app.jobs.rebuild_daily_nav
+cd frontend
+npm ci
+npm run build
 ```
 
-Den samlede refresh-pipelinen:
+Docker/produksjonsimage:
 
 ```bash
-python -m app.jobs.refresh_dashboard
+docker compose config --quiet
+docker compose build api web
 ```
 
-Rekkefølge:
+CI kjører alle tre kontrollene på hver PR. Frontend bruker `package-lock.json`; direkte Python-avhengigheter er pinnet til testede versjoner.
 
-1. init/migrering + kuratert historikk
-2. nylig ECB FX
-3. gjeldende B3 BMOB3
-4. full/incrementell NewsWeb OTEC-arkivoppdatering
-5. separat verifiserte historiske NewsWeb-hendelser
-6. sekundær buyback-fallback + offisiell NewsWeb ukes-/vedleggsdata
-7. NewsWeb daglig buyback → cash-sync der avstemt
-8. report-date CORE NAV
-9. daglig cash
-10. daglig CORE NAV
-11. rapporterte ONA-ankre → NOK
-12. daglig ONA
-13. daglig FULL NAV
-14. dashboard/status
+## Secrets og produksjonsdata
 
-En enkelt kildefeil stopper ikke resten av refreshen. Feilen legges i `source_errors`, siste lagrede data brukes videre, og totalstatus blir `degraded` når det er relevant.
+Ikke commit `.env`, databasefiler, API-nøkler, rå markedsdata eller NewsWeb-PDF-er. Produksjonsdata ligger utenfor Git-historikken.
 
-OTEC-kurs oppdateres foreløpig ikke via en udokumentert scraper. En fersk CSV kan mates inn ved behov:
+## Før endelig live-erklæring
 
-```bash
-python -m app.jobs.refresh_dashboard --otec-csv /path/OTEC.csv
-```
+Kodebasen kan preflightes nå, men to operative/finansielle steg står igjen:
 
-eller:
+1. Kjør bootstrap + `preflight --strict` mot den **faktiske** produksjonsdatabasen på Pi-en.
+2. Importer og avstem Otello 1H26 når rapporten publiseres 21.08.2026, slik at dagens forecast-partial cash/ONA erstattes med nye rapportankre.
 
-```bash
-python -m app.jobs.refresh_dashboard --otec-investing-csv /path/OTEC-investing.csv
-```
-
-Bruk `--strict` dersom en scheduler/CI skal returnere feilstatus når refreshen ikke ender i `ok`.
-
-## GitHub og secrets
-
-Ikke commit `.env`, databasefiler, API-nøkler eller rå markedsdata-/NewsWeb-PDF-er. Produksjonsdata ligger utenfor Git-historikken.
+I tillegg bør backup-restore testes på Pi-en før systemet betraktes som fullt driftsklart.
