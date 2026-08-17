@@ -2,18 +2,15 @@ from decimal import Decimal
 
 import pytest
 
+from app.buybacks.euronext import BuybackStatus
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.db.repository import create_source_document
 from app.nav.cash_curve import _known_movements
-from app.newsweb.buyback_transactions import (
-    DailyBuybackTransaction,
-    parse_buyback_transaction_text,
-    validate_daily_buybacks,
-)
 from app.newsweb.cash_sync import sync_newsweb_daily_buyback_cash
 from app.newsweb.client import parse_list_payload, parse_message_payload
-from app.buybacks.euronext import BuybackStatus
+from app.newsweb.enrichment import validate_daily_buybacks
+from app.newsweb.trade_parser import DailyBuybackTransaction, parse_buyback_transaction_text
 
 
 TRANSACTION_TEXT = """
@@ -216,8 +213,6 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
             ("2025-07-01", "-3460"),
         ]
 
-        # A 30 June reported cash anchor already includes the 30 June trade. The normal
-        # cash query is start-exclusive, so only the 1 July transaction is post-anchor.
         movements = _known_movements(connection, "2025-06-30", "2025-12-31")
         buyback_movements = [
             item for item in movements if item["movement_type"] == "OTELLO_BUYBACK_DAILY"
@@ -226,8 +221,6 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
         assert buyback_movements[0]["movement_date"] == "2025-07-01"
         assert buyback_movements[0]["amount_nok"] == "-3460"
 
-        # A later legacy collector cannot recreate the weekly cash summary after daily
-        # transaction detail exists; migration trigger silently ignores it.
         connection.execute(
             """
             INSERT INTO cash_movements(
