@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.13.0",
+    version="0.10.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -53,7 +53,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.13.0",
+        "version": "0.10.0",
     }
 
 
