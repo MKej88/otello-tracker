@@ -12,6 +12,7 @@ CORE_TABLES = (
     "company_news",
     "instruments",
     "market_prices",
+    "market_activity",
     "fx_rates",
     "bemobi_holdings",
     "otello_share_counts",

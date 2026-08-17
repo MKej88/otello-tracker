@@ -247,7 +247,7 @@ def ingest_buyback_status(
 
         existing = connection.execute(
             """
-            SELECT id, shares, avg_price_nok, amount_nok,
+            SELECT id, period_start, shares, avg_price_nok, amount_nok,
                    cumulative_program_shares, cumulative_program_avg_price_nok,
                    cumulative_program_amount_nok, treasury_shares_after, source_document_id
             FROM buybacks
@@ -261,13 +261,13 @@ def ingest_buyback_status(
             cursor = connection.execute(
                 """
                 INSERT INTO buybacks(
-                    program_id, trade_date, shares, avg_price_nok, amount_nok,
+                    program_id, period_start, trade_date, shares, avg_price_nok, amount_nok,
                     cumulative_program_shares, cumulative_program_avg_price_nok,
                     cumulative_program_amount_nok, treasury_shares_after, source_document_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    program_id, parsed.period_end, parsed.period_shares,
+                    program_id, parsed.period_start, parsed.period_end, parsed.period_shares,
                     decimal_text(parsed.period_avg_price_nok), decimal_text(parsed.period_amount_nok),
                     parsed.cumulative_program_shares,
                     decimal_text(parsed.cumulative_program_avg_price_nok),
@@ -279,6 +279,21 @@ def ingest_buyback_status(
             preferred_document_id = document_id
         else:
             buyback_id = int(existing["id"])
+            existing_period_start = existing["period_start"]
+            if existing_period_start is not None and str(existing_period_start) != parsed.period_start:
+                raise ValueError(
+                    "Buyback-kilde avviker fra lagret period_start; krever kontroll: "
+                    f"lagret={existing_period_start}, kandidat={parsed.period_start}"
+                )
+            if existing_period_start is None:
+                # period_start is structural metadata for the same program/period_end,
+                # not a weaker-source rewrite of financial facts. Populate it once and
+                # reject any future conflicting date.
+                connection.execute(
+                    "UPDATE buybacks SET period_start = ? WHERE id = ?",
+                    (parsed.period_start, buyback_id),
+                )
+
             old_priority = _source_priority(connection, existing["source_document_id"])
             new_priority = _source_priority(connection, document_id)
             same_document = int(existing["source_document_id"]) == document_id
@@ -291,15 +306,16 @@ def ingest_buyback_status(
                 preferred_document_id = document_id
                 connection.execute(
                     """
-                    UPDATE buybacks SET shares = ?, avg_price_nok = ?, amount_nok = ?,
+                    UPDATE buybacks SET period_start = ?, shares = ?, avg_price_nok = ?, amount_nok = ?,
                         cumulative_program_shares = ?, cumulative_program_avg_price_nok = ?,
                         cumulative_program_amount_nok = ?, treasury_shares_after = ?,
                         source_document_id = ?
                     WHERE id = ?
                     """,
                     (
-                        parsed.period_shares, decimal_text(parsed.period_avg_price_nok),
-                        decimal_text(parsed.period_amount_nok), parsed.cumulative_program_shares,
+                        parsed.period_start, parsed.period_shares,
+                        decimal_text(parsed.period_avg_price_nok), decimal_text(parsed.period_amount_nok),
+                        parsed.cumulative_program_shares,
                         decimal_text(parsed.cumulative_program_avg_price_nok),
                         decimal_text(parsed.cumulative_program_amount_nok), parsed.treasury_shares_after,
                         preferred_document_id, buyback_id,
@@ -422,6 +438,7 @@ def ingest_buyback_status(
     return {
         "buyback_id": buyback_id,
         "program_id": program_id,
+        "period_start": parsed.period_start,
         "period_end": parsed.period_end,
         "period_shares": parsed.period_shares,
         "period_amount_nok": decimal_text(parsed.period_amount_nok),

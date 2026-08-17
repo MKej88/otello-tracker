@@ -19,6 +19,45 @@ type Buyback = {
   cumulative_program_amount_nok: string | null;
 };
 
+type BuybackForecast = {
+  ready: boolean;
+  status: string;
+  forecast_week?: {
+    from: string;
+    to: string;
+    expected_trading_days: number;
+  };
+  volume_model?: {
+    adv20_shares: number;
+    safe_harbour_share: number;
+    week_start_capacity_estimate_shares: number;
+    volume_through: string;
+    volume_source_quality: string;
+    note: string;
+  };
+  price_model?: {
+    latest_close_nok: number | null;
+    program_cap_nok: number | null;
+    headroom_pct: number | null;
+    state: string;
+  };
+  estimate?: {
+    base_case_shares: number;
+    low_shares: number;
+    high_shares: number;
+    utilization_factor: number;
+    confidence: string;
+    warning: string | null;
+  };
+  active_program_backtest?: {
+    weeks: number;
+    median_ape_pct?: number | null;
+    wmape_pct?: number | null;
+    within_10_pct?: number | null;
+    within_20_pct?: number | null;
+  };
+};
+
 type Summary = {
   ready: boolean;
   data_status: string;
@@ -71,6 +110,7 @@ type History = {
 
 const initialSummary: Summary = { ready: false, data_status: "loading" };
 const initialHistory: History = { ready: false, data_status: "loading", points: [] };
+const initialForecast: BuybackForecast = { ready: false, status: "loading" };
 
 const menu = [
   "Oversikt",
@@ -173,6 +213,7 @@ function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: 
 export default function App() {
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [history, setHistory] = useState<History>(initialHistory);
+  const [forecast, setForecast] = useState<BuybackForecast>(initialForecast);
   const [apiOk, setApiOk] = useState(false);
 
   useEffect(() => {
@@ -184,11 +225,16 @@ export default function App() {
       fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
         if (!response.ok) throw new Error("History API-feil");
         return response.json() as Promise<History>;
-      })
+      }),
+      fetch("/api/buybacks/forecast").then((response) => {
+        if (!response.ok) return initialForecast;
+        return response.json() as Promise<BuybackForecast>;
+      }).catch(() => initialForecast)
     ])
-      .then(([summaryData, historyData]) => {
+      .then(([summaryData, historyData, forecastData]) => {
         setSummary(summaryData);
         setHistory(historyData);
+        setForecast(forecastData);
         setApiOk(true);
       })
       .catch(() => {
@@ -214,6 +260,9 @@ export default function App() {
   const ownership = summary.bemobi_ownership_pct ?? 0;
   const scope = summary.model_scope ?? "CORE";
   const navStatusLabel = degraded ? "DEGRADERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
+  const forecastEstimate = forecast.estimate;
+  const forecastWeek = forecast.forecast_week;
+  const forecastConfidence = forecastEstimate?.confidence ?? "VENTER";
 
   return (
     <div className="shell">
@@ -290,12 +339,18 @@ export default function App() {
           <article className="card">
             <div className="cardHeader">
               <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
-              <span className="pill muted">{latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
+              <span className="pill muted">{forecast.ready ? forecastConfidence : latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
             </div>
             <div className="placeholderRows">
               <div><span>Siste uke</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
-              <div><span>Snittkurs</span><strong>{latestBuyback ? `${value(Number(latestBuyback.avg_price_nok))} kr` : "–"}</strong></div>
-              <div><span>Egne aksjer</span><strong>{latestBuyback?.treasury_shares_after != null ? integer.format(latestBuyback.treasury_shares_after) : "–"}</strong></div>
+              <div>
+                <span>{forecastWeek ? `Est. ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
+                <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
+              </div>
+              <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
+              <div><span>20d snittvolum</span><strong>{forecast.volume_model ? integer.format(forecast.volume_model.adv20_shares) : "–"}</strong></div>
+              <div><span>Programgrense</span><strong>{forecast.price_model?.program_cap_nok != null ? `${value(forecast.price_model.program_cap_nok)} kr` : "–"}</strong></div>
+              {forecastEstimate?.warning && <div><span>Varsel</span><strong>{forecastEstimate.warning}</strong></div>}
             </div>
           </article>
 
@@ -323,6 +378,7 @@ export default function App() {
               {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{summary.share_count_quality}</span></div>}
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
+              <div><span>Buyback-prognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? forecastConfidence : "VENTER"}</span></div>
             </div>
           </article>
         </section>

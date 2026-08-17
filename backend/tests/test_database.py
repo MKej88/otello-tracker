@@ -20,18 +20,19 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
 
     assert init_database(database_path) == [
         "0001", "0002", "0003", "0004", "0005", "0006", "0007",
-        "0008", "0009", "0010", "0011", "0012", "0013", "0014",
+        "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0014"
+    assert status["latest_migration"] == "0015"
     assert status["table_counts"]["sources"] == 12
     assert status["table_counts"]["instruments"] == 2
     assert status["table_counts"]["company_news"] == 0
     assert status["table_counts"]["other_net_assets_reported_anchors"] == 0
     assert status["table_counts"]["other_net_assets_daily_estimates"] == 0
     assert status["table_counts"]["buyback_daily_transactions"] == 0
+    assert status["table_counts"]["market_activity"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -52,7 +53,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         } <= action_columns
 
         buyback_columns = {row["name"] for row in connection.execute("PRAGMA table_info(buybacks)")}
-        assert {"cumulative_program_avg_price_nok", "cumulative_program_amount_nok"} <= buyback_columns
+        assert {
+            "cumulative_program_avg_price_nok", "cumulative_program_amount_nok", "period_start",
+        } <= buyback_columns
+
+        program_columns = {row["name"] for row in connection.execute("PRAGMA table_info(buyback_programs)")}
+        assert "max_price_nok" in program_columns
 
         daily_buyback_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(buyback_daily_transactions)")
@@ -61,6 +67,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
             "weekly_buyback_id", "trade_date", "shares", "avg_price_nok",
             "amount_nok", "trade_count", "source_document_id", "quality",
         } <= daily_buyback_columns
+
+        activity_columns = {row["name"] for row in connection.execute("PRAGMA table_info(market_activity)")}
+        assert {
+            "instrument_id", "trading_date", "volume_shares", "last_price_nok",
+            "source_id", "source_document_id", "quality", "metadata_json",
+        } <= activity_columns
 
         nav_columns = {row["name"] for row in connection.execute("PRAGMA table_info(nav_snapshots)")}
         assert {"nav_scope", "components_json", "quality_notes"} <= nav_columns
@@ -189,9 +201,10 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0014"
+            assert payload["latest_migration"] == "0015"
             assert payload["table_counts"]["sources"] == 12
             assert payload["table_counts"]["company_news"] == 0
             assert payload["table_counts"]["buyback_daily_transactions"] == 0
+            assert payload["table_counts"]["market_activity"] > 500
     finally:
         settings.database_path = previous_path
