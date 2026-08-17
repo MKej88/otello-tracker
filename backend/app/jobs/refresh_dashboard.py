@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news
 from app.buybacks import buyback_status, collect_recent_buybacks
 from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
@@ -67,6 +68,7 @@ def run_refresh(
     fetch_ecb: bool = True,
     fetch_b3: bool = True,
     fetch_buybacks: bool = True,
+    fetch_bemobi_news: bool = True,
     otec_euronext_csv: str | None = None,
     otec_investing_csv: str | None = None,
 ) -> dict[str, Any]:
@@ -82,6 +84,11 @@ def run_refresh(
     NewsWeb messages/transaction PDFs for exact daily cash timing where they reconcile.
     Verified historical material events are seeded separately and idempotently; archive
     classification alone never creates a financial model effect.
+
+    Bemobi news is discovered from CVM's official annual IPE open-data archives. Only
+    structured filing metadata and links are archived. Metadata classification is useful
+    for the dashboard but never creates or changes a corporate action, cash movement or
+    NAV value without a separate validated financial-fact step.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -115,6 +122,21 @@ def run_refresh(
         steps["b3"] = _safe_step("b3", update_b3, errors)
     else:
         steps["b3"] = {"skipped": True}
+
+    if fetch_bemobi_news:
+        bemobi_news = _safe_step(
+            "bemobi_cvm_news",
+            lambda: collect_bemobi_cvm_news(database_path, target_year=end_day.year),
+            errors,
+        )
+        steps["bemobi_cvm_news"] = bemobi_news
+        if isinstance(bemobi_news, dict) and bemobi_news.get("errors"):
+            errors.append({
+                "step": "bemobi_cvm_news_partial",
+                "error": json.dumps(bemobi_news["errors"], ensure_ascii=False, default=str),
+            })
+    else:
+        steps["bemobi_cvm_news"] = {"skipped": True}
 
     if otec_euronext_csv:
         def update_otec_euronext() -> dict[str, Any]:
@@ -223,6 +245,7 @@ def run_refresh(
         "buyback_status": buyback_status(database_path),
         "newsweb_history_status": newsweb_history_status(database_path),
         "newsweb_buyback_status": newsweb_buyback_status(database_path),
+        "bemobi_cvm_news_status": bemobi_cvm_news_status(database_path),
         "cash_status": daily_cash_status(database_path),
         "core_nav_status": daily_nav_status(database_path),
         "other_net_assets_status": other_net_assets_status(database_path),
@@ -240,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-ecb", action="store_true")
     parser.add_argument("--skip-b3", action="store_true")
     parser.add_argument("--skip-buybacks", action="store_true")
+    parser.add_argument("--skip-bemobi-news", action="store_true")
     parser.add_argument("--otec-csv", default=None, help="Optional fresh Euronext OTEC CSV")
     parser.add_argument("--otec-investing-csv", default=None, help="Optional Investing OTEC CSV")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero unless refresh status is ok")
@@ -256,6 +280,7 @@ def main() -> None:
         fetch_ecb=not args.skip_ecb,
         fetch_b3=not args.skip_b3,
         fetch_buybacks=not args.skip_buybacks,
+        fetch_bemobi_news=not args.skip_bemobi_news,
         otec_euronext_csv=args.otec_csv,
         otec_investing_csv=args.otec_investing_csv,
     )
