@@ -1,11 +1,11 @@
-probed_at_utc= 2026-08-17T14:37:14.684765+00:00
+probed_at_utc= 2026-08-17T14:38:10.451605+00:00
 
 URL https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/BMOB3
 status= 200
 content_type= application/json; charset=utf-8
-{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:37:15"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.6,"curPrc":22.57,"prcFlcn":-0.3610268},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":176}]}
+{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:38:11"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.584,"curPrc":22.52,"prcFlcn":-0.5817600},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":244}]}
 
 URL https://cotacao.b3.com.br/mds/api/v1/InstrumentQuotation/BMOB3
 status= 200
 content_type= application/json; charset=utf-8
-{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:37:16"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.584,"curPrc":22.52,"prcFlcn":-0.5817600},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":241}]}
+{"BizSts":{"cd":"OK"},"Msg":{"dtTm":"2026-08-17 11:38:11"},"Trad":[{"scty":{"SctyQtn":{"opngPric":22.67,"minPric":22.49,"maxPric":22.69,"avrgPric":22.6,"curPrc":22.57,"prcFlcn":-0.3610268},"mkt":{"nm":"Vista"},"symb":"BMOB3","desc":"BEMOBI TECH ON  EJ  NM"},"ttlQty":176}]}
