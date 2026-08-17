@@ -290,10 +290,23 @@ def _fx_coverage(connection, base: str) -> dict[str, Any]:
 
 def market_data_status(database_path: str | None = None) -> dict[str, Any]:
     with get_connection(database_path) as connection:
-        return {
-            "status": "ok",
+        components = {
             "BMOB3": _coverage(connection, "BMOB3"),
             "OTEC": _coverage(connection, "OTEC"),
             "BRL_NOK": _fx_coverage(connection, "BRL"),
             "USD_NOK": _fx_coverage(connection, "USD"),
         }
+
+    populated = {name: int(data.get("count") or 0) > 0 for name, data in components.items()}
+    if not any(populated.values()):
+        status = "empty"
+    elif not all(populated.values()):
+        status = "partial"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "missing_components": [name for name, present in populated.items() if not present],
+        **components,
+    }
