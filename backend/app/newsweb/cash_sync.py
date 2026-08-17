@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.db.connection import get_connection
@@ -31,7 +32,6 @@ def sync_newsweb_daily_buyback_cash(
             SELECT b.id AS buyback_id, b.trade_date AS period_end,
                    COUNT(d.id) AS daily_count,
                    SUM(d.shares) AS daily_shares,
-                   SUM(CAST(d.amount_nok AS REAL)) AS daily_amount_nok,
                    b.shares AS weekly_shares, b.amount_nok AS weekly_amount_nok
             FROM buybacks b
             JOIN buyback_daily_transactions d ON d.weekly_buyback_id = b.id
@@ -90,15 +90,14 @@ def sync_newsweb_daily_buyback_cash(
                         f"Flere NewsWeb daily buyback-rader for samme uke/dato: {trade_date}"
                     )
                 seen_dates.add(trade_date)
-                amount = decimal_text(-__import__("decimal").Decimal(row["amount_nok"]))
+                amount = decimal_text(-Decimal(row["amount_nok"]))
                 description = (
                     f"NewsWeb transaction-level Otello buyback: {row['shares']:,} shares "
                     f"on {trade_date}; weekly status period ending {week['period_end']}."
                 )
                 existing = connection.execute(
                     """
-                    SELECT id, amount_nok, amount_original, source_document_id
-                    FROM cash_movements
+                    SELECT id FROM cash_movements
                     WHERE movement_type = 'OTELLO_BUYBACK_DAILY'
                       AND buyback_id = ? AND movement_date = ?
                     ORDER BY id LIMIT 1
