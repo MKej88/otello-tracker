@@ -33,7 +33,7 @@ def _parse_bool(value: str | None, *, default: bool) -> bool:
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> SchedulerConfig:
-    env = environ or os.environ
+    env = os.environ if environ is None else environ
     raw_interval = env.get("REFRESH_INTERVAL_MINUTES", str(DEFAULT_INTERVAL_MINUTES)).strip()
     try:
         interval_minutes = int(raw_interval)
