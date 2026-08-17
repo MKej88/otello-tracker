@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
-from datetime import datetime, time
+from datetime import UTC, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -12,6 +11,7 @@ from app.marketdata.euronext_delayed import (
     OTEC_SYMBOL,
     DelayedTrade,
     download_euronext_delayed_equities,
+    import_delayed_otec_trade,
     parse_euronext_delayed_trades,
     refresh_otec_delayed_price,
 )
@@ -23,24 +23,116 @@ OSLO_TZ = ZoneInfo("Europe/Oslo")
 # thinly traded OTEC print cannot fall into a polling gap after LAST_15_MINUTES returns
 # no OTEC row.
 INTRADAY_SELECTIONS = ("LAST_15_MINUTES", "LAST_HOUR")
+# A full current-day file is only a cold-start/recovery fallback. If a successful or
+# degraded fast cycle finished within this window, LAST_HOUR already overlaps all time
+# since the previous poll and a large day-file request is unnecessary.
+RECENT_POLL_COVERAGE_MINUTES = 75
+INTRADAY_BOOTSTRAP_AFTER = time(9, 15)
 # Normal Oslo equity trading is finished well before this. Waiting until 16:45 also
 # leaves room for Euronext's delayed publication window before taking the one daily
 # CURRENT_TRADING_DAY snapshot.
 EOD_FINALIZE_AFTER = time(16, 45)
 
 
+def _parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _recent_fast_poll(database_path: str | None, now: datetime) -> bool:
+    """Return True when the previous fast cycle is recent enough for LAST_HOUR coverage."""
+    with get_connection(database_path) as connection:
+        row = connection.execute(
+            """
+            SELECT finished_at
+            FROM job_runs
+            WHERE job_name='fast_refresh'
+              AND status IN ('SUCCESS','PARTIAL')
+              AND finished_at IS NOT NULL
+            ORDER BY finished_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if row is None:
+        return False
+    age_seconds = (now.astimezone(UTC) - _parse_timestamp(str(row["finished_at"]))).total_seconds()
+    return 0 <= age_seconds <= RECENT_POLL_COVERAGE_MINUTES * 60
+
+
 def refresh_otec_intraday_price(
     database_path: str | None = None,
     *,
     timeout: int = 45,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Refresh OTEC from small delayed windows instead of the full trading-day file."""
-    result = refresh_otec_delayed_price(
+    """Refresh OTEC cheaply, using a full-day file only for cold-start/gap recovery.
+
+    Normal 30-minute production cycles inspect LAST_15_MINUTES and then LAST_HOUR. If
+    neither contains OTEC and the previous fast cycle is recent, the locally stored
+    same-day price is already the best known last trade and no larger request is needed.
+    On first startup or after a polling outage longer than the overlap window, one
+    CURRENT_TRADING_DAY request closes the gap so an older same-day trade cannot be missed.
+    """
+    current = now or datetime.now(OSLO_TZ)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=OSLO_TZ)
+    current = current.astimezone(OSLO_TZ)
+
+    small = refresh_otec_delayed_price(
         database_path,
         selections=INTRADAY_SELECTIONS,
         timeout=timeout,
     )
-    return {"feed_mode": "delayed_intraday", **result}
+    if small.get("found"):
+        return {"feed_mode": "delayed_intraday", "gap_recovery": False, **small}
+
+    today = current.date()
+    if not is_oslo_bors_trading_day(today):
+        return {
+            "feed_mode": "delayed_intraday",
+            "gap_recovery": False,
+            "gap_recovery_skipped": "not_trading_day",
+            **small,
+        }
+    if current.time().replace(tzinfo=None) < INTRADAY_BOOTSTRAP_AFTER:
+        return {
+            "feed_mode": "delayed_intraday",
+            "gap_recovery": False,
+            "gap_recovery_skipped": "before_bootstrap_cutoff",
+            **small,
+        }
+    if _recent_fast_poll(database_path, current):
+        return {
+            "feed_mode": "delayed_intraday",
+            "gap_recovery": False,
+            "gap_recovery_skipped": "recent_poll_covered_by_last_hour",
+            **small,
+        }
+
+    # Cold start or a polling gap longer than LAST_HOUR: use the full current-day file
+    # once to recover any trade that occurred outside the small windows. The fast cycle
+    # that called this function is persisted by the scheduler, so subsequent 30-minute
+    # cycles are again covered by the small overlap window.
+    url, payload = download_euronext_delayed_equities(
+        "CURRENT_TRADING_DAY",
+        timeout=max(timeout, 120),
+    )
+    recovered = import_delayed_otec_trade(
+        payload,
+        time_selection="CURRENT_TRADING_DAY",
+        source_url=url,
+        database_path=database_path,
+    )
+    return {
+        "feed_mode": "delayed_intraday",
+        "gap_recovery": True,
+        "small_windows": small,
+        "status": "ok" if recovered.get("found") else "no_trade",
+        "selected": "CURRENT_TRADING_DAY" if recovered.get("found") else None,
+        **recovered,
+    }
 
 
 def _latest_trade_for_date(trades: list[DelayedTrade], target_date: str) -> DelayedTrade | None:
