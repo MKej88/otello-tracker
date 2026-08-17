@@ -1,6 +1,7 @@
 {
-  "version": "2026-08-17.1",
+  "version": "2026-08-17.2",
   "formula": "total_assets - cash - bemobi_carrying_value - total_liabilities",
+  "base_formula": "other_net_assets - associated_receivable",
   "currency": "USD",
   "documents": [
     {
@@ -52,6 +53,8 @@
       "bemobi_carrying": "75200000",
       "total_liabilities": "3300000",
       "other_net_assets": "1400000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "1400000",
       "precision_status": "ROUNDED_0_1M",
       "restated": false,
       "source_key": "otello_1h22",
@@ -65,6 +68,8 @@
       "bemobi_carrying": "88590000",
       "total_liabilities": "2413000",
       "other_net_assets": "424000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "424000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": false,
       "source_key": "otello_ar23",
@@ -78,6 +83,8 @@
       "bemobi_carrying": "96128000",
       "total_liabilities": "2205000",
       "other_net_assets": "677000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "677000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": false,
       "source_key": "otello_1h24",
@@ -91,11 +98,13 @@
       "bemobi_carrying": "94402000",
       "total_liabilities": "1170000",
       "other_net_assets": "3261000",
+      "associated_receivable": "3237000",
+      "base_other_net_assets": "24000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": true,
       "source_key": "otello_ar25",
-      "source_locator": "Annual Report 2025, restated 01/01/2024 comparative balance and Note 11 Bemobi carrying value",
-      "notes": "Uses the latest retrospectively restated opening-2024 balance, including Bemobi distribution receivable recognition."
+      "source_locator": "Annual Report 2025, restated 01/01/2024 balance: Current receivables from associated companies USD 3.237m; Note 11 Bemobi carrying value",
+      "notes": "Restated opening-2024 balance. The associated-company receivable is separated from base ONA so it can be removed when the Bemobi distribution is paid."
     },
     {
       "as_of_date": "2024-06-30",
@@ -104,6 +113,8 @@
       "bemobi_carrying": "79996000",
       "total_liabilities": "647000",
       "other_net_assets": "429000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "429000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": false,
       "source_key": "otello_1h25",
@@ -117,11 +128,13 @@
       "bemobi_carrying": "68969000",
       "total_liabilities": "1330000",
       "other_net_assets": "2987000",
+      "associated_receivable": "3452000",
+      "base_other_net_assets": "-465000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": true,
       "source_key": "otello_ar25",
-      "source_locator": "Annual Report 2025, restated 2024 statement of financial position and Note 11",
-      "notes": "Supersedes the original 2024 annual-report balance. Restatement includes a USD 3.452m current Bemobi receivable."
+      "source_locator": "Annual Report 2025, restated 31/12/2024 balance: Current receivables from associated companies USD 3.452m; Note 11",
+      "notes": "Supersedes the original 2024 annual-report balance. The USD 3.452m Bemobi receivable is modeled separately until its January 2025 payment."
     },
     {
       "as_of_date": "2025-06-30",
@@ -130,6 +143,8 @@
       "bemobi_carrying": "117505000",
       "total_liabilities": "1699000",
       "other_net_assets": "-5000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "-5000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": false,
       "source_key": "otello_1h25",
@@ -143,11 +158,13 @@
       "bemobi_carrying": "113604000",
       "total_liabilities": "2085000",
       "other_net_assets": "2974000",
+      "associated_receivable": "0",
+      "base_other_net_assets": "2974000",
       "precision_status": "EXACT_THOUSANDS",
       "restated": false,
       "source_key": "otello_ar25",
       "source_locator": "Annual Report 2025, audited statement of financial position and Note 11",
-      "notes": "Final audited FY2025 anchor; includes USD 4.291m of other share investments."
+      "notes": "Final audited FY2025 anchor; includes USD 4.291m of other share investments and no current receivable from associated companies."
     }
   ],
   "known_gaps": [
