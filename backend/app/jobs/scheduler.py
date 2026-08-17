@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping
 
-from app.jobs.refresh_dashboard import run_refresh
+from app.jobs.refresh_dashboard_v2 import run_refresh
 from app.settings import settings
 
 DEFAULT_INTERVAL_MINUTES = 30
