@@ -23,6 +23,7 @@ def _provenance_once(
     source_document_id: int,
     source_locator: str | None,
     extracted_value: str,
+    confidence: str = "HIGH",
 ) -> None:
     row = connection.execute(
         """
@@ -49,7 +50,7 @@ def _provenance_once(
             field_name,
             source_document_id,
             source_locator,
-            "MEDIUM" if field_name == "other_net_assets_reported" and extracted_value == "1400000" else "HIGH",
+            confidence,
             extracted_value,
         ),
     )
@@ -81,11 +82,21 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
             bemobi = Decimal(item["bemobi_carrying"])
             liabilities = Decimal(item["total_liabilities"])
             declared = Decimal(item["other_net_assets"])
+            associated_receivable = Decimal(item.get("associated_receivable", "0"))
+            base_other_net_assets = Decimal(
+                item.get("base_other_net_assets", decimal_text(declared - associated_receivable))
+            )
+
             calculated = total_assets - cash - bemobi - liabilities
             if calculated != declared:
                 raise ValueError(
                     f"ONA anchor {item['as_of_date']} does not reconcile: "
                     f"calculated {calculated}, declared {declared}"
+                )
+            if base_other_net_assets + associated_receivable != declared:
+                raise ValueError(
+                    f"ONA decomposition {item['as_of_date']} does not reconcile: "
+                    f"base {base_other_net_assets} + receivable {associated_receivable} != {declared}"
                 )
 
             document_id = documents[item["source_key"]]
@@ -96,18 +107,22 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                 """,
                 (item["as_of_date"], document_id),
             ).fetchone()
-            values = (
-                decimal_text(total_assets),
-                decimal_text(cash),
-                decimal_text(bemobi),
-                decimal_text(liabilities),
-                manifest.get("currency", "USD"),
-                decimal_text(declared),
-                item["precision_status"],
-                1 if item.get("restated") else 0,
-                item.get("source_locator"),
-                item.get("notes"),
-            )
+
+            values = {
+                "total_assets": decimal_text(total_assets),
+                "cash": decimal_text(cash),
+                "bemobi": decimal_text(bemobi),
+                "liabilities": decimal_text(liabilities),
+                "currency": manifest.get("currency", "USD"),
+                "ona": decimal_text(declared),
+                "associated_receivable": decimal_text(associated_receivable),
+                "base_ona": decimal_text(base_other_net_assets),
+                "precision": item["precision_status"],
+                "restated": 1 if item.get("restated") else 0,
+                "locator": item.get("source_locator"),
+                "notes": item.get("notes"),
+            }
+
             if row is None:
                 cursor = connection.execute(
                     """
@@ -115,11 +130,18 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                         as_of_date, total_assets_reported, cash_reported,
                         bemobi_carrying_reported, total_liabilities_reported,
                         reported_currency, other_net_assets_reported,
+                        associated_receivable_reported, base_other_net_assets_reported,
                         precision_status, restated, source_document_id,
                         source_locator, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (item["as_of_date"], *values[:8], document_id, *values[8:]),
+                    (
+                        item["as_of_date"], values["total_assets"], values["cash"],
+                        values["bemobi"], values["liabilities"], values["currency"],
+                        values["ona"], values["associated_receivable"], values["base_ona"],
+                        values["precision"], values["restated"], document_id,
+                        values["locator"], values["notes"],
+                    ),
                 )
                 entity_id = int(cursor.lastrowid)
                 written += 1
@@ -131,10 +153,17 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                     SET total_assets_reported = ?, cash_reported = ?,
                         bemobi_carrying_reported = ?, total_liabilities_reported = ?,
                         reported_currency = ?, other_net_assets_reported = ?,
+                        associated_receivable_reported = ?, base_other_net_assets_reported = ?,
                         precision_status = ?, restated = ?, source_locator = ?, notes = ?
                     WHERE id = ?
                     """,
-                    (*values, entity_id),
+                    (
+                        values["total_assets"], values["cash"], values["bemobi"],
+                        values["liabilities"], values["currency"], values["ona"],
+                        values["associated_receivable"], values["base_ona"],
+                        values["precision"], values["restated"], values["locator"],
+                        values["notes"], entity_id,
+                    ),
                 )
 
             field_values = {
@@ -143,8 +172,16 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                 "bemobi_carrying_reported": bemobi,
                 "total_liabilities_reported": liabilities,
                 "other_net_assets_reported": declared,
+                "associated_receivable_reported": associated_receivable,
+                "base_other_net_assets_reported": base_other_net_assets,
             }
             for field_name, value in field_values.items():
+                confidence = (
+                    "MEDIUM"
+                    if item["precision_status"] == "ROUNDED_0_1M"
+                    and field_name in {"other_net_assets_reported", "base_other_net_assets_reported"}
+                    else "HIGH"
+                )
                 _provenance_once(
                     connection,
                     entity_id=entity_id,
@@ -152,6 +189,7 @@ def seed_other_net_assets_reported(database_path: str | None = None) -> dict[str
                     source_document_id=document_id,
                     source_locator=item.get("source_locator"),
                     extracted_value=decimal_text(value),
+                    confidence=confidence,
                 )
 
         connection.commit()
