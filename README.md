@@ -21,7 +21,8 @@ Privat investeringsdashboard for Otello/Bemobi med mål om:
 **Fase 8 – samlet refresh-pipeline:** ferdig  
 **Fase 9/9.1 – FULL NAV + Bemobi-fordringer:** ferdig  
 **Fase 9.2 – integrity/security hardening:** ferdig  
-**Fase 9.3 – NewsWeb originalkilde og daglige buyback-transaksjoner:** implementert/live-validert
+**Fase 9.3 – NewsWeb originalkilde og daglige buyback-transaksjoner:** ferdig og merget  
+**Fase 9.4 – full NewsWeb-historikk fra 2020:** implementert, siste live-validering/PR gjenstår
 
 Se [PHASE.md](PHASE.md) for detaljert fremdrift og [docs/data-model.md](docs/data-model.md) for datamodellen.
 
@@ -85,12 +86,20 @@ FULL NAV starter foreløpig 30.06.2022. 2021 holdes CORE-only fordi AdColony-tra
 - **B3 COTAHIST:** offisiell BMOB3 EOD-historikk, ujustert for corporate actions.
 - **ECB:** BRL/NOK og USD/NOK krysskurser.
 - **Euronext:** OTEC-priser og Otello-selskapsmeldinger/provenance.
-- **Oslo Børs NewsWeb:** offisiell originalkilde for OTEC-meldinger og vedlegg. Phase 9.3 bruker NewsWeb-list/API direkte (`issuerId=7759`) og kan hente transaksjons-PDF-er for tilbakekjøp.
+- **Oslo Børs NewsWeb:** offisiell originalkilde for OTEC-meldinger og vedlegg. Trackeren kan hente hele OTEC-arkivet fra 2020 og transaksjons-PDF-er for tilbakekjøp.
 - **Otello IR:** kuraterte rapporter og eldre utstedermeldinger.
 - **MFN:** sekundær mirror/discovery-fallback; får aldri overskrive sterkere offisielle fakta.
 - **Investing.com CSV:** manuell historisk OTEC-fallback med tydelig kvalitetsmerking; ikke automatisert scraping.
 
-NewsWeb-PDF-er speiles ikke permanent. Trackeren lagrer kun OTEC-relevante avledede fakta, dokument-/attachment-ID, hash, kilde-URL og provenance som trengs for privat analyse.
+### Full NewsWeb-historikk
+
+Første backfill spør NewsWeb etter alle OTEC-meldinger fra `2020-01-01`. Første OTEC-melding som faktisk finnes i dette vinduet er 11.02.2020. En full live-validering fant 539 meldinger gjennom 14.08.2026.
+
+Trackeren speiler ikke hele NewsWeb-innholdet. For arkivet lagres message-ID, publiseringstid, tittel, URL, klassifisering, attachment-metadata og SHA256 av meldingsteksten. Full meldingstekst og PDF-er lagres ikke permanent. Etter første backfill bruker refresh-jobben 14 dagers overlapp fra siste lagrede melding i stedet for å hente hele historikken på nytt.
+
+Meldinger klassifiseres deterministisk som blant annet `RESULTS`, `BUYBACK`, `DIVIDEND`, `JCP`, `CAPITAL`, `M_AND_A`, `GUIDANCE`, `CORPORATE` eller `OTHER`. `OTHER` merkes `REVIEW_REQUIRED`. **Klassifisering alene kan aldri endre NAV eller cash.** Bare separat verifiserte, testbare hendelser får finansiell modellvirkning.
+
+Phase 9.4 har blant annet verifisert tre store 2021-tender-buybacks og tilhørende treasury/share-count-hendelser, samt NewsWeb-meldingen om USD 100m AdColony-betaling 27.10.2021. USD-beløpet får bare NOK-verdi når historisk ECB USD/NOK finnes. Et feilaktig eldre provenance-oppslag ble også avdekket: message ID `532327` tilhører ikke OTEC; korrekt NewsWeb completion-melding for tenderen 10.05.2021 er `532648`.
 
 ### NewsWeb og daglige buybacks
 
@@ -103,6 +112,8 @@ Ukesmeldingen lagres fortsatt som audit-/avstemmingsfaktum. Når NewsWeb-melding
 5. Cash bruker deretter faktiske handelsdatoer (`OTELLO_BUYBACK_DAILY`) i stedet for å legge hele ukesbeløpet på periodens sluttdato.
 
 Hvis et historisk NewsWeb-vedlegg mangler, beholdes Phase 9.2-fallbacken: en ukessum som krysser et rapportert cash-anker ekskluderes konservativt fra eksplisitt post-anchor cash og absorberes av ankerresidualen. Systemet later ikke som daglig timing er kjent.
+
+Historiske NewsWeb-buyback-meldinger har flere dokumenterte tekstformater. 2023-parseren har derfor en strengt avgrenset legacy-wrapper for utstederskrivefeilen `Sine the initiation` og første statusuke som mangler separat kumulativ/treasury-linje. Midt i et program tillates ikke slik inferens.
 
 ## Datakvalitet
 
@@ -203,15 +214,17 @@ Rekkefølge:
 1. init/migrering + kuratert historikk
 2. nylig ECB FX
 3. gjeldende B3 BMOB3
-4. sekundær buyback-fallback + offisiell NewsWeb-discovery/vedlegg
-5. NewsWeb daglig buyback → cash-sync der avstemt
-6. report-date CORE NAV
-7. daglig cash
-8. daglig CORE NAV
-9. rapporterte ONA-ankre → NOK
-10. daglig ONA
-11. daglig FULL NAV
-12. dashboard/status
+4. full/incrementell NewsWeb OTEC-arkivoppdatering
+5. separat verifiserte historiske NewsWeb-hendelser
+6. sekundær buyback-fallback + offisiell NewsWeb ukes-/vedleggsdata
+7. NewsWeb daglig buyback → cash-sync der avstemt
+8. report-date CORE NAV
+9. daglig cash
+10. daglig CORE NAV
+11. rapporterte ONA-ankre → NOK
+12. daglig ONA
+13. daglig FULL NAV
+14. dashboard/status
 
 En enkelt kildefeil stopper ikke resten av refreshen. Feilen legges i `source_errors`, siste lagrede data brukes videre, og totalstatus blir `degraded` når det er relevant.
 
