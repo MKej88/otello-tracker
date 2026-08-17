@@ -42,7 +42,7 @@ jobs:
               "to official historical Number of Shares 24952 for 2026-08-14"
           )
           PY
-      - name: Smoke production forecast with live NewsWeb
+      - name: Smoke production forecast with live NewsWeb and daily cash
         run: |
           PYTHONPATH=. python - <<'PY'
           import json
@@ -52,7 +52,7 @@ jobs:
           from app.buybacks.official_backfill import seed_known_official_buybacks
           from app.db.migration_runner import init_database
           from app.history import seed_curated_history
-          from app.newsweb import collect_newsweb_buybacks
+          from app.newsweb import collect_newsweb_buybacks, sync_newsweb_daily_buyback_cash
 
           with tempfile.TemporaryDirectory() as directory:
               db = str(Path(directory) / "forecast-smoke.db")
@@ -63,15 +63,19 @@ jobs:
               live = collect_newsweb_buybacks(db, from_date="2026-06-08", to_date="2026-08-17")
               assert live["status"] == "ok", live
               assert not live["errors"], live["errors"]
+              sync_newsweb_daily_buyback_cash(db)
               terms = sync_current_program_terms(db, to_date="2026-08-17")
               assert terms["status"] == "ok", terms
               assert terms["max_price_nok"] == "20", terms
+              assert terms["period_starts_missing"] == 0, terms
+              assert terms["period_starts_written"] >= 10, terms
               forecast = buyback_forecast(db, as_of_date="2026-08-17")
               print(json.dumps(forecast, indent=2, ensure_ascii=False))
               assert forecast["ready"] is True
               assert forecast["forecast_week"]["from"] == "2026-08-17"
               assert forecast["forecast_week"]["to"] == "2026-08-21"
               assert forecast["price_model"]["state"] == "OPEN"
+              assert forecast["active_program_backtest"]["weeks"] == 10
               assert 61000 <= forecast["estimate"]["base_case_shares"] <= 63000, forecast["estimate"]
               assert forecast["estimate"]["confidence"] == "HIGH"
           PY
