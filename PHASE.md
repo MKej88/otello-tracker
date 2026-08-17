@@ -159,7 +159,7 @@ Dokumentasjon: `docs/option-liability.md`.
 
 ### 15.4 – Cloudflare scheduled ingestion
 
-Status: **Pågår – 15.4.1–15.4.4 er ferdige og CI-validerte**
+Status: **Ferdig og CI-validert**
 
 #### 15.4.1 – OTEC intradag + Cron
 
@@ -219,9 +219,20 @@ Status: **Pågår – 15.4.1–15.4.4 er ferdige og CI-validerte**
 - [x] test skriver mot database bygget fra faktiske D1-migreringer og verifiserer idempotens/source priority
 - [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
 
-#### Gjenstår i 15.4
+#### 15.4.5 – Dirty-state cash/NAV
 
-- [ ] dirty-state cash/NAV på D1, inkludert option-aware FULL NAV
+- [x] Worker-native dirty-state cash på D1 fra siste rapporterte anker + kjente kontantbevegelser
+- [x] ukentlige buybacks som krysser rapportanker ekskluderes for å unngå dobbelttelling
+- [x] deterministisk `inputs_hash` gjør uendrede cash-/ONA-/NAV-lag idempotente uten unødvendig D1-write
+- [x] CORE NAV bruker samme syvdagers lookback og kildeprioritet som SQLite-referansen
+- [x] samme-dags autoritativ `CLOSE` beholdes sterkere enn `LAST`
+- [x] option-aware ONA portert til Worker med samme Black-Scholes-/recognition-logikk som 15.3.2
+- [x] FULL NAV = CORE + option-aware ONA, med OTEC mark-to-market i opsjonsforpliktelsen
+- [x] OTEC-prisendring gjør ONA/CORE/FULL dirty uten å gjøre cash dirty når kontantinput er uendret
+- [x] dirty NAV koblet etter markeds-/NewsWeb-ingestion i samme 30-minutters Cron
+- [x] manglende NAV-input gir synlig `PARTIAL` i scheduled job fremfor falsk suksess
+- [x] regresjonstest for opsjonsparitet, idempotens, `CLOSE`/`LAST`-prioritet og FULL NAV-paritet
+- [x] backend-regresjon, D1 parity, Python Worker dry-run og faktisk `workerd` HTTP parity grønn
 
 Dokumentasjon: `cloudflare/README.md`.
 
