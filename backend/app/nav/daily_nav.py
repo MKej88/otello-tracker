@@ -51,8 +51,7 @@ def _nearest_fx(connection, base: str, as_of_date: str):
         SELECT id, substr(observed_at,1,10) AS rate_date, rate, source_document_id
         FROM fx_rates
         WHERE base_currency = ? AND quote_currency = 'NOK'
-          AND substr(observed_at,1,10) <= ?
-          AND substr(observed_at,1,10) >= ?
+          AND substr(observed_at,1,10) <= ? AND substr(observed_at,1,10) >= ?
         ORDER BY observed_at DESC, id DESC LIMIT 1
         """,
         (base, as_of_date, floor_date),
@@ -86,11 +85,47 @@ def _share_count(connection, as_of_date: str):
 def _cash(connection, as_of_date: str):
     return connection.execute(
         """
-        SELECT id, estimate_date, cash_nok, quality, inputs_hash
-        FROM cash_daily_estimates WHERE estimate_date = ?
+        SELECT c.id, c.estimate_date, c.cash_nok, c.quality, c.inputs_hash,
+               c.period_start_date, c.period_end_date,
+               p.quality AS calibration_quality
+        FROM cash_daily_estimates c
+        LEFT JOIN cash_period_calibrations p
+          ON p.start_anchor_date = c.period_start_date
+         AND p.end_anchor_date = c.period_end_date
+        WHERE c.estimate_date = ?
         """,
         (as_of_date,),
     ).fetchone()
+
+
+def _share_count_may_be_stale(connection, as_of_date: str, share_count_date: str) -> bool:
+    """Flag known/potential buyback lag independently of cash quality."""
+    latest = connection.execute(
+        """
+        SELECT b.trade_date, b.cumulative_program_shares, p.max_shares
+        FROM buybacks b
+        LEFT JOIN buyback_programs p ON p.id = b.program_id
+        WHERE b.trade_date <= ?
+        ORDER BY b.trade_date DESC, b.id DESC
+        LIMIT 1
+        """,
+        (as_of_date,),
+    ).fetchone()
+    if latest is None:
+        return False
+
+    if share_count_date < latest["trade_date"]:
+        return True
+    if share_count_date > latest["trade_date"] or as_of_date == share_count_date:
+        return False
+
+    max_shares = latest["max_shares"]
+    cumulative = latest["cumulative_program_shares"]
+    if max_shares is None or cumulative is None or int(cumulative) >= int(max_shares):
+        return False
+
+    age = (date.fromisoformat(as_of_date) - date.fromisoformat(latest["trade_date"])).days
+    return 0 < age <= 14
 
 
 def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
@@ -125,16 +160,27 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
     nav_per_share = nav_total / Decimal(outstanding)
     discount = (Decimal("1") - otec_price / nav_per_share) * Decimal("100")
 
-    stale_share_count = shares["effective_from"] < as_of_date and cash["quality"] == "FORECAST_PARTIAL"
-    status = "DEGRADED" if cash["quality"] == "FORECAST_PARTIAL" else "BACKFILLED"
+    stale_share_count = _share_count_may_be_stale(connection, as_of_date, shares["effective_from"])
+    high_residual = cash["calibration_quality"] == "HIGH_RESIDUAL"
+    forecast_partial = cash["quality"] == "FORECAST_PARTIAL"
+
+    if forecast_partial or high_residual or stale_share_count:
+        status = "DEGRADED"
+    elif cash["quality"] == "ANCHORED_ESTIMATE":
+        status = "ESTIMATED"
+    else:
+        status = "BACKFILLED"
+
     notes = (
         "CORE daily NAV uses Bemobi market value plus anchored/estimated cash. "
         "Other net assets/liabilities are excluded."
     )
-    if cash["quality"] == "FORECAST_PARTIAL":
+    if forecast_partial:
         notes += " Cash is a partial post-anchor forecast using known corporate-action flows only."
+    if high_residual:
+        notes += " Cash sits inside a high-residual anchor period; daily interpolation is lower quality."
     if stale_share_count:
-        notes += " OTEC outstanding-share count is carried forward from the latest reported anchor and can be stale after buybacks."
+        notes += " OTEC outstanding-share count can be stale because a recent buyback program still has unused authorization after the latest weekly share-count status."
 
     components = {
         "scope": "CORE",
@@ -160,11 +206,13 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
             "share_count_id": shares["id"],
             "share_count_date": shares["effective_from"],
             "outstanding_shares": outstanding,
+            "share_count_quality": "POTENTIALLY_STALE" if stale_share_count else "CURRENT_KNOWN",
         },
         "cash": {
             "daily_cash_id": cash["id"],
             "cash_nok": cash["cash_nok"],
             "quality": cash["quality"],
+            "calibration_quality": cash["calibration_quality"],
             "inputs_hash": cash["inputs_hash"],
         },
     }
@@ -279,7 +327,8 @@ def daily_nav_status(database_path: str | None = None) -> dict[str, Any]:
             """
             SELECT COUNT(*) AS n, MIN(substr(as_of_at,1,10)) AS min_date,
                    MAX(substr(as_of_at,1,10)) AS max_date,
-                   SUM(CASE WHEN status = 'DEGRADED' THEN 1 ELSE 0 END) AS degraded
+                   SUM(CASE WHEN status = 'DEGRADED' THEN 1 ELSE 0 END) AS degraded,
+                   SUM(CASE WHEN status = 'ESTIMATED' THEN 1 ELSE 0 END) AS estimated
             FROM nav_snapshots
             WHERE calculation_version = ?
             """,
@@ -301,5 +350,6 @@ def daily_nav_status(database_path: str | None = None) -> dict[str, Any]:
             "from": aggregate["min_date"],
             "to": aggregate["max_date"],
             "degraded": aggregate["degraded"],
+            "estimated": aggregate["estimated"],
             "latest": dict(latest) if latest is not None else None,
         }
