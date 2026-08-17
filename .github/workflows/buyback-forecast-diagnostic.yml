@@ -1,0 +1,27 @@
+name: Buyback forecast diagnostic
+
+on:
+  push:
+    branches: ["phase-13-buyback-forecast"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run buyback forecast backtest
+        run: PYTHONPATH=. python -m app.jobs.backtest_buyback_forecast --to 2026-08-14
