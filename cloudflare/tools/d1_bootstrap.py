@@ -10,7 +10,7 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from app.db.d1_bootstrap import (  # noqa: E402
+from app.db.d1_bootstrap_package import (  # noqa: E402
     load_manifest_file,
     verify_database,
     write_bootstrap_package,
