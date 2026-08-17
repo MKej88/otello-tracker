@@ -71,7 +71,12 @@ def _zip(rows, *, header=HEADER, terms=True):
     text = io.StringIO()
     if terms:
         text.write("(c) 2025 Euronext N.V. All Rights Reserved. delayed-data terms\n")
-    writer = csv.DictWriter(text, fieldnames=header, lineterminator="\n")
+    writer = csv.DictWriter(
+        text,
+        fieldnames=header,
+        lineterminator="\n",
+        extrasaction="ignore",
+    )
     writer.writeheader()
     writer.writerows(rows)
     buffer = io.BytesIO()
