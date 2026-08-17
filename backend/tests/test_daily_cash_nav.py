@@ -93,8 +93,16 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
             WHERE movement_type IN ('BEMOBI_DIVIDEND', 'BEMOBI_JCP')
             """
         ).fetchone()
-        assert bemobi["n"] == 8
+        assert bemobi["n"] == 11
         assert bemobi["confidence"] == "ESTIMATED"
+
+        withholding = connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM cash_movements
+            WHERE external_movement_id LIKE 'bemobi-withholding:%'
+            """
+        ).fetchone()
+        assert withholding["n"] == 4
 
         calibration = connection.execute(
             """
