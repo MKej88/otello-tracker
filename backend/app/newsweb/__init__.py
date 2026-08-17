@@ -3,6 +3,7 @@ from .buyback_transactions import (
     newsweb_buyback_status,
     parse_buyback_transaction_text,
 )
+from .cash_sync import sync_newsweb_daily_buyback_cash
 from .client import (
     NewsWebAttachment,
     NewsWebMessage,
@@ -20,4 +21,5 @@ __all__ = [
     "fetch_message",
     "newsweb_buyback_status",
     "parse_buyback_transaction_text",
+    "sync_newsweb_daily_buyback_cash",
 ]
