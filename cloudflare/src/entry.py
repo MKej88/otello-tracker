@@ -26,3 +26,15 @@ class Default(WorkerEntrypoint):
         import asgi
 
         return await asgi.fetch(app, request.js_object, self.env)
+
+    async def scheduled(self, controller, env, ctx):
+        # All four arguments are required by the Python Workers scheduled-handler API.
+        # Keep the cron expression explicit so adding heavier schedules later cannot
+        # accidentally invoke the 30-minute fast path.
+        from scheduled import run_scheduled
+
+        await run_scheduled(
+            env.DB,
+            cron=str(controller.cron),
+            scheduled_time_ms=controller.scheduledTime,
+        )
