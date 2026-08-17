@@ -2,9 +2,53 @@
 
 Sist oppdatert: **17.08.2026**
 
-## Nåværende fase – Phase 13: Pre-live hardening
+## Nåværende fase – Phase 14: Live market-data og Pi-optimalisering
 
-Målet med Phase 13 er at repoet ikke bare fungerer i utvikling, men har en eksplisitt og testbar vei til Raspberry Pi-produksjon.
+Phase 14 bygger videre på den ferdige pre-live-plattformen med lettere markedsfeeds, bedre intradag-ferskhet og lavere ressursbruk på Raspberry Pi.
+
+### 14.1 – Lett OTEC-feed
+
+Status: **Ferdig**
+
+- [x] normal intradag bruker Euronext `LAST_15_MINUTES` + `LAST_HOUR`
+- [x] full current-day-fil brukes bare ved cold start/gap recovery
+- [x] én EOD-finalisering etter Oslo-sessionen
+- [x] siste handel lagres som `LAST`, aldri feilmerket som offisiell `CLOSE`
+- [x] forrige handelsdag kan ferdigstilles fra samme activity-payload etter nedetid
+
+### 14.2 – Lett BMOB3-feed
+
+Status: **Ferdig**
+
+- [x] B3 offentlig 15-minutters delayed quote brukes intradag
+- [x] sluttført delayed `LAST` lagres etter B3-sessionen
+- [x] liten offisiell daglig COTAHIST-fil oppgraderer til `CLOSE` når den er publisert
+- [x] årlig COTAHIST er flyttet ut av normal intradag/live-prising
+- [x] B3-handelskalender og EOD-vinduer håndteres eksplisitt
+
+### 14.3 – Sikkerhet og Raspberry Pi-ytelse
+
+Status: **Implementert i PR #35 – CI-validering pågår**
+
+- [x] fersk BMOB3 kan oppdatere dagens indikative NAV selv før OTEC har handlet samme dag
+- [x] eksisterende NAV-formel/lookbacks beholdes; `MIXED` viser ulike komponentdatoer eksplisitt
+- [x] 30-minutters fast refresh hopper over full cash-rebuild når modellinputene er uendret
+- [x] daglig fullrefresh primer samme dirty-state slik at neste fastsyklus ikke gjentar rebuild
+- [x] statiske kuraterte manifests seeds bare når innhold/fingerprint er endret
+- [x] NewsWeb buyback-refresh bruker automatisk siste dato minus sikkerhetsoverlapp
+- [x] CVM inneværende år refreshes løpende; foregående år kontrolleres periodisk i stedet for daglig
+- [x] OTEC delayed payloads har immutabel kilde/provenance per payload
+- [x] NewsWeb JSON/PDF har eksplisitte størrelsesgrenser
+- [x] Nginx har rate limiting, sikkerhetsheadere og proxy-timeouts
+- [x] containere bruker `no-new-privileges`
+- [x] CI kontrollerer Python dependency-konsistens, produksjons-NPM audit og Nginx-konfigurasjon
+- [x] nye regresjonstester dekker dirty-state, mixed-date NAV, CVM, NewsWeb og OTEC provenance
+
+Bevisst ikke endret i 14.3: NAV-formelen, buyback-estimator/backtest og automatisk backup-retention.
+
+## Pre-live-plattform – Phase 13
+
+Phase 13 gjorde repoet testbart og eksplisitt deploybart til Raspberry Pi-produksjon.
 
 ### 13.1 – Produksjons-bootstrap og preflight
 
@@ -79,6 +123,7 @@ Følgende hoveddeler er ferdige fra tidligere faser:
 - [x] CVM Bemobi-nyheter
 - [x] Bemobi-utbytte/JCP og skattebehandling
 - [x] Euronext delayed OTEC LAST
+- [x] B3 delayed BMOB3 LAST + offisiell daglig CLOSE
 - [x] Safe Harbour-basert buyback-prognose og walk-forward-backtest
 - [x] live dashboard med NAV, rabatt, buyback, Bemobi og modellstatus
 
