@@ -32,17 +32,16 @@ Status: **Ferdig og CI-validert**
 
 - [x] fersk BMOB3 kan oppdatere dagens indikative NAV selv før OTEC har handlet samme dag
 - [x] eksisterende NAV-formel/lookbacks beholdes; `MIXED` viser ulike komponentdatoer eksplisitt
-- [x] 30-minutters fast refresh hopper over full cash-rebuild når modellinputene er uendret
-- [x] daglig fullrefresh primer samme dirty-state slik at neste fastsyklus ikke gjentar rebuild
+- [x] fast refresh hopper over full cash-rebuild når modellinputene er uendret
+- [x] fullrefresh primer samme dirty-state slik at neste fastsyklus ikke gjentar rebuild
 - [x] statiske kuraterte manifests seeds bare når innhold/fingerprint er endret
-- [x] NewsWeb buyback-refresh bruker automatisk siste dato minus sikkerhetsoverlapp
-- [x] CVM inneværende år refreshes løpende; foregående år kontrolleres periodisk i stedet for daglig
+- [x] NewsWeb buyback-refresh bruker siste dato minus sikkerhetsoverlapp
+- [x] CVM inneværende år refreshes løpende; foregående år kontrolleres periodisk
 - [x] OTEC delayed payloads har immutabel kilde/provenance per payload
 - [x] NewsWeb JSON/PDF har eksplisitte størrelsesgrenser
 - [x] Nginx har rate limiting, sikkerhetsheadere og proxy-timeouts
 - [x] containere bruker `no-new-privileges`
-- [x] CI kontrollerer Python dependency-konsistens, produksjons-NPM audit og Nginx-konfigurasjon
-- [x] nye regresjonstester dekker dirty-state, mixed-date NAV, CVM, NewsWeb og OTEC provenance
+- [x] CI kontrollerer Python dependency-konsistens, production NPM audit og Nginx-konfigurasjon
 
 Bevisst ikke endret i 14.3: NAV-formelen, buyback-estimator/backtest og automatisk backup-retention.
 
@@ -50,17 +49,18 @@ Bevisst ikke endret i 14.3: NAV-formelen, buyback-estimator/backtest og automati
 
 Status: **Implementert – merge kun ved grønn CI**
 
-- [x] all Raspberry-spesifikk produksjonsplan er fjernet
-- [x] repoet dokumenterer én aktiv cloud app-host/region med Docker Compose
+- [x] repoet er ryddet for tidligere lokal maskinvare-spesifikk produksjonsplan
+- [x] én aktiv cloud app-host/region med Docker Compose er standard produksjonsarkitektur
 - [x] persistent host-path er konfigurerbar via `DATA_DIR`
 - [x] separat `.env.production.example` for cloud-produksjon
 - [x] bare web skal eksponeres; API forblir privat på Docker-nettet
 - [x] HTTPS termineres hos cloud edge/load balancer/reverse proxy
-- [x] cloud-runbook lagt til i `docs/cloud-deployment.md`
-- [x] produksjonsport flyttet til `docs/production-readiness.md`
+- [x] cloud-runbook i `docs/cloud-deployment.md`
+- [x] produksjonsport i `docs/production-readiness.md`
 - [x] SQLite-begrensningen mot horisontal multi-host skalering er eksplisitt dokumentert
 - [x] off-host backup/snapshot er produksjonskrav i tillegg til lokale SQLite-snapshots
-- [ ] automatisk provider-spesifikk deploy fra GitHub Actions – avventer valg av cloud-provider
+- [x] CI validerer `.env.production.example` mot Compose
+- [ ] provider-spesifikk deploy fra GitHub Actions – avventer valg av cloud-provider
 - [ ] automatisk object-storage backup/retention – avventer valg av cloud-provider
 
 ## Produksjonsplattform – Phase 13
@@ -78,7 +78,6 @@ Status: **Ferdig**
 - [x] streng `preflight --strict`
 - [x] SQLite-integritet og migreringsnivå
 - [x] kontroll av OTEC/BMOB3/FX historisk dekning
-- [x] kontroll av FX-vindu for hvert rapporterte ikke-NOK cash-anker
 - [x] NewsWeb/buyback-dekning
 - [x] cash/CORE/ONA/FULL og dashboard-readiness
 
@@ -89,15 +88,11 @@ Dokumentasjon: `docs/production-readiness.md`.
 Status: **Ferdig**
 
 - [x] lett fast refresh hvert 30. minutt
-- [x] delayed OTEC + inkrementell NewsWeb i fastløpet
-- [x] ingen B3-årsfil/ECB/CVM/MFN-fullarbeid hvert 30. minutt
 - [x] full refresh standard én gang per døgn
 - [x] full/fast/backup-jobber lagres i `job_runs`
 - [x] SQLite backup-API mot levende WAL-database
 - [x] backup må passere `PRAGMA integrity_check`
 - [x] standard backupkatalog `/data/backups`
-
-Cloud-produksjon krever off-host snapshot/object-storage i tillegg til lokale backupfiler. Automatisk provider-integrasjon legges til når endelig cloud-provider er valgt.
 
 ### 13.3 – Datoferskhet og GUI
 
@@ -108,20 +103,15 @@ Status: **Ferdig**
 - [x] MIXED markeres som indikativt uten å endre NAV-beregningen
 - [x] GUI oppdaterer data automatisk hvert 2. minutt
 - [x] gammel rapportert Bemobi-eierandel vises ikke som dagens prosent
-- [x] verifisert Bemobi-aksjeantall brukes fortsatt i NAV
 
 ### 13.4 – Reproducerbarhet, tidssone og produksjons-CI
 
 Status: **Ferdig og CI-validert**
 
-- [x] frontend direkte avhengigheter pinnet
-- [x] `package-lock.json` generert fra GitHub CI
-- [x] frontend bruker `npm ci` i Docker og CI
-- [x] backend direkte Python-avhengigheter pinnet til testede versjoner
-- [x] eksplisitt `Europe/Oslo` i backend/scheduler
-- [x] backend-image inkluderer `tzdata`
-- [x] CI bygger faktiske produksjons-Docker-images, ikke bare Compose-konfigurasjon
-- [x] README og produksjonsinstruksjoner synkronisert
+- [x] låste frontend-avhengigheter og `npm ci`
+- [x] pinnede direkte Python-avhengigheter
+- [x] eksplisitt `Europe/Oslo`
+- [x] faktiske produksjons-Docker-images bygges i CI
 
 ## Funksjonell historikk
 
@@ -148,7 +138,7 @@ Status: **Ferdig og CI-validert**
 
 1. velg endelig cloud-provider/host;
 2. opprett persistent disk og sett `DATA_DIR`;
-3. bygg image og bootstrap ren `/data/otello.db`;
+3. bygg image og bootstrap `/data/otello.db`;
 4. kjør `preflight --strict` og verifiser `READY`;
 5. start stacken bak HTTPS;
 6. bekreft at bare web er eksternt eksponert;
@@ -159,7 +149,7 @@ Status: **Ferdig og CI-validert**
 
 ### B. Otello 1H26 – 21.08.2026
 
-Dagens cash/ONA etter siste rapportanker kan legitimt være `FORECAST_PARTIAL`/estimert. Når 1H26 publiseres:
+Når rapporten publiseres:
 
 1. importer nye rapporterte cash-/balanseankre;
 2. avstem ONA;
@@ -167,7 +157,7 @@ Dagens cash/ONA etter siste rapportanker kan legitimt være `FORECAST_PARTIAL`/e
 4. kontroller residualer og share count;
 5. kjør preflight på nytt.
 
-Før dette skal dashboardet ikke late som dagens cash/ONA er rapportert.
+Før dette kan dagens cash/ONA legitimt være `FORECAST_PARTIAL`/estimert.
 
 ## Etter cloud-go-live
 
