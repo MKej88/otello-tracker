@@ -42,17 +42,47 @@ def create_source_document(
     content_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> int:
+    """Create or refresh a source document without discarding prior provenance metadata."""
     sid = source_id(connection, source_code)
-    metadata_json = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
 
     if external_id is not None:
         existing = connection.execute(
-            "SELECT id FROM source_documents WHERE source_id = ? AND external_id = ?",
+            """
+            SELECT id, metadata_json, published_at, content_sha256
+            FROM source_documents
+            WHERE source_id = ? AND external_id = ?
+            """,
             (sid, external_id),
         ).fetchone()
         if existing is not None:
+            try:
+                previous_metadata = json.loads(existing["metadata_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                previous_metadata = {}
+            merged_metadata = {**previous_metadata, **(metadata or {})}
+            connection.execute(
+                """
+                UPDATE source_documents
+                SET document_type = ?, title = ?, url = ?,
+                    published_at = COALESCE(?, published_at),
+                    content_sha256 = COALESCE(?, content_sha256),
+                    metadata_json = ?,
+                    fetched_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE id = ?
+                """,
+                (
+                    document_type,
+                    title,
+                    url,
+                    published_at,
+                    content_sha256,
+                    json.dumps(merged_metadata, ensure_ascii=False, sort_keys=True),
+                    existing["id"],
+                ),
+            )
             return int(existing["id"])
 
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
     cursor = connection.execute(
         """
         INSERT INTO source_documents(
