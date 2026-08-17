@@ -26,7 +26,8 @@ from app.newsweb.client import (
 
 BUYBACK_TITLE = "share buyback program status"
 DEFAULT_BACKFILL_START = "2024-07-01"
-RECONCILIATION_TOLERANCE_NOK = Decimal("1.00")
+RECONCILIATION_MIN_TOLERANCE_NOK = Decimal("1.00")
+RECONCILIATION_RELATIVE_TOLERANCE = Decimal("0.00001")  # 0.001% of weekly consideration
 AVERAGE_PRICE_TOLERANCE_NOK = Decimal("0.02")
 
 _TRADE_RE = re.compile(
@@ -174,10 +175,14 @@ def validate_daily_buybacks(
         )
     amount = sum((item.amount_nok for item in daily), Decimal("0"))
     amount_difference = amount - weekly.period_amount_nok
-    if abs(amount_difference) > RECONCILIATION_TOLERANCE_NOK:
+    amount_tolerance = max(
+        RECONCILIATION_MIN_TOLERANCE_NOK,
+        abs(weekly.period_amount_nok) * RECONCILIATION_RELATIVE_TOLERANCE,
+    )
+    if abs(amount_difference) > amount_tolerance:
         raise ValueError(
             "NewsWeb daglig beløp avviker fra ukesmelding med "
-            f"NOK {amount_difference}; krever kontroll"
+            f"NOK {amount_difference} (toleranse {amount_tolerance}); krever kontroll"
         )
     weighted_average = amount / Decimal(shares)
     if abs(weighted_average - weekly.period_avg_price_nok) > AVERAGE_PRICE_TOLERANCE_NOK:
@@ -190,6 +195,7 @@ def validate_daily_buybacks(
         "amount_nok": decimal_text(amount),
         "weekly_amount_nok": decimal_text(weekly.period_amount_nok),
         "amount_difference_nok": decimal_text(amount_difference),
+        "amount_tolerance_nok": decimal_text(amount_tolerance),
         "weighted_average_nok": decimal_text(weighted_average),
         "quality": "CONFIRMED" if amount_difference == 0 else "RECONCILED",
     }
