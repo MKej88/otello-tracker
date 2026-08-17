@@ -26,77 +26,23 @@ tmp_path = PosixPath('/tmp/pytest-of-runner/pytest-0/test_eod_finalization_store
             ]
         )
     
->       result = feed.finalize_otec_eod_from_payload(
+        result = feed.finalize_otec_eod_from_payload(
             payload,
             source_url="https://marketdata.euronext.com/example",
             target_date="2026-08-17",
             database_path=database,
             source_selection="CURRENT_TRADING_DAY",
         )
-
-tests/test_otec_feed.py:189: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-app/marketdata/otec_feed.py:218: in finalize_otec_eod_from_payload
-    price_id = upsert_market_price(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-connection = <sqlite3.Connection object at 0x7f0d0d3fa2f0>, symbol = 'OTEC'
-observed_at = '2026-08-17T14:24:59.000000Z', trading_date = '2026-08-17'
-price_type = 'LAST', price = Decimal('17.2300000'), currency = 'NOK'
-source_code = 'EURONEXT', source_document_id = 1, quality = 'EOD_LAST_TRADE'
-metadata = {'feed': 'DELAYED_PUBLIC_TRADE_FILE', 'feed_mode': 'EOD_LAST_TRADE', 'time_selection': 'CURRENT_TRADING_DAY', 'target_date': '2026-08-17', ...}
-
-    def upsert_market_price(
-        connection: sqlite3.Connection,
-        *,
-        symbol: str,
-        observed_at: str,
-        trading_date: str,
-        price_type: str,
-        price: Decimal | str | int | float,
-        currency: str,
-        source_code: str,
-        source_document_id: int | None = None,
-        quality: str = "DIRECT",
-        metadata: dict[str, Any] | None = None,
-    ) -> int:
-        iid = instrument_id(connection, symbol)
-        sid = source_id(connection, source_code)
-        price_value = decimal_text(price)
-        metadata_json = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
     
->       connection.execute(
-            """
-            INSERT INTO market_prices(
-                instrument_id, observed_at, trading_date, price_type, price,
-                currency, source_id, source_document_id, quality, metadata_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(instrument_id, observed_at, price_type, source_id)
-            DO UPDATE SET
-                trading_date = excluded.trading_date,
-                price = excluded.price,
-                currency = excluded.currency,
-                source_document_id = excluded.source_document_id,
-                quality = excluded.quality,
-                metadata_json = excluded.metadata_json,
-                fetched_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            """,
-            (
-                iid,
-                observed_at,
-                trading_date,
-                price_type,
-                price_value,
-                currency,
-                sid,
-                source_document_id,
-                quality,
-                metadata_json,
-            ),
-        )
-E       sqlite3.IntegrityError: CHECK constraint failed: quality IN ('DIRECT', 'RECONSTRUCTED')
+        assert result["status"] == "ok"
+        assert result["price_type"] == "LAST"
+>       assert result["quality"] == "EOD_LAST_TRADE"
+E       AssertionError: assert 'DIRECT' == 'EOD_LAST_TRADE'
+E         
+E         - EOD_LAST_TRADE
+E         + DIRECT
 
-app/db/repository.py:126: IntegrityError
+tests/test_otec_feed.py:199: AssertionError
 =============================== warnings summary ===============================
 ../../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1
   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -104,8 +50,11 @@ app/db/repository.py:126: IntegrityError
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED tests/test_otec_feed.py::test_eod_finalization_stores_last_not_close - sqlite3.IntegrityError: CHECK constraint failed: quality IN ('DIRECT', 'RECONSTRUCTED')
-1 failed, 138 passed, 1 warning in 8.71s
+FAILED tests/test_otec_feed.py::test_eod_finalization_stores_last_not_close - AssertionError: assert 'DIRECT' == 'EOD_LAST_TRADE'
+  
+  - EOD_LAST_TRADE
+  + DIRECT
+1 failed, 138 passed, 1 warning in 8.98s
 
 exit_code=1
-tested_sha=1c877cebae801b71da25e8f3f29a45aaf58a45ae
+tested_sha=7f39e55058f2f3bc1a76ab4efe3c93d12d9891eb
