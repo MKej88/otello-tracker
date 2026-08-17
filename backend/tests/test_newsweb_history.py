@@ -69,8 +69,9 @@ def test_full_newsweb_archive_is_idempotent_and_does_not_persist_body(tmp_path, 
     with get_connection(db) as connection:
         rows = connection.execute(
             """
-            SELECT sd.external_id, sd.content_sha256, sd.metadata_json, sd.issuer_instrument_id,
-                   cn.category, cn.processing_status, cn.nav_impact, cn.summary, cn.notes
+            SELECT sd.external_id, sd.content_sha256, sd.metadata_json,
+                   cn.issuer_instrument_id, cn.category, cn.processing_status,
+                   cn.nav_impact, cn.summary, cn.notes
             FROM source_documents sd
             JOIN sources s ON s.id=sd.source_id
             JOIN company_news cn ON cn.source_document_id=sd.id
