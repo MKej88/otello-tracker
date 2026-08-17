@@ -76,17 +76,29 @@ Status: **Ferdig og CI-validert**
 
 Dokumentasjon: `docs/d1-migration.md`.
 
-### 15.2 – Historisk bootstrap til D1
+### 15.2 – Historisk bootstrap og data parity
 
-Status: **Neste**
+Status: **Bootstrap-pipeline ferdig og CI-validert; produksjonssnapshot/remote import venter på faktisk D1-ressurs**
 
-- [ ] eksportere validert SQLite-referansedatabase til D1-importformat
-- [ ] importere historiske OTEC/BMOB3/FX/cash/buyback/NAV-data
-- [ ] verifisere row counts og kontrollsummer/nøkkeltall
-- [ ] verifisere CORE/FULL NAV og buyback-output mot referanse
-- [ ] lage repeterbar bootstrap uten å være avhengig av en lokal produksjons-DB
+- [x] eksportere en validert SQLite-referansesnapshot til portabel D1-SQL
+- [x] bruke read-only snapshot-transaksjon og stoppe ved integrity/FK/schema-feil
+- [x] deterministisk manifest med radtall og SHA-256 per historikktabell
+- [x] global logisk SHA-256 uavhengig av SQLite page/WAL-layout
+- [x] kontrollere CORE/FULL NAV, market/FX coverage, cash, ONA, share count og Bemobi-holding
+- [x] kontrollere weekly/daily buyback-antall, aksjer og beløp
+- [x] bevare source/instrument-ID-er og migreringsmetadata nøyaktig
+- [x] importere CI-referansen gjennom ekte lokal Wrangler D1
+- [x] eksakt logical parity + `PRAGMA foreign_key_check` etter lokal D1-import
+- [x] bootstrap-pakken holdes utenfor Git
+- [x] gamle `job_runs`, `source_health` og `runtime_state` resettes med vilje
+- [ ] eksportere den konkrete løpende produksjons-/referanse-SQLite-filen når cutover-snapshot tas
+- [ ] importere samme validerte pakke til faktisk remote `otello-nav` D1 når ressursen er opprettet
+
+Dokumentasjon: `docs/d1-bootstrap.md`.
 
 ### 15.3 – Worker API og D1 repository
+
+Status: **Neste**
 
 - [ ] Cloudflare Python Worker/FastAPI med eksisterende dashboard API-kontrakter
 - [ ] D1 repository/data-access-lag
