@@ -26,6 +26,8 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Verify Python dependency consistency
         run: python -m pip check
+      - name: Run static Python checks
+        run: ruff check --select E9,F63,F7,F82 app ../cloudflare/src
       - name: Run reference backend tests
         run: PYTHONPATH=. pytest -q
 
@@ -83,12 +85,12 @@ jobs:
           node-version: "22"
       - name: Apply D1 migrations in local Wrangler runtime
         run: >-
-          npx --yes wrangler@4 d1 migrations apply DB
+          npx --yes wrangler@4.123.0 d1 migrations apply DB
           --local
           --config cloudflare/wrangler.schema-test.jsonc
       - name: Import historical bootstrap into local Wrangler D1
         run: >-
-          npx --yes wrangler@4 d1 execute DB
+          npx --yes wrangler@4.123.0 d1 execute DB
           --local
           --config cloudflare/wrangler.schema-test.jsonc
           --file /tmp/otello-d1-bootstrap.sql
@@ -99,9 +101,9 @@ jobs:
           --manifest /tmp/otello-d1-bootstrap.json
       - name: Verify D1 foreign keys, reference seed and performance indexes
         run: |
-          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "PRAGMA foreign_key_check;"
-          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT COUNT(*) AS source_count FROM sources; SELECT COUNT(*) AS instrument_count FROM instruments; SELECT COUNT(*) AS nav_count FROM nav_snapshots;"
-          npx --yes wrangler@4 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_buybacks_program_trade','idx_nav_snapshots_calc_scope_time') ORDER BY name;"
+          npx --yes wrangler@4.123.0 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "PRAGMA foreign_key_check;"
+          npx --yes wrangler@4.123.0 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT COUNT(*) AS source_count FROM sources; SELECT COUNT(*) AS instrument_count FROM instruments; SELECT COUNT(*) AS nav_count FROM nav_snapshots;"
+          npx --yes wrangler@4.123.0 d1 execute DB --local --config cloudflare/wrangler.schema-test.jsonc --command "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_buybacks_program_trade','idx_nav_snapshots_calc_scope_time') ORDER BY name;"
 
   worker:
     name: Cloudflare Python Worker API

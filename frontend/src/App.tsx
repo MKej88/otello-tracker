@@ -232,6 +232,8 @@ export default function App() {
   const [history, setHistory] = useState<History>(initialHistory);
   const [forecast, setForecast] = useState<BuybackForecast>(initialForecast);
   const [apiOk, setApiOk] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [lastSuccessfulFetchAt, setLastSuccessfulFetchAt] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -257,10 +259,16 @@ export default function App() {
           setHistory(historyData);
           setForecast(forecastData);
           setApiOk(true);
+          setRefreshFailed(false);
+          setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
+            hour: "2-digit",
+            minute: "2-digit"
+          }));
         })
         .catch(() => {
           if (!active) return;
           setApiOk(false);
+          setRefreshFailed(true);
           setSummary((current) => current.ready
             ? current
             : { ready: false, data_status: "error", message: "Kunne ikke hente dashboarddata." });
@@ -308,14 +316,19 @@ export default function App() {
         </div>
         <nav>
           {menu.map((item, index) => (
-            <button className={index === 0 ? "navItem active" : "navItem"} key={item}>
+            <button
+              className={index === 0 ? "navItem active" : "navItem"}
+              key={item}
+              disabled={index !== 0}
+              title={index === 0 ? undefined : "Denne visningen er ikke aktiv ennå"}
+            >
               <span className="navDot" />{item}
             </button>
           ))}
         </nav>
         <div className="sidebarFooter">
           <span className={apiOk ? "statusDot ok" : "statusDot"} />
-          API {apiOk ? "tilkoblet" : "venter"}
+          API {apiOk ? "tilkoblet" : summary.ready ? "oppdateringsfeil" : "venter"}
         </div>
       </aside>
 
@@ -324,10 +337,22 @@ export default function App() {
           <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV Dashboard</h1></div>
           <div className="updated">
             <span className={apiOk && summary.ready ? "statusDot ok" : "statusDot"} />
-            {summary.ready ? `Data ${dateLabel(summary.as_of_date)} · ${scope}` : "Venter på NAV-data"}
+            {summary.ready
+              ? `Data ${dateLabel(summary.as_of_date)} · ${scope}${refreshFailed ? " · oppdatering feilet" : ""}`
+              : "Venter på NAV-data"}
           </div>
         </header>
 
+        {refreshFailed && summary.ready && (
+          <div className="modelWarning neutralWarning" role="status">
+            <strong>Viser sist vellykket hentede data.</strong>
+            <span>
+              Ny oppdatering fra dashboard-API-et feilet. Tallene beholdes for kontinuitet,
+              men skal behandles som potensielt utdaterte.
+              {lastSuccessfulFetchAt ? ` Sist hentet kl. ${lastSuccessfulFetchAt}.` : ""}
+            </span>
+          </div>
+        )}
         {qualityWarning && (
           <div className="modelWarning">
             <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>

@@ -35,6 +35,7 @@ def b3_market_holidays(year: int) -> set[date]:
         date(year, 9, 7),
         date(year, 10, 12),
         date(year, 11, 2),
+        date(year, 11, 15),
         date(year, 11, 20),
         date(year, 12, 24),
         date(year, 12, 25),

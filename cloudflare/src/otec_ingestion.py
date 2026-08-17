@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+from bounded_response import read_response_bytes
 from oslo_calendar import is_oslo_bors_trading_day
 from repository import D1WriteRepository
 
@@ -230,8 +231,16 @@ def parse_euronext_recovery_trades(payload: bytes) -> list[DelayedTrade]:
     )
 
 
-def _latest_trade(trades: list[DelayedTrade], *, target_date: str | None = None) -> DelayedTrade | None:
-    candidates = trades if target_date is None else [trade for trade in trades if trade.trading_date == target_date]
+def _latest_trade(
+    trades: list[DelayedTrade],
+    *,
+    target_date: str | None = None,
+) -> DelayedTrade | None:
+    candidates = (
+        trades
+        if target_date is None
+        else [trade for trade in trades if trade.trading_date == target_date]
+    )
     if not candidates:
         return None
     return max(
@@ -248,7 +257,11 @@ def latest_otec_trade(payload: bytes) -> DelayedTrade | None:
     return _latest_trade(parse_euronext_intraday_trades(payload))
 
 
-def latest_otec_recovery_trade(payload: bytes, *, target_date: str | None = None) -> DelayedTrade | None:
+def latest_otec_recovery_trade(
+    payload: bytes,
+    *,
+    target_date: str | None = None,
+) -> DelayedTrade | None:
     return _latest_trade(parse_euronext_recovery_trades(payload), target_date=target_date)
 
 
@@ -258,31 +271,11 @@ async def _response_bytes(
     max_bytes: int,
     payload_label: str,
 ) -> bytes:
-    content_length = response.headers.get("content-length")
-    if content_length:
-        try:
-            declared = int(str(content_length))
-        except ValueError as exc:
-            raise ValueError("Ugyldig Content-Length fra Euronext") from exc
-        if declared > max_bytes:
-            raise ValueError(f"Euronext {payload_label}-ZIP overstiger Worker-grensen")
-
-    buffer = await response.arrayBuffer()
-    try:
-        from js import Uint8Array
-
-        converted = Uint8Array.new(buffer).to_py()
-    except (ImportError, AttributeError, TypeError):
-        converter = getattr(buffer, "to_py", None)
-        converted = converter() if callable(converter) else buffer
-
-    if isinstance(converted, memoryview):
-        payload = converted.tobytes()
-    else:
-        payload = bytes(converted)
-    if len(payload) > max_bytes:
-        raise ValueError(f"Euronext {payload_label}-ZIP overstiger Worker-grensen")
-    return payload
+    return await read_response_bytes(
+        response,
+        max_bytes=max_bytes,
+        label=f"Euronext {payload_label}-ZIP",
+    )
 
 
 async def _download_euronext(
@@ -309,7 +302,11 @@ async def _download_euronext(
     if not bool(getattr(response, "ok", False)):
         status = getattr(response, "status", "unknown")
         raise RuntimeError(f"Euronext delayed-data feilet med HTTP {status}")
-    return url, await _response_bytes(response, max_bytes=max_bytes, payload_label=payload_label)
+    return url, await _response_bytes(
+        response,
+        max_bytes=max_bytes,
+        payload_label=payload_label,
+    )
 
 
 async def download_euronext_intraday(
@@ -592,11 +589,32 @@ async def finalize_otec_eod_from_coverage(
     target_date: str,
     current_refresh: dict[str, Any],
 ) -> dict[str, Any]:
-    """Finalize the session from rolling-feed coverage without claiming official CLOSE."""
+    """Finalize the session from rolling-feed coverage without claiming official CLOSE.
+
+    A missing trade is intentionally non-terminal. The EOD marker is only written after
+    a concrete stored trade exists, so a later scheduled run can retry and finalize the
+    session if delayed data arrives after the first post-close poll.
+    """
     if await eod_otec_check_done(repository, target_date):
-        return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "eod_already_finalized",
+            "target_date": target_date,
+        }
 
     latest = await _latest_stored_otec_for_date(repository, target_date)
+    if latest is None:
+        return {
+            "status": "no_trade",
+            "feed_mode": "eod_last_trade",
+            "target_date": target_date,
+            "price_type": None,
+            "quality": None,
+            "finalization_method": "rolling_window_coverage",
+            "retryable": True,
+            "source_url": TRADES_PAGE_URL,
+        }
+
     metadata: dict[str, Any] = {
         "feed": "DELAYED_PUBLIC_TRADE_FILE",
         "feed_mode": "EOD_LAST_TRADE",
@@ -608,35 +626,24 @@ async def finalize_otec_eod_from_coverage(
         "price_semantics": "FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE",
         "official_close_upgrade": "EWS prevInstrSess.closPx requires Euronext authKey",
         "payload_policy": "NO_FULL_DAY_FETCH_WHEN_ROLLING_COVERAGE_IS_CURRENT",
-        "found": latest is not None,
+        "found": True,
     }
-    published_at = str(latest["observed_at"]) if latest is not None else None
     document_id = await repository.create_source_document(
         source_code="EURONEXT",
         external_id=f"otec-eod-last-check-{target_date}",
         document_type="EOD_MARKET_DATA_CHECK",
         title=f"OTEC Euronext delayed EOD last-trade check {target_date}",
         url=TRADES_PAGE_URL,
-        published_at=published_at,
+        published_at=str(latest["observed_at"]),
         metadata={
             **metadata,
             "original_source_document_id": (
                 int(latest["source_document_id"])
-                if latest is not None and latest.get("source_document_id") is not None
+                if latest.get("source_document_id") is not None
                 else None
             ),
         },
     )
-    if latest is None:
-        return {
-            "status": "no_trade",
-            "feed_mode": "eod_last_trade",
-            "target_date": target_date,
-            "price_type": None,
-            "quality": None,
-            "finalization_method": "rolling_window_coverage",
-            "source_url": TRADES_PAGE_URL,
-        }
 
     price_id = await repository.upsert_market_price(
         symbol=OTEC_SYMBOL,

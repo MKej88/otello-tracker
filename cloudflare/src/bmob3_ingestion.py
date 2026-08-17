@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 from b3_calendar import is_ash_wednesday, is_b3_trading_day
+from bounded_response import read_response_bytes
 from repository import D1WriteRepository
 
 BMOB3_SYMBOL = "BMOB3"
@@ -155,18 +156,11 @@ async def download_bmob3_web_quote(
     if not bool(getattr(response, "ok", False)):
         status = getattr(response, "status", "unknown")
         raise RuntimeError(f"B3 BMOB3 quote feilet med HTTP {status}")
-    content_length = response.headers.get("content-length")
-    if content_length:
-        try:
-            declared = int(str(content_length))
-        except ValueError as exc:
-            raise ValueError("Ugyldig Content-Length fra B3") from exc
-        if declared > MAX_QUOTE_BYTES:
-            raise ValueError("B3 quote response overstiger Worker-grensen")
-    text = await response.text()
-    payload = str(text).encode("utf-8")
-    if len(payload) > MAX_QUOTE_BYTES:
-        raise ValueError("B3 quote response overstiger Worker-grensen")
+    payload = await read_response_bytes(
+        response,
+        max_bytes=MAX_QUOTE_BYTES,
+        label="B3 quote response",
+    )
     if not payload.lstrip().startswith(b"{"):
         raise ValueError("B3 quote endpoint returnerte ikke JSON")
     return B3_QUOTE_URL, payload
