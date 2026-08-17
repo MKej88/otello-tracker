@@ -1,0 +1,50 @@
+name: NewsWeb smoke
+
+on:
+  push:
+    branches: [phase-9-3-newsweb-attachments]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe NewsWeb message API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import urllib.request
+          import urllib.error
+
+          message_id = "678028"
+          hosts = [
+              "https://api3.oslo.oslobors.no/v1/newsreader",
+              "https://api3.dublin.oslobors.no/v1/newsreader",
+          ]
+          for base in hosts:
+              url = f"{base}/message?messageId={message_id}"
+              print("TRY", url)
+              req = urllib.request.Request(
+                  url,
+                  data=b"{}",
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                      "Origin": "https://newsweb.oslobors.no",
+                      "Referer": "https://newsweb.oslobors.no/",
+                      "User-Agent": "otello-tracker/phase-9.3",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      body = r.read().decode("utf-8", "replace")
+                      print("STATUS", r.status, "TYPE", r.headers.get("content-type"), "LEN", len(body))
+                      data = json.loads(body)
+                      print(json.dumps(data, ensure_ascii=False, indent=2)[:30000])
+                      raise SystemExit(0)
+              except Exception as exc:
+                  print("ERROR", type(exc).__name__, str(exc))
+          raise SystemExit(1)
+          PY
