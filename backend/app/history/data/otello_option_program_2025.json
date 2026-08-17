@@ -1,0 +1,48 @@
+{
+  "version": "2026-08-17.1",
+  "source": {
+    "source_code": "OTELLO_IR",
+    "external_id": "otello-annual-2025",
+    "document_type": "ANNUAL_REPORT",
+    "title": "Otello Corporation ASA - Annual Report 2025",
+    "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf",
+    "source_locator": "pp. 36-39, Note 4, share-based compensation and Black-Scholes valuation"
+  },
+  "program": {
+    "grant_date": "2025-09-15",
+    "option_count": 4100000,
+    "strike_price_nok": "12.5637",
+    "expected_settlement_date": "2028-09-15",
+    "formal_expiry_date": null,
+    "settlement": "CASH",
+    "strike_adjustment": "DOWNWARD_FOR_OTELLO_DIVIDENDS_DECLARED_AND_PAID_AFTER_GRANT",
+    "vesting": "PRO_RATA_AFTER_DISPOSAL_OF_AT_LEAST_20_PERCENT_OF_25_AUG_2025_BEMOBI_SHARES_AND_RETURN_OF_NET_PROCEEDS_TO_SHAREHOLDERS",
+    "notes": "The options have no formal expiry date. The report says they are expected to be exercised within five years, while the third-party Black-Scholes valuation used a three-year time to maturity at grant. The model therefore uses 15 Sep 2028 as the current expected settlement date until a later report provides an updated assumption."
+  },
+  "valuation_anchors": [
+    {
+      "as_of_date": "2025-09-15",
+      "spot_price_nok": "13.10",
+      "strike_price_nok": "12.56",
+      "time_to_maturity_years": "3.00",
+      "risk_free_rate": "0.037",
+      "volatility": "0.222",
+      "dividend_yield": "0",
+      "fair_value_per_option_nok": "2.94",
+      "reported_liability_usd": null,
+      "quality": "THIRD_PARTY_VALUATION"
+    },
+    {
+      "as_of_date": "2025-12-31",
+      "spot_price_nok": "18.15",
+      "strike_price_nok": "12.56",
+      "time_to_maturity_years": "2.71",
+      "risk_free_rate": "0.039",
+      "volatility": "0.234",
+      "dividend_yield": "0",
+      "fair_value_per_option_nok": "7.13",
+      "reported_liability_usd": "314000",
+      "quality": "REPORTED_LIABILITY_AND_THIRD_PARTY_VALUATION"
+    }
+  ]
+}
