@@ -10,6 +10,7 @@ services:
       APP_NAME: ${APP_NAME:-Otello NAV Dashboard}
       DATABASE_PATH: ${DATABASE_PATH:-/data/otello.db}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TZ: ${TZ:-Europe/Oslo}
     volumes:
       - ./data:/data
     healthcheck:
@@ -30,6 +31,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       APP_NAME: ${APP_NAME:-Otello NAV Dashboard}
       DATABASE_PATH: ${DATABASE_PATH:-/data/otello.db}
+      TZ: ${TZ:-Europe/Oslo}
       REFRESH_INTERVAL_MINUTES: ${REFRESH_INTERVAL_MINUTES:-30}
       FULL_REFRESH_INTERVAL_MINUTES: ${FULL_REFRESH_INTERVAL_MINUTES:-1440}
       BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-1440}
