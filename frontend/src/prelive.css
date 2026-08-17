@@ -1,0 +1,45 @@
+.freshnessBadge {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid #26364e;
+  border-radius: 999px;
+  background: rgba(7, 16, 31, .94);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+  color: #8fa0ba;
+  font-size: 10px;
+  backdrop-filter: blur(10px);
+}
+
+.freshnessBadge strong { color: #dce8fa; font-size: 10px; letter-spacing: .04em; }
+.freshnessDot { width: 7px; height: 7px; border-radius: 50%; background: #71809a; }
+.freshness-aligned .freshnessDot { background: #1ec89d; box-shadow: 0 0 0 3px rgba(30, 200, 157, .12); }
+.freshness-mixed .freshnessDot { background: #e4b95c; box-shadow: 0 0 0 3px rgba(228, 185, 92, .12); }
+.freshness-stale .freshnessDot { background: #ff6c88; box-shadow: 0 0 0 3px rgba(255, 108, 136, .12); }
+
+/* The historical ownership percentage in the curated holding row is not a current
+   Bemobi denominator. Keep the verified Otello share holding visible, but do not present
+   that old percentage as today's ownership. */
+.donut { display: none; }
+.exposure { flex-wrap: wrap; }
+.exposure::after {
+  content: "Eierandel vises når oppdatert BMOB3 utestående aksjetall er verifisert.";
+  width: 100%;
+  color: #667893;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+@media (max-width: 850px) {
+  .freshnessBadge {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    justify-content: center;
+  }
+}
