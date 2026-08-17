@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, time as dt_time
+from datetime import UTC, datetime, time as dt_time, timedelta
 from decimal import Decimal, InvalidOperation
 from http.client import IncompleteRead
 from typing import Any
@@ -19,13 +19,15 @@ from app.marketdata.b3_calendar import is_ash_wednesday, is_b3_trading_day
 BMOB3_SYMBOL = "BMOB3"
 B3_TZ = ZoneInfo("America/Sao_Paulo")
 B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/BMOB3"
-# The public B3 website states that displayed equity market data is delayed by 15 minutes.
-# This lightweight endpoint is B3-hosted but is not part of the documented B2B API catalog,
-# so the adapter deliberately treats it as a public web quote rather than a contractual API.
+B3_PUBLIC_DELAY_MINUTES = 15
+MAX_QUOTE_BYTES = 256 * 1024
+# B3's public equities page explicitly states that displayed data is 15 minutes delayed.
+# The endpoint is B3-hosted but is not a documented contractual B2B API, so it is treated
+# as a lightweight public web quote and the official daily COTAHIST CLOSE remains stronger.
 INTRADAY_START = dt_time(10, 15)
 ASH_WEDNESDAY_START = dt_time(13, 15)
-# B3's current equity timetable includes after-market trading and permits corrections later.
-# Waiting until 19:15 Sao Paulo time also gives the public delayed quote time to settle.
+# B3's current cash-market schedule includes after-market trading until 18:45 Sao Paulo.
+# At 19:15 a 15-minute delayed quote has fully cleared that session window.
 EOD_FINALIZE_AFTER = dt_time(19, 15)
 
 
@@ -49,8 +51,16 @@ class Bmob3WebQuote:
         return self.provider_datetime.astimezone(B3_TZ).date().isoformat()
 
     @property
-    def observed_at(self) -> str:
+    def provider_at(self) -> str:
         return self.provider_datetime.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @property
+    def observed_at(self) -> str:
+        # Msg.dtTm is the provider response clock, while B3 labels the public quote as
+        # 15-minute delayed. Store the effective market-data time rather than pretending
+        # the price itself is contemporaneous with the response timestamp.
+        effective = self.provider_datetime - timedelta(minutes=B3_PUBLIC_DELAY_MINUTES)
+        return effective.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -130,11 +140,16 @@ def download_bmob3_web_quote(timeout: int = 20, attempts: int = 3) -> tuple[str,
         )
         try:
             with urlopen(request, timeout=timeout) as response:
-                payload = response.read()
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > MAX_QUOTE_BYTES:
+                    raise RuntimeError("B3 quote response exceeds size limit")
+                payload = response.read(MAX_QUOTE_BYTES + 1)
+            if len(payload) > MAX_QUOTE_BYTES:
+                raise RuntimeError("B3 quote response exceeds size limit")
             if not payload.lstrip().startswith(b"{"):
                 raise RuntimeError("B3 quote endpoint did not return JSON")
             return B3_QUOTE_URL, payload
-        except (IncompleteRead, HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+        except (IncompleteRead, HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError) as exc:
             last_error = exc
             if attempt < attempts:
                 time.sleep(min(2 ** (attempt - 1), 4))
@@ -146,7 +161,10 @@ def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
         "feed": "B3_PUBLIC_WEB_QUOTE",
         "feed_mode": feed_mode,
         "price_semantics": "DELAYED_CURRENT_PRICE_NOT_COTAHIST_CLOSE",
+        "public_delay_minutes": B3_PUBLIC_DELAY_MINUTES,
         "provider_timestamp_sao_paulo": quote.provider_datetime.isoformat(),
+        "provider_timestamp_utc": quote.provider_at,
+        "market_data_effective_at": quote.observed_at,
         "open_price": str(quote.open_price) if quote.open_price is not None else None,
         "min_price": str(quote.min_price) if quote.min_price is not None else None,
         "max_price": str(quote.max_price) if quote.max_price is not None else None,
@@ -155,7 +173,7 @@ def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
         "total_trades": quote.total_trades,
         "description": quote.description,
         "market_name": quote.market_name,
-        "official_close_upgrade": "B3 COTAHIST CLOSE outranks same-day LAST when available",
+        "official_close_upgrade": "B3 daily COTAHIST CLOSE outranks same-day LAST when available",
     }
 
 
@@ -173,9 +191,9 @@ def _persist_intraday_quote(
             source_code="B3",
             external_id=f"bmob3-web-quote-{digest[:20]}",
             document_type="API_RESPONSE",
-            title=f"B3 public BMOB3 delayed web quote {quote.observed_at}",
+            title=f"B3 public BMOB3 delayed web quote {quote.provider_at}",
             url=source_url,
-            published_at=quote.observed_at,
+            published_at=quote.provider_at,
             content_sha256=digest,
             metadata=_quote_metadata(quote, feed_mode="DELAYED_INTRADAY"),
         )
@@ -235,6 +253,8 @@ def refresh_bmob3_intraday_price(
         "price_brl": str(quote.price),
         "trading_date": quote.trading_date,
         "observed_at": quote.observed_at,
+        "provider_at": quote.provider_at,
+        "delay_minutes": B3_PUBLIC_DELAY_MINUTES,
         "source_url": url,
     }
 
@@ -284,7 +304,7 @@ def finalize_bmob3_eod_price(
             document_type="EOD_MARKET_DATA_CHECK",
             title=f"BMOB3 B3 delayed EOD last-quote check {target_date}",
             url=url,
-            published_at=quote.observed_at,
+            published_at=quote.provider_at,
             content_sha256=digest,
             metadata=metadata,
         )
@@ -312,6 +332,8 @@ def finalize_bmob3_eod_price(
         "quality": "DIRECT",
         "price_brl": str(quote.price),
         "observed_at": quote.observed_at,
+        "provider_at": quote.provider_at,
+        "delay_minutes": B3_PUBLIC_DELAY_MINUTES,
         "source_url": url,
     }
 
