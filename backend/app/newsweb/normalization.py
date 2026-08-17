@@ -12,6 +12,10 @@ def normalize_weekly_body(text: str) -> str:
     clean = " ".join(text.split())
     replacements = (
         (
+            "stock exchange notices from",
+            "stock exchange notice from",
+        ),
+        (
             "announcing a share buyback program",
             "announcing the initiation of the share buyback program",
         ),
