@@ -1,0 +1,31 @@
+name: Phase 11 cleanup
+
+on:
+  push:
+    branches: [phase-11-otec-delayed-price]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remove temporary Phase 11 diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f --ignore-unmatch \
+            .github/workflows/euronext-delayed-diagnostic.yml \
+            .github/workflows/phase11-cleanup.yml \
+            euronext-parameter-diagnostic.txt \
+            euronext-download-diagnostic.txt \
+            euronext-equities-diagnostic.txt \
+            euronext-equities-unzipped-diagnostic.txt \
+            euronext-header-diagnostic.txt
+          git commit -m 'Phase 11: remove temporary Euronext diagnostics [skip ci]'
+          git push
