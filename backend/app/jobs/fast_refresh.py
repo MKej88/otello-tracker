@@ -14,7 +14,7 @@ from app.buybacks import (
 from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
-from app.history import seed_curated_history
+from app.history import seed_curated_history_if_needed
 from app.marketdata.bmob3_feed import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
 from app.marketdata.euronext_delayed import download_euronext_delayed_equities
 from app.marketdata.oslo_calendar import is_oslo_bors_trading_day
@@ -23,7 +23,13 @@ from app.marketdata.otec_feed import (
     maybe_finalize_otec_eod,
     refresh_otec_intraday_price,
 )
-from app.nav import rebuild_daily_cash, rebuild_daily_core_nav, rebuild_daily_full_nav
+from app.nav import (
+    rebuild_daily_cash_if_changed,
+    rebuild_daily_core_nav,
+    rebuild_daily_full_nav,
+    rebuild_daily_other_net_assets,
+)
+from app.nav.intraday import rebuild_core_nav_for_date
 from app.newsweb import (
     collect_newsweb_buybacks,
     collect_newsweb_history,
@@ -54,6 +60,33 @@ def _latest_otec_date(database_path: str, target_date: str) -> str | None:
     return row["d"] if row and row["d"] else None
 
 
+def _has_market_price_for_date(database_path: str, target_date: str) -> bool:
+    """True when at least one tracked equity has a quote for the live calendar date."""
+    with get_connection(database_path) as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM market_prices mp
+            JOIN instruments i ON i.id=mp.instrument_id
+            WHERE i.symbol IN ('OTEC','BMOB3')
+              AND mp.price_type IN ('CLOSE','LAST')
+              AND mp.trading_date=?
+            LIMIT 1
+            """,
+            (target_date,),
+        ).fetchone()
+    return row is not None
+
+
+def _ona_has_date(database_path: str, target_date: str) -> bool:
+    with get_connection(database_path) as connection:
+        row = connection.execute(
+            "SELECT 1 FROM other_net_assets_daily_estimates WHERE estimate_date=? LIMIT 1",
+            (target_date,),
+        ).fetchone()
+    return row is not None
+
+
 def _previous_oslo_trading_day(day: date) -> date:
     candidate = day - timedelta(days=1)
     while not is_oslo_bors_trading_day(candidate):
@@ -77,19 +110,24 @@ def run_fast_refresh(
 ) -> dict[str, Any]:
     """Refresh only sources/layers that can matter intraday.
 
-    Heavy annual/history providers (B3 COTAHIST, ECB, CVM and MFN fallback) deliberately
-    live in the daily full refresh. OTEC uses Euronext's small delayed trade windows while
-    BMOB3 uses B3's lightweight public delayed web quote. Each market has a separate EOD
-    finalization so the latest LAST is available before the next official daily CLOSE.
+    Heavy annual/history providers deliberately live in the daily full refresh. OTEC uses
+    Euronext's small delayed windows while BMOB3 uses B3's lightweight delayed web quote.
+    A live calendar-date NAV is allowed as soon as either equity has a same-day quote;
+    normal model lookbacks supply the other components and freshness metadata exposes any
+    mixed market dates instead of silently ignoring a fresh BMOB3 quote.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
     today = date.today()
     init_database(database_path)
-    seed_curated_history(database_path)
 
     errors: list[dict[str, str]] = []
     steps: dict[str, Any] = {}
+    steps["curated_seed"] = _safe_step(
+        "curated_seed",
+        lambda: seed_curated_history_if_needed(database_path),
+        errors,
+    )
 
     activity = market_activity_status(database_path)
     if activity.get("status") == "empty" or int(activity.get("count") or 0) < 500:
@@ -173,9 +211,6 @@ def run_fast_refresh(
                 database_path=database_path,
                 check_date=today.isoformat(),
             )
-            # Reuse the same complete Euronext payload to finalize yesterday's price.
-            # This catches days where the Pi was offline at the same-day EOD checkpoint
-            # without issuing another large download.
             previous_day = _previous_oslo_trading_day(today).isoformat()
             eod_result = finalize_otec_eod_from_payload(
                 payload,
@@ -211,8 +246,6 @@ def run_fast_refresh(
 
     buybacks = _safe_step(
         "newsweb_buybacks",
-        # No explicit from_date: after the initial backfill the collector automatically
-        # uses the latest daily transaction minus a 21-day safety overlap.
         lambda: collect_newsweb_buybacks(database_path, to_date=end),
         errors,
     )
@@ -236,36 +269,61 @@ def run_fast_refresh(
         errors,
     )
 
-    # Cash depends on the complete anchor chain, so it is rebuilt deterministically.
-    # The expensive market/ONA history is not: CORE/FULL are refreshed only for the
-    # freshest available OTEC trading date. FULL simply remains on its prior date if the
-    # daily ONA layer has not yet been extended by the daily full refresh.
     steps["daily_cash"] = _safe_step(
-        "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
+        "daily_cash",
+        lambda: rebuild_daily_cash_if_changed(database_path, end_date=end),
+        errors,
     )
-    latest_market_date = _latest_otec_date(database_path, end)
-    if latest_market_date:
-        steps["daily_nav"] = _safe_step(
-            "daily_nav",
-            lambda: rebuild_daily_core_nav(
-                database_path,
-                start_date=latest_market_date,
-                end_date=latest_market_date,
-            ),
-            errors,
-        )
+
+    latest_otec_date = _latest_otec_date(database_path, end)
+    live_calendar_snapshot = end_day == today and _has_market_price_for_date(database_path, end)
+    nav_date = end if live_calendar_snapshot else latest_otec_date
+
+    if nav_date:
+        if live_calendar_snapshot:
+            steps["daily_nav"] = _safe_step(
+                "daily_nav",
+                lambda: rebuild_core_nav_for_date(database_path, as_of_date=nav_date),
+                errors,
+            )
+        else:
+            steps["daily_nav"] = _safe_step(
+                "daily_nav",
+                lambda: rebuild_daily_core_nav(
+                    database_path,
+                    start_date=nav_date,
+                    end_date=nav_date,
+                ),
+                errors,
+            )
+
+        if live_calendar_snapshot and not _ona_has_date(database_path, nav_date):
+            # ONA is a daily carry/interpolation layer. Extend it at most once per new
+            # calendar date so FULL can remain current without rebuilding it every cycle.
+            steps["daily_other_net_assets"] = _safe_step(
+                "daily_other_net_assets",
+                lambda: rebuild_daily_other_net_assets(database_path, end_date=nav_date),
+                errors,
+            )
+        else:
+            steps["daily_other_net_assets"] = {
+                "skipped": True,
+                "reason": "ona_date_already_available_or_not_live_calendar_snapshot",
+            }
+
         steps["daily_full_nav"] = _safe_step(
             "daily_full_nav",
             lambda: rebuild_daily_full_nav(
                 database_path,
-                start_date=latest_market_date,
-                end_date=latest_market_date,
+                start_date=nav_date,
+                end_date=nav_date,
             ),
             errors,
         )
     else:
         steps["daily_nav"] = {"skipped": True, "reason": "no_otec_market_date"}
-        steps["daily_full_nav"] = {"skipped": True, "reason": "no_otec_market_date"}
+        steps["daily_other_net_assets"] = {"skipped": True, "reason": "no_nav_date"}
+        steps["daily_full_nav"] = {"skipped": True, "reason": "no_nav_date"}
 
     summary = dashboard_summary(database_path)
     if not summary.get("ready"):
@@ -279,7 +337,9 @@ def run_fast_refresh(
         "status": status,
         "refresh_mode": "fast",
         "target_date": end,
-        "latest_market_date": latest_market_date,
+        "latest_market_date": nav_date,
+        "latest_otec_date": latest_otec_date,
+        "live_calendar_snapshot": live_calendar_snapshot,
         "steps": steps,
         "source_errors": errors,
         "dashboard": summary,

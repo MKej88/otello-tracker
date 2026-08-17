@@ -6,11 +6,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news
+from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news_incremental
 from app.buybacks import buyback_status, collect_recent_buybacks
 from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
-from app.history import seed_curated_history
+from app.history import seed_curated_history_if_needed
 from app.history.newsweb_2021_events import seed_2021_newsweb_events
 from app.marketdata.b3_cotahist import download_cotahist_year
 from app.marketdata.backfill import (
@@ -28,7 +28,7 @@ from app.nav import (
     full_nav_status,
     other_net_assets_status,
     rebuild_core_nav_anchors,
-    rebuild_daily_cash,
+    rebuild_daily_cash_if_changed,
     rebuild_daily_core_nav,
     rebuild_daily_full_nav,
     rebuild_daily_other_net_assets,
@@ -82,21 +82,20 @@ def run_refresh(
     overwrites CORE.
 
     OTEC current pricing uses Euronext's official public delayed Oslo EQUITIES trade file.
-    It is stored as LAST, never mislabeled as CLOSE. The current trading day is attempted
-    first, followed by the previous trading day only if OTEC has no trade in today's file.
-    Explicit historical target dates skip this live-only source rather than importing a
-    future/current trade into a historical rebuild.
+    It is stored as LAST, never mislabeled as CLOSE. Explicit historical target dates skip
+    this live-only source rather than importing a future/current trade into a historical
+    rebuild.
 
     NewsWeb has two roles. A rights-safe archive stores metadata and a body hash for all
     OTEC regulatory messages from 2020 onward. The buyback adapter then uses original
     NewsWeb messages/transaction PDFs for exact daily cash timing where they reconcile.
-    Verified historical material events are seeded separately and idempotently; archive
-    classification alone never creates a financial model effect.
+    Both collectors are incremental after bootstrap and use overlap windows for corrections.
 
     Bemobi news is discovered from CVM's official annual IPE open-data archives. Only
-    structured filing metadata and links are archived. Metadata classification is useful
-    for the dashboard but never creates or changes a corporate action, cash movement or
-    NAV value without a separate validated financial-fact step.
+    structured filing metadata and links are archived. The current annual archive remains
+    rolling; completed historical archives are not downloaded again on every daily run.
+    Metadata classification never creates or changes a financial fact without a separate
+    validated step.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -105,9 +104,12 @@ def run_refresh(
     fx_start = (end_day - timedelta(days=max(2, fx_lookback_days))).isoformat()
 
     init_database(database_path)
-    history = seed_curated_history(database_path)
+    history = seed_curated_history_if_needed(database_path)
     errors: list[dict[str, str]] = []
-    steps: dict[str, Any] = {"history_manifest": history.get("manifest_version")}
+    steps: dict[str, Any] = {
+        "history_seed": history,
+        "history_manifest": history.get("manifest_version"),
+    }
 
     if fetch_ecb:
         def update_ecb() -> dict[str, Any]:
@@ -149,7 +151,10 @@ def run_refresh(
     if fetch_bemobi_news:
         bemobi_news = _safe_step(
             "bemobi_cvm_news",
-            lambda: collect_bemobi_cvm_news(database_path, target_year=end_day.year),
+            lambda: collect_bemobi_cvm_news_incremental(
+                database_path,
+                target_year=end_day.year,
+            ),
             errors,
         )
         steps["bemobi_cvm_news"] = bemobi_news
@@ -177,8 +182,6 @@ def run_refresh(
         steps["otec_investing"] = _safe_step("otec_investing", update_otec_investing, errors)
 
     if fetch_buybacks:
-        # Archive every OTEC NewsWeb message. First run begins in 2020; later refreshes
-        # overlap the latest archived date and are therefore lightweight.
         news_history = _safe_step(
             "newsweb_history",
             lambda: collect_newsweb_history(database_path, to_date=end),
@@ -191,26 +194,18 @@ def run_refresh(
                 "error": json.dumps(news_history["errors"], ensure_ascii=False, default=str),
             })
 
-        # Exact historical tender/share-count facts and the USD 100m AdColony receipt are
-        # separate from archive classification. The cash receipt uses historical ECB FX
-        # if that rate is already available; otherwise it is visibly returned as missing
-        # without inventing a NOK amount and will resolve on a later historical-FX refresh.
         steps["newsweb_2021_events"] = _safe_step(
             "newsweb_2021_events",
             lambda: seed_2021_newsweb_events(database_path),
             errors,
         )
 
-        # Secondary weekly source first. NewsWeb is authoritative for attachment-level
-        # timing. Historical weekly/PDF coverage exists from the June 2023 program.
         steps["buybacks"] = _safe_step(
             "buybacks", lambda: collect_recent_buybacks(database_path), errors
         )
         newsweb_result = _safe_step(
             "newsweb_buybacks",
-            lambda: collect_newsweb_buybacks(
-                database_path, from_date="2023-06-20", to_date=end
-            ),
+            lambda: collect_newsweb_buybacks(database_path, to_date=end),
             errors,
         )
         steps["newsweb_buybacks"] = newsweb_result
@@ -234,8 +229,13 @@ def run_refresh(
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
     )
+    # Daily maintenance intentionally performs one deterministic complete cash rebuild,
+    # but routes it through the dirty-state wrapper so subsequent 30-minute cycles know
+    # that the just-rebuilt inputs/horizon are current and do not repeat the full rewrite.
     steps["daily_cash"] = _safe_step(
-        "daily_cash", lambda: rebuild_daily_cash(database_path, end_date=end), errors
+        "daily_cash",
+        lambda: rebuild_daily_cash_if_changed(database_path, end_date=end, force=True),
+        errors,
     )
     steps["daily_nav"] = _safe_step(
         "daily_nav", lambda: rebuild_daily_core_nav(database_path, end_date=end), errors

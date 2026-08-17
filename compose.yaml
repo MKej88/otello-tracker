@@ -5,6 +5,8 @@ services:
     image: otello-backend:local
     container_name: otello-api
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       APP_ENV: ${APP_ENV:-development}
       APP_NAME: ${APP_NAME:-Otello NAV Dashboard}
@@ -24,6 +26,8 @@ services:
     image: otello-backend:local
     container_name: otello-scheduler
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       api:
         condition: service_healthy
@@ -44,8 +48,11 @@ services:
   web:
     build:
       context: ./frontend
+    image: otello-web:local
     container_name: otello-web
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       api:
         condition: service_healthy

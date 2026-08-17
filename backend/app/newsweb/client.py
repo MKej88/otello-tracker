@@ -12,6 +12,8 @@ WEB_BASE = "https://newsweb.oslobors.no"
 OTEC_ISSUER_ID = 7759
 OTEC_SIGN = "OTEC"
 USER_AGENT = "otello-tracker/0.9.3 (+private research)"
+MAX_JSON_BYTES = 5 * 1024 * 1024
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,23 @@ def _headers(*, content_type: bool = False) -> dict[str, str]:
     return result
 
 
+def _bounded_read(response: Any, max_bytes: int, *, label: str) -> bytes:
+    headers = getattr(response, "headers", None)
+    content_length = headers.get("Content-Length") if headers is not None else None
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise ValueError(f"{label} overstiger sikker størrelsesgrense")
+        except ValueError as exc:
+            if "størrelsesgrense" in str(exc):
+                raise
+            # Invalid/missing length is not trusted; bounded read below is authoritative.
+    payload = response.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise ValueError(f"{label} overstiger sikker størrelsesgrense")
+    return payload
+
+
 def _post_json(url: str, timeout: int = 30) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
@@ -62,7 +81,10 @@ def _post_json(url: str, timeout: int = 30) -> dict[str, Any]:
         headers=_headers(content_type=True),
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        raw = _bounded_read(response, MAX_JSON_BYTES, label="NewsWeb JSON-respons")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("NewsWeb API-respons er ikke et JSON-objekt")
     header = payload.get("header") or {}
     if int(header.get("result.val", 0)) != 0 or int(header.get("http.code", 200)) >= 400:
         raise ValueError(f"NewsWeb API-feil: {header}")
@@ -151,7 +173,11 @@ def fetch_attachment(message_id: int, attachment_id: int, *, timeout: int = 30) 
         headers={"Accept": "application/pdf,application/octet-stream", "User-Agent": USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = response.read()
+        payload = _bounded_read(
+            response,
+            MAX_ATTACHMENT_BYTES,
+            label=f"NewsWeb attachment {message_id}/{attachment_id}",
+        )
     if not payload.startswith(b"%PDF"):
         raise ValueError(
             f"NewsWeb attachment {message_id}/{attachment_id} er ikke en PDF"

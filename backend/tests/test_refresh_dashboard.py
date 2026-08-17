@@ -122,9 +122,10 @@ def test_refresh_delayed_otec_failure_is_fail_soft(tmp_path, monkeypatch):
     assert {"step": "otec_delayed", "error": "euronext unavailable"} in result["source_errors"]
 
 
-def test_refresh_runs_verified_2021_events_as_separate_model_step(tmp_path, monkeypatch):
+def test_refresh_runs_verified_2021_events_and_incremental_buybacks(tmp_path, monkeypatch):
     db = str(tmp_path / "refresh-newsweb.db")
     called: list[str] = []
+    buyback_kwargs: dict[str, str] = {}
 
     monkeypatch.setattr(
         refresh_module,
@@ -137,11 +138,12 @@ def test_refresh_runs_verified_2021_events_as_separate_model_step(tmp_path, monk
         lambda *args, **kwargs: called.append("2021") or {"buybacks": [1], "missing_fx": []},
     )
     monkeypatch.setattr(refresh_module, "collect_recent_buybacks", lambda *args, **kwargs: {"ok": True})
-    monkeypatch.setattr(
-        refresh_module,
-        "collect_newsweb_buybacks",
-        lambda *args, **kwargs: {"errors": [], "ingested": 0},
-    )
+
+    def collect_buybacks(*_args, **kwargs):
+        buyback_kwargs.update(kwargs)
+        return {"errors": [], "ingested": 0}
+
+    monkeypatch.setattr(refresh_module, "collect_newsweb_buybacks", collect_buybacks)
     monkeypatch.setattr(
         refresh_module,
         "sync_newsweb_daily_buyback_cash",
@@ -158,18 +160,19 @@ def test_refresh_runs_verified_2021_events_as_separate_model_step(tmp_path, monk
     )
 
     assert called == ["2021"]
+    assert buyback_kwargs == {"to_date": "2026-08-14"}
     assert result["steps"]["newsweb_2021_events"] == {"buybacks": [1], "missing_fx": []}
     assert result["steps"]["bemobi_cvm_news"] == {"skipped": True}
     assert result["source_errors"] == []
 
 
-def test_refresh_runs_bemobi_cvm_news_as_separate_non_financial_step(tmp_path, monkeypatch):
+def test_refresh_runs_incremental_bemobi_cvm_news_as_non_financial_step(tmp_path, monkeypatch):
     db = str(tmp_path / "refresh-bemobi.db")
     called: list[int] = []
 
     monkeypatch.setattr(
         refresh_module,
-        "collect_bemobi_cvm_news",
+        "collect_bemobi_cvm_news_incremental",
         lambda *args, **kwargs: called.append(kwargs["target_year"]) or {
             "archived": 2,
             "errors": [],

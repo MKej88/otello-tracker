@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from functools import lru_cache
+
+from app.db.runtime_state import get_runtime_state, set_runtime_state
 from app.history.curated import history_status as _history_status
+from app.history.curated import load_manifest
 from app.history.curated import seed_curated_history as _seed_curated_history
 from app.history.other_net_assets import (
     load_other_net_assets_manifest,
@@ -15,6 +21,37 @@ from app.history.share_capital_2025 import (
     seed_2025_share_capital_anchors,
 )
 
+_CURATED_STATE_KEY = "curated_seed_fingerprint"
+
+
+@lru_cache(maxsize=1)
+def curated_manifest_version() -> str:
+    return str(load_manifest()["version"])
+
+
+@lru_cache(maxsize=1)
+def curated_seed_fingerprint() -> str:
+    """Hash every static manifest that can write curated reference facts.
+
+    The manifests are packaged inside the immutable production image, so the fingerprint
+    only needs to be calculated once per process. A new deploy/container gets a fresh
+    process and therefore a fresh fingerprint automatically.
+    """
+    payload = {
+        "base": load_manifest(),
+        "share_capital_2022": load_2022_share_capital_corrections(),
+        "share_capital_2025": load_2025_share_capital_corrections(),
+        "other_net_assets": load_other_net_assets_manifest(),
+    }
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 
 def seed_curated_history(database_path: str | None = None) -> dict:
     result = _seed_curated_history(database_path)
@@ -27,6 +64,22 @@ def seed_curated_history(database_path: str | None = None) -> dict:
         "2025": capital_2025,
     }
     result["other_net_assets"] = other_net_assets
+    set_runtime_state(_CURATED_STATE_KEY, curated_seed_fingerprint(), database_path)
+    return result
+
+
+def seed_curated_history_if_needed(database_path: str | None = None) -> dict:
+    """Avoid rewriting immutable curated rows on every 30-minute refresh."""
+    fingerprint = curated_seed_fingerprint()
+    if get_runtime_state(_CURATED_STATE_KEY, database_path) == fingerprint:
+        return {
+            "skipped": True,
+            "reason": "curated_manifests_unchanged",
+            "fingerprint": fingerprint,
+            "manifest_version": curated_manifest_version(),
+        }
+    result = seed_curated_history(database_path)
+    result["fingerprint"] = fingerprint
     return result
 
 
@@ -51,4 +104,10 @@ def history_status(database_path: str | None = None) -> dict:
     return result
 
 
-__all__ = ["seed_curated_history", "history_status"]
+__all__ = [
+    "curated_manifest_version",
+    "curated_seed_fingerprint",
+    "seed_curated_history",
+    "seed_curated_history_if_needed",
+    "history_status",
+]

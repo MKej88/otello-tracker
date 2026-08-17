@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+      - name: Verify Python dependency consistency
+        run: python -m pip check
       - name: Run tests
         run: PYTHONPATH=. pytest -q
 
@@ -42,6 +44,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
       - name: Build
         run: npm run build
 
@@ -54,5 +58,7 @@ jobs:
         run: docker compose config --quiet
       - name: Build backend and frontend images
         run: docker compose build api web
+      - name: Verify nginx configuration
+        run: docker run --rm --add-host api:127.0.0.1 otello-web:local nginx -t
       - name: Verify backend production timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
