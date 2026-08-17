@@ -177,7 +177,7 @@ Status: **Ferdig og merget**
 
 ### Fase 9.4 – Full NewsWeb-historikk fra 2020
 
-Status: **Implementert og live-validert på feature branch; PR/merge gjenstår**
+Status: **Ferdig, live-validert og merget**
 
 - [x] alle OTEC-NewsWeb-meldinger hentes fra 01.01.2020 og fremover
 - [x] første funne OTEC-melding i vinduet er 11.02.2020
@@ -197,15 +197,58 @@ Status: **Implementert og live-validert på feature branch; PR/merge gjenstår**
 - [x] NewsWeb USD 100m AdColony-betaling 27.10.2021 modellert kun når historisk ECB USD/NOK finnes
 - [x] feil provenance-ID for mai-2021-tender avdekket og korrigert fra ikke-OTEC `532327` til OTEC `532648`
 - [x] verifiserte historiske hendelser er egen refresh-step; arkivklassifisering kan ikke automatisk påvirke cash/NAV
-- [x] 77 backendtester passerte i full live-smoke
-- [ ] ordinær PR-CI + merge til main
+- [x] PR #21 merget og backend/frontend-CI grønn på `main`
+
+## Fase 10 – Bemobi selskapsmeldinger og utdelinger
+
+Status: **Pågår**
+
+### Fase 10.1 – Tax-aware Bemobi dividend/JCP
+
+Status: **Ferdig og merget**
+
+- [x] historiske Bemobi-utdelinger splittet fra 8 aggregater til 11 komponentnivå-hendelser
+- [x] blandet 2024-utdeling splittet i ordinært utbytte + JCP
+- [x] desember 2025 splittet i JCP + to utbyttekomponenter
+- [x] mai 2026 korrigert til offisiell JCP med eksakt brutto/netto og dokumentert 17,5 % kildeskatt
+- [x] brutto rettighet beholdes i corporate action/FULL NAV-fordring
+- [x] dokumentert JCP-kildeskatt bokføres som separat negativ `TAX`-cash-bevegelse
+- [x] skatt gjettes aldri når sats/netto ikke er dokumentert
+- [x] blandede komponenter kalibreres samlet mot én rapportert Bemobi-fordring uten dobbelttelling
+- [x] produksjonsoppgradering fra gamle aggregater er idempotent og testet
+- [x] midlertidige FX-gap sletter ikke tidligere gyldige skattejusteringer
+- [x] PR #22 merget og backend/frontend-CI grønn på `main`
+
+### Fase 10.2 – Offisiell CVM selskapsmeldingsfeed
+
+Status: **Implementert og live-validert på feature branch; PR/merge gjenstår**
+
+- [x] offisielle CVM IPE-årsarkiver brukes som automatisert primærfeed
+- [x] Bemobi filtreres eksakt på CNPJ `09.042.817/0001-05` og CVM-kode `25500`
+- [x] første backfill dekker 2021–2026; senere refresh laster bare manglende historiske år + inneværende/foregående år
+- [x] structured metadata, CVM-lenke, versjon og metadata-hash lagres; dokumenttekst lagres ikke automatisk
+- [x] konservativ klassifisering i RESULTS/BUYBACK/DIVIDEND/JCP/CAPITAL/M_AND_A/GUIDANCE/CORPORATE/OTHER
+- [x] usikre utbetalinger/OTHER markeres `REVIEW_REQUIRED`
+- [x] alle CVM-versjoner beholdes; superseded-versjoner merkes `IGNORED` og skjules som standard i API
+- [x] CVM `Protocolo_Entrega` behandles ikke som globalt unik; external ID inkluderer download-identitet, versjon og logisk fingerprint
+- [x] portugisisk JCP-formulering både med og uten «o» i «juros sobre o capital próprio» støttes eksplisitt
+- [x] metadata-klassifisering setter aldri `financial_effect_applied=true` og kan ikke alene endre cash/NAV
+- [x] refresh-step `bemobi_cvm_news` med fail-soft/source-errors
+- [x] API `/api/bemobi/news` og `/api/bemobi/news/status`
+- [x] full livebackfill: 523 Bemobi-rader oppdaget, 280 relevante versjoner, 280/280 lagret uten kollisjon
+- [x] 254 gjeldende meldinger, 45 `REVIEW_REQUIRED`, 0 kildefeil
+- [x] gjeldende kategori-fordeling: 52 RESULTS, 20 BUYBACK, 21 JCP, 15 DIVIDEND, 5 M_AND_A, 3 CAPITAL, 109 CORPORATE, 29 OTHER
+- [x] live kontrollsignaler inkluderer 7AZ-oppkjøpet, Bemobi-buyback og august-2026 JCP-relaterte meldinger
+- [x] 88 backendtester + full CVM-livebackfill grønn
+- [ ] ordinær PR-CI + merge til `main`
+- [ ] valider eksakte økonomiske vilkår for august 2026 JCP før eventuell cash/NAV-effekt
 
 ## Neste prioriteringer
 
-1. Kjør ordinær PR-CI og merge Fase 9.4.
-2. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
-3. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
-4. Fase 10: Bemobi selskapsmeldinger/dividende/JCP-modul i dashboardet.
+1. Kjør ordinær PR-CI og merge Fase 10.2.
+2. Valider eksakte økonomiske vilkår i august 2026 JCP-meldingen og koble den først da til corporate actions/cash/FULL NAV.
+3. **21.08.2026:** importer Otello 1H26 og erstatt FORECAST_PARTIAL cash/ONA med nye rapporterte ankere.
+4. Finn/valider stabil gratis OTEC EOD-oppdatering eller behold kontrollert CSV-rutine.
 5. Bemobi broker-consensus tracker før Q3.
 6. E-postrapporter og varsler.
 7. Raspberry Pi + Cloudflare Tunnel/Access deployment.
