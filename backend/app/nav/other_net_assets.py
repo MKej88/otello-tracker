@@ -9,7 +9,7 @@ from typing import Any
 from app.db.connection import get_connection
 from app.db.repository import decimal_text
 from app.history.distributions import seed_bemobi_distributions
-from app.nav.option_liability import option_liability_for_day
+from app.nav.option_liability import load_option_program, option_liability_for_day
 
 MAX_FX_LOOKBACK_DAYS = 7
 
@@ -287,11 +287,41 @@ def _receivable_for_day(connection, current_iso: str, actions: list[dict[str, An
     return total, quality, components
 
 
+def _legacy_base(anchor) -> Decimal:
+    return Decimal(anchor["base_other_net_assets_reported"])
+
+
 def _anchor_base_ex_option(anchor) -> Decimal:
     raw = anchor["base_other_net_assets_ex_option_reported"]
     if raw is not None:
         return Decimal(raw)
-    return Decimal(anchor["base_other_net_assets_reported"]) + Decimal(anchor["option_liability_reported"] or "0")
+    return _legacy_base(anchor) + Decimal(anchor["option_liability_reported"] or "0")
+
+
+def _interpolated_base_ex_option(start_anchor, end_anchor, start_day: date, end_day: date, current: date) -> Decimal:
+    """Preserve the old ONA path before the option grant, then decompose after grant."""
+    legacy_start = _legacy_base(start_anchor)
+    legacy_end = _legacy_base(end_anchor)
+    elapsed = Decimal((current - start_day).days)
+    span = Decimal((end_day - start_day).days)
+    legacy_current = legacy_start + (legacy_end - legacy_start) * elapsed / span
+
+    end_option = Decimal(end_anchor["option_liability_reported"] or "0")
+    if end_option == 0:
+        return legacy_current
+
+    grant = date.fromisoformat(load_option_program()["program"]["grant_date"])
+    if not (start_day < grant <= end_day) or current < grant:
+        return legacy_current
+
+    grant_fraction = Decimal((grant - start_day).days) / span
+    legacy_at_grant = legacy_start + (legacy_end - legacy_start) * grant_fraction
+    if current == grant:
+        return legacy_at_grant
+
+    post_elapsed = Decimal((current - grant).days)
+    post_span = Decimal((end_day - grant).days)
+    return legacy_at_grant + (_anchor_base_ex_option(end_anchor) - legacy_at_grant) * post_elapsed / post_span
 
 
 def rebuild_daily_other_net_assets(
@@ -336,23 +366,21 @@ def rebuild_daily_other_net_assets(
             previous_index = max(i for i, d in enumerate(anchor_dates) if d <= current)
             start_anchor = anchors[previous_index]
             start_day = anchor_dates[previous_index]
-            start_base_usd = _anchor_base_ex_option(start_anchor)
 
             if current == start_day:
                 end_anchor = start_anchor
-                base_usd = start_base_usd
+                base_usd = _anchor_base_ex_option(start_anchor)
                 quality = "REPORTED_ANCHOR"
             elif previous_index + 1 < len(anchors):
                 end_anchor = anchors[previous_index + 1]
                 end_day = anchor_dates[previous_index + 1]
-                end_base_usd = _anchor_base_ex_option(end_anchor)
-                elapsed = Decimal((current - start_day).days)
-                span = Decimal((end_day - start_day).days)
-                base_usd = start_base_usd + (end_base_usd - start_base_usd) * elapsed / span
+                base_usd = _interpolated_base_ex_option(
+                    start_anchor, end_anchor, start_day, end_day, current
+                )
                 quality = "INTERPOLATED"
             else:
                 end_anchor = None
-                base_usd = start_base_usd
+                base_usd = _anchor_base_ex_option(start_anchor)
                 quality = "FORECAST_PARTIAL"
 
             usd_fx = _nearest_fx(connection, "USD", current_iso)
@@ -422,13 +450,11 @@ def rebuild_daily_other_net_assets(
                 notes = "Reported ONA anchor; Bemobi receivable and cash-settled option obligation are decomposed explicitly."
             elif quality == "INTERPOLATED":
                 notes = (
-                    "Base ONA excluding the option obligation is interpolated in USD; Bemobi receivables are event-driven and "
-                    "the cash-settled option obligation is marked to market from 15 Sep 2025."
+                    "Base ONA is reconstructed in USD without changing the pre-grant path; from the 15 Sep 2025 grant the cash-settled option obligation is separated and marked to market."
                 )
             else:
                 notes = (
-                    "Latest base ONA excluding the option obligation is carried forward in USD; Bemobi receivables remain event-driven and "
-                    "the cash-settled option obligation is marked to market using the latest reported valuation assumptions."
+                    "Latest base ONA excluding the option obligation is carried forward in USD; Bemobi receivables remain event-driven and the cash-settled option obligation is marked to market using the latest reported valuation assumptions."
                 )
 
             connection.execute(
