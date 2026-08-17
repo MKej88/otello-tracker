@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
 from app.buybacks import buyback_status
 from app.dashboard import dashboard_history as get_dashboard_history
 from app.dashboard import dashboard_summary as get_dashboard_summary
@@ -23,7 +24,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.8.0",
+    version="0.9.0",
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -45,7 +46,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.8.0",
+        "version": "0.9.0",
     }
 
 
@@ -67,6 +68,25 @@ def system_market_data() -> dict:
 @app.get("/api/buybacks/status")
 def system_buybacks() -> dict:
     return buyback_status(settings.database_path)
+
+
+@app.get("/api/bemobi/news")
+def bemobi_news(
+    limit: int = Query(default=50, ge=1, le=200),
+    category: str | None = Query(default=None),
+    include_superseded: bool = Query(default=False),
+) -> dict:
+    return list_bemobi_news(
+        settings.database_path,
+        limit=limit,
+        category=category,
+        include_superseded=include_superseded,
+    )
+
+
+@app.get("/api/bemobi/news/status")
+def bemobi_news_status() -> dict:
+    return bemobi_cvm_news_status(settings.database_path)
 
 
 @app.get("/api/nav/core-anchors")
