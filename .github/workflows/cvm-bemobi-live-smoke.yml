@@ -1,0 +1,80 @@
+name: Bemobi CVM live smoke
+
+on:
+  push:
+    branches: [phase-10-bemobi-news-ingest]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Run backend tests
+        working-directory: backend
+        run: PYTHONPATH=. pytest -q
+      - name: Full official CVM Bemobi backfill
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+
+          from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news, list_bemobi_news
+          from app.db.connection import get_connection
+          from app.db.migration_runner import init_database
+
+          years = [2021, 2022, 2023, 2024, 2025, 2026]
+          with tempfile.TemporaryDirectory() as tmp:
+              db = str(Path(tmp) / "bemobi-cvm.db")
+              init_database(db)
+              result = collect_bemobi_cvm_news(db, years=years, timeout=60)
+              status = bemobi_cvm_news_status(db)
+              news = list_bemobi_news(db, limit=200)
+
+              print("RESULT", json.dumps(result, indent=2, ensure_ascii=False, default=str))
+              print("STATUS", json.dumps(status, indent=2, ensure_ascii=False, default=str))
+              print("LATEST_SAMPLE", json.dumps(news["items"][:20], indent=2, ensure_ascii=False, default=str))
+
+              if result["errors"]:
+                  raise SystemExit(f"CVM backfill errors: {result['errors']}")
+              if result["years"] != years:
+                  raise SystemExit(f"Unexpected years: {result['years']}")
+              if result["discovered_bemobi_rows"] <= 0 or result["relevant_rows"] <= 0:
+                  raise SystemExit("No Bemobi CVM rows discovered")
+              if status["status"] != "ok" or status["count"] <= 0:
+                  raise SystemExit(f"Bad status: {status}")
+
+              with get_connection(db) as connection:
+                  signals = connection.execute(
+                      """
+                      SELECT
+                        SUM(CASE WHEN cn.category='M_AND_A' AND sd.metadata_json LIKE '%7AZ%' THEN 1 ELSE 0 END) AS acquisition_7az,
+                        SUM(CASE WHEN cn.category='BUYBACK' AND lower(sd.metadata_json) LIKE '%recompra%' THEN 1 ELSE 0 END) AS buyback,
+                        SUM(CASE WHEN cn.category='JCP' AND sd.metadata_json LIKE '%2026-08-11%' THEN 1 ELSE 0 END) AS august_jcp,
+                        SUM(CASE WHEN sd.metadata_json LIKE '%\"financial_effect_applied\": true%' THEN 1 ELSE 0 END) AS auto_applied
+                      FROM company_news cn
+                      JOIN source_documents sd ON sd.id=cn.source_document_id
+                      JOIN sources s ON s.id=sd.source_id
+                      JOIN instruments i ON i.id=cn.issuer_instrument_id
+                      WHERE s.code='CVM' AND i.symbol='BMOB3'
+                      """
+                  ).fetchone()
+                  print("SIGNALS", dict(signals))
+                  if signals["acquisition_7az"] < 1:
+                      raise SystemExit("Missing validated 7AZ metadata signal")
+                  if signals["buyback"] < 1:
+                      raise SystemExit("Missing validated Bemobi buyback metadata signal")
+                  if signals["august_jcp"] < 1:
+                      raise SystemExit("Missing August 2026 JCP metadata signal")
+                  if signals["auto_applied"] != 0:
+                      raise SystemExit("CVM metadata unexpectedly auto-applied a financial effect")
+          PY
