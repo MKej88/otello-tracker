@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news
+from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news_incremental
 from app.buybacks import buyback_status, collect_recent_buybacks
 from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
@@ -92,8 +92,10 @@ def run_refresh(
     Both collectors are incremental after bootstrap and use overlap windows for corrections.
 
     Bemobi news is discovered from CVM's official annual IPE open-data archives. Only
-    structured filing metadata and links are archived. Metadata classification never
-    creates or changes a financial fact without a separate validated step.
+    structured filing metadata and links are archived. The current annual archive remains
+    rolling; completed historical archives are not downloaded again on every daily run.
+    Metadata classification never creates or changes a financial fact without a separate
+    validated step.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -149,7 +151,10 @@ def run_refresh(
     if fetch_bemobi_news:
         bemobi_news = _safe_step(
             "bemobi_cvm_news",
-            lambda: collect_bemobi_cvm_news(database_path, target_year=end_day.year),
+            lambda: collect_bemobi_cvm_news_incremental(
+                database_path,
+                target_year=end_day.year,
+            ),
             errors,
         )
         steps["bemobi_cvm_news"] = bemobi_news
@@ -200,9 +205,6 @@ def run_refresh(
         )
         newsweb_result = _safe_step(
             "newsweb_buybacks",
-            # No explicit 2023 start after bootstrap. The collector uses its latest
-            # daily transaction minus a 21-day overlap, preserving correction safety
-            # without reparsing several years of PDFs every daily full refresh.
             lambda: collect_newsweb_buybacks(database_path, to_date=end),
             errors,
         )
