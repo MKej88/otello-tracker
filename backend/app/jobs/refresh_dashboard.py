@@ -10,6 +10,7 @@ from app.buybacks import buyback_status, collect_recent_buybacks
 from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
+from app.history.newsweb_2021_events import seed_2021_newsweb_events
 from app.marketdata.b3_cotahist import download_cotahist_year
 from app.marketdata.backfill import (
     import_b3_bmob3_zip,
@@ -79,7 +80,8 @@ def run_refresh(
     NewsWeb has two roles. A rights-safe archive stores metadata and a body hash for all
     OTEC regulatory messages from 2020 onward. The buyback adapter then uses original
     NewsWeb messages/transaction PDFs for exact daily cash timing where they reconcile.
-    The Euronext/MFN collector remains a resilient secondary source for weekly facts.
+    Verified historical material events are seeded separately and idempotently; archive
+    classification alone never creates a financial model effect.
     """
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
@@ -144,6 +146,16 @@ def run_refresh(
                 "error": json.dumps(news_history["errors"], ensure_ascii=False, default=str),
             })
 
+        # Exact historical tender/share-count facts and the USD 100m AdColony receipt are
+        # separate from archive classification. The cash receipt uses historical ECB FX
+        # if that rate is already available; otherwise it is visibly returned as missing
+        # without inventing a NOK amount and will resolve on a later historical-FX refresh.
+        steps["newsweb_2021_events"] = _safe_step(
+            "newsweb_2021_events",
+            lambda: seed_2021_newsweb_events(database_path),
+            errors,
+        )
+
         # Secondary weekly source first. NewsWeb is authoritative for attachment-level
         # timing. Historical weekly/PDF coverage exists from the June 2023 program.
         steps["buybacks"] = _safe_step(
@@ -169,6 +181,7 @@ def run_refresh(
         )
     else:
         steps["newsweb_history"] = {"skipped": True}
+        steps["newsweb_2021_events"] = {"skipped": True}
         steps["buybacks"] = {"skipped": True}
         steps["newsweb_buybacks"] = {"skipped": True}
         steps["newsweb_buyback_cash"] = {"skipped": True}
