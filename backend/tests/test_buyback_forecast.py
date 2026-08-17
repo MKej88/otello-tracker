@@ -100,6 +100,13 @@ def test_current_program_forecast_matches_walk_forward_backtest_without_weekly_c
         "from": "2026-08-17",
         "to": "2026-08-21",
         "expected_trading_days": 5,
+        "trading_dates": [
+            "2026-08-17",
+            "2026-08-18",
+            "2026-08-19",
+            "2026-08-20",
+            "2026-08-21",
+        ],
     }
     assert result["volume_model"]["adv20_shares"] == 52789.4
     assert result["volume_model"]["week_start_capacity_estimate_shares"] == 65987
