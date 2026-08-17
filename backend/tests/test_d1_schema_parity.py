@@ -10,6 +10,7 @@ from app.db.migration_runner import init_database
 ROOT = Path(__file__).resolve().parents[2]
 D1_SCHEMA = ROOT / "cloudflare" / "migrations" / "0001_initial_schema.sql"
 D1_REFERENCE_DATA = ROOT / "cloudflare" / "migrations" / "0002_reference_data.sql"
+D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liability.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -26,6 +27,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(D1_SCHEMA.read_text(encoding="utf-8"))
+    connection.executescript(D1_OPTION_LIABILITY.read_text(encoding="utf-8"))
     return connection
 
 
@@ -55,14 +57,8 @@ def _table_columns(connection: sqlite3.Connection, table: str) -> list[tuple]:
 def _foreign_keys(connection: sqlite3.Connection, table: str) -> list[tuple]:
     return sorted(
         (
-            row["id"],
-            row["seq"],
-            row["table"],
-            row["from"],
-            row["to"],
-            row["on_update"],
-            row["on_delete"],
-            row["match"],
+            row["id"], row["seq"], row["table"], row["from"], row["to"],
+            row["on_update"], row["on_delete"], row["match"],
         )
         for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
     )
@@ -83,12 +79,7 @@ def _explicit_indexes(connection: sqlite3.Connection, table: str) -> dict[str, t
 
 def _normalized_triggers(connection: sqlite3.Connection) -> dict[str, str]:
     rows = connection.execute(
-        """
-        SELECT name, sql
-        FROM sqlite_master
-        WHERE type = 'trigger'
-        ORDER BY name
-        """
+        "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name"
     ).fetchall()
     return {
         row["name"]: re.sub(r"\s+", " ", row["sql"].strip()).rstrip(";")
@@ -122,14 +113,10 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
     try:
         d1.executescript(D1_REFERENCE_DATA.read_text(encoding="utf-8"))
 
-        source_columns = (
-            "code, name, source_type, base_url, is_official, is_active, terms_notes"
-        )
+        source_columns = "code, name, source_type, base_url, is_official, is_active, terms_notes"
         reference_sources = [
             tuple(row)
-            for row in reference.execute(
-                f"SELECT {source_columns} FROM sources ORDER BY code"
-            )
+            for row in reference.execute(f"SELECT {source_columns} FROM sources ORDER BY code")
         ]
         d1_sources = [
             tuple(row)
@@ -159,9 +146,10 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
 
 
 def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
-    schema_sql = D1_SCHEMA.read_text(encoding="utf-8")
-    reference_sql = D1_REFERENCE_DATA.read_text(encoding="utf-8")
-    combined = f"{schema_sql}\n{reference_sql}".upper()
+    combined = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (D1_SCHEMA, D1_REFERENCE_DATA, D1_OPTION_LIABILITY)
+    ).upper()
 
     assert "SCHEMA_MIGRATIONS" not in combined
     assert "BEGIN TRANSACTION" not in combined
