@@ -19,7 +19,11 @@ from newsweb_daily_buybacks import (  # noqa: E402
     validate_daily_buybacks,
 )
 from r2_archive import archive_bytes, raw_object_key  # noqa: E402
-from r2_snapshot import SNAPSHOT_VERSION, archive_d1_snapshot  # noqa: E402
+from r2_snapshot import (  # noqa: E402
+    SNAPSHOT_VERSION,
+    archive_d1_snapshot,
+    should_archive_d1_snapshot,
+)
 
 from app.db.connection import get_connection  # noqa: E402
 from app.db.migration_runner import init_database  # noqa: E402
@@ -247,6 +251,7 @@ def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
             bucket,
             target_date="2026-08-17",
             preflight_status="READY",
+            force=True,
         )
     )
     assert result["status"] == "ok"
@@ -254,9 +259,11 @@ def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
     assert result["manifest_key"] in bucket.objects
     assert result["chunk_count"] == result["table_count"]
     assert result["chunk_count"] > 0
+    assert "chunk_objects" not in result
 
+    manifest = json.loads(bucket.objects[result["manifest_key"]])
     nav_chunk = next(
-        item for item in result["chunk_objects"] if item["table"] == "nav_snapshots"
+        item for item in manifest["chunk_objects"] if item["table"] == "nav_snapshots"
     )
     decoded = json.loads(gzip.decompress(bucket.objects[nav_chunk["key"]]))
     assert decoded["snapshot_version"] == SNAPSHOT_VERSION
@@ -264,9 +271,9 @@ def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
     assert decoded["table"] == "nav_snapshots"
     assert decoded["rows"][0]["table"] == "nav_snapshots"
 
-    manifest = json.loads(bucket.objects[result["manifest_key"]])
     assert manifest["logical_sha256"] == result["logical_sha256"]
     assert manifest["preflight_status"] == "READY"
+    assert manifest["retention_policy"] == "WEEKLY_PLUS_MONTH_END"
     assert "NOT_D1_TIME_TRAVEL_REPLACEMENT" in manifest["restore_scope"]
     assert set(manifest["excluded_reconstructible_tables"]) == {
         "company_news",
@@ -274,6 +281,25 @@ def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
         "runtime_state",
     }
     assert "market_activity" not in manifest["row_counts"]
+
+
+def test_d1_snapshot_policy_is_weekly_plus_month_end() -> None:
+    assert should_archive_d1_snapshot("2026-08-30") is True  # Sunday
+    assert should_archive_d1_snapshot("2026-08-31") is True  # month-end
+    assert should_archive_d1_snapshot("2026-08-18") is False
+
+    bucket = _Bucket()
+    result = asyncio.run(
+        archive_d1_snapshot(
+            _SnapshotRepository(),
+            bucket,
+            target_date="2026-08-18",
+            preflight_status="READY",
+        )
+    )
+    assert result["status"] == "skipped"
+    assert result["reason"] == "weekly_or_month_end_only"
+    assert bucket.objects == {}
 
 
 def test_phase_15_6_worker_config_bundles_pdf_parser_and_archive_steps() -> None:
