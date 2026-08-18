@@ -23,6 +23,22 @@ def _metadata(raw: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _weekly_fingerprint(row: dict[str, Any] | None) -> str | None:
+    if not row or row.get("weekly_id") is None:
+        return None
+    return json.dumps(
+        {
+            "id": int(row["weekly_id"]),
+            "trade_date": str(row.get("latest_weekly_date") or ""),
+            "source_document_id": int(row.get("weekly_source_document_id") or 0),
+            "shares": int(row.get("weekly_shares") or 0),
+            "amount_nok": str(row.get("weekly_amount_nok") or ""),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 async def _runtime_value(repository, key: str) -> str | None:
     row = await repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", (key,))
     return str(row["value"]) if row and row.get("value") else None
@@ -66,18 +82,25 @@ async def _latest_current_parser_attachment(repository) -> dict[str, Any] | None
 async def _coverage_state(repository) -> dict[str, Any]:
     row = await repository.first(
         """
-        SELECT
-          (SELECT MAX(trade_date) FROM buybacks) AS latest_weekly_date,
-          (SELECT MAX(trade_date) FROM buyback_daily_transactions) AS latest_daily_date
+        SELECT b.id AS weekly_id,
+               b.trade_date AS latest_weekly_date,
+               b.source_document_id AS weekly_source_document_id,
+               b.shares AS weekly_shares,
+               b.amount_nok AS weekly_amount_nok,
+               (SELECT MAX(trade_date) FROM buyback_daily_transactions) AS latest_daily_date
+        FROM buybacks b
+        ORDER BY b.trade_date DESC, b.id DESC
+        LIMIT 1
         """
     ) or {}
     attachment = await _latest_current_parser_attachment(repository)
-    completed_weekly = await _runtime_value(repository, _COMPLETED_WEEKLY_KEY)
+    completed_fingerprint = await _runtime_value(repository, _COMPLETED_WEEKLY_KEY)
     last_success = await _runtime_value(repository, _LAST_SUCCESS_KEY)
     return {
         "latest_weekly_date": row.get("latest_weekly_date"),
         "latest_daily_date": row.get("latest_daily_date"),
-        "completed_weekly_date": completed_weekly,
+        "latest_weekly_fingerprint": _weekly_fingerprint(row),
+        "completed_weekly_fingerprint": completed_fingerprint,
         "last_success_date": last_success,
         "attachment": attachment,
     }
@@ -101,22 +124,26 @@ async def enrich_newsweb_buybacks_if_due(
     target_date: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run expensive PDF reconciliation only for new coverage or periodic revalidation.
+    """Run expensive PDF reconciliation only for changed coverage or periodic validation.
 
-    A successful run advances parser-versioned runtime markers even when a weekly status
-    has no transaction attachment. Partial/error runs never advance them, so failed work
-    remains retryable on the next daily Workflow.
+    The parser-versioned completion marker fingerprints the latest canonical weekly
+    buyback row, so a same-date correction to economics/provenance also triggers a new
+    PDF pass. A successful run advances the marker even when there is no attachment;
+    partial/error runs never advance it and remain retryable the next day.
     """
     state = await _coverage_state(repository)
     weekly = str(state.get("latest_weekly_date") or "")
     daily = str(state.get("latest_daily_date") or "")
-    completed = str(state.get("completed_weekly_date") or "")
+    latest_fingerprint = str(state.get("latest_weekly_fingerprint") or "")
+    completed_fingerprint = str(state.get("completed_weekly_fingerprint") or "")
     last_success = str(state.get("last_success_date") or "")
     attachment = state.get("attachment")
 
-    new_weekly_coverage = bool(weekly and (not completed or weekly > completed))
+    changed_weekly_coverage = bool(
+        latest_fingerprint and latest_fingerprint != completed_fingerprint
+    )
     revalidation_due = _revalidation_due(last_success or None, target_date)
-    if not new_weekly_coverage and not revalidation_due:
+    if not changed_weekly_coverage and not revalidation_due:
         metadata = (attachment or {}).get("metadata") or {}
         return {
             "status": "ok",
@@ -126,7 +153,6 @@ async def enrich_newsweb_buybacks_if_due(
             "pdf_revalidation_days": PDF_REVALIDATION_DAYS,
             "latest_weekly_date": weekly or None,
             "latest_daily_date": daily or None,
-            "completed_weekly_date": completed or None,
             "last_success_date": last_success or None,
             "last_attachment_fetched_at": (attachment or {}).get("fetched_at"),
             "last_attachment_sha256": (attachment or {}).get("content_sha256"),
@@ -144,17 +170,18 @@ async def enrich_newsweb_buybacks_if_due(
         fetcher=fetcher,
     )
     if str(result.get("status") or "").lower() == "ok":
-        if weekly:
-            await _set_runtime_value(repository, _COMPLETED_WEEKLY_KEY, weekly)
+        if latest_fingerprint:
+            await _set_runtime_value(repository, _COMPLETED_WEEKLY_KEY, latest_fingerprint)
         await _set_runtime_value(repository, _LAST_SUCCESS_KEY, target_date)
 
     return {
         **result,
         "skipped": False,
         "refresh_reason": (
-            "new_weekly_coverage" if new_weekly_coverage else "periodic_hash_revalidation"
+            "weekly_fingerprint_changed"
+            if changed_weekly_coverage
+            else "periodic_hash_revalidation"
         ),
         "pdf_revalidation_days": PDF_REVALIDATION_DAYS,
-        "completed_weekly_before": completed or None,
         "last_success_before": last_success or None,
     }
