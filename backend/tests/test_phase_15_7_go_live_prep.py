@@ -93,12 +93,19 @@ def test_deploy_workflow_is_guarded_and_runs_remote_preflight() -> None:
     assert "CLOUDFLARE_API_TOKEN" in workflow
     assert "CLOUDFLARE_ACCOUNT_ID" in workflow
     assert "CLOUDFLARE_D1_DATABASE_ID" in workflow
+    assert "CLOUDFLARE_WORKER_NAME" in workflow
+    assert "CLOUDFLARE_D1_DATABASE_NAME" in workflow
+    assert "CLOUDFLARE_R2_BUCKET_NAME" in workflow
     assert "render_production_config.py" in workflow
     assert "d1 migrations apply DB --remote" in workflow
     assert "pywrangler deploy --config wrangler.production.jsonc" in workflow
     assert "/api/health" in workflow
     assert "/api/dashboard/summary" in workflow
+    assert "/api/dashboard/economic" in workflow
     assert "summary.get('ready') is True" in workflow
+    assert "economic.get('ready') is True" in workflow
+    assert "economic.get('as_of_date') == summary.get('as_of_date')" in workflow
+    assert "CLOUDFLARE_PUBLIC_URL is empty" in workflow
 
 
 def test_rendered_production_config_is_gitignored() -> None:
