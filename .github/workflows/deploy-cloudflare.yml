@@ -66,7 +66,7 @@ jobs:
       - name: Install pinned Python Worker tooling
         working-directory: cloudflare
         run: |
-          python -m pip install workers-py==1.16.4 uv==0.12.3
+          python -m pip install workers-py==1.16.2 uv==0.12.3
           npm install --no-save wrangler@4.123.0
 
       - name: Render production Wrangler config
