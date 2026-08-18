@@ -38,12 +38,15 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Validate required Cloudflare credentials
+      - name: Validate required Cloudflare deployment settings
         shell: bash
         run: |
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_D1_DATABASE_ID"
+          test -n "$CLOUDFLARE_WORKER_NAME"
+          test -n "$CLOUDFLARE_D1_DATABASE_NAME"
+          test -n "$CLOUDFLARE_R2_BUCKET_NAME"
 
       - name: Build dashboard assets
         working-directory: frontend
@@ -77,6 +80,8 @@ jobs:
             "$base/api/health" -o /tmp/otello-health.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/summary" -o /tmp/otello-summary.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/economic" -o /tmp/otello-economic.json
           python - <<'PY'
           import json
           from datetime import UTC, date, datetime
@@ -84,9 +89,18 @@ jobs:
 
           health = json.loads(Path('/tmp/otello-health.json').read_text())
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
+          economic = json.loads(Path('/tmp/otello-economic.json').read_text())
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
           assert summary.get('ready') is True, summary
+          assert economic.get('ready') is True, economic
+          assert economic.get('as_of_date') == summary.get('as_of_date'), {
+              'summary': summary.get('as_of_date'),
+              'economic': economic.get('as_of_date'),
+          }
+          assert economic.get('nav_per_share') is not None, economic
+          assert economic.get('accounting_nav_per_share') is not None, economic
+          assert economic['nav_per_share'] <= economic['accounting_nav_per_share'], economic
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
           age = (today - as_of).days
@@ -95,6 +109,14 @@ jobs:
               'Production HTTP preflight passed:',
               summary.get('as_of_date'),
               summary.get('data_status'),
+              f"economic_nav={economic.get('nav_per_share')}",
               f'age_days={age}',
           )
           PY
+
+      - name: Warn when public URL acceptance is skipped
+        if: env.CLOUDFLARE_PUBLIC_URL == ''
+        shell: bash
+        run: |
+          echo '::warning::CLOUDFLARE_PUBLIC_URL is empty; remote HTTP acceptance was skipped.'
+          echo 'Set the production environment variable before enabling automatic deployments.'
