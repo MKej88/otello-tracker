@@ -1,61 +1,50 @@
-# Phase 15.7 – Cloudflare go-live
+# Cloudflare go-live
 
-Denne runbooken gjør den CI-validerte Cloudflare-implementasjonen om til det faktiske produksjonssystemet. Repository-koden kan ferdigstilles uten kontotilgang; opprettelse av ressurser, secrets og første remote deploy krever tilgang til riktig Cloudflare-konto.
+Dette er runbooken for faktisk produksjonscutover. Repository-koden kan være ferdig uten Cloudflare-kontotilgang; remote ressursopprettelse og deploy gjøres separat.
 
-Sist kontrollert mot Cloudflare-dokumentasjonen: **18.08.2026**.
+## 1. Forutsetninger
 
-## 1. Plan og ressursgrenser
+Bruk **Workers Paid**. Produksjonskonfigurasjonen har bounded CPU/subrequest-grenser og bruker Workflows/R2 for de tyngre jobbene.
 
-Bruk **Workers Paid** i produksjon.
+Ikke bruk CI-fixtures som produksjonsdata. Ikke legg API-token i Git eller chat.
 
-Applikasjonen inneholder Python Workflows som blant annet parser NewsWeb-PDF-er, gjør full refresh og skriver et deterministisk logisk D1-snapshot til R2. Workers Free har 10 ms CPU per invokasjon og er ikke et realistisk produksjonsmiljø for disse stegene.
+## 2. Opprett Cloudflare-ressurser
 
-Produksjonskonfigurasjonen renderer derfor følgende guardrails:
-
-```json
-{
-  "limits": {
-    "cpu_ms": 60000,
-    "subrequests": 2000
-  }
-}
-```
-
-Dette er maksimumsgrenser, ikke mål. Workers Paid kan per 18.08.2026 konfigureres opp til 5 minutter CPU per ordinær Worker-invokasjon, mens minnegrensen fortsatt er 128 MiB. Workflows deler Worker-CPU-grensene og kan også konfigureres opp til 5 minutter aktiv CPU per steg. Etter go-live skal faktisk CPU-/minnebruk vurderes i Workers Logs.
-
-## 2. Opprett kontoressurser
-
-Fra `cloudflare/` etter autentisering av Wrangler:
+Fra `cloudflare/`:
 
 ```bash
 npx wrangler d1 create otello-nav --location=weur
 npx wrangler r2 bucket create otello-source-archive
 ```
 
-`weur` er fortsatt en gyldig D1 location hint. Dersom det er et eksplisitt krav at D1-data bare skal ligge i EU, kan databasen i stedet opprettes med `--jurisdiction=eu`. Jurisdiction kan ikke legges til eller endres etter at databasen er opprettet, så dette må avgjøres ved opprettelsen.
+Ta vare på D1 database-ID-en. Hvis EU-jurisdiction er et eksplisitt krav, avgjøres dette ved opprettelsen før data importeres.
 
-Ta vare på D1 database-ID-en som Cloudflare returnerer. Ikke commit API-token eller rendret produksjonskonfigurasjon.
+## 3. Bygg/valider produksjonsdatabasen
 
-## 3. Ta cutover-snapshot fra den faktiske SQLite-referansen
+En ren database kan bygges med `backend/app/jobs/bootstrap_production.py`. Bootstrapen seeder nå automatisk den kuraterte OTEC-volumhistorikken som buyback-modellen trenger.
 
-Bruk den konkrete løpende SQLite-databasen som inneholder den validerte Otello-historikken. **CI-fixturen skal aldri brukes som produksjonsdata.**
-
-Kjør først den vanlige strenge preflighten:
+Før cutover skal streng preflight passere:
 
 ```bash
 cd backend
-PYTHONPATH=. python -m app.jobs.preflight --database ../data/otello.db --strict
+PYTHONPATH=. python -m app.jobs.preflight \
+  --database ../data/otello.db \
+  --strict
 cd ..
 ```
 
-Preflighten krever nå også:
+Preflight blokkerer blant annet:
 
-- ingen `TEST_FIXTURE`/CI-kildedokumenter;
-- siste CORE og FULL på korrekt/fersk dato;
-- økonomisk NAV-overlay `ready=true` på samme dato som dashboardet;
-- historiske markeds-/FX-data, rapporterte cash-ankre, NewsWeb og øvrige tidligere produksjonskrav.
+- CI/test-fixtures;
+- manglende/fersk marked/FX;
+- manglende NewsWeb/buyback-data;
+- færre enn 20 positive OTEC-volumdager;
+- `INSUFFICIENT_VOLUME_HISTORY` i buyback-motoren;
+- manglende/forsinket CORE/FULL/ONA/cash;
+- dashboard ikke ready;
+- økonomisk NAV ikke ready/samme dato.
 
-Lag deretter produksjonspakken med den nye eksplisitte produksjonsmodusen:
+## 4. Lag deterministic cutover-pakke
 
 ```bash
 python cloudflare/tools/d1_bootstrap.py export \
@@ -66,16 +55,14 @@ python cloudflare/tools/d1_bootstrap.py export \
   --date YYYY-MM-DD
 ```
 
-`--production` kjører streng preflight **før** SQL/manifest skrives. Hvis databasen inneholder CI-fixture, økonomisk NAV ikke er klart, eller andre produksjonskrav feiler, opprettes ingen cutover-pakke.
+`--production` kjører strict preflight før filene skrives.
 
-Den reelle databasebanen kan være en annen. Bruk alltid den faktiske validerte referansefilen.
+## 5. Render produksjonskonfigurasjon
 
-## 4. Render produksjonskonfigurasjon
-
-Sett miljøverdier lokalt:
+Sett lokalt eller via GitHub production environment:
 
 ```text
-CLOUDFLARE_D1_DATABASE_ID=<faktisk D1 UUID>
+CLOUDFLARE_D1_DATABASE_ID=<D1 UUID>
 CLOUDFLARE_WORKER_NAME=otello-tracker
 CLOUDFLARE_D1_DATABASE_NAME=otello-nav
 CLOUDFLARE_R2_BUCKET_NAME=otello-source-archive
@@ -88,31 +75,43 @@ Render:
 python cloudflare/tools/render_production_config.py
 ```
 
-Generert `cloudflare/wrangler.production.jsonc` er gitignored. Den aktiverer Workers Logs, bruker reelle D1/R2-bindings og setter Custom Domain bare når hostname er oppgitt. Uten custom domain kan første deploy bruke `workers.dev`.
+`cloudflare/wrangler.production.jsonc` er generert og gitignored.
 
-## 5. Legg schema og historikk i remote D1
+## 6. Migrations + bootstrap til remote D1
 
 ```bash
 cd cloudflare
 npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc
 npx wrangler d1 execute DB --remote --config wrangler.production.jsonc \
   --file ../data/d1-bootstrap/otello-production.sql
+cd ..
 ```
 
-Dette skal gjøres **før** automatisk produksjonsdeploy aktiveres.
-
-Etter import bør minst følgende kontrolleres remote:
+Kontroller foreign keys:
 
 ```bash
+cd cloudflare
 npx wrangler d1 execute DB --remote --config wrangler.production.jsonc \
   --command "PRAGMA foreign_key_check;"
+cd ..
 ```
 
-Bootstrap-SQL og manifest holdes utenfor Git.
+## 7. Eksakt remote D1-avstemming
 
-## 6. GitHub production environment
+Foreign-key-kontroll alene er ikke tilstrekkelig. Eksporter remote D1 read-only og sammenlign alle bootstrap-tabeller, radantall, hashes og nøkkeltall med cutover-manifestet:
 
-Opprett GitHub environment `production` og legg inn disse **secrets**:
+```bash
+python cloudflare/tools/d1_bootstrap.py verify-remote \
+  --database DB \
+  --manifest data/d1-bootstrap/otello-production.manifest.json \
+  --config cloudflare/wrangler.production.jsonc
+```
+
+Denne kontrollen må returnere `ok=true` før første Worker-deploy godkjennes.
+
+## 8. GitHub production environment
+
+Secrets:
 
 ```text
 CLOUDFLARE_API_TOKEN
@@ -120,117 +119,127 @@ CLOUDFLARE_ACCOUNT_ID
 CLOUDFLARE_D1_DATABASE_ID
 ```
 
-Bruk et avgrenset API-token for riktig Cloudflare-konto/zone; ikke Global API Key.
-
-Deployment-pathen trenger minst nødvendige rettigheter for Worker, D1 og R2, og route/domain-rettighet bare hvis Custom Domain brukes.
-
-Legg inn disse **variables**:
+Variables:
 
 ```text
 CLOUDFLARE_WORKER_NAME=otello-tracker
 CLOUDFLARE_D1_DATABASE_NAME=otello-nav
 CLOUDFLARE_R2_BUCKET_NAME=otello-source-archive
-CLOUDFLARE_CUSTOM_DOMAIN=             # valgfritt ved første deploy
-CLOUDFLARE_PUBLIC_URL=https://...     # brukes til HTTP-akseptanse
+CLOUDFLARE_CUSTOM_DOMAIN=
+CLOUDFLARE_PUBLIC_URL=https://...
 CLOUDFLARE_DEPLOY_ENABLED=false
 ```
 
-`.github/workflows/deploy-cloudflare.yml` kan kjøres manuelt. Push til `main` deployer bare når `CLOUDFLARE_DEPLOY_ENABLED=true`.
+Hold automatisk deploy deaktivert under første cutover.
 
-Workflowen stopper nå tidlig dersom Worker-navn, D1-navn, R2-navn eller nødvendige credentials mangler.
+## 9. Første manuelle deploy
 
-## 7. Første deploy
-
-Kjør **Deploy Cloudflare production** manuelt i GitHub Actions.
+Kjør GitHub Action **Deploy Cloudflare production** manuelt.
 
 Workflowen:
 
-1. bygger frontend;
-2. renderer produksjonskonfigurasjon;
-3. legger remote D1-migreringer;
-4. deployer Python Worker + Workflow med `pywrangler`;
-5. kaller `/api/health`, `/api/dashboard/summary` og `/api/dashboard/economic` når `CLOUDFLARE_PUBLIC_URL` er satt;
-6. krever at summary og økonomisk NAV er `ready=true` og på samme dato;
-7. krever at økonomisk NAV ikke overstiger regnskapsmessig FULL NAV i den konservative overlay-modellen;
-8. feiler hvis modelldatoen er mer enn syv kalenderdager gammel.
+1. bygger dashboardet;
+2. renderer produksjonskonfig;
+3. applyer D1 migrations;
+4. deployer Python Worker + Workflow;
+5. tester `/api/health`;
+6. tester `/api/dashboard/summary`;
+7. tester `/api/dashboard/economic`;
+8. tester `/api/buybacks/forecast`;
+9. krever fersk modelldato og at økonomisk/konservativ NAV er konsistente;
+10. krever at buyback engine ikke mangler volumhistorikk.
 
-Hvis `CLOUDFLARE_PUBLIC_URL` mangler, fullføres deployen med en eksplisitt warning om at HTTP-akseptansen ble hoppet over. **Ikke sett `CLOUDFLARE_DEPLOY_ENABLED=true` før en deploy med faktisk HTTP-akseptanse har passert.**
+Dersom Worker er deployet, men en senere HTTP-akseptanse feiler, kjører workflowen `wrangler rollback` med eksplisitt rollback-melding. Uten oppgitt versjons-ID velges forrige deployerte Worker-versjon.
 
-## 8. Custom Domain / HTTPS
+### Viktig om D1
 
-Worker er applikasjonens origin, så Cloudflare Custom Domain er ønsket endelig routing. Sett for eksempel:
+Worker rollback ruller **ikke** tilbake D1 migrations. Produksjonsmigreringer skal derfor være additive/bakoverkompatible. Ved behov for database-restore brukes D1 Time Travel etter egen kontrollert prosedyre.
+
+## 10. Scheduling / writer-lock
+
+Produksjon:
+
+```text
+Fast Cron:      */30 * * * *
+Full Workflow:  35 3 * * *
+```
+
+Begge bruker D1 advisory writer-lock. Kontroller i `job_runs`/Workers Logs at fast refresh hopper over kontrollert dersom full Workflow fortsatt holder låsen.
+
+## 11. Observability
+
+Etter flere normale fast-kjøringer og minst én full Workflow, kontroller:
+
+- invocation outcome/errors;
+- CPU/wall time;
+- minnefeil/CPU-limit;
+- Workflow step retries/failures;
+- `job_runs` og `source_health`;
+- writer-lock ikke blir hengende etter normal fullføring;
+- R2 råkilder/PDF-er/snapshot;
+- økonomisk NAV/cash-FX-quality;
+- buyback forecast status.
+
+## 12. R2 auditsnapshot
+
+Snapshotet skal inneholde finans-/modellstate, inkludert:
+
+- cash/ONA/NAV;
+- holdings/share counts;
+- corporate actions/buybacks;
+- broker estimate sets/values;
+- consensus snapshots;
+- provenance.
+
+`company_news`, `market_activity` og `runtime_state` er rekonstruerbare/høyfrekvente og er ikke del av det logiske snapshotet. Full recovery ligger i D1 Time Travel.
+
+## 13. D1 Time Travel drill
+
+Gjør restore-test mot egen drill-database eller kontrollert vedlikeholdsvindu – ikke tilfeldig mot live D1.
+
+Prosedyre:
+
+1. noter current bookmark;
+2. gjør en harmløs kjent mutasjon i drill-databasen;
+3. restore til tidligere bookmark/tidspunkt;
+4. verifiser at mutasjonen forsvinner;
+5. dokumenter hvordan restore eventuelt reverseres.
+
+## 14. Custom domain
+
+Når baseproduksjonen er godkjent kan eksempelvis:
 
 ```text
 CLOUDFLARE_CUSTOM_DOMAIN=otello.example.com
 CLOUDFLARE_PUBLIC_URL=https://otello.example.com
 ```
 
-Hostnavnet må ligge i en Cloudflare-håndtert zone og må ikke kollidere med eksisterende DNS-oppsett. Cloudflare håndterer sertifikat/HTTPS for Worker Custom Domain.
+settes og deploy kjøres på nytt. Cloudflare håndterer HTTPS for Worker Custom Domain.
 
-## 9. Observability og faktisk ressursbruk
+## 15. Endelig akseptanse
 
-Produksjonskonfigurasjonen aktiverer Workers Logs med høy sampling under første go-live. Etter flere normale 30-minutters refresher og minst én full Workflow-kjøring, kontroller:
+Go-live er godkjent først når:
 
-- invocation outcome/errors;
-- CPU time og wall time;
-- `exceededCpu`/minnefeil;
-- Workflow step failures/retries;
-- `job_runs` og `source_health` i D1;
-- R2-objekter for råkilder, PDF-er og snapshots.
+- [ ] production bootstrap-preflight passerte;
+- [ ] remote D1 importerte riktig produksjonshistorikk;
+- [ ] `verify-remote` ga eksakt manifestparitet;
+- [ ] ingen testfixtures finnes remote;
+- [ ] Worker-deploy er grønn;
+- [ ] summary/economic/buyback HTTP-akseptanse er grønn;
+- [ ] minst én fast refresh er kontrollert;
+- [ ] minst én full Workflow er kontrollert;
+- [ ] writer-lock fungerer som forventet;
+- [ ] R2 råfiler/PDF/snapshot finnes;
+- [ ] Workers Logs viser akseptabel CPU/minnebruk;
+- [ ] Time Travel restore-drill er gjennomført;
+- [ ] custom domain fungerer dersom aktivert.
 
-128 MiB isolate-minne gjelder fortsatt, så de eksisterende bounded/streaming-reglene for store payloads skal beholdes.
+Først etter dette settes:
 
-## 10. D1 Time Travel restore drill
-
-Cloudflare D1 Time Travel er alltid aktivert på produksjonsbackend. Per 18.08.2026 kan Workers Paid gjenopprette til et tidspunkt innenfor de siste 30 dagene; Free har kortere historikk.
-
-Time Travel restore overskriver databasen på stedet og er destruktiv. Ikke test tilfeldig restore mot live produksjonsdatabase.
-
-Før go-live, bruk en egen drill-database eller et kontrollert vedlikeholdsvindu:
-
-```bash
-npx wrangler d1 time-travel info <database>
-npx wrangler d1 time-travel info <database> --timestamp="<RFC3339>"
-npx wrangler d1 time-travel restore <database> --bookmark="<bookmark>"
+```text
+CLOUDFLARE_DEPLOY_ENABLED=true
 ```
 
-Prosedyre:
+## 16. Neste rapportanker
 
-1. noter current bookmark;
-2. gjør en harmløs kjent mutasjon i drill-databasen;
-3. restore til tidligere bookmark/timestamp;
-4. verifiser at mutasjonen forsvinner;
-5. noter bookmark som gjør det mulig å angre restore.
-
-Phase 15.6 R2-logisk snapshot er et separat audit/repro-arkiv og erstatter ikke Time Travel.
-
-## 11. Endelig produksjonsakseptanse
-
-Go-live er ferdig først når alle punktene under er sanne:
-
-- remote D1 inneholder den validerte **produksjons**-cutover-historikken;
-- ingen CI/test-fixture finnes i produksjonsdatabasen;
-- remote D1 migrations er current;
-- Worker deploy fra GitHub er grønn;
-- `/api/health` er healthy;
-- dashboard summary er `ready` og fersk;
-- økonomisk NAV er `ready`, samme dato som summary og vises i dashboardet;
-- en 30-minutters scheduled refresh fullfører uten uventet `PARTIAL`/`FAILED`;
-- én daglig full Workflow fullfører;
-- Workers Logs viser ingen CPU-/minnegrensefeil;
-- forventede råfiler/PDF/snapshot finnes i R2;
-- Custom Domain HTTPS fungerer dersom aktivert;
-- D1 restore drill er gjennomført trygt;
-- først deretter settes `CLOUDFLARE_DEPLOY_ENABLED=true`.
-
-## 12. Det som fortsatt må finnes før første remote cutover
-
-Repository-siden er laget slik at den kan ferdigstilles uten konto- eller produksjonsdata. Før faktisk remote cutover trengs derfor fortsatt:
-
-1. reell validert SQLite-referansedatabase (`otello.db` eller tilsvarende);
-2. faktisk Cloudflare D1-ressurs og database-ID;
-3. faktisk R2-bucket;
-4. GitHub production secrets/variables;
-5. valgt første offentlig URL (`workers.dev` eller Custom Domain).
-
-Ikke erstatt punkt 1 med `build_d1_bootstrap_fixture.py` eller andre CI-data.
+Ved Otello 1H26 skal nye rapporterte cash-/balanse-/ONA-/opsjonsdata avstemmes. Driftskostnadsankrene oppdateres til ny rapport dersom bedre run-rate-data finnes. Cash-valutafordeling legges kun inn dersom rapporten faktisk dokumenterer den; ellers gjettes den ikke.

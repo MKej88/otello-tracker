@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import "./economic-nav.css";
 
 type EconomicNav = {
@@ -13,6 +12,12 @@ type EconomicNav = {
   conservative_nav_per_share?: number | null;
   conservative_discount_pct?: number | null;
   economic_cash_mnok?: number | null;
+  cash_fx?: {
+    quality?: string;
+    adjustment_mnok?: number | null;
+    coverage_pct?: number | null;
+    anchor_date?: string;
+  };
   option?: {
     accounting_liability_mnok?: number | null;
     economic_value_mnok?: number | null;
@@ -43,6 +48,12 @@ function value(input: number | null | undefined, digits = 2) {
   });
 }
 
+function signedValue(input: number | null | undefined, digits = 1) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  const prefix = input > 0 ? "+" : "";
+  return `${prefix}${value(input, digits)}m`;
+}
+
 function dateLabel(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.split("-");
@@ -51,24 +62,7 @@ function dateLabel(input?: string | null) {
 }
 
 export default function EconomicNavPanel() {
-  const [host, setHost] = useState<HTMLElement | null>(null);
   const [data, setData] = useState<EconomicNav | null>(null);
-
-  useEffect(() => {
-    const kpiGrid = document.querySelector(".kpiGrid");
-    const parent = kpiGrid?.parentElement;
-    if (!kpiGrid || !parent) return;
-
-    const node = document.createElement("section");
-    node.className = "economicNavHost";
-    parent.insertBefore(node, kpiGrid);
-    setHost(node);
-
-    return () => {
-      node.remove();
-      setHost(null);
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -95,84 +89,92 @@ export default function EconomicNavPanel() {
     };
   }, []);
 
-  if (!host || data == null) return null;
+  if (data == null) return null;
 
   if (!data.ready) {
-    return createPortal(
-      <div className="economicNavPanel economicNavUnavailable">
-        <div>
-          <span className="economicEyebrow">Investorjustert NAV</span>
-          <strong>Økonomisk NAV venter på komplett FULL NAV-data</strong>
+    return (
+      <section className="economicNavHost">
+        <div className="economicNavPanel economicNavUnavailable">
+          <div>
+            <span className="economicEyebrow">Investorjustert NAV</span>
+            <strong>Økonomisk NAV venter på komplett FULL NAV-data</strong>
+          </div>
+          <span>{data.reason ?? "ikke klar"}</span>
         </div>
-        <span>{data.reason ?? "ikke klar"}</span>
-      </div>,
-      host
+      </section>
     );
   }
 
   const option = data.option;
   const costs = data.operating_costs;
+  const cashFx = data.cash_fx;
 
-  return createPortal(
-    <article className="economicNavPanel">
-      <div className="economicHeader">
-        <div>
-          <span className="economicEyebrow">Investorjustert verdsettelse</span>
-          <h2>Økonomisk NAV</h2>
+  return (
+    <section className="economicNavHost">
+      <article className="economicNavPanel">
+        <div className="economicHeader">
+          <div>
+            <span className="economicEyebrow">Investorjustert verdsettelse</span>
+            <h2>Økonomisk NAV</h2>
+          </div>
+          <span className="economicBadge">ESTIMERT OVERLAY</span>
         </div>
-        <span className="economicBadge">ESTIMERT OVERLAY</span>
-      </div>
 
-      <div className="economicMetrics">
-        <div>
-          <span>Regnskapsmessig FULL NAV</span>
-          <strong>{value(data.accounting_nav_per_share)} kr</strong>
+        <div className="economicMetrics">
+          <div>
+            <span>Regnskapsmessig FULL NAV</span>
+            <strong>{value(data.accounting_nav_per_share)} kr</strong>
+          </div>
+          <div className="economicPrimary">
+            <span>Økonomisk NAV</span>
+            <strong>{value(data.nav_per_share)} kr</strong>
+            <small>Rabatt {value(data.discount_pct, 1)} %</small>
+          </div>
+          <div>
+            <span>Konservativ NAV</span>
+            <strong>{value(data.conservative_nav_per_share)} kr</strong>
+            <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
+          </div>
+          <div>
+            <span>Økonomisk cash</span>
+            <strong>{value(data.economic_cash_mnok, 1)}m kr</strong>
+            <small>etter valuta og estimert drift</small>
+          </div>
         </div>
-        <div className="economicPrimary">
-          <span>Økonomisk NAV</span>
-          <strong>{value(data.nav_per_share)} kr</strong>
-          <small>Rabatt {value(data.discount_pct, 1)} %</small>
-        </div>
-        <div>
-          <span>Konservativ NAV</span>
-          <strong>{value(data.conservative_nav_per_share)} kr</strong>
-          <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
-        </div>
-        <div>
-          <span>Økonomisk cash</span>
-          <strong>{value(data.economic_cash_mnok, 1)}m kr</strong>
-          <small>etter estimert drift</small>
-        </div>
-      </div>
 
-      <div className="economicAdjustments">
-        <div>
-          <span>Opsjon – regnskapsført</span>
-          <strong>{value(option?.accounting_liability_mnok, 1)}m</strong>
+        <div className="economicAdjustments">
+          <div>
+            <span>Cash – dokumentert valutaeffekt</span>
+            <strong>{signedValue(cashFx?.adjustment_mnok)}</strong>
+            <small>{cashFx?.coverage_pct != null ? `${value(cashFx.coverage_pct, 1)} % av cash valutafordelt` : cashFx?.quality ?? "–"}</small>
+          </div>
+          <div>
+            <span>Opsjon – regnskapsført</span>
+            <strong>{value(option?.accounting_liability_mnok, 1)}m</strong>
+          </div>
+          <div>
+            <span>Opsjon – økonomisk verdi</span>
+            <strong>{value(option?.economic_value_mnok, 1)}m</strong>
+          </div>
+          <div>
+            <span>Ekstra opsjonsoverheng</span>
+            <strong>−{value(option?.unrecognized_overhang_mnok, 1)}m</strong>
+          </div>
+          <div>
+            <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
+            <strong>−{value(costs?.base_mnok, 1)}m</strong>
+          </div>
         </div>
-        <div>
-          <span>Opsjon – økonomisk verdi</span>
-          <strong>{value(option?.economic_value_mnok, 1)}m</strong>
-        </div>
-        <div>
-          <span>Ekstra opsjonsoverheng</span>
-          <strong>−{value(option?.unrecognized_overhang_mnok, 1)}m</strong>
-        </div>
-        <div>
-          <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
-          <strong>−{value(costs?.base_mnok, 1)}m</strong>
-        </div>
-      </div>
 
-      <div className="economicFootnote">
-        <span>
-          Driftsrun-rate: ca. USD {value(costs?.base_annualized_usd_m, 2)}m/år
-          {costs?.source_period ? ` (${costs.source_period})` : ""}.
-          Renteinntekter er ikke lagt til.
-        </span>
-        <span>Data {dateLabel(data.as_of_date)}</span>
-      </div>
-    </article>,
-    host
+        <div className="economicFootnote">
+          <span>
+            Driftsrun-rate: ca. USD {value(costs?.base_annualized_usd_m, 2)}m/år
+            {costs?.source_period ? ` (${costs.source_period})` : ""}.
+            Kun dokumentert USD/BRL-cash revalueres; ukjent valutafordeling gjettes ikke. Renteinntekter er ikke lagt til.
+          </span>
+          <span>Data {dateLabel(data.as_of_date)}</span>
+        </div>
+      </article>
+    </section>
   );
 }

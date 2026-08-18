@@ -2,113 +2,110 @@
 
 ## Formål
 
-Dashboardet beholder den validerte `CORE NAV`- og `FULL NAV`-serien uendret. I tillegg vises et separat investorjustert **økonomisk NAV** som gjør to konservative justeringer etter siste rapporterte balanse-/cash-anker:
-
-1. hele økonomiske Black-Scholes-verdien av Otellos kontantoppgjorte opsjonsprogram trekkes fra, ikke bare den regnskapsmessig innregnede delen;
-2. løpende driftskostnader estimeres fra siste rapporterte cash-anker frem til NAV-datoen.
-
-Dette er et presentasjons-/analyseoverlay. Det skriver ikke om historiske CORE/FULL-rader og endrer ikke buyback-, cash-, ONA- eller opsjonsmodellen som brukes til regnskapsmessig avstemming.
+`CORE NAV` og `FULL NAV` beholdes som validerte regnskaps-/avstemmingsserier. Et separat **økonomisk NAV** viser en investorjustert verdi mellom rapportdatoer uten å skrive om CORE/FULL.
 
 ## Formel
 
 ```text
-Økonomisk FULL NAV
-= regnskapsmessig/modellert FULL NAV
+Økonomisk NAV
+= FULL NAV
++ dokumentert valutaendring på cash
 - (økonomisk opsjonsverdi - regnskapsført/modellert opsjonsforpliktelse)
 - estimerte driftskostnader siden siste rapporterte cash-anker
 ```
 
 Det ekstra opsjonsoverhenget kan aldri bli negativt.
 
-## Opsjonsjustering
+## Kildebelagte driftskostnader
 
-Den eksisterende opsjonsmodellen beregner allerede:
+Driftskostnadsforutsetningene ligger i `backend/app/history/data/economic_nav_inputs.json` og seeder ordinære `source_documents`. De er dermed med i curated fingerprint, D1-bootstrap, provenance og logisk avstemming.
+
+For cash-ankeret 31.12.2025 brukes:
+
+### Base
+
+- kildeperiode: 2H25
+- employee benefits ekskl. aksjebasert kompensasjon: ca. USD 0,596m
+- other operating expenses: ca. USD 0,425m
+- sum: **USD 1,021m over 184 kalenderdager**
+- annualisert run-rate: ca. USD 2,03m
+
+### Konservativ sensitivitet
+
+- kilde: revidert Annual Report 2025
+- operating expenses ekskl. aksjebasert kompensasjon: **USD 2,641m for FY25**
+
+Den daglige run-raten akkumuleres fra siste rapporterte cash-anker og konverteres med fersk USD/NOK innenfor modellens syvdagers FX-lookback.
+
+Renteinntekter estimeres ikke. Dette holder overlayet konservativt og unngår en ekstra antakelse om fremtidig kontantnivå/rente.
+
+## Cash-valuta
+
+Årsrapporten viser at Otello har bankinnskudd i flere valutaer og at valutaendringer faktisk påvirker cash. Økonomisk NAV revaluerer derfor dokumentert valutaeksponering mellom rapportdatoer.
+
+For 31.12.2025 er følgende lagret som kildebelagt cash-FX-anker, uttrykt i USD-ekvivalent ved rapportdato:
+
+- USD-bankkonti: **USD 1,217m**
+- BRL-bankkonti: **USD 12,169m**
+- total rapportert cash: **USD 15,881m**
+- rest som ikke er eksplisitt valutafordelt i kilden: **USD 2,495m**
+
+Den siste delen lagres som `UNALLOCATED`.
+
+### Prinsipp
 
 ```text
-Black-Scholes-verdi per opsjon × 4,1m opsjoner
+USD-komponent → revalueres med USD/NOK
+BRL-komponent → rekonstrueres til BRL på ankerdato og revalueres med BRL/NOK
+UNALLOCATED   → holdes på ankerverdi i NOK
 ```
 
-Dette er programmets modellerte økonomiske bruttoverdi. Den eksisterende FULL NAV trekker bare den delen som er innregnet gjennom modellens recognition/calibration factor, kalibrert mot rapportert forpliktelse på USD 314k per 31.12.2025.
+Dermed får vi løpende valutaeffekt der det finnes dokumentasjon, men gjetter ikke at residualen ligger i NOK, USD, BRL eller en annen valuta.
 
-Økonomisk NAV viser derfor separat:
+Hvis en ny rapportert cash-anchor ikke har en matching dokumentert valutafordeling, brukes ingen cash-FX-justering for det nye ankeret. Kvaliteten vises eksplisitt i API-et.
 
-- regnskapsført/modellert opsjonsforpliktelse;
-- full økonomisk Black-Scholes-verdi;
-- differansen som «ekstra opsjonsoverheng».
+## Opsjon
 
-## Løpende driftskostnader etter cash-anker
-
-Den ordinære cash-kurven fortsetter å bruke rapportert cash pluss kjente kontantstrømmer. Den endres ikke av dette overlayet.
-
-Økonomisk NAV legger i stedet på en separat kostnadsavsetning fra siste `REPORTED` cash-anker.
-
-### Base – siste halvårs underliggende kostnadsnivå
-
-2H25-rapporten viser underliggende driftskostnader ekskl. aksjebasert kompensasjon på:
-
-- employee benefits: USD 0,596m;
-- other operating expenses: USD 0,425m;
-- depreciation/amortization: USD 0.
-
-Dette gir USD 1,021m over 184 kalenderdager og brukes som siste observerte kostnadsrun-rate:
+Eksisterende FULL NAV bruker recognition-/calibration-faktoren for den regnskapsmessig modellerte kontantoppgjorte opsjonsforpliktelsen. Økonomisk NAV viser i tillegg hele modellerte Black-Scholes-bruttoverdien og trekker differansen:
 
 ```text
-USD 1,021m / 184 kalenderdager
-≈ USD 5,55k per dag
-≈ USD 2,03m annualisert
+Ekstra opsjonsoverheng
+= max(0, full Black-Scholes-bruttoverdi - recognition-basert forpliktelse)
 ```
 
-Den daglige USD-run-raten akkumuleres fra siste rapporterte cash-anker og konverteres med siste tilgjengelige USD/NOK-rate innenfor syv kalenderdager før NAV-datoen.
-
-### Konservativ sensitivitet – revidert helår
-
-Primær kontrollkilde er Otello Corporation ASA Annual Report 2025:
-
-`https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf`
-
-Den reviderte årsrapporten opplyser at 2025 operating expenses ekskl. aksjebasert kompensasjon var USD 2,641m. Dette brukes som konservativ annualisert kostnadsrun-rate.
-
-Dashboardet viser derfor både:
-
-- **Økonomisk NAV:** siste observerte 2H25 underliggende kostnadsrun-rate, ca. USD 2,03m annualisert;
-- **Konservativ NAV:** revidert FY25 driftskost, USD 2,641m annualisert.
-
-Vi bruker driftskostnader direkte i stedet for adjusted EBITDA fordi årsrapporten inneholder annen inntekt som gjør EBITDA mindre egnet som ren kostnadsproxy.
-
-## Renteinntekter
-
-Renteinntekter på kontantbeholdningen estimeres ikke i første versjon av overlayet. Å utelate dem gjør det økonomiske NAV-estimatet bevisst konservativt og unngår å anta fremtidig cash-beholdning og rente uten nytt rapportanker.
+Dette endrer ikke recognition-faktoren i FULL NAV.
 
 ## Automatisk reset ved ny rapport
 
-Kostnadsavsetningen starter alltid fra den nyeste raden i `cash_anchors` med `anchor_type='REPORTED'` som ligger på eller før NAV-datoen.
+Driftskostnadsakkumuleringen starter alltid på nyeste `REPORTED` cash-anker. Når en nyere rapport legges inn:
 
-Når en ny Otello-rapport legges inn med et nyere cash-anker:
-
-1. gammel akkumulert kostnadsavsetning stopper;
-2. økonomisk cost accrual resettes til null på den nye ankerdatoen;
-3. kostnader begynner å akkumuleres på nytt etter det nye ankeret.
-
-Run-raten skal oppdateres når en nyere rapport gir bedre dokumentasjon på underliggende driftskostnader.
+1. gammel akkumulering stopper;
+2. cost accrual settes til null på ny ankerdato;
+3. ny akkumulering starter fra det nye rapporterte cash-nivået;
+4. driftskostnadsankeret skal oppdateres når rapporten gir et bedre observerbart run-rate-grunnlag;
+5. cash-FX revalueres bare dersom det finnes en matching dokumentert valutafordeling.
 
 ## API
-
-Ny read-only kontrakt:
 
 ```text
 GET /api/dashboard/economic
 ```
 
-Den returnerer blant annet:
+Returnerer blant annet:
 
 - regnskapsmessig FULL NAV per aksje;
 - økonomisk NAV per aksje;
-- konservativ økonomisk NAV per aksje;
-- økonomisk NAV-rabatt;
-- økonomisk cash etter cost accrual;
+- konservativ økonomisk NAV;
+- rabatt til økonomisk NAV;
+- økonomisk cash;
+- `cash_fx` med justering, dekningsgrad og kildekvalitet;
 - regnskapsført og økonomisk opsjonsverdi;
 - ekstra opsjonsoverheng;
-- kostnad siden siste cash-anker og brukt run-rate;
-- datakvalitet/metodikk.
+- driftskostnad siden cash-anker;
+- source document IDs/metodikk for kostnadsankrene.
 
-Hvis siste FULL NAV ikke er på samme dato som siste CORE NAV, returnerer overlayet `ready=false` i stedet for å presentere et økonomisk NAV basert på en foreldet FULL-serie.
+Hvis FULL og CORE ikke er på samme dato, nødvendige markeds-/FX-input mangler eller driftskostnadsankrene mangler, returneres `ready=false` i stedet for et delvis skjult estimat.
+
+## Kilde
+
+Primær kilde for 2025-ankrene er **Otello Corporation ASA – Annual Report 2025**. Kilde-URL og locator lagres sammen med de kuraterte inputene i source-document provenance.

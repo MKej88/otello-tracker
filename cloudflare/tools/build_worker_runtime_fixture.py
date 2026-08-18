@@ -156,6 +156,21 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
     with get_connection(database_path) as connection:
         connection.execute("DELETE FROM market_activity")
         connection.execute("DELETE FROM nav_snapshots")
+        source_id = int(connection.execute("SELECT id FROM sources WHERE code='ECB'").fetchone()["id"])
+        # Economic cash FX revaluation needs both the report-date cross rates and current
+        # cross rates. These are synthetic CI rates; the parity assertion is the purpose.
+        connection.executemany(
+            """
+            INSERT INTO fx_rates(base_currency, quote_currency, observed_at, rate, source_id)
+            VALUES (?, 'NOK', ?, ?, ?)
+            ON CONFLICT(base_currency, quote_currency, observed_at, source_id)
+            DO UPDATE SET rate=excluded.rate
+            """,
+            [
+                ("USD", "2025-12-31T00:00:00Z", "10.08", source_id),
+                ("BRL", "2025-12-31T00:00:00Z", "1.74", source_id),
+            ],
+        )
         connection.commit()
     seed_otec_activity_history(database_path)
 

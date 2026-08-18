@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.buybacks import buyback_forecast, market_activity_status
 from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import CORE_TABLES, MIGRATIONS_DIR
@@ -19,6 +20,7 @@ HISTORY_START = "2021-02-10"
 NEWSWEB_HISTORY_START = "2020-01-01"
 MAX_INPUT_AGE_DAYS = 7
 CASH_FX_LOOKBACK_DAYS = 7
+MIN_BUYBACK_ACTIVITY_DAYS = 20
 
 
 def _check(
@@ -132,12 +134,7 @@ def run_preflight(
     history_start: str = HISTORY_START,
     check_derived: bool = True,
 ) -> dict[str, Any]:
-    """Verify that a database is safe to call production-ready.
-
-    This is intentionally stricter than the normal refresh job. A database can serve a
-    partially populated dashboard while still failing preflight because historical market
-    data or historical FX required by report anchors is missing.
-    """
+    """Verify that a database is safe to call production-ready."""
     target = date.fromisoformat(target_date) if target_date else date.today()
     checks: list[dict[str, Any]] = []
 
@@ -308,6 +305,43 @@ def run_preflight(
         details=buybacks,
     )
 
+    activity = market_activity_status(database_path)
+    _check(
+        checks,
+        "otec_activity_history",
+        int(activity.get("positive_days") or 0) >= MIN_BUYBACK_ACTIVITY_DAYS,
+        details={**activity, "required_positive_days": MIN_BUYBACK_ACTIVITY_DAYS},
+    )
+    forecast = buyback_forecast(database_path, as_of_date=target.isoformat())
+    forecast_status = str(forecast.get("status") or "UNKNOWN")
+    _check(
+        checks,
+        "buyback_forecast_operational",
+        forecast_status != "INSUFFICIENT_VOLUME_HISTORY",
+        details={
+            "ready": forecast.get("ready"),
+            "status": forecast_status,
+            "methodology_version": forecast.get("methodology_version"),
+            "required_volume_days": MIN_BUYBACK_ACTIVITY_DAYS,
+        },
+    )
+    if not forecast.get("ready") and forecast_status not in {
+        "NO_ACTIVE_PROGRAM",
+        "PROGRAM_EXHAUSTED",
+        "INSUFFICIENT_VOLUME_HISTORY",
+    }:
+        _check(
+            checks,
+            "buyback_forecast_current_state",
+            False,
+            details={
+                "status": forecast_status,
+                "as_of_date": forecast.get("as_of_date"),
+                "latest_period_end": forecast.get("latest_period_end"),
+            },
+            warning=True,
+        )
+
     if check_derived:
         cash = daily_cash_status(database_path)
         core = daily_nav_status(database_path)
@@ -366,6 +400,7 @@ def run_preflight(
                 "dashboard_as_of_date": dashboard.get("as_of_date"),
                 "nav_per_share": economic.get("nav_per_share"),
                 "accounting_nav_per_share": economic.get("accounting_nav_per_share"),
+                "cash_fx": economic.get("cash_fx"),
             },
         )
         _check(
@@ -392,6 +427,7 @@ def run_preflight(
             "FULL NAV is intentionally not reconstructed before the supported ONA period.",
             "Between financial reports, cash/ONA can legitimately be FORECAST_PARTIAL or ESTIMATED; this is a warning, not a bootstrap blocker when all required inputs exist.",
             "Economic NAV is a separate investor overlay and must be current/ready before a production cutover, but it does not replace CORE/FULL NAV.",
+            "A buyback program may legitimately be inactive/exhausted; missing OTEC volume history is always a blocker because it disables the forecast engine itself.",
         ],
     }
 

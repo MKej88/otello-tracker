@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .job_lock import acquire_refresh_lock, release_refresh_lock
     from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_fast_refresh import collect_newsweb_fast
     from .oslo_calendar import is_oslo_bors_trading_day
@@ -20,6 +21,7 @@ try:
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from job_lock import acquire_refresh_lock, release_refresh_lock
     from nav_refresh import refresh_dirty_nav_layers
     from newsweb_fast_refresh import collect_newsweb_fast
     from oslo_calendar import is_oslo_bors_trading_day
@@ -35,7 +37,8 @@ except ImportError:
 FAST_REFRESH_CRON = "*/30 * * * *"
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
-PHASE = "15.4.7"
+PHASE = "15.7.2"
+FAST_LOCK_TTL_SECONDS = 20 * 60
 
 
 def _scheduled_datetime(scheduled_time_ms: Any | None) -> datetime:
@@ -358,4 +361,25 @@ async def run_scheduled(
 ) -> dict[str, Any]:
     if cron != FAST_REFRESH_CRON:
         return {"status": "SKIPPED", "reason": "unknown_cron", "cron": cron}
-    return await run_fast_refresh(database, scheduled_time_ms=scheduled_time_ms)
+
+    scheduled_at = _scheduled_datetime(scheduled_time_ms)
+    repository = PerformanceD1WriteRepository(database)
+    owner = f"fast:{_scheduled_iso(scheduled_time_ms)}"
+    lock = await acquire_refresh_lock(
+        repository,
+        owner=owner,
+        ttl_seconds=FAST_LOCK_TTL_SECONDS,
+        now=scheduled_at,
+    )
+    if not lock.get("acquired"):
+        return {
+            "status": "SKIPPED",
+            "reason": "refresh_lock_held",
+            "cron": cron,
+            "held_by": lock.get("held_by"),
+            "expires_at": lock.get("expires_at"),
+        }
+    try:
+        return await run_fast_refresh(database, scheduled_time_ms=scheduled_time_ms)
+    finally:
+        await release_refresh_lock(repository, lock.get("token"))

@@ -14,7 +14,7 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
-PHASE = "15.6"
+PHASE = "15.7.2"
 _SOURCE_CODE_BY_STEP = {
     "ecb": "ECB",
     "b3": "B3",
@@ -38,7 +38,6 @@ def error_result(exc: Exception) -> dict[str, Any]:
 
 
 def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
-    """Keep operational evidence useful without duplicating large parser outputs in D1."""
     compact: dict[str, Any] = {}
     for key, value in result.items():
         if key == "results":

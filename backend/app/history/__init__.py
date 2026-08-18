@@ -8,6 +8,10 @@ from app.db.runtime_state import get_runtime_state, set_runtime_state
 from app.history.curated import history_status as _history_status
 from app.history.curated import load_manifest
 from app.history.curated import seed_curated_history as _seed_curated_history
+from app.history.economic_nav_inputs import (
+    load_economic_nav_inputs_manifest,
+    seed_economic_nav_inputs,
+)
 from app.history.option_program import load_option_program_manifest
 from app.history.other_net_assets import (
     load_other_net_assets_manifest,
@@ -39,6 +43,7 @@ def curated_seed_fingerprint() -> str:
         "share_capital_2025": load_2025_share_capital_corrections(),
         "other_net_assets": load_other_net_assets_manifest(),
         "option_program": load_option_program_manifest(),
+        "economic_nav_inputs": load_economic_nav_inputs_manifest(),
     }
     raw = json.dumps(
         payload,
@@ -55,12 +60,14 @@ def seed_curated_history(database_path: str | None = None) -> dict:
     capital_2022 = seed_2022_share_capital_anchors(database_path)
     capital_2025 = seed_2025_share_capital_anchors(database_path)
     other_net_assets = seed_other_net_assets_reported(database_path)
+    economic_nav_inputs = seed_economic_nav_inputs(database_path)
     result["manifest_version"] = capital_2022["manifest_version"]
     result["share_capital_corrections"] = {
         "2022": capital_2022,
         "2025": capital_2025,
     }
     result["other_net_assets"] = other_net_assets
+    result["economic_nav_inputs"] = economic_nav_inputs
     result["option_program_version"] = load_option_program_manifest()["version"]
     set_runtime_state(_CURATED_STATE_KEY, curated_seed_fingerprint(), database_path)
     return result
@@ -88,6 +95,7 @@ def history_status(database_path: str | None = None) -> dict:
     rows = [*corrections_2022["share_counts"], *corrections_2025["share_counts"]]
     ona_manifest = load_other_net_assets_manifest()
     option_manifest = load_option_program_manifest()
+    economic_manifest = load_economic_nav_inputs_manifest()
     result["manifest_version"] = corrections_2022["version"]
     result["effective_share_capital_corrections"] = {
         "count": len(rows),
@@ -105,6 +113,12 @@ def history_status(database_path: str | None = None) -> dict:
         "grant_date": option_manifest["program"]["grant_date"],
         "option_count": option_manifest["program"]["option_count"],
         "strike_price_nok": option_manifest["program"]["strike_price_nok"],
+    }
+    result["economic_nav_inputs"] = {
+        "version": economic_manifest["version"],
+        "operating_cost_anchors": len(economic_manifest["operating_cost_anchors"]),
+        "cash_fx_exposure_anchors": len(economic_manifest["cash_fx_exposure_anchors"]),
+        "latest_cash_fx_anchor": economic_manifest["cash_fx_exposure_anchors"][-1]["as_of_date"],
     }
     return result
 

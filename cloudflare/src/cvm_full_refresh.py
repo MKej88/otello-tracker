@@ -118,56 +118,62 @@ def _mentions_jcp(text: str) -> bool:
     return _JCP_RE.search(text) is not None or re.search(r"\bjcp\b", text) is not None
 
 
-def _decode_csv(raw: bytes) -> str:
+def _csv_encoding(sample: bytes) -> str:
+    """Detect the small set of encodings used by CVM without expanding the CSV."""
     for encoding in ("utf-8-sig", "cp1252", "latin-1"):
         try:
-            return raw.decode(encoding)
+            sample.decode(encoding)
+            return encoding
         except UnicodeDecodeError:
             continue
     raise ValueError("Kunne ikke dekode CVM IPE CSV")
 
 
 def parse_cvm_ipe_archive(payload: bytes, *, year: int) -> list[CVMIPERecord]:
+    """Stream the expanded CVM CSV and retain only Bemobi rows in memory."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except zipfile.BadZipFile as exc:
         raise ValueError(f"CVM IPE {year} er ikke en gyldig ZIP") from exc
 
+    result: list[CVMIPERecord] = []
     with archive:
         members = [name for name in archive.namelist() if name.lower().endswith(".csv")]
         if len(members) != 1:
             raise ValueError(f"CVM IPE {year} forventet én CSV, fant {len(members)}")
-        text = _decode_csv(archive.read(members[0]))
 
-    reader = csv.DictReader(io.StringIO(text), delimiter=";")
-    missing = sorted(_REQUIRED_COLUMNS - set(reader.fieldnames or []))
-    if missing:
-        raise ValueError(f"CVM IPE {year} mangler kolonner: {', '.join(missing)}")
+        with archive.open(members[0], "r") as raw_member:
+            buffered = io.BufferedReader(raw_member, buffer_size=64 * 1024)
+            encoding = _csv_encoding(bytes(buffered.peek(8192)[:8192]))
+            with io.TextIOWrapper(buffered, encoding=encoding, newline="") as text_stream:
+                reader = csv.DictReader(text_stream, delimiter=";")
+                missing = sorted(_REQUIRED_COLUMNS - set(reader.fieldnames or []))
+                if missing:
+                    raise ValueError(f"CVM IPE {year} mangler kolonner: {', '.join(missing)}")
 
-    result: list[CVMIPERecord] = []
-    for row in reader:
-        if _clean(row.get("CNPJ_Companhia")) != BEMOBI_CNPJ:
-            continue
-        if _clean(row.get("Codigo_CVM")) != BEMOBI_CVM_CODE:
-            continue
-        result.append(
-            CVMIPERecord(
-                archive_year=year,
-                cnpj=_clean(row.get("CNPJ_Companhia")),
-                company_name=_clean(row.get("Nome_Companhia")),
-                cvm_code=_clean(row.get("Codigo_CVM")),
-                reference_date=_clean(row.get("Data_Referencia")),
-                category=_clean(row.get("Categoria")),
-                document_type=_clean(row.get("Tipo")),
-                species=_clean(row.get("Especie")),
-                subject=_clean(row.get("Assunto")),
-                delivery_date=_clean(row.get("Data_Entrega")),
-                presentation_type=_clean(row.get("Tipo_Apresentacao")),
-                protocol=_clean(row.get("Protocolo_Entrega")),
-                version=_clean(row.get("Versao")),
-                download_url=_clean(row.get("Link_Download")),
-            )
-        )
+                for row in reader:
+                    if _clean(row.get("CNPJ_Companhia")) != BEMOBI_CNPJ:
+                        continue
+                    if _clean(row.get("Codigo_CVM")) != BEMOBI_CVM_CODE:
+                        continue
+                    result.append(
+                        CVMIPERecord(
+                            archive_year=year,
+                            cnpj=_clean(row.get("CNPJ_Companhia")),
+                            company_name=_clean(row.get("Nome_Companhia")),
+                            cvm_code=_clean(row.get("Codigo_CVM")),
+                            reference_date=_clean(row.get("Data_Referencia")),
+                            category=_clean(row.get("Categoria")),
+                            document_type=_clean(row.get("Tipo")),
+                            species=_clean(row.get("Especie")),
+                            subject=_clean(row.get("Assunto")),
+                            delivery_date=_clean(row.get("Data_Entrega")),
+                            presentation_type=_clean(row.get("Tipo_Apresentacao")),
+                            protocol=_clean(row.get("Protocolo_Entrega")),
+                            version=_clean(row.get("Versao")),
+                            download_url=_clean(row.get("Link_Download")),
+                        )
+                    )
     return result
 
 

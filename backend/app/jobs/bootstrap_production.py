@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
+from app.buybacks import seed_otec_activity_history
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
 from app.jobs.preflight import HISTORY_START, run_preflight
@@ -47,9 +48,11 @@ def run_bootstrap(
 ) -> dict[str, Any]:
     """Build a production database from a clean file and finish with strict preflight.
 
-    Historical OTEC is deliberately not scraped. Supply either the validated Euronext
-    history CSV or the user's manual Investing.com export when bootstrapping a clean DB.
-    Existing databases with adequate OTEC history do not require either file.
+    Historical OTEC prices are deliberately not scraped. Supply either the validated
+    Euronext history CSV or the user's manual Investing.com export when bootstrapping a
+    clean DB. The compact official OTEC activity history used by the buyback forecast is
+    repository-curated and is always seeded so a clean production build cannot silently
+    omit the forecast's 20-trading-day volume input.
     """
     target = date.fromisoformat(target_date) if target_date else date.today()
     steps: dict[str, Any] = {}
@@ -62,6 +65,7 @@ def run_bootstrap(
     steps["migrations_applied"] = init_database(database_path)
     history = seed_curated_history(database_path)
     steps["history_manifest"] = history.get("manifest_version")
+    steps["otec_activity_history"] = seed_otec_activity_history(database_path)
 
     if fetch_network:
         def full_ecb() -> dict[str, Any]:
@@ -113,8 +117,6 @@ def run_bootstrap(
         _step("otec_investing_history", import_investing, steps, errors)
 
     if fetch_network:
-        # Full market history is already loaded above. Reuse the normal refresh pipeline
-        # for NewsWeb/CVM, current delayed OTEC, material events and all derived NAV layers.
         refresh = _step(
             "refresh_and_rebuild",
             lambda: run_refresh(

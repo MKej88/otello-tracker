@@ -58,6 +58,8 @@ jobs:
           assert config['observability']['enabled'] is True
           assert config['limits']['cpu_ms'] == 60000
           assert config['limits']['subrequests'] == 2000
+          assert config['triggers']['crons'] == ['*/30 * * * *']
+          assert config['workflows'][0]['schedules'] == ['35 3 * * *']
           PY
 
       - name: Dry-run production Python Worker bundle
