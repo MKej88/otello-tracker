@@ -159,9 +159,24 @@ const statusTranslations: Record<string, string> = {
   LOADING: "LASTER",
   SAME_DATE: "SAMME DATO",
   MIXED_DATE: "ULIKE DATOER",
+  NO_ACTIVE_PROGRAM: "INGEN AKTIVT PROGRAM",
+  PROGRAM_STATUS_STALE: "PROGRAMSTATUS UTDATERT",
+  PROGRAM_EXHAUSTED: "PROGRAMMET ER FULLFØRT",
+  NO_TRADING_DAYS: "INGEN HANDELSDAGER",
   INSUFFICIENT_VOLUME_HISTORY: "FOR LITE VOLUMHISTORIKK",
+  PRICE_CAP_BLOCKED: "BLOKKERT AV PRISGRENSE",
+  ABOVE_CAP: "OVER PRISGRENSE",
+  TIGHT: "LITEN MARGIN",
+  OPEN: "ÅPEN",
   API_ERROR: "API-FEIL",
   OK: "OK"
+};
+
+const warningTranslations: Record<string, string> = {
+  "Latest close is above the program price cap; next-week execution depends on the market trading back below the cap or a disclosed mandate change.":
+    "Siste sluttkurs er over programmets prisgrense. Tilbakekjøp neste uke avhenger av at kursen faller under grensen, eller at selskapet offentliggjør en endring i mandatet.",
+  "Latest close is within 3% of the program price cap; execution may be price-constrained.":
+    "Siste sluttkurs er mindre enn 3 % under programmets prisgrense. Tilbakekjøpet kan derfor bli begrenset av kursen."
 };
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 2 });
@@ -191,6 +206,11 @@ function shortDate(value?: string | null) {
 function statusLabel(input?: string | null) {
   if (!input) return "–";
   return statusTranslations[input.toUpperCase()] ?? input;
+}
+
+function warningLabel(input?: string | null) {
+  if (!input) return "–";
+  return warningTranslations[input] ?? input;
 }
 
 function modelScopeLabel(scope?: string | null) {
@@ -454,7 +474,7 @@ export default function App() {
               <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
               <div><span>20-dagers snittvolum</span><strong>{forecast.volume_model ? integer.format(forecast.volume_model.adv20_shares) : "–"}</strong></div>
               <div><span>Programgrense</span><strong>{forecast.price_model?.program_cap_nok != null ? `${value(forecast.price_model.program_cap_nok)} kr` : "–"}</strong></div>
-              {forecastEstimate?.warning && <div><span>Varsel</span><strong>{forecastEstimate.warning}</strong></div>}
+              {forecastEstimate?.warning && <div><span>Varsel</span><strong>{warningLabel(forecastEstimate.warning)}</strong></div>}
             </div>
           </article>
 
