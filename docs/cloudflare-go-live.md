@@ -92,7 +92,16 @@ CLOUDFLARE_ACCOUNT_ID
 CLOUDFLARE_D1_DATABASE_ID
 ```
 
-The API token should be scoped only to the Cloudflare account/zone needed for this Worker.
+Scope the API token to only the target Cloudflare account/zone. The deployment path needs, at minimum, permissions equivalent to:
+
+```text
+Workers Scripts: Edit
+D1: Edit
+Workers R2 Storage: Write
+Workers Routes: Edit      # only needed when deploying a Custom Domain/route
+```
+
+Do not use a Global API Key. Add only the account/zone resources required by this Worker.
 
 Add these repository/environment **variables**:
 
@@ -118,7 +127,7 @@ The workflow:
 3. applies remote D1 migrations;
 4. deploys the Python Worker + Workflow using `pywrangler`;
 5. calls `/api/health` and `/api/dashboard/summary` when `CLOUDFLARE_PUBLIC_URL` is configured;
-6. fails if the API is not healthy or the dashboard is not ready.
+6. fails if the API is unhealthy, the dashboard is not ready, or the reported model date is more than seven calendar days old.
 
 Only after this succeeds should `CLOUDFLARE_DEPLOY_ENABLED` be changed to `true` for automatic deployment on `main`.
 
@@ -162,7 +171,7 @@ Go-live is accepted only when all of the following are true:
 - remote D1 migrations are current;
 - Worker deploy succeeds from GitHub;
 - `/api/health` returns healthy Cloudflare/D1 state;
-- dashboard summary is `ready`;
+- dashboard summary is `ready` and fresh;
 - a 30-minute scheduled refresh completes without unexpected `PARTIAL`/`FAILED`;
 - one daily full Workflow completes;
 - Workers Logs show no CPU/memory limit failures;
