@@ -44,7 +44,7 @@ def test_economic_overlay_is_identical_in_reference_and_worker() -> None:
     assert expected["operating_costs"]["conservative_mnok"] > expected["operating_costs"]["base_mnok"]
     assert expected["nav_per_share"] < expected["accounting_nav_per_share"]
     assert expected["conservative_nav_per_share"] < expected["nav_per_share"]
-    assert expected["discount_pct"] < expected["conservative_discount_pct"]
+    assert expected["discount_pct"] > expected["conservative_discount_pct"]
     assert expected["operating_costs"]["interest_income_included"] is False
 
 
@@ -65,14 +65,14 @@ def test_operating_cost_accrual_resets_at_new_cash_anchor() -> None:
 
 
 def test_option_overhang_never_becomes_negative() -> None:
-    result = reference_overlay(
-        **_inputs(
-            as_of_date="2025-12-31",
-            cash_anchor_date="2025-12-31",
-            accounting_option_liability_nok=Decimal("30000000"),
-            economic_option_value_nok=Decimal("24000000"),
-        )
+    inputs = _inputs(
+        as_of_date="2025-12-31",
+        cash_anchor_date="2025-12-31",
+        accounting_option_liability_nok=Decimal("30000000"),
+        economic_option_value_nok=Decimal("24000000"),
     )
+    result = reference_overlay(**inputs)
 
+    expected_per_share = float(inputs["nav_total_nok"] / Decimal(inputs["shares_outstanding"]))
     assert result["option"]["unrecognized_overhang_mnok"] == 0.0
-    assert result["nav_per_share"] == result["accounting_nav_per_share"]
+    assert result["nav_per_share"] == expected_per_share
