@@ -59,7 +59,18 @@ def test_fx_backtest_uses_start_anchor_without_lookahead(tmp_path) -> None:
     assert period["method"] == "start-anchor-known-flows-daily-fx-v1"
 
 
-def test_fx_backtest_endpoint_fails_softly_when_historical_rates_are_missing(tmp_path) -> None:
+def test_fx_backtest_returns_not_ready_without_historical_rates(tmp_path) -> None:
+    database_path = str(tmp_path / "missing-fx.db")
+    init_database(database_path)
+    seed_economic_nav_inputs(database_path)
+
+    payload = fx_backtest_summary(database_path)
+    assert payload["ready"] is False
+    assert payload["reason"] == "no_backtest_period_ready"
+    assert all(period["reason"] == "missing_historical_fx_rates" for period in payload["periods"])
+
+
+def test_fx_backtest_endpoint_returns_structured_payload(tmp_path) -> None:
     previous_path = settings.database_path
     settings.database_path = str(tmp_path / "api-fx.db")
     try:
@@ -67,7 +78,8 @@ def test_fx_backtest_endpoint_fails_softly_when_historical_rates_are_missing(tmp
             response = client.get("/api/dashboard/fx-backtest")
             assert response.status_code == 200
             payload = response.json()
-            assert payload["ready"] is False
-            assert payload["reason"] in {"no_backtest_period_ready", "missing_reported_fx_outcomes"}
+            assert isinstance(payload["ready"], bool)
+            if not payload["ready"]:
+                assert "reason" in payload
     finally:
         settings.database_path = previous_path
