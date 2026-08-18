@@ -82,6 +82,28 @@ async def _download_ecb(
     return await read_response_bytes(response, max_bytes=MAX_ECB_BYTES, label="ECB EXR CSV")
 
 
+async def _fx_backtest_coverage(repository) -> tuple[bool, dict[str, Any]]:
+    rows = await repository.all(
+        """
+        SELECT base_currency, COUNT(*) AS n,
+               MIN(substr(observed_at,1,10)) AS min_date,
+               MAX(substr(observed_at,1,10)) AS max_date
+        FROM fx_rates
+        WHERE quote_currency='NOK' AND base_currency IN ('BRL','USD')
+        GROUP BY base_currency
+        ORDER BY base_currency
+        """
+    )
+    coverage = {str(row["base_currency"]): row for row in rows}
+    complete = all(
+        currency in coverage
+        and str(coverage[currency].get("min_date") or "9999-12-31") <= FX_BACKTEST_HISTORY_START
+        and int(coverage[currency].get("n") or 0) >= 450
+        for currency in ("BRL", "USD")
+    )
+    return complete, coverage
+
+
 async def refresh_ecb_fx(
     repository,
     *,
@@ -91,6 +113,14 @@ async def refresh_ecb_fx(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     target = date.fromisoformat(target_date)
+    auto_backtest_history = False
+    if lookback_days == 21:
+        complete, _ = await _fx_backtest_coverage(repository)
+        if not complete:
+            history_start = date.fromisoformat(FX_BACKTEST_HISTORY_START)
+            lookback_days = max(lookback_days, (target - history_start).days)
+            auto_backtest_history = True
+
     start = (target - timedelta(days=max(7, lookback_days))).isoformat()
     url = build_ecb_url(start, target_date)
     payload = await _download_ecb(url, fetcher=fetcher)
@@ -127,6 +157,7 @@ async def refresh_ecb_fx(
             "workflow": "cloudflare_full_refresh",
             "r2_key": archived.get("r2_key") if archived else None,
             "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
+            "auto_fx_backtest_history": auto_backtest_history,
         },
     )
     source_id = await repository.source_id("ECB")
@@ -156,6 +187,7 @@ async def refresh_ecb_fx(
         "source_document_id": document_id,
         "content_sha256": digest,
         "r2_archive": archived,
+        "auto_fx_backtest_history": auto_backtest_history,
     }
 
 
@@ -167,24 +199,7 @@ async def ensure_fx_backtest_history(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     """Backfill daily BRL/NOK and USD/NOK once when the FX backtest history is missing."""
-    rows = await repository.all(
-        """
-        SELECT base_currency, COUNT(*) AS n,
-               MIN(substr(observed_at,1,10)) AS min_date,
-               MAX(substr(observed_at,1,10)) AS max_date
-        FROM fx_rates
-        WHERE quote_currency='NOK' AND base_currency IN ('BRL','USD')
-        GROUP BY base_currency
-        ORDER BY base_currency
-        """
-    )
-    coverage = {str(row["base_currency"]): row for row in rows}
-    complete = all(
-        currency in coverage
-        and str(coverage[currency].get("min_date") or "9999-12-31") <= FX_BACKTEST_HISTORY_START
-        and int(coverage[currency].get("n") or 0) >= 450
-        for currency in ("BRL", "USD")
-    )
+    complete, coverage = await _fx_backtest_coverage(repository)
     if complete:
         return {
             "status": "ok",
