@@ -8,9 +8,9 @@ from typing import Any
 CORE_CALCULATION_VERSION = "core-market-nav-daily-v1"
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 MAX_FX_LOOKBACK_DAYS = 7
-BASE_OPERATING_COST_USD = Decimal("1022000")
+BASE_OPERATING_COST_USD = Decimal("1021000")
 BASE_OPERATING_COST_PERIOD_DAYS = Decimal("184")
-CONSERVATIVE_OPERATING_COST_USD = Decimal("2308000")
+CONSERVATIVE_OPERATING_COST_USD = Decimal("2641000")
 CONSERVATIVE_OPERATING_COST_PERIOD_DAYS = Decimal("365")
 
 
@@ -60,17 +60,13 @@ def build_economic_nav_overlay(
     days_since_anchor = max(0, (current - anchor).days)
 
     base_daily_usd = BASE_OPERATING_COST_USD / BASE_OPERATING_COST_PERIOD_DAYS
-    conservative_daily_usd = (
-        CONSERVATIVE_OPERATING_COST_USD / CONSERVATIVE_OPERATING_COST_PERIOD_DAYS
-    )
+    conservative_daily_usd = CONSERVATIVE_OPERATING_COST_USD / CONSERVATIVE_OPERATING_COST_PERIOD_DAYS
     base_cost_usd = base_daily_usd * Decimal(days_since_anchor)
     conservative_cost_usd = conservative_daily_usd * Decimal(days_since_anchor)
     base_cost_nok = base_cost_usd * usd_nok
     conservative_cost_nok = conservative_cost_usd * usd_nok
 
-    option_overhang_nok = max(
-        Decimal("0"), economic_option_value_nok - accounting_option_liability_nok
-    )
+    option_overhang_nok = max(Decimal("0"), economic_option_value_nok - accounting_option_liability_nok)
     economic_total_nok = nav_total_nok - option_overhang_nok - base_cost_nok
     conservative_total_nok = nav_total_nok - option_overhang_nok - conservative_cost_nok
     share_count = Decimal(shares_outstanding)
@@ -86,14 +82,10 @@ def build_economic_nav_overlay(
         "nav_per_share": _float(economic_per_share),
         "discount_pct": _float(_discount_pct(otec_price_nok, economic_per_share)),
         "conservative_nav_per_share": _float(conservative_per_share),
-        "conservative_discount_pct": _float(
-            _discount_pct(otec_price_nok, conservative_per_share)
-        ),
+        "conservative_discount_pct": _float(_discount_pct(otec_price_nok, conservative_per_share)),
         "economic_cash_mnok": _float(economic_cash_nok / Decimal("1000000")),
         "option": {
-            "accounting_liability_mnok": _float(
-                accounting_option_liability_nok / Decimal("1000000")
-            ),
+            "accounting_liability_mnok": _float(accounting_option_liability_nok / Decimal("1000000")),
             "economic_value_mnok": _float(economic_option_value_nok / Decimal("1000000")),
             "unrecognized_overhang_mnok": _float(option_overhang_nok / Decimal("1000000")),
             "method": "full-black-scholes-gross-value-v1",
@@ -103,27 +95,26 @@ def build_economic_nav_overlay(
             "days_since_anchor": days_since_anchor,
             "base_mnok": _float(base_cost_nok / Decimal("1000000")),
             "conservative_mnok": _float(conservative_cost_nok / Decimal("1000000")),
-            "base_annualized_usd_m": _float(
-                base_daily_usd * Decimal("365") / Decimal("1000000")
-            ),
-            "conservative_annualized_usd_m": _float(
-                conservative_daily_usd * Decimal("365") / Decimal("1000000")
-            ),
+            "base_annualized_usd_m": _float(base_daily_usd * Decimal("365") / Decimal("1000000")),
+            "conservative_annualized_usd_m": _float(conservative_daily_usd * Decimal("365") / Decimal("1000000")),
             "usd_nok": _float(usd_nok),
             "usd_nok_date": usd_nok_date,
-            "method": "latest-half-adjusted-ebitda-run-rate-v1",
+            "method": "latest-half-recurring-operating-cost-run-rate-v2",
             "source_period": "2H25",
-            "source_adjusted_ebitda_usd_m": 1.022,
-            "conservative_source_period": "FY25",
-            "conservative_adjusted_ebitda_usd_m": 2.308,
+            "source_operating_cost_usd_m": 1.021,
+            "source_measure": "employee benefits ex stock compensation + other operating expenses",
+            "conservative_source_period": "FY25_AUDITED",
+            "conservative_operating_cost_usd_m": 2.641,
+            "conservative_source_measure": "audited operating expenses ex stock-based compensation",
             "interest_income_included": False,
         },
         "note": (
             "Economic NAV leaves the validated accounting FULL NAV unchanged, then deducts "
             "the Black-Scholes option value not already recognized in the accounting liability "
-            "and an estimated post-anchor operating-cost run-rate. The base cost proxy uses "
-            "2H25 adjusted EBITDA burn; the conservative sensitivity uses FY25 adjusted EBITDA burn. "
-            "Interest income is not accrued, making the overlay intentionally conservative."
+            "and an estimated post-anchor operating-cost run-rate. The base run-rate uses the "
+            "latest half-year recurring operating costs excluding stock-based compensation; the "
+            "conservative sensitivity uses audited FY25 operating expenses excluding stock-based "
+            "compensation. Interest income is not accrued, making the overlay intentionally conservative."
         ),
     }
 
@@ -132,10 +123,8 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
     dates = await repository.first(
         """
         SELECT
-          MAX(CASE WHEN calculation_version=? AND nav_scope='CORE'
-                   THEN substr(as_of_at,1,10) END) AS core_date,
-          MAX(CASE WHEN calculation_version=? AND nav_scope='FULL'
-                   THEN substr(as_of_at,1,10) END) AS full_date
+          MAX(CASE WHEN calculation_version=? AND nav_scope='CORE' THEN substr(as_of_at,1,10) END) AS core_date,
+          MAX(CASE WHEN calculation_version=? AND nav_scope='FULL' THEN substr(as_of_at,1,10) END) AS full_date
         FROM nav_snapshots
         """,
         (CORE_CALCULATION_VERSION, FULL_CALCULATION_VERSION),
@@ -145,12 +134,7 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
     if full_date is None:
         return {"ready": False, "reason": "missing_full_nav"}
     if core_date != full_date:
-        return {
-            "ready": False,
-            "reason": "full_nav_not_current",
-            "core_date": core_date,
-            "full_date": full_date,
-        }
+        return {"ready": False, "reason": "full_nav_not_current", "core_date": core_date, "full_date": full_date}
 
     row = await repository.first(
         """
@@ -208,9 +192,7 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
         usd_nok_date=str(fx["rate_date"]),
         nav_total_nok=Decimal(str(row["nav_total_nok"])),
         nav_per_share_nok=Decimal(str(row["nav_per_share_nok"])),
-        otec_price_nok=(
-            Decimal(str(row["otec_price_nok"])) if row.get("otec_price_nok") is not None else None
-        ),
+        otec_price_nok=Decimal(str(row["otec_price_nok"])) if row.get("otec_price_nok") is not None else None,
         cash_estimate_nok=Decimal(str(row["cash_estimate_nok"])),
         shares_outstanding=int(row["shares_outstanding"]),
         accounting_option_liability_nok=accounting_option,
