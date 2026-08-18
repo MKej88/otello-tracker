@@ -129,11 +129,40 @@ const menu = [
   "Historikk",
   "Tilbakekjøp",
   "Bemobi",
-  "Consensus",
+  "Konsensus",
   "Aksjonærer",
   "Nyheter",
   "Innstillinger"
 ];
+
+const statusTranslations: Record<string, string> = {
+  READY: "KLAR",
+  GOOD: "GOD",
+  HIGH: "HØY",
+  VERY_HIGH: "SVÆRT HØY",
+  MEDIUM: "MIDDELS",
+  LOW: "LAV",
+  VERY_LOW: "SVÆRT LAV",
+  UNKNOWN: "UKJENT",
+  ESTIMATED: "ESTIMERT",
+  DEGRADED: "REDUSERT",
+  FORECAST: "PROGNOSE",
+  FORECAST_PARTIAL: "DELVIS PROGNOSE",
+  REPORTED: "RAPPORTERT",
+  RECONCILED: "AVSTEMT",
+  DIRECT: "DIREKTE",
+  PARTIAL: "DELVIS",
+  HIGH_RESIDUAL: "HØYT RESTAVVIK",
+  POTENTIALLY_STALE: "KAN VÆRE UTDATERT",
+  CURRENT: "OPPDATERT",
+  STALE: "UTDATERT",
+  LOADING: "LASTER",
+  SAME_DATE: "SAMME DATO",
+  MIXED_DATE: "ULIKE DATOER",
+  INSUFFICIENT_VOLUME_HISTORY: "FOR LITE VOLUMHISTORIKK",
+  API_ERROR: "API-FEIL",
+  OK: "OK"
+};
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
@@ -157,6 +186,17 @@ function shortDate(value?: string | null) {
   const [year, month, day] = value.split("-");
   if (!year || !month || !day) return value;
   return `${day}.${month}`;
+}
+
+function statusLabel(input?: string | null) {
+  if (!input) return "–";
+  return statusTranslations[input.toUpperCase()] ?? input;
+}
+
+function modelScopeLabel(scope?: string | null) {
+  if (scope === "CORE") return "Kjerne-NAV";
+  if (scope === "FULL") return "Full NAV";
+  return scope ? `${scope} NAV` : "NAV";
 }
 
 function changeLabel(change: number | null | undefined, unit = "%") {
@@ -272,7 +312,7 @@ export default function App() {
           setRefreshFailed(true);
           setSummary((current) => current.ready
             ? current
-            : { ready: false, data_status: "error", message: "Kunne ikke hente dashboarddata." });
+            : { ready: false, data_status: "error", message: "Kunne ikke hente data til oversikten." });
         });
     };
 
@@ -287,11 +327,11 @@ export default function App() {
   const changes = summary.changes;
   const cards = useMemo(() => [
     { label: "NAV/aksje", value: summary.ready ? `${value(summary.nav_per_share)} kr` : "–", change: changes?.nav_pct, unit: "%" },
-    { label: "OTEC kurs", value: summary.ready ? `${value(summary.otec_price)} kr` : "–", change: changes?.otec_pct, unit: "%" },
+    { label: "OTEC-kurs", value: summary.ready ? `${value(summary.otec_price)} kr` : "–", change: changes?.otec_pct, unit: "%" },
     { label: "Rabatt til NAV", value: summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–", change: changes?.discount_pp, unit: "pp", invert: true },
     { label: "BMOB3", value: summary.ready ? `R$ ${value(summary.bmob3_price)}` : "–", change: changes?.bmob3_pct, unit: "%" },
     { label: "BRL/NOK", value: summary.ready ? value(summary.brl_nok, 3) : "–", change: changes?.brl_nok_pct, unit: "%" },
-    { label: "Estimert cash", value: summary.ready ? `${value(summary.estimated_cash_mnok, 1)}m` : "–", change: changes?.cash_pct, unit: "%" }
+    { label: "Estimert kontantbeholdning", value: summary.ready ? `${value(summary.estimated_cash_mnok, 1)} mill.` : "–", change: changes?.cash_pct, unit: "%" }
   ], [summary, changes]);
 
   const degraded = summary.data_status === "DEGRADED" || summary.cash_quality === "FORECAST_PARTIAL";
@@ -301,7 +341,8 @@ export default function App() {
   const ownership = summary.bemobi_ownership_pct;
   const ownershipChart = ownership ?? 0;
   const scope = summary.model_scope ?? "CORE";
-  const navStatusLabel = degraded ? "DEGRADERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
+  const scopeDisplay = modelScopeLabel(scope);
+  const navStatusLabel = degraded ? "REDUSERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
   const forecastEstimate = forecast.estimate;
   const forecastWeek = forecast.forecast_week;
   const forecastConfidence = forecastEstimate?.confidence ?? "VENTER";
@@ -335,11 +376,11 @@ export default function App() {
 
       <main className="main">
         <header>
-          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV Dashboard</h1></div>
+          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV-oversikt</h1></div>
           <div className="updated">
             <span className={apiOk && summary.ready ? "statusDot ok" : "statusDot"} />
             {summary.ready
-              ? `Data ${dateLabel(summary.as_of_date)} · ${scope}${refreshFailed ? " · oppdatering feilet" : ""}`
+              ? `Data ${dateLabel(summary.as_of_date)} · ${scopeDisplay}${refreshFailed ? " · oppdatering feilet" : ""}`
               : "Venter på NAV-data"}
           </div>
         </header>
@@ -348,7 +389,7 @@ export default function App() {
           <div className="modelWarning neutralWarning" role="status">
             <strong>Viser sist vellykket hentede data.</strong>
             <span>
-              Ny oppdatering fra dashboard-API-et feilet. Tallene beholdes for kontinuitet,
+              Ny oppdatering fra API-et for oversikten feilet. Tallene beholdes for kontinuitet,
               men skal behandles som potensielt utdaterte.
               {lastSuccessfulFetchAt ? ` Sist hentet kl. ${lastSuccessfulFetchAt}.` : ""}
             </span>
@@ -359,8 +400,8 @@ export default function App() {
             <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>
             <span>
               {degraded
-                ? "Minst én viktig input er ufullstendig, gammel eller bygger på en usikker modell. Se modellstatus før NAV brukes som beslutningsgrunnlag."
-                : "Mellom rapportdatoer brukes forankrede estimater for blant annet cash og øvrige nettoeiendeler. Rapporterte ankere beholdes separat."}
+                ? "Minst ett viktig datagrunnlag er ufullstendig, gammelt eller bygger på en usikker modell. Se modellstatus før NAV brukes som beslutningsgrunnlag."
+                : "Mellom rapportdatoer brukes forankrede estimater for blant annet kontantbeholdning og øvrige nettoeiendeler. Rapporterte ankere beholdes separat."}
             </span>
           </div>
         )}
@@ -383,7 +424,7 @@ export default function App() {
         <section className="chartGrid">
           <article className="card chart">
             <div className="cardHeader">
-              <div><span className="label">Markeds-NAV</span><h2>{scope} NAV vs OTEC</h2></div>
+              <div><span className="label">Markeds-NAV</span><h2>{scopeDisplay} mot OTEC</h2></div>
               <span className="pill">1 ÅR</span>
             </div>
             <NavPriceChart points={history.points} />
@@ -402,16 +443,16 @@ export default function App() {
           <article className="card">
             <div className="cardHeader">
               <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
-              <span className="pill muted">{forecast.ready ? forecastConfidence : latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
+              <span className="pill muted">{forecast.ready ? statusLabel(forecastConfidence) : latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
             </div>
             <div className="placeholderRows">
               <div><span>Siste uke</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
               <div>
-                <span>{forecastWeek ? `Est. ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
+                <span>{forecastWeek ? `Estimert ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
                 <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
               </div>
               <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
-              <div><span>20d snittvolum</span><strong>{forecast.volume_model ? integer.format(forecast.volume_model.adv20_shares) : "–"}</strong></div>
+              <div><span>20-dagers snittvolum</span><strong>{forecast.volume_model ? integer.format(forecast.volume_model.adv20_shares) : "–"}</strong></div>
               <div><span>Programgrense</span><strong>{forecast.price_model?.program_cap_nok != null ? `${value(forecast.price_model.program_cap_nok)} kr` : "–"}</strong></div>
               {forecastEstimate?.warning && <div><span>Varsel</span><strong>{forecastEstimate.warning}</strong></div>}
             </div>
@@ -426,7 +467,7 @@ export default function App() {
               <div className="placeholderRows grow">
                 <div><span>BMOB3-aksjer</span><strong>{summary.bemobi_shares != null ? integer.format(summary.bemobi_shares) : "–"}</strong></div>
                 <div><span>BMOB3-kurs</span><strong>{summary.bmob3_price != null ? `R$ ${value(summary.bmob3_price)}` : "–"}</strong></div>
-                <div><span>Markedsverdi</span><strong>{summary.bemobi_value_mnok != null ? `${number.format(summary.bemobi_value_mnok)}m kr` : "–"}</strong></div>
+                <div><span>Markedsverdi</span><strong>{summary.bemobi_value_mnok != null ? `${number.format(summary.bemobi_value_mnok)} mill. kr` : "–"}</strong></div>
               </div>
             </div>
           </article>
@@ -434,25 +475,25 @@ export default function App() {
           <article className="card">
             <div className="cardHeader"><div><span className="label">System</span><h2>Modellstatus</h2></div></div>
             <div className="sourceList">
-              <div><span>{scope} NAV</span><span className={qualityWarning ? "sourceWarn" : summary.ready ? "sourceOk" : "sourceWait"}>{navStatusLabel}</span></div>
-              {scope === "FULL" && <div><span>Øvrige nettoeiendeler</span><span className="sourceOk">{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)}m` : "–"}</span></div>}
-              <div><span>Cash</span><span className={qualityWarning ? "sourceWarn" : "sourceOk"}>{summary.cash_quality ?? "–"}</span></div>
-              {summary.cash_calibration_quality && <div><span>Cash-avstemming</span><span className={summary.cash_calibration_quality === "HIGH_RESIDUAL" ? "sourceWarn" : "sourceOk"}>{summary.cash_calibration_quality}</span></div>}
-              {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{summary.share_count_quality}</span></div>}
+              <div><span>{scopeDisplay}</span><span className={qualityWarning ? "sourceWarn" : summary.ready ? "sourceOk" : "sourceWait"}>{navStatusLabel}</span></div>
+              {scope === "FULL" && <div><span>Øvrige nettoeiendeler</span><span className="sourceOk">{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)} mill.` : "–"}</span></div>}
+              <div><span>Kontantbeholdning</span><span className={qualityWarning ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_quality)}</span></div>
+              {summary.cash_calibration_quality && <div><span>Kontantavstemming</span><span className={summary.cash_calibration_quality === "HIGH_RESIDUAL" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_calibration_quality)}</span></div>}
+              {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.share_count_quality)}</span></div>}
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
-              <div><span>Buyback-prognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? forecastConfidence : forecast.status}</span></div>
+              <div><span>Tilbakekjøpsprognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? statusLabel(forecastConfidence) : statusLabel(forecast.status)}</span></div>
             </div>
           </article>
         </section>
       </main>
 
-      <div className={`freshnessBadge freshness-${timestampStatus.toLowerCase()}`} title="Datoene på markedsinputene som inngår i siste NAV">
+      <div className={`freshnessBadge freshness-${timestampStatus.toLowerCase()}`} title="Datoene på markedsdataene som inngår i siste NAV">
         <span className="freshnessDot" />
-        <strong>{timestampStatus}</strong>
+        <strong>{statusLabel(timestampStatus)}</strong>
         <span>OTEC {shortDate(timestamps?.otec?.date)}</span>
         <span>BMOB3 {shortDate(timestamps?.bmob3?.date)}</span>
-        <span>FX {shortDate(timestamps?.brl_nok?.date)}</span>
+        <span>Valuta {shortDate(timestamps?.brl_nok?.date)}</span>
       </div>
     </div>
   );
