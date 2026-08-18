@@ -27,12 +27,7 @@ def _manifest_sha256(manifest: dict[str, Any]) -> str:
 
 
 def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]:
-    """Persist source-backed economic-NAV assumptions as ordinary source documents.
-
-    The values remain part of the deterministic curated-data fingerprint and are copied
-    into D1 by the normal bootstrap because source_documents is already an exported table.
-    No investor assumption therefore needs to live as a Python constant in production.
-    """
+    """Persist source-backed economic-NAV assumptions and FX validation outcomes."""
     manifest = load_economic_nav_inputs_manifest()
     manifest_sha = _manifest_sha256(manifest)
     documents = manifest["documents"]
@@ -118,6 +113,38 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
             )
             written.append(document_id)
 
+        for item in manifest.get("fx_backtest_outcomes", []):
+            source = documents[item["source_key"]]
+            metadata = {
+                "economic_nav_input_version": manifest["version"],
+                "manifest_sha256": manifest_sha,
+                "input_kind": "FX_BACKTEST_OUTCOME",
+                "period_start": item["period_start"],
+                "period_end": item["period_end"],
+                "cash_fx_effect_usd": str(item["cash_fx_effect_usd"]),
+                "pnl_fx_result_usd": str(item["pnl_fx_result_usd"]),
+                "other_balance_sheet_fx_usd": (
+                    str(item["other_balance_sheet_fx_usd"])
+                    if item.get("other_balance_sheet_fx_usd") is not None
+                    else None
+                ),
+                "source_locator": item["source_locator"],
+                "notes": item.get("notes"),
+                "curated": True,
+                "primary_validation_target": "cash_fx_effect_usd",
+            }
+            document_id = create_source_document(
+                connection,
+                source_code=source["source_code"],
+                external_id=f"fx-backtest-outcome:{item['period_end']}",
+                document_type="ECONOMIC_NAV_FX_BACKTEST_OUTCOME",
+                title=f"FX backtest reported outcome {item['period_end']}",
+                url=source["url"],
+                published_at=f"{item['period_end']}T00:00:00Z",
+                metadata=metadata,
+            )
+            written.append(document_id)
+
         connection.commit()
 
     return {
@@ -126,4 +153,5 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
         "documents": len(written),
         "operating_cost_anchors": len(manifest["operating_cost_anchors"]),
         "cash_fx_exposure_anchors": len(manifest["cash_fx_exposure_anchors"]),
+        "fx_backtest_outcomes": len(manifest.get("fx_backtest_outcomes", [])),
     }
