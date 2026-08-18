@@ -80,6 +80,61 @@ Dette gir en løpende indikasjon på valutaeksponeringen, men sikkerheten faller
 
 **Viktig:** Den estimerte NOK-andelen brukes ikke som et nytt kildeanker og får ingen egen valutaeffekt i NAV-beregningen. Den konservative NAV-policyen over er uendret: bare dokumentert USD-/BRL-eksponering revalueres.
 
+## Backtest av valutaeffekt
+
+Valutaestimatet valideres i et separat kontrollag. Backtesten påvirker ikke NAV.
+
+### Historiske ankere
+
+Modellen har kildebelagte valutaankre ved 31.12.2023, 31.12.2024 og 31.12.2025. USD- og BRL-bankinnskudd hentes fra Otellos valutarisikonoter. Differansen mot total rapportert cash lagres som `UNALLOCATED` og behandles som NOK **bare som en testhypotese i backtesten**.
+
+Dette gir to fullførte årsperioder som kan testes uten å bruke sluttårets valutamiks som inngangsdata:
+
+- 2024: 31.12.2023 → 31.12.2024
+- 2025: 31.12.2024 → 31.12.2025
+
+### Hva er fasit?
+
+Primær fasit er **«effects of exchange rate changes on cash and cash equivalents»** i konsernets kontantstrømoppstilling.
+
+Resultatført netto valutaresultat er kun en sekundær kontroll. Det kan inneholde valutaeffekter på andre monetære eiendeler og forpliktelser og er derfor ikke direkte sammenlignbart med en modell av bankinnskudd.
+
+For de lagrede testperiodene er de rapporterte kontrollverdiene:
+
+| Periode | Faktisk valutaeffekt på cash | Resultatført netto valutaresultat |
+|---|---:|---:|
+| 2024 | USD -1,510m | USD -0,178m |
+| 2025 | USD +0,867m | USD -1,214m |
+
+I 2024-rapporten presenteres i tillegg USD -0,216m som FX-forskjeller knyttet til endringer i balanseposter. Denne holdes utenfor cash-fasiten.
+
+### Backtestmetode
+
+For hver periode:
+
+1. start med valutaeksponeringen som faktisk var kjent ved inngangen til perioden;
+2. rekonstruer BRL-beløpet fra rapportert USD-ekvivalent og historiske USD/NOK- og BRL/NOK-kurser;
+3. klassifiser bare residualen som NOK-hypotese;
+4. legg inn kjente `cash_movements` i faktisk opprinnelig valuta på strømdatoen, eksempelvis Bemobi-utbetalinger i BRL og OTEC-tilbakekjøp i NOK;
+5. før hver kontantstrøm isoleres verdiendringen på den eksisterende valutabeholdningen med historiske ECB-krysskurser;
+6. revaluer gjenværende saldo til periodens sluttdato;
+7. sammenlign modellert valutaeffekt med rapportert cash-FX-effekt.
+
+Dette er en strengere test enn å bruke sluttårets valutafordeling, fordi modellen ikke får se fasiten på valutamiksen før perioden er ferdig.
+
+Backtesten viser blant annet:
+
+- modellert cash-FX;
+- faktisk cash-FX;
+- avvik i USD;
+- enkel treffgrad;
+- om modellen traff riktig fortegn/retning;
+- resultatført FX som separat diagnostikk;
+- antall kjente kontantstrømmer som ble brukt;
+- gap mellom modellert og faktisk slutt-cash som mål på ikke-modellerte strømmer.
+
+Et stort slutt-cash-gap betyr at deler av kontantstrømmen gjennom året ikke er klassifisert i riktig valuta. Det skal tolkes som svakere evidens for valutaestimatet, ikke skjules ved å tvinge modellen til å avstemme.
+
 ## Opsjon
 
 Eksisterende FULL NAV bruker recognition-/calibration-faktoren for den regnskapsmessig modellerte kontantoppgjorte opsjonsforpliktelsen. Økonomisk NAV viser i tillegg hele modellerte Black-Scholes-bruttoverdien og trekker differansen:
@@ -107,9 +162,10 @@ Presentasjonsestimatet for NOK/USD/BRL skal samtidig flyttes til det nye rapport
 
 ```text
 GET /api/dashboard/economic
+GET /api/dashboard/fx-backtest
 ```
 
-Returnerer blant annet:
+Economic NAV-endepunktet returnerer blant annet:
 
 - regnskapsmessig FULL NAV per aksje;
 - økonomisk NAV per aksje;
@@ -122,10 +178,12 @@ Returnerer blant annet:
 - driftskostnad siden cash-anker;
 - source document IDs/metodikk for kostnadsankrene.
 
+Backtest-endepunktet returnerer periodevise resultater og aggregert feil-/retningsstatistikk. Hvis nødvendige historiske ECB-kurser ikke finnes i databasen, markeres perioden eksplisitt som ikke klar i stedet for å bruke en konstruert kurs.
+
 Frontenden bruker `cash_fx.components` sammen med økonomisk cash til det separate valutaestimatet. Det legges ikke til en ny API-verdi som kan forveksles med et rapportert valutabeløp.
 
 Hvis FULL og CORE ikke er på samme dato, nødvendige markeds-/FX-input mangler eller driftskostnadsankrene mangler, returneres `ready=false` i stedet for et delvis skjult estimat.
 
-## Kilde
+## Kilder
 
-Primær kilde for 2025-ankrene er **Otello Corporation ASA – Annual Report 2025**. Kilde-URL og locator lagres sammen med de kuraterte inputene i source-document provenance.
+Primærkildene for valutaankre og rapporterte backtestutfall er **Otello Corporation ASA – Annual Report 2024** og **Annual Report 2025**. Kilde-URL og locator lagres sammen med de kuraterte inputene i source-document provenance. Historiske USD/NOK- og BRL/NOK-kurser kommer fra ECBs daglige referansekurser via EUR-kryss.
