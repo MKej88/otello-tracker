@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import "./economic-nav.css";
 
+type CashFxComponent = {
+  currency?: string;
+  usd_equivalent_at_anchor?: number | null;
+  original_currency_amount?: number | null;
+  anchor_value_mnok?: number | null;
+  current_value_mnok?: number | null;
+  adjustment_mnok?: number | null;
+  quality?: string;
+};
+
 type EconomicNav = {
   ready: boolean;
   reason?: string;
@@ -17,6 +27,9 @@ type EconomicNav = {
     adjustment_mnok?: number | null;
     coverage_pct?: number | null;
     anchor_date?: string;
+    current_usd_nok?: number | null;
+    current_brl_nok?: number | null;
+    components?: CashFxComponent[];
   };
   option?: {
     accounting_liability_mnok?: number | null;
@@ -36,6 +49,14 @@ type EconomicNav = {
     interest_income_included?: boolean;
   };
   note?: string;
+};
+
+type CashCurrencyEstimate = {
+  currency: "NOK" | "USD" | "BRL";
+  share_pct: number;
+  value_mnok: number;
+  local_millions: number | null;
+  basis: string;
 };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
@@ -64,6 +85,83 @@ function dateLabel(input?: string | null) {
 function reasonLabel(reason?: string) {
   if (reason === "api_error") return "API-feil";
   return "Ikke klart";
+}
+
+function daysBetween(from?: string, to?: string) {
+  if (!from || !to) return null;
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.max(0, Math.round((end - start) / 86_400_000));
+}
+
+function confidenceLabel(anchorDate?: string, asOfDate?: string) {
+  const days = daysBetween(anchorDate, asOfDate);
+  if (days == null) return "UKJENT";
+  if (days <= 45) return "MIDDELS–HØY";
+  if (days <= 120) return "MIDDELS";
+  return "LAV";
+}
+
+function cashCurrencyEstimate(data: EconomicNav): CashCurrencyEstimate[] | null {
+  const cashFx = data.cash_fx;
+  const components = cashFx?.components ?? [];
+  const targetCash = data.economic_cash_mnok;
+  if (targetCash == null || !Number.isFinite(targetCash) || targetCash <= 0 || components.length === 0) {
+    return null;
+  }
+
+  const usd = components.find((item) => item.currency === "USD");
+  const brl = components.find((item) => item.currency === "BRL");
+  const residual = components.find((item) => item.currency === "UNALLOCATED");
+  if (!usd || !brl || !residual) return null;
+
+  const rawNok = residual.current_value_mnok ?? residual.anchor_value_mnok ?? 0;
+  const rawUsd = usd.current_value_mnok ?? usd.anchor_value_mnok ?? 0;
+  const rawBrl = brl.current_value_mnok ?? brl.anchor_value_mnok ?? 0;
+  const rawTotal = rawNok + rawUsd + rawBrl;
+  if (!Number.isFinite(rawTotal) || rawTotal <= 0) return null;
+
+  // Netto kontantendringer etter siste rapporterte valutaanker er ikke fordelt på valuta
+  // i kildene. Skaler derfor siste kjente, valutajusterte miks proporsjonalt til dagens
+  // økonomiske kontantbeholdning. Dette er kun et presentasjonsestimat og endrer ikke NAV.
+  const scale = targetCash / rawTotal;
+  const share = (amount: number) => amount / rawTotal * 100;
+
+  return [
+    {
+      currency: "NOK",
+      share_pct: share(rawNok),
+      value_mnok: rawNok * scale,
+      local_millions: rawNok * scale,
+      basis: "Estimert residual"
+    },
+    {
+      currency: "USD",
+      share_pct: share(rawUsd),
+      value_mnok: rawUsd * scale,
+      local_millions: usd.original_currency_amount != null
+        ? usd.original_currency_amount * scale / 1_000_000
+        : null,
+      basis: "Rapportert eksponering"
+    },
+    {
+      currency: "BRL",
+      share_pct: share(rawBrl),
+      value_mnok: rawBrl * scale,
+      local_millions: brl.original_currency_amount != null
+        ? brl.original_currency_amount * scale / 1_000_000
+        : null,
+      basis: "Rapportert eksponering"
+    }
+  ];
+}
+
+function localCashLabel(item: CashCurrencyEstimate) {
+  if (item.local_millions == null) return `${value(item.value_mnok, 1)} mill. kr`;
+  if (item.currency === "NOK") return `${value(item.local_millions, 1)} mill. kr`;
+  if (item.currency === "USD") return `USD ${value(item.local_millions, 2)} mill.`;
+  return `R$ ${value(item.local_millions, 1)} mill.`;
 }
 
 export default function EconomicNavPanel() {
@@ -113,6 +211,8 @@ export default function EconomicNavPanel() {
   const option = data.option;
   const costs = data.operating_costs;
   const cashFx = data.cash_fx;
+  const currencyEstimate = cashCurrencyEstimate(data);
+  const currencyConfidence = confidenceLabel(cashFx?.anchor_date, data.as_of_date);
 
   return (
     <section className="economicNavHost">
@@ -147,6 +247,38 @@ export default function EconomicNavPanel() {
           </div>
         </div>
 
+        {currencyEstimate && (
+          <div className="cashCurrencyEstimate">
+            <div className="cashCurrencyHeader">
+              <div>
+                <span className="economicEyebrow">Valutaestimat</span>
+                <h3>Estimert kontantbeholdning per valuta</h3>
+              </div>
+              <span className="cashConfidence">SIKKERHET {currencyConfidence}</span>
+            </div>
+            <div className="cashCurrencyGrid">
+              {currencyEstimate.map((item) => (
+                <div className="cashCurrencyCard" key={item.currency}>
+                  <span>{item.currency}</span>
+                  <strong>{localCashLabel(item)}</strong>
+                  <small>{value(item.share_pct, 1)} % · {value(item.value_mnok, 1)} mill. kr</small>
+                  <small>{item.basis}</small>
+                </div>
+              ))}
+            </div>
+            <div className="cashCurrencyNote">
+              <span>
+                Startpunktet er siste rapporterte USD-/BRL-eksponering. Resten av rapportert kontantbeholdning
+                behandles som estimert NOK. Senere netto kontantendringer fordeles proporsjonalt på valutaene,
+                fordi faktiske valutavekslinger ikke er offentlig kjent.
+              </span>
+              <span>
+                Anker {dateLabel(cashFx?.anchor_date)} · Modellen brukes kun som estimat og endrer ikke NAV-beregningen.
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="economicAdjustments">
           <div>
             <span>Kontanter – dokumentert valutaeffekt</span>
@@ -175,7 +307,7 @@ export default function EconomicNavPanel() {
           <span>
             Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
             {costs?.source_period ? ` (${costs.source_period})` : ""}.
-            Kun dokumenterte USD-/BRL-kontanter revalueres; ukjent valutafordeling gjettes ikke. Renteinntekter er ikke lagt til.
+            Kun dokumenterte USD-/BRL-kontanter revalueres i NAV; valutaestimatet over er et separat presentasjonslag. Renteinntekter er ikke lagt til.
           </span>
           <span>Data {dateLabel(data.as_of_date)}</span>
         </div>
