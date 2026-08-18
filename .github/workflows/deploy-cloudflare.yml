@@ -1,0 +1,90 @@
+name: Deploy Cloudflare production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+      CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
+      CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+      CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
+      CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Validate required Cloudflare credentials
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_D1_DATABASE_ID"
+
+      - name: Build dashboard assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install pinned Python Worker tooling
+        working-directory: cloudflare
+        run: |
+          python -m pip install workers-py==1.16.4 uv==0.12.3
+          npm install --no-save wrangler@4.123.0
+
+      - name: Render production Wrangler config
+        run: python cloudflare/tools/render_production_config.py
+
+      - name: Apply remote D1 migrations
+        working-directory: cloudflare
+        run: npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc
+
+      - name: Deploy Python Worker and Workflow
+        working-directory: cloudflare
+        run: pywrangler deploy --config wrangler.production.jsonc
+
+      - name: Production HTTP preflight
+        if: env.CLOUDFLARE_PUBLIC_URL != ''
+        shell: bash
+        run: |
+          base="${CLOUDFLARE_PUBLIC_URL%/}"
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/health" -o /tmp/otello-health.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/summary" -o /tmp/otello-summary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          health = json.loads(Path('/tmp/otello-health.json').read_text())
+          summary = json.loads(Path('/tmp/otello-summary.json').read_text())
+          assert health.get('status') == 'ok', health
+          assert health.get('environment') == 'cloudflare', health
+          assert summary.get('ready') is True, summary
+          print('Production HTTP preflight passed:', summary.get('as_of_date'), summary.get('data_status'))
+          PY
