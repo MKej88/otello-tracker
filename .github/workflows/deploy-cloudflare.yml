@@ -27,6 +27,7 @@ jobs:
       CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
       CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
       CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+      CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
     steps:
       - uses: actions/checkout@v7
 
@@ -47,6 +48,14 @@ jobs:
           test -n "$CLOUDFLARE_WORKER_NAME"
           test -n "$CLOUDFLARE_D1_DATABASE_NAME"
           test -n "$CLOUDFLARE_R2_BUCKET_NAME"
+          if [ -z "$CLOUDFLARE_CUSTOM_DOMAIN" ]; then
+            echo '::error::CLOUDFLARE_CUSTOM_DOMAIN is required for production so WAF can protect /api/* before Worker invocation.'
+            exit 1
+          fi
+          if [ "$CLOUDFLARE_WAF_COST_GUARD_READY" != "true" ]; then
+            echo '::error::Set CLOUDFLARE_WAF_COST_GUARD_READY=true only after the zone WAF rate-limit rule for /api/* is active.'
+            exit 1
+          fi
 
       - name: Build dashboard assets
         working-directory: frontend
@@ -84,6 +93,8 @@ jobs:
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/economic" -o /tmp/otello-economic.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/fx-backtest" -o /tmp/otello-fx-backtest.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
           python - <<'PY'
           import json
@@ -93,6 +104,7 @@ jobs:
           health = json.loads(Path('/tmp/otello-health.json').read_text())
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
+          fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
@@ -107,6 +119,8 @@ jobs:
           assert economic.get('conservative_nav_per_share') is not None, economic
           assert economic['conservative_nav_per_share'] <= economic['nav_per_share'], economic
           assert isinstance(economic.get('cash_fx'), dict), economic
+          assert isinstance(fx_backtest, dict), fx_backtest
+          assert fx_backtest.get('reason') != 'api_error', fx_backtest
           assert forecast.get('status') != 'INSUFFICIENT_VOLUME_HISTORY', forecast
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
@@ -117,6 +131,7 @@ jobs:
               summary.get('as_of_date'),
               summary.get('data_status'),
               f"economic_nav={economic.get('nav_per_share')}",
+              f"fx_backtest_ready={fx_backtest.get('ready')}",
               f"buyback_status={forecast.get('status')}",
               f'age_days={age}',
           )
