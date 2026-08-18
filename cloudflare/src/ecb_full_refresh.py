@@ -17,6 +17,7 @@ except ImportError:
 
 ECB_EXR_URL = "https://data-api.ecb.europa.eu/service/data/EXR/D.BRL+NOK+USD.EUR.SP00.A"
 MAX_ECB_BYTES = 2 * 1024 * 1024
+FX_BACKTEST_HISTORY_START = "2023-12-20"
 
 
 def build_ecb_url(start_date: str, end_date: str) -> str:
@@ -156,3 +157,50 @@ async def refresh_ecb_fx(
         "content_sha256": digest,
         "r2_archive": archived,
     }
+
+
+async def ensure_fx_backtest_history(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket: Any | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Backfill daily BRL/NOK and USD/NOK once when the FX backtest history is missing."""
+    rows = await repository.all(
+        """
+        SELECT base_currency, COUNT(*) AS n,
+               MIN(substr(observed_at,1,10)) AS min_date,
+               MAX(substr(observed_at,1,10)) AS max_date
+        FROM fx_rates
+        WHERE quote_currency='NOK' AND base_currency IN ('BRL','USD')
+        GROUP BY base_currency
+        ORDER BY base_currency
+        """
+    )
+    coverage = {str(row["base_currency"]): row for row in rows}
+    complete = all(
+        currency in coverage
+        and str(coverage[currency].get("min_date") or "9999-12-31") <= FX_BACKTEST_HISTORY_START
+        and int(coverage[currency].get("n") or 0) >= 450
+        for currency in ("BRL", "USD")
+    )
+    if complete:
+        return {
+            "status": "ok",
+            "skipped": True,
+            "reason": "fx_backtest_history_already_present",
+            "coverage": coverage,
+        }
+
+    target = date.fromisoformat(target_date)
+    start = date.fromisoformat(FX_BACKTEST_HISTORY_START)
+    lookback_days = max(7, (target - start).days)
+    result = await refresh_ecb_fx(
+        repository,
+        target_date=target_date,
+        lookback_days=lookback_days,
+        archive_bucket=archive_bucket,
+        fetcher=fetcher,
+    )
+    return {**result, "skipped": False, "purpose": "fx_backtest_history"}
