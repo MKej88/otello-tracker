@@ -51,7 +51,7 @@ function value(input: number | null | undefined, digits = 2) {
 function signedValue(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
   const prefix = input > 0 ? "+" : "";
-  return `${prefix}${value(input, digits)}m`;
+  return `${prefix}${value(input, digits)} mill.`;
 }
 
 function dateLabel(input?: string | null) {
@@ -59,6 +59,11 @@ function dateLabel(input?: string | null) {
   const [year, month, day] = input.split("-");
   if (!year || !month || !day) return input;
   return `${day}.${month}.${year}`;
+}
+
+function reasonLabel(reason?: string) {
+  if (reason === "api_error") return "API-feil";
+  return "Ikke klart";
 }
 
 export default function EconomicNavPanel() {
@@ -97,9 +102,9 @@ export default function EconomicNavPanel() {
         <div className="economicNavPanel economicNavUnavailable">
           <div>
             <span className="economicEyebrow">Investorjustert NAV</span>
-            <strong>Økonomisk NAV venter på komplett FULL NAV-data</strong>
+            <strong>Økonomisk NAV venter på komplett FULL NAV-grunnlag</strong>
           </div>
-          <span>{data.reason ?? "ikke klar"}</span>
+          <span>{reasonLabel(data.reason)}</span>
         </div>
       </section>
     );
@@ -117,7 +122,7 @@ export default function EconomicNavPanel() {
             <span className="economicEyebrow">Investorjustert verdsettelse</span>
             <h2>Økonomisk NAV</h2>
           </div>
-          <span className="economicBadge">ESTIMERT OVERLAY</span>
+          <span className="economicBadge">ESTIMERT JUSTERING</span>
         </div>
 
         <div className="economicMetrics">
@@ -136,41 +141,41 @@ export default function EconomicNavPanel() {
             <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
           </div>
           <div>
-            <span>Økonomisk cash</span>
-            <strong>{value(data.economic_cash_mnok, 1)}m kr</strong>
-            <small>etter valuta og estimert drift</small>
+            <span>Økonomisk kontantbeholdning</span>
+            <strong>{value(data.economic_cash_mnok, 1)} mill. kr</strong>
+            <small>etter valutaeffekt og estimert drift</small>
           </div>
         </div>
 
         <div className="economicAdjustments">
           <div>
-            <span>Cash – dokumentert valutaeffekt</span>
+            <span>Kontanter – dokumentert valutaeffekt</span>
             <strong>{signedValue(cashFx?.adjustment_mnok)}</strong>
-            <small>{cashFx?.coverage_pct != null ? `${value(cashFx.coverage_pct, 1)} % av cash valutafordelt` : cashFx?.quality ?? "–"}</small>
+            <small>{cashFx?.coverage_pct != null ? `${value(cashFx.coverage_pct, 1)} % av kontantbeholdningen valutafordelt` : "–"}</small>
           </div>
           <div>
             <span>Opsjon – regnskapsført</span>
-            <strong>{value(option?.accounting_liability_mnok, 1)}m</strong>
+            <strong>{value(option?.accounting_liability_mnok, 1)} mill.</strong>
           </div>
           <div>
             <span>Opsjon – økonomisk verdi</span>
-            <strong>{value(option?.economic_value_mnok, 1)}m</strong>
+            <strong>{value(option?.economic_value_mnok, 1)} mill.</strong>
           </div>
           <div>
             <span>Ekstra opsjonsoverheng</span>
-            <strong>−{value(option?.unrecognized_overhang_mnok, 1)}m</strong>
+            <strong>−{value(option?.unrecognized_overhang_mnok, 1)} mill.</strong>
           </div>
           <div>
             <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
-            <strong>−{value(costs?.base_mnok, 1)}m</strong>
+            <strong>−{value(costs?.base_mnok, 1)} mill.</strong>
           </div>
         </div>
 
         <div className="economicFootnote">
           <span>
-            Driftsrun-rate: ca. USD {value(costs?.base_annualized_usd_m, 2)}m/år
+            Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
             {costs?.source_period ? ` (${costs.source_period})` : ""}.
-            Kun dokumentert USD/BRL-cash revalueres; ukjent valutafordeling gjettes ikke. Renteinntekter er ikke lagt til.
+            Kun dokumenterte USD-/BRL-kontanter revalueres; ukjent valutafordeling gjettes ikke. Renteinntekter er ikke lagt til.
           </span>
           <span>Data {dateLabel(data.as_of_date)}</span>
         </div>
