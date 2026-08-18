@@ -8,7 +8,7 @@ from economic_nav import economic_nav_summary
 from fx_backtest import fx_backtest_summary
 from performance_repository import PerformanceD1Repository
 
-API_VERSION = "0.11.2"
+API_VERSION = "0.12.0"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -17,19 +17,37 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
+# Browser TTL stays short where the dashboard should feel live. The dedicated Cloudflare
+# CDN TTL is longer so repeated visits and multiple tabs normally avoid Python/D1 work.
+# Workers Caching is enabled by the rendered production Wrangler config.
 CACHE_POLICIES = {
-    "/api/health": "no-store",
-    "/api/dashboard/summary": "public, max-age=30",
-    "/api/dashboard/economic": "public, max-age=30",
-    "/api/dashboard/fx-backtest": "public, max-age=3600",
-    "/api/dashboard/history": "public, max-age=900",
-    "/api/buybacks/forecast": "public, max-age=900",
+    "/api/health": ("no-store", "no-store"),
+    "/api/dashboard/summary": (
+        "public, max-age=15",
+        "public, max-age=60, stale-while-revalidate=120",
+    ),
+    "/api/dashboard/economic": (
+        "public, max-age=15",
+        "public, max-age=60, stale-while-revalidate=120",
+    ),
+    "/api/dashboard/fx-backtest": (
+        "public, max-age=1800",
+        "public, max-age=21600, stale-while-revalidate=43200",
+    ),
+    "/api/dashboard/history": (
+        "public, max-age=300",
+        "public, max-age=1800, stale-while-revalidate=3600",
+    ),
+    "/api/buybacks/forecast": (
+        "public, max-age=300",
+        "public, max-age=900, stale-while-revalidate=1800",
+    ),
 }
 
 app = FastAPI(
-    title="Otello NAV Dashboard",
+    title="Otello NAV-oversikt",
     version=API_VERSION,
-    description="Cloudflare Worker API for Otello NAV Dashboard",
+    description="Cloudflare Worker API for Otello NAV-oversikt",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -41,7 +59,12 @@ async def add_response_hardening(request: Request, call_next):
     response = await call_next(request)
     for header, value in SECURITY_HEADERS.items():
         response.headers[header] = value
-    response.headers["Cache-Control"] = CACHE_POLICIES.get(request.url.path, "no-store")
+    browser_policy, edge_policy = CACHE_POLICIES.get(
+        request.url.path,
+        ("no-store", "no-store"),
+    )
+    response.headers["Cache-Control"] = browser_policy
+    response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
     return response
 
 
