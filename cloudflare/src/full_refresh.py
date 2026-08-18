@@ -14,12 +14,13 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
-PHASE = "15.5"
+PHASE = "15.6"
 _SOURCE_CODE_BY_STEP = {
     "ecb": "ECB",
     "b3": "B3",
     "cvm": "CVM",
     "newsweb": "NEWSWEB",
+    "newsweb_attachments": "NEWSWEB",
     "otec_recovery": "EURONEXT",
 }
 
@@ -47,7 +48,14 @@ def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
             compact["error_count"] = len(value)
             compact["errors"] = value[:10]
             continue
-        if key in {"history", "buybacks", "recovery", "finalization", "coverage_result"} and isinstance(value, dict):
+        if key in {
+            "history",
+            "buybacks",
+            "recovery",
+            "finalization",
+            "coverage_result",
+            "cash_sync",
+        } and isinstance(value, dict):
             compact[key] = _compact_source_result(value)
             continue
         compact[key] = value
@@ -94,6 +102,8 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     newsweb = results.get("newsweb") or {}
     total += int((newsweb.get("history") or {}).get("archived") or 0)
     total += int((newsweb.get("buybacks") or {}).get("ingested") or 0)
+    attachments = results.get("newsweb_attachments") or {}
+    total += int(attachments.get("daily_rows_written") or 0)
     otec = results.get("otec_recovery") or {}
     if otec.get("recovery_used") and otec.get("status") == "ok":
         total += 1
@@ -109,6 +119,7 @@ async def finish_full_refresh(
     source_results: dict[str, dict[str, Any]],
     nav_result: dict[str, Any],
     preflight_result: dict[str, Any],
+    archive_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repository = PerformanceD1WriteRepository(database)
     errors: list[dict[str, str]] = []
@@ -158,14 +169,31 @@ async def finish_full_refresh(
                 "error": f"{len(preflight_result.get('blockers') or [])} blocker(s)",
             }
         )
+    archive_result = archive_result or {"status": "skipped", "reason": "not_requested"}
+    if str(archive_result.get("status") or "").lower() == "error":
+        errors.append(
+            {
+                "step": "r2_snapshot",
+                "error": str(archive_result.get("error") or "snapshot failed")[:1000],
+            }
+        )
 
+    tracked_results = [
+        source_results[name]
+        for name in _SOURCE_CODE_BY_STEP
+        if name in source_results
+    ]
     failed_sources = sum(
-        1 for result in source_results.values() if _source_health_status(result) == "DOWN"
+        1 for result in tracked_results if _source_health_status(result) == "DOWN"
     )
-    if failed_sources == len(_SOURCE_CODE_BY_STEP) and not preflight_result.get("ready"):
+    if (
+        tracked_results
+        and failed_sources == len(tracked_results)
+        and not preflight_result.get("ready")
+    ):
         status = "FAILED"
     elif errors or any(
-        _source_health_status(result) == "DEGRADED" for result in source_results.values()
+        _source_health_status(result) == "DEGRADED" for result in tracked_results
     ):
         status = "PARTIAL"
     else:
@@ -183,6 +211,7 @@ async def finish_full_refresh(
             "blockers": preflight_result.get("blockers"),
             "warnings": preflight_result.get("warnings"),
         },
+        "archive": _compact_source_result(archive_result),
         "repository": repository.performance_metrics(),
     }
     await repository.finish_job(
@@ -201,5 +230,6 @@ async def finish_full_refresh(
         "source_results": source_results,
         "nav": nav_result,
         "preflight": preflight_result,
+        "archive": archive_result,
         "errors": errors,
     }
