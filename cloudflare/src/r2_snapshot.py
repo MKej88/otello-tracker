@@ -3,17 +3,18 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
 
-SNAPSHOT_VERSION = "d1-logical-snapshot-v2-chunked"
+SNAPSHOT_VERSION = "d1-logical-snapshot-v3-cost-bounded"
 SNAPSHOT_CHUNK_ROWS = 500
 MAX_CHUNK_UNCOMPRESSED_BYTES = 4 * 1024 * 1024
 MAX_SNAPSHOT_CHUNKS = 750
 
-# Financial-model/audit state is archived daily. High-churn reconstructible operational
-# tables remain outside the logical snapshot; D1 Time Travel is the whole-database recovery
-# mechanism. Broker estimates and consensus are included because they are curated investor
-# facts, not reconstructible runtime state.
+# D1 Time Travel on Workers Paid covers short-term point-in-time recovery. The separate R2
+# logical snapshot is therefore an audit/long-retention layer rather than a daily backup.
+# Keep weekly checkpoints plus every calendar month-end; this bounds R2 storage growth and
+# Class A writes without changing the financial model or D1 recovery path.
 _SNAPSHOT_TABLES: tuple[tuple[str, str], ...] = (
     ("sources", "id"),
     ("instruments", "id"),
@@ -56,6 +57,14 @@ def _reader(repository) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
     return getattr(repository, "all_uncached", repository.all)
 
 
+def should_archive_d1_snapshot(target_date: str) -> bool:
+    current = date.fromisoformat(target_date)
+    next_day = current + timedelta(days=1)
+    is_sunday = current.weekday() == 6
+    is_month_end = next_day.month != current.month
+    return is_sunday or is_month_end
+
+
 async def _table_chunks(repository, table: str, order_by: str):
     read = _reader(repository)
     cursor: Any | None = None
@@ -88,8 +97,17 @@ async def archive_d1_snapshot(
     *,
     target_date: str,
     preflight_status: str | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Write a chunked financial audit snapshot without a whole-database memory copy."""
+    """Write a bounded weekly/month-end financial audit snapshot to R2."""
+    if not force and not should_archive_d1_snapshot(target_date):
+        return {
+            "status": "skipped",
+            "reason": "weekly_or_month_end_only",
+            "target_date": target_date,
+            "d1_time_travel_is_primary_short_term_recovery": True,
+        }
+
     row_counts: dict[str, int] = {}
     chunks: list[dict[str, Any]] = []
     total_uncompressed = 0
@@ -171,11 +189,23 @@ async def archive_d1_snapshot(
         "chunk_objects": chunks,
         "excluded_reconstructible_tables": list(_EXCLUDED_RECONSTRUCTIBLE_TABLES),
         "preflight_status": preflight_status,
+        "retention_policy": "WEEKLY_PLUS_MONTH_END",
         "restore_scope": "LOGICAL_AUDIT_SNAPSHOT_NOT_D1_TIME_TRAVEL_REPLACEMENT",
     }
     await bucket.put(manifest_key, _canonical_json(manifest))
+
+    # Do not return the full chunk manifest into Workflow state. The complete manifest is
+    # already durable in R2; only the compact result is needed by orchestration/job logs.
     return {
         "status": "ok",
-        **manifest,
+        "snapshot_version": SNAPSHOT_VERSION,
+        "target_date": target_date,
+        "logical_sha256": digest,
+        "uncompressed_bytes": total_uncompressed,
+        "compressed_bytes": total_compressed,
+        "table_count": len(_SNAPSHOT_TABLES),
+        "chunk_count": len(chunks),
         "manifest_key": manifest_key,
+        "preflight_status": preflight_status,
+        "retention_policy": "WEEKLY_PLUS_MONTH_END",
     }
