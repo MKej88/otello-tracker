@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
+from economic_nav import economic_nav_summary
 from performance_repository import PerformanceD1Repository
 
 API_VERSION = "0.11.1"
@@ -18,6 +19,7 @@ SECURITY_HEADERS = {
 CACHE_POLICIES = {
     "/api/health": "no-store",
     "/api/dashboard/summary": "public, max-age=30",
+    "/api/dashboard/economic": "public, max-age=30",
     "/api/dashboard/history": "public, max-age=900",
     "/api/buybacks/forecast": "public, max-age=900",
 }
@@ -71,6 +73,11 @@ async def get_dashboard_summary(request: Request) -> dict:
     repository = _repository(request)
     summary = await dashboard_summary(repository)
     return await enrich_dashboard_summary(summary, repository)
+
+
+@app.get("/api/dashboard/economic")
+async def get_economic_nav(request: Request) -> dict:
+    return await economic_nav_summary(_repository(request))
 
 
 @app.get("/api/dashboard/history")
