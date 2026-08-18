@@ -4,14 +4,19 @@ from datetime import date, timedelta
 from typing import Any
 
 try:
+    from .buyback_service import buyback_forecast
     from .dashboard_service import dashboard_summary, enrich_dashboard_summary
+    from .economic_nav import economic_nav_summary
 except ImportError:
+    from buyback_service import buyback_forecast
     from dashboard_service import dashboard_summary, enrich_dashboard_summary
+    from economic_nav import economic_nav_summary
 
 HISTORY_START = "2021-02-10"
 NEWSWEB_HISTORY_START_YEAR = "2020"
 MAX_INPUT_AGE_DAYS = 7
 CASH_FX_LOOKBACK_DAYS = 7
+MIN_BUYBACK_ACTIVITY_DAYS = 20
 
 
 def _check(
@@ -236,6 +241,61 @@ async def run_d1_preflight(
         details={"count": int(buybacks.get("n") or 0), "to": buybacks.get("max_date")},
     )
 
+    activity = await repository.first(
+        """
+        SELECT COUNT(*) AS n,
+               SUM(CASE WHEN ma.volume_shares > 0 THEN 1 ELSE 0 END) AS positive_days,
+               MIN(ma.trading_date) AS min_date,
+               MAX(ma.trading_date) AS max_date
+        FROM market_activity ma
+        JOIN instruments i ON i.id=ma.instrument_id
+        WHERE i.symbol='OTEC'
+        """
+    ) or {}
+    activity_details = {
+        "count": int(activity.get("n") or 0),
+        "positive_days": int(activity.get("positive_days") or 0),
+        "from": activity.get("min_date"),
+        "to": activity.get("max_date"),
+        "required_positive_days": MIN_BUYBACK_ACTIVITY_DAYS,
+    }
+    _check(
+        checks,
+        "otec_activity_history",
+        activity_details["positive_days"] >= MIN_BUYBACK_ACTIVITY_DAYS,
+        details=activity_details,
+    )
+
+    forecast = await buyback_forecast(repository, as_of_date=target_date)
+    forecast_status = str(forecast.get("status") or "UNKNOWN")
+    _check(
+        checks,
+        "buyback_forecast_operational",
+        forecast_status != "INSUFFICIENT_VOLUME_HISTORY",
+        details={
+            "ready": forecast.get("ready"),
+            "status": forecast_status,
+            "methodology_version": forecast.get("methodology_version"),
+            "required_volume_days": MIN_BUYBACK_ACTIVITY_DAYS,
+        },
+    )
+    if not forecast.get("ready") and forecast_status not in {
+        "NO_ACTIVE_PROGRAM",
+        "PROGRAM_EXHAUSTED",
+        "INSUFFICIENT_VOLUME_HISTORY",
+    }:
+        _check(
+            checks,
+            "buyback_forecast_current_state",
+            False,
+            details={
+                "status": forecast_status,
+                "as_of_date": forecast.get("as_of_date"),
+                "latest_period_end": forecast.get("latest_period_end"),
+            },
+            warning=True,
+        )
+
     cvm = await repository.first(
         """
         SELECT COUNT(*) AS n, MAX(sd.fetched_at) AS last_fetch
@@ -291,6 +351,23 @@ async def run_d1_preflight(
                 "model_scope": summary.get("model_scope"),
             },
         )
+
+        economic = await economic_nav_summary(repository)
+        _check(
+            checks,
+            "economic_nav_overlay",
+            bool(economic.get("ready"))
+            and economic.get("as_of_date") == summary.get("as_of_date"),
+            details={
+                "ready": economic.get("ready"),
+                "reason": economic.get("reason"),
+                "as_of_date": economic.get("as_of_date"),
+                "dashboard_as_of_date": summary.get("as_of_date"),
+                "nav_per_share": economic.get("nav_per_share"),
+                "accounting_nav_per_share": economic.get("accounting_nav_per_share"),
+                "cash_fx": economic.get("cash_fx"),
+            },
+        )
         _check(
             checks,
             "dashboard_quality",
@@ -316,5 +393,7 @@ async def run_d1_preflight(
         "known_expected_gaps": [
             "FULL NAV is intentionally unavailable before the supported ONA period.",
             "Between reports, cash/ONA may legitimately be estimated; that affects quality but does not invalidate source provenance.",
+            "Economic NAV must be ready/current for full-refresh success but remains separate from accounting CORE/FULL.",
+            "A buyback program may be inactive/exhausted; missing OTEC volume history is never accepted because it disables the forecast engine itself.",
         ],
     }

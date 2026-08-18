@@ -6,10 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 from workers import WorkflowEntrypoint, WorkerEntrypoint
 
-# Cloudflare's Python Worker loader exposes files below `src/` as top-level modules.
-# The same source tree is also imported as the `src` package by CPython parity tests.
-# Keep the shared buyback service package-compatible by aliasing only its calendar
-# dependency before the top-level Worker modules are imported.
 import oslo_calendar
 
 _src_package = sys.modules.get("src")
@@ -20,6 +16,8 @@ if _src_package is None:
 sys.modules.setdefault("src.oslo_calendar", oslo_calendar)
 
 from app import app  # noqa: E402
+
+FULL_REFRESH_LOCK_TTL_SECONDS = 3 * 60 * 60
 
 
 def _event_value(event, key: str):
@@ -48,8 +46,6 @@ def _workflow_target_date(event) -> str:
     scheduled_ms = _nested_value(schedule, "scheduledTime")
     if scheduled_ms is not None:
         scheduled_day = datetime.fromtimestamp(float(scheduled_ms) / 1000, tz=UTC).date()
-        # The daily Workflow runs after midnight UTC so both Oslo and São Paulo have
-        # completed the market date being reconciled.
         return (scheduled_day - timedelta(days=1)).isoformat()
     return datetime.now(UTC).date().isoformat()
 
@@ -67,8 +63,6 @@ class Default(WorkerEntrypoint):
         return await asgi.fetch(app, request.js_object, self.env)
 
     async def scheduled(self, controller, env, ctx):
-        # The legacy top-level Cron remains dedicated to the bounded 30-minute fast path.
-        # The heavier durable Workflow owns full refresh and R2 archiving.
         from scheduled import run_scheduled
 
         await run_scheduled(
@@ -79,7 +73,7 @@ class Default(WorkerEntrypoint):
 
 
 class FullRefreshWorkflow(WorkflowEntrypoint):
-    """Durable full refresh, attachment enrichment and content-addressed R2 archive."""
+    """Durable full refresh protected from concurrent fast-path writes."""
 
     async def run(self, event, step):
         from b3_full_refresh import refresh_bmob3_close
@@ -92,6 +86,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_nav,
             start_full_refresh,
         )
+        from job_lock import acquire_refresh_lock, release_refresh_lock
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
         from otec_workflow_recovery import ensure_otec_eod
@@ -101,6 +96,27 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         target_date = _workflow_target_date(event)
         trigger = _workflow_trigger(event)
         source_results = {}
+        lock_owner = f"full:{target_date}:{trigger}"
+
+        @step.do(
+            "acquire full refresh writer lock",
+            config={"retries": {"limit": 8, "delay": "1 minute"}, "timeout": "2 minutes"},
+        )
+        async def lock_step():
+            repository = PerformanceD1WriteRepository(self.env.DB)
+            result = await acquire_refresh_lock(
+                repository,
+                owner=lock_owner,
+                ttl_seconds=FULL_REFRESH_LOCK_TTL_SECONDS,
+            )
+            if not result.get("acquired"):
+                raise RuntimeError(
+                    "refresh writer lock held by "
+                    f"{result.get('held_by')} until {result.get('expires_at')}"
+                )
+            return result
+
+        lock_result = await lock_step()
 
         @step.do(
             "start full refresh",
@@ -274,4 +290,16 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 archive_result=archive_result,
             )
 
-        return await finish_step()
+        result = await finish_step()
+
+        @step.do(
+            "release full refresh writer lock",
+            config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
+        )
+        async def release_step():
+            repository = PerformanceD1WriteRepository(self.env.DB)
+            released = await release_refresh_lock(repository, lock_result.get("token"))
+            return {"released": released, "owner": lock_owner}
+
+        await release_step()
+        return result

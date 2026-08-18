@@ -2,248 +2,124 @@
 
 Denne katalogen er den aktive Cloudflare-native produksjonsimplementasjonen.
 
-## Valgte tjenester
+## Tjenester
 
-- **Python Workers + FastAPI** – dashboard-API og portert Python-forretningslogikk
-- **Workers Static Assets** – React/Vite frontend
+- **Python Workers + FastAPI** – API og portert finans-/datakildelogikk
+- **Workers Static Assets** – React/Vite-dashboard
 - **D1** – strukturert produksjonsdatabase
-- **R2** – PDF/råkilder/arkiv og store recovery-payloads i senere fase
-- **Cron Triggers** – 30-minutters fast refresh i Phase 15.4
-- **Workflows** – tyngre fullrefresh og retries i Phase 15.5
-- **Workers Secrets / Secrets Store** – produksjonssecrets
+- **R2** – råkilder, NewsWeb-PDF-er og logisk auditsnapshot
+- **Cron Triggers** – bounded 30-minutters fast refresh
+- **Workflows** – daglig full refresh med retries og R2-arkivering
 
-Docker/SQLite beholdes kun som regresjonsreferanse og bootstrap-kilde under cutover.
+SQLite-backenden er deterministisk regresjonsreferanse og bootstrap-kilde, ikke produksjonsdatabasen etter cutover.
 
-## Implementert nå
-
-```text
-src/
-  entry.py
-  app.py
-  repository.py
-  dashboard_service.py
-  buyback_service.py
-  oslo_calendar.py
-  b3_calendar.py
-  otec_ingestion.py
-  bmob3_ingestion.py
-  newsweb_client.py
-  newsweb_ingestion.py
-  newsweb_buybacks.py
-  option_liability.py
-  nav_refresh.py
-  scheduled.py
-
-migrations/
-  0001_initial_schema.sql
-  0002_reference_data.sql
-  0003_query_indexes.sql
-  0004_option_liability.sql
-```
-
-Worker-rutene er:
+## Worker API
 
 ```text
 GET /api/health
 GET /api/dashboard/summary
+GET /api/dashboard/economic
 GET /api/dashboard/history
 GET /api/buybacks/forecast
 ```
 
-React/Vite ligger på samme Worker-origin. `/api/*` er Worker-first, mens øvrige paths serveres som Static Assets med SPA-fallback.
-
-WorkerEntrypoint har i tillegg en `scheduled(self, controller, env, ctx)`-handler. `wrangler.jsonc` kobler denne til `*/30 * * * *` for den lette innhentingsbanen.
-
-## Phase 15.4.1 – OTEC intradag
-
-Første write-path er CI-validert:
+## Scheduling
 
 ```text
-Cron */30 * * * *
-  -> Euronext LAST_15_MINUTES
-  -> ved behov LAST_HOUR
-  -> OTEC ISIN/XOSL/NOK-filter
-  -> kilde-dokument i D1
-  -> idempotent market_prices LAST/DIRECT
-  -> job_runs
+Fast refresh:   */30 * * * *
+Full Workflow:  35 3 * * *   (03:35 UTC)
 ```
 
-Semantikken er bevisst lik SQLite-referansen: Euronext-transaksjonen lagres som `LAST`/`DIRECT` og omtales ikke som offisiell sluttkurs.
+Begge write-paths bruker `runtime_state`-låsen `cloudflare_refresh_writer_lock`. Fast refresh hopper kontrollert over dersom full Workflow holder låsen. Full Workflow venter/retryer ved konflikt. Låsen har expiry slik at et krasj ikke kan blokkere systemet permanent.
 
-Intradagspayloaden er eksplisitt størrelsesbegrenset. ZIP-en holdes bounded, mens CSV-medlemmet leses sekvensielt direkte fra ZIP-strømmen i stedet for å ekspanderes til én stor bytes-/tekstbuffer.
+## Fast refresh
 
-## Phase 15.4.2 – BMOB3 intradag og EOD LAST
+Fast-banen håndterer:
 
-BMOB3 er koblet til samme 30-minutters Cron og er CI-validert mot referanseimplementasjonen:
+- OTEC delayed/gap recovery/EOD LAST;
+- BMOB3 delayed/EOD LAST;
+- NewsWeb incremental;
+- dirty-state cash/ONA/CORE/FULL NAV.
+
+Den er bounded og idempotent. Euronext EOD er fortsatt `LAST / DIRECT`, ikke påstått offisiell `CLOSE`.
+
+## Full Workflow
+
+Daglig Workflow håndterer:
+
+1. ECB FX;
+2. B3 COTAHIST;
+3. Bemobi CVM;
+4. NewsWeb reconciliation;
+5. NewsWeb PDF/daglige buyback-transaksjoner;
+6. OTEC recovery/EOD;
+7. dirty NAV;
+8. D1 production-data preflight;
+9. R2 logisk auditsnapshot;
+10. jobb-/source-health-finalisering.
+
+D1-preflighten krever nå også:
+
+- økonomisk NAV `ready=true` og samme dato som dashboardet;
+- minst 20 positive OTEC-volumdager;
+- buyback engine må ikke returnere `INSUFFICIENT_VOLUME_HISTORY`.
+
+CVM-årets komprimerte ZIP holdes bounded, og det utpakkede CSV-medlemmet leses som tekststream direkte fra ZIP. Hele CSV-en materialiseres ikke lenger i Worker-minnet.
+
+## Økonomisk NAV
+
+Økonomisk NAV er separat fra CORE/FULL. Worker-pariteten leser kildebelagte cost anchors og cash-FX-ankre fra D1 `source_documents`.
+
+For et cash-anker med dokumentert valutafordeling:
+
+- USD-andel revalueres mot USD/NOK;
+- BRL-andel revalueres mot BRL/NOK;
+- `UNALLOCATED` rest holdes på ankerverdi.
+
+Ingen ukjent valuta gjettes.
+
+## R2 snapshot
+
+Det logiske auditsnapshotet er chunked og bounded. Det inkluderer nå også:
+
+- `broker_estimate_sets`
+- `broker_estimate_values`
+- `consensus_snapshots`
+
+Høyfrekvente/re-konstruerbare `company_news`, `market_activity` og `runtime_state` er fortsatt utelatt. D1 Time Travel er full database-recovery.
+
+## D1 bootstrap
+
+`tools/d1_bootstrap.py` støtter:
 
 ```text
-Cron */30 * * * *
-  -> B3 delayed BMOB3 JSON
-  -> 15 min effective market timestamp
-  -> market_prices LAST/DIRECT
-  -> etter 19:15 São Paulo: idempotent EOD LAST
-  -> offisiell COTAHIST CLOSE kan senere oppgradere samme handelsdag
+export          SQLite → deterministisk SQL + manifest
+verify          lokal D1/SQLite mot manifest
+verify-remote   remote D1 read-only export → eksakt manifestparitet
 ```
 
-B3-responsen er begrenset til 256 KiB. Worker-versjonen bruker ikke hop-by-hop-headeren `Connection`; en egen regresjonstest låser dette fordi Cloudflare ikke tillater denne headeren i Worker-subrequests.
+Etter produksjonsimport skal `verify-remote` passere før første Worker cutover godkjennes.
 
-EOD-verdien merkes eksplisitt som en siste forsinket webkurs, **ikke** som offisiell COTAHIST-sluttkurs. Den tyngre daglige COTAHIST-jobben beholdes derfor som sterkere kilde i full refresh.
+## Deploy
 
-Scheduler-isolasjonen gjør at en feil i én markedsfeed ikke automatisk stopper den andre: kjøringen registreres som `PARTIAL` når bare én kilde feiler, og `FAILED` først når alle aktive hovedkilder feiler.
+`.github/workflows/deploy-cloudflare.yml`:
 
-## Phase 15.4.3 – OTEC EOD og gap recovery
+1. bygger frontend;
+2. renderer produksjonskonfig;
+3. applyer remote D1 migrations;
+4. deployer Worker/Workflow;
+5. tester health, summary, economic NAV og buyback forecast;
+6. ruller Worker tilbake til forrige deployerte versjon dersom en senere produksjonsakseptanse feiler.
 
-Worker-banen følger referansens 75-minutters overlap-prinsipp, men unngår en stor dagsfil i normal drift:
+Worker rollback reverserer ikke D1 migrations. Produksjonsmigreringer skal derfor være additive/bakoverkompatible, og D1 Time Travel brukes ved database-restore.
 
-```text
-30-minutters OTEC refresh
-  -> LAST_15_MINUTES
-  -> LAST_HOUR
-  -> hvis nylig frisk OTEC-poll: ingen dagsfil
-  -> ved kaldstart/poll-gap > 75 min: CURRENT_TRADING_DAY
-  -> etter 16:45 Oslo: EOD fra dokumentert rolling coverage + siste D1-handel
-```
+## Produksjonsressurser
 
-Når den rullerende dekningen er frisk, finaliseres dagens siste kjente OTEC-handel direkte fra D1. EOD-raden er fortsatt `LAST` / `DIRECT` og merkes `FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE`; vi hevder dermed ikke å ha Euronexts offisielle closing-price-felt.
-
-`CURRENT_TRADING_DAY` brukes bare til kaldstart/gap recovery. Den komprimerte recovery-ZIP-en har en hard grense på 32 MiB som kontrolleres mot `Content-Length` **før** `arrayBuffer()` når serveren oppgir lengden. Den utpakkede CSV-en materialiseres aldri som én stor tekstbuffer; bare OTEC-rader beholdes i Python.
-
-Dette er et fail-safe valg mot Workers' 128 MiB minnegrense. Dersom en recovery-ZIP er større enn 32 MiB, feiler OTEC-steget kontrollert og scheduled job blir `PARTIAL` dersom andre kilder fortsatt fungerer. Store recovery-payloads er eksplisitt kandidat for R2 + Workflow i Phase 15.5/15.6, der Cloudflare kan strømme data til R2 uten å holde hele objektet i Worker-minnet.
-
-## Phase 15.4.4 – NewsWeb incremental
-
-NewsWeb er nå en Worker-native inkrementell D1-write-path i samme 30-minutters Cron:
-
-```text
-NewsWeb history
-  -> 14 dagers overlapp fra siste arkiverte melding
-  -> issuer 7759 / OTEC / XOSL-validering
-  -> recursive split hvis API-listen melder overflow
-  -> korrigerte/superseded meldinger filtreres ut
-  -> kilde-dokument + company_news i D1
-
-NewsWeb buybacks
-  -> 21 dagers overlapp fra siste daglige/ukentlige buyback-fakta
-  -> ukentlig status parseres med samme normalisering som referansen
-  -> buyback_programs / buybacks
-  -> CONFIRMED fallback-kontantbevegelse
-  -> treasury/outstanding share count
-```
-
-JSON-responsen er begrenset til 5 MiB, og `Content-Length` kontrolleres før body-lesing når den finnes. Full meldingstekst lagres ikke i D1; vi lagrer SHA-256, metadata og de strukturerte faktaene som trengs for dashboardet.
-
-Parseren er regresjonstestet mot dokumenterte NewsWeb-varianter fra 2023–2025, inkludert legacy første programuke, `Sine the initiation`-feilen, `continuation`-ordlyd og desimalkomma. En egen test skriver ukesfakta mot database bygget fra de faktiske D1-migreringene og verifiserer idempotens.
-
-Kildeprioriteten er bevart fra referanseimplementasjonen: Euronext-fakta rangeres foran NewsWeb når begge finnes. En lik eller svakere kilde får derfor ikke overskrive motstridende sterkere buyback-fakta uten at kjøringen stopper for kontroll.
-
-PDF-vedlegg blir bevisst **ikke** lastet ned og tolket hvert 30. minutt. Ukesmeldingen gir fortsatt bekreftet ukesbeløp, treasury shares og fallback-kontantbevegelse. Daglige PDF-transaksjoner og NewsWeb-PDF-arkiv legges til i full refresh/R2 i Phase 15.5/15.6; de kan da erstatte ukentlig fallback med mer presise daglige kontantbevegelser.
-
-## Phase 15.4.5 – Dirty-state cash og NAV
-
-Den lette Cron-banen avsluttes nå med en Worker-native D1-refresh av bare de verdsettelseslagene som faktisk har endrede input:
-
-```text
-markedsdata + NewsWeb
-  -> velg dagens modelldato når dagens markedsdata finnes,
-     ellers siste kjente OTEC-handelsdato
-  -> daily cash
-  -> option-aware daily ONA
-  -> CORE NAV
-  -> FULL NAV
-```
-
-Hvert lag bygger en deterministisk `inputs_hash`. Dersom hash og beregnet verdi er uendret, hoppes D1-write over. En vanlig 30-minutters poll uten nye relevante fakta omskriver derfor ikke cash-/ONA-/NAV-radene.
-
-**Cash** starter fra siste rapporterte kontantanker og fører bare kjente, eksplisitte kontantbevegelser videre. Ukentlige tilbakekjøp som krysser et rapportanker blir fortsatt ekskludert fra post-anchor-modellen for å unngå dobbelttelling. Etter siste rapporterte anker er kvaliteten derfor eksplisitt `FORECAST_PARTIAL`, ikke et skjult estimat på ukjente driftskostnader.
-
-**CORE NAV** bruker samme syvdagers lookback og samme kildeprioritet som SQLite-referansen. En offisiell/sterkere `CLOSE` på samme handelsdag vinner over `LAST`; Euronext/B3 vinner over tredjepartsfallback. BMOB3-verdi, BRL/NOK, cash og utestående Otello-aksjer inngår med samme status-/quality-semantikk som referansemodellen.
-
-**FULL NAV** bruker samme option-aware modell som Phase 15.3.2. Base ONA, eventuelle aktive Bemobi-fordringer og den kontantoppgjorte Otello-opsjonsforpliktelsen beregnes separat. Opsjonsforpliktelsen mark-to-marketes fra OTEC med den rapporterte Black-Scholes-rammen, strike-justeringer for relevante Otello-utdelinger og recognition factor kalibrert til rapportert USD 314k per 31.12.2025. Dermed gjør en reell OTEC-prisendring både ONA og FULL NAV dirty, mens cash forblir urørt dersom kontantinputene ikke har endret seg.
-
-Dirty-refreshen kjøres etter markeds- og NewsWeb-steget i samme `*/30 * * * *` Cron. Manglende NAV-input gir `PARTIAL` og blir synlig i `job_runs`; det skjules ikke som en vellykket NAV-oppdatering.
-
-Regresjonstestene dekker:
-
-- eksakt Worker/reference-paritet for opsjonsforpliktelsen;
-- første build + idempotent ny kjøring uten D1-rewrite;
-- at samme-dags `CLOSE` fortsatt er sterkere enn `LAST`;
-- at en faktisk ny OTEC-pris gjør option-aware ONA, CORE og FULL dirty, men ikke cash;
-- FULL NAV-paritet mot SQLite-referansen etter prisendringen.
-
-Hele Phase 15.4 er dermed implementert og kjøres gjennom backend-regresjon, lokal D1-paritet, Python Worker dry-run og faktisk `workerd` HTTP-paritet i CI.
-
-## D1
-
-`0001_initial_schema.sql` er en frosset baseline generert fra SQLite-referansen og skal ikke håndredigeres. Senere datamodellendringer ligger i additive D1-migreringer. `0002_reference_data.sql` oppretter stabile sources/instruments, `0003_query_indexes.sql` inneholder D1-spesifikke read-performance-indekser, og `0004_option_liability.sql` legger til opsjonsfeltene for FULL NAV.
-
-`repository.py` inneholder både read-laget og et avgrenset `D1WriteRepository` for scheduled ingestion og dirty-state-beregninger. Skrivelaget bruker parameterbinding og beholder idempotente unique-key-semantikker for `source_documents` og `market_prices`.
-
-Regenerer/verifiser basis-schema:
-
-```bash
-python cloudflare/tools/generate_d1_schema.py
-python cloudflare/tools/generate_d1_schema.py --check
-```
-
-## Bootstrap og parity
-
-`tools/d1_bootstrap.py` eksporterer en validert SQLite-snapshot til portabel D1-SQL med manifest/hashes. CI importerer denne gjennom faktisk lokal Wrangler D1 og verifierer logical parity og foreign keys.
-
-En populated Worker-fixture importeres også til lokal D1, faktisk `workerd` startes, og HTTP-output for summary/history/forecast må være eksakt lik referansebackenden. Phase 15.4.1–15.4.5 kjøres gjennom den samme Worker-build/runtime-porten, i tillegg til egne OTEC-, BMOB3-, NewsWeb- og NAV-regresjonstester.
-
-## Ytelseshardening
-
-Buyback-prognosen bruker en bounded OTEC activity-read per forecast i stedet for to D1-spørringer per historisk programuke. Ready-path har en query-budget-regresjonstest slik at D1-querybruk ikke vokser lineært med programmets alder.
-
-Dirty-state NAV bruker deterministiske input-hasher per lag slik at en uendret 30-minutters poll ikke gjør unødvendige D1-writes eller full historisk rebuild.
-
-D1 har egne indekser for:
-
-```text
-buybacks(program_id, trade_date, id)
-nav_snapshots(calculation_version, nav_scope, as_of_at)
-```
-
-## Security/cache
-
-Statiske assets får browser-hardening via `frontend/public/_headers`, som Vite kopierer til `dist/_headers`. Worker-genererte API-responser får sikkerhetsheadere direkte fra FastAPI-middleware.
-
-Cache-policy:
-
-- health: `no-store`
-- summary: 30 sekunder
-- history: 15 minutter
-- buyback forecast: 15 minutter
-- fingerprintede Vite-assets: immutable langtids-cache
-
-## Kontoressurser som gjenstår
-
-Når write-paths og go-live er klare:
+Faktiske ressurser opprettes først ved go-live:
 
 ```bash
 npx wrangler d1 create otello-nav --location=weur
 npx wrangler r2 bucket create otello-source-archive
 ```
 
-Deretter settes faktisk D1-ID i produksjonskonfigurasjonen og den validerte cutover-snapshoten importeres.
-
-## Lokal Worker
-
-Fra repo-root:
-
-```bash
-cd frontend
-npm ci
-npm run build
-cd ../cloudflare
-
-python -m pip install workers-py==1.16.4 uv==0.12.3
-npm install --no-save wrangler@4.123.0
-npx wrangler d1 migrations apply DB --local --config wrangler.worker-test.jsonc
-pywrangler deploy --dry-run --config wrangler.worker-test.jsonc
-pywrangler dev --config wrangler.worker-test.jsonc
-```
-
-## Neste fase
-
-Phase 15.5 flytter tyngre full refresh, source-specific retries, data-health/preflight og store recovery-payloads til Cloudflare Workflows/R2. Den 30-minutters fast-pathen i Phase 15.4 er ferdig og holdes bevisst bounded.
+Deretter brukes `docs/cloudflare-go-live.md` som runbook.

@@ -1,0 +1,65 @@
+{
+  "version": "economic-nav-inputs-2026-08-18.1",
+  "documents": {
+    "otello_ar25": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - Annual Report 2025",
+      "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf"
+    }
+  },
+  "operating_cost_anchors": [
+    {
+      "scenario": "BASE",
+      "effective_from": "2025-12-31",
+      "source_period": "2H25",
+      "source_period_start": "2025-07-01",
+      "source_period_end": "2025-12-31",
+      "period_days": 184,
+      "amount_usd": "1021000",
+      "source_measure": "employee benefits excluding stock compensation + other operating expenses",
+      "source_key": "otello_ar25",
+      "source_locator": "FY2025/2H25 operating-cost analysis; recurring employee benefits USD 0.596m plus other operating expenses USD 0.425m",
+      "notes": "Base investor overlay run-rate. Stored as curated source-backed data instead of a Python constant."
+    },
+    {
+      "scenario": "CONSERVATIVE",
+      "effective_from": "2025-12-31",
+      "source_period": "FY25_AUDITED",
+      "source_period_start": "2025-01-01",
+      "source_period_end": "2025-12-31",
+      "period_days": 365,
+      "amount_usd": "2641000",
+      "source_measure": "audited operating expenses excluding stock-based compensation",
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025, operating expenses excluding stock-based compensation",
+      "notes": "Conservative investor overlay sensitivity."
+    }
+  ],
+  "cash_fx_exposure_anchors": [
+    {
+      "as_of_date": "2025-12-31",
+      "total_cash_usd": "15881000",
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025 Note 15 foreign-currency exposure; bank accounts USD 1.217m and BRL USD-equivalent 12.169m; audited cash USD 15.881m",
+      "exposures": [
+        {
+          "currency": "USD",
+          "usd_equivalent": "1217000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "BRL",
+          "usd_equivalent": "12169000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "UNALLOCATED",
+          "usd_equivalent": "2495000",
+          "quality": "DERIVED_RESIDUAL",
+          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. It is deliberately not assigned to NOK or another currency and is therefore not revalued between reports."
+        }
+      ],
+      "notes": "The economic overlay revalues only explicitly documented USD/BRL cash exposure. The unallocated residual stays fixed at anchor NOK value to avoid guessing currency composition."
+    }
+  ]
+}

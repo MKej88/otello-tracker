@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import EconomicNavPanel from "./EconomicNavPanel";
 
 type ChangeSet = {
   nav_pct: number | null;
@@ -365,6 +366,8 @@ export default function App() {
         )}
         {!summary.ready && summary.message && <div className="modelWarning neutralWarning">{summary.message}</div>}
 
+        <EconomicNavPanel />
+
         <section className="kpiGrid">
           {cards.map((card) => (
             <article className="card kpi" key={card.label}>
@@ -438,7 +441,7 @@ export default function App() {
               {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{summary.share_count_quality}</span></div>}
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
-              <div><span>Buyback-prognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? forecastConfidence : "VENTER"}</span></div>
+              <div><span>Buyback-prognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? forecastConfidence : forecast.status}</span></div>
             </div>
           </article>
         </section>

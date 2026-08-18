@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
+CLOUDFLARE = ROOT / "cloudflare"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
@@ -74,6 +78,79 @@ def _verify(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 1
 
 
+def _verify_remote(args: argparse.Namespace) -> int:
+    """Export remote D1 and compare every bootstrapped table/hash/key metric."""
+    expected = load_manifest_file(args.manifest)
+    config = Path(args.config).resolve()
+    if not config.exists():
+        raise FileNotFoundError(config)
+
+    with tempfile.TemporaryDirectory(prefix="otello-d1-remote-verify-") as tmp:
+        tmp_path = Path(tmp)
+        export_sql = tmp_path / "remote-export.sql"
+        exported_db = tmp_path / "remote-export.db"
+        command = [
+            "npx",
+            f"wrangler@{args.wrangler_version}",
+            "d1",
+            "export",
+            args.database,
+            "--remote",
+            "--skip-confirmation",
+            "--output",
+            str(export_sql),
+            "--config",
+            str(config),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=CLOUDFLARE,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "reason": "remote_d1_export_failed",
+                        "returncode": exc.returncode,
+                        "stdout": (exc.stdout or "")[-4000:],
+                        "stderr": (exc.stderr or "")[-4000:],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 2
+
+        if not export_sql.exists() or export_sql.stat().st_size == 0:
+            print(json.dumps({"status": "error", "reason": "empty_remote_export"}, indent=2))
+            return 2
+
+        connection = sqlite3.connect(exported_db)
+        try:
+            connection.executescript(export_sql.read_text(encoding="utf-8"))
+            connection.commit()
+        finally:
+            connection.close()
+
+        result = verify_database(exported_db, expected)
+        payload = {
+            "status": "ok" if result["ok"] else "mismatch",
+            "remote_database": args.database,
+            "config": str(config),
+            "manifest": args.manifest,
+            "wrangler_version": args.wrangler_version,
+            "export_stdout": completed.stdout[-1000:],
+            "verification": result,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        return 0 if result["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Export and verify a deterministic SQLite -> Cloudflare D1 bootstrap"
@@ -108,6 +185,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument("--manifest", required=True, help="Expected JSON manifest")
     verify_parser.set_defaults(handler=_verify)
+
+    remote_parser = subparsers.add_parser(
+        "verify-remote",
+        help="Export remote D1 read-only and require exact logical parity with a bootstrap manifest",
+    )
+    remote_parser.add_argument("--database", default="DB", help="Wrangler D1 binding/name")
+    remote_parser.add_argument("--manifest", required=True, help="Expected production manifest")
+    remote_parser.add_argument(
+        "--config",
+        default=str(CLOUDFLARE / "wrangler.production.jsonc"),
+        help="Rendered production Wrangler config",
+    )
+    remote_parser.add_argument("--wrangler-version", default="4.123.0")
+    remote_parser.set_defaults(handler=_verify_remote)
     return parser
 
 

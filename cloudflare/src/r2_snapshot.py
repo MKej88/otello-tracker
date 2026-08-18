@@ -10,9 +10,10 @@ SNAPSHOT_CHUNK_ROWS = 500
 MAX_CHUNK_UNCOMPRESSED_BYTES = 4 * 1024 * 1024
 MAX_SNAPSHOT_CHUNKS = 750
 
-# Keep the daily logical snapshot focused on financial-model/audit state. High-churn,
-# reconstructible operational tables are intentionally excluded; D1 Time Travel remains
-# the authoritative whole-database recovery mechanism.
+# Financial-model/audit state is archived daily. High-churn reconstructible operational
+# tables remain outside the logical snapshot; D1 Time Travel is the whole-database recovery
+# mechanism. Broker estimates and consensus are included because they are curated investor
+# facts, not reconstructible runtime state.
 _SNAPSHOT_TABLES: tuple[tuple[str, str], ...] = (
     ("sources", "id"),
     ("instruments", "id"),
@@ -33,6 +34,9 @@ _SNAPSHOT_TABLES: tuple[tuple[str, str], ...] = (
     ("other_net_assets_anchors", "id"),
     ("other_net_assets_daily_estimates", "estimate_date"),
     ("nav_snapshots", "id"),
+    ("broker_estimate_sets", "id"),
+    ("broker_estimate_values", "id"),
+    ("consensus_snapshots", "id"),
     ("provenance_records", "id"),
 )
 _EXCLUDED_RECONSTRUCTIBLE_TABLES = ("company_news", "market_activity", "runtime_state")

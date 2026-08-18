@@ -204,9 +204,11 @@ jobs:
           assert actual['summary']['ready'] is True
           assert actual['economic']['ready'] is True
           assert actual['economic']['as_of_date'] == actual['summary']['as_of_date']
-          assert actual['economic']['nav_per_share'] <= actual['economic']['accounting_nav_per_share']
+          assert actual['economic']['conservative_nav_per_share'] <= actual['economic']['nav_per_share']
+          assert isinstance(actual['economic'].get('cash_fx'), dict)
           assert actual['history']['ready'] is True and actual['history']['points']
           assert actual['forecast']['ready'] is True
+          assert actual['forecast']['status'] != 'INSUFFICIENT_VOLUME_HISTORY'
 
           index = Path('/tmp/worker-index.html').read_text()
           fallback = Path('/tmp/worker-spa-fallback.html').read_text()

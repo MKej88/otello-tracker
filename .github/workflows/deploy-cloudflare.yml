@@ -68,6 +68,7 @@ jobs:
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc
 
       - name: Deploy Python Worker and Workflow
+        id: deploy
         working-directory: cloudflare
         run: pywrangler deploy --config wrangler.production.jsonc
 
@@ -82,6 +83,8 @@ jobs:
             "$base/api/dashboard/summary" -o /tmp/otello-summary.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/economic" -o /tmp/otello-economic.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
           python - <<'PY'
           import json
           from datetime import UTC, date, datetime
@@ -90,6 +93,7 @@ jobs:
           health = json.loads(Path('/tmp/otello-health.json').read_text())
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
+          forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
           assert summary.get('ready') is True, summary
@@ -100,7 +104,10 @@ jobs:
           }
           assert economic.get('nav_per_share') is not None, economic
           assert economic.get('accounting_nav_per_share') is not None, economic
-          assert economic['nav_per_share'] <= economic['accounting_nav_per_share'], economic
+          assert economic.get('conservative_nav_per_share') is not None, economic
+          assert economic['conservative_nav_per_share'] <= economic['nav_per_share'], economic
+          assert isinstance(economic.get('cash_fx'), dict), economic
+          assert forecast.get('status') != 'INSUFFICIENT_VOLUME_HISTORY', forecast
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
           age = (today - as_of).days
@@ -110,6 +117,7 @@ jobs:
               summary.get('as_of_date'),
               summary.get('data_status'),
               f"economic_nav={economic.get('nav_per_share')}",
+              f"buyback_status={forecast.get('status')}",
               f'age_days={age}',
           )
           PY
@@ -120,3 +128,13 @@ jobs:
         run: |
           echo '::warning::CLOUDFLARE_PUBLIC_URL is empty; remote HTTP acceptance was skipped.'
           echo 'Set the production environment variable before enabling automatic deployments.'
+
+      - name: Roll back Worker after failed production acceptance
+        if: failure() && steps.deploy.outcome == 'success'
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          echo '::warning::Deployment completed but a later production acceptance step failed.'
+          echo 'Rolling the Worker back to the previous deployed version.'
+          npx wrangler rollback --config wrangler.production.jsonc \
+            --message "Automated rollback after failed GitHub production acceptance"
