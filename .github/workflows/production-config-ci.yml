@@ -1,0 +1,68 @@
+name: Production config CI
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  production-config:
+    name: Cloudflare production config dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Build dashboard assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install pinned Worker tooling
+        working-directory: cloudflare
+        run: |
+          python -m pip install workers-py==1.16.4 uv==0.12.3
+          npm install --no-save wrangler@4.123.0
+
+      - name: Render production-shaped config
+        env:
+          CLOUDFLARE_D1_DATABASE_ID: 11111111-2222-3333-4444-555555555555
+          CLOUDFLARE_WORKER_NAME: otello-tracker
+          CLOUDFLARE_D1_DATABASE_NAME: otello-nav
+          CLOUDFLARE_R2_BUCKET_NAME: otello-source-archive
+        run: python cloudflare/tools/render_production_config.py
+
+      - name: Validate rendered fields
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
+          assert config['name'] == 'otello-tracker'
+          assert config['workers_dev'] is True
+          assert config['d1_databases'][0]['database_id'] == '11111111-2222-3333-4444-555555555555'
+          assert config['r2_buckets'][0]['bucket_name'] == 'otello-source-archive'
+          assert config['observability']['enabled'] is True
+          assert config['limits']['cpu_ms'] == 60000
+          assert config['limits']['subrequests'] == 2000
+          PY
+
+      - name: Dry-run production Python Worker bundle
+        working-directory: cloudflare
+        run: >-
+          pywrangler deploy --dry-run
+          --config wrangler.production.jsonc
+          --outdir /tmp/otello-production-dist
