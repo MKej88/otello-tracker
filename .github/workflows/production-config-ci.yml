@@ -56,7 +56,9 @@ jobs:
           assert config['compatibility_date'] == '2026-08-18'
           assert config['d1_databases'][0]['database_id'] == '11111111-2222-3333-4444-555555555555'
           assert config['r2_buckets'][0]['bucket_name'] == 'otello-source-archive'
-          assert config['cache']['enabled'] is True
+          assert 'cache' not in config
+          assert config['exports']['default']['type'] == 'worker'
+          assert config['exports']['default']['cache']['enabled'] is True
           assert config['observability']['enabled'] is True
           assert config['observability']['logs']['enabled'] is True
           assert config['observability']['logs']['invocation_logs'] is True
