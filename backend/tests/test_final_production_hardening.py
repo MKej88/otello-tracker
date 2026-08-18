@@ -16,7 +16,8 @@ def test_economic_nav_inputs_are_seeded_as_source_backed_documents(tmp_path: Pat
     result = seed_curated_history(str(database))
 
     assert result["economic_nav_inputs"]["operating_cost_anchors"] == 2
-    assert result["economic_nav_inputs"]["cash_fx_exposure_anchors"] == 1
+    assert result["economic_nav_inputs"]["cash_fx_exposure_anchors"] == 3
+    assert result["economic_nav_inputs"]["fx_backtest_outcomes"] == 2
 
     with get_connection(str(database)) as connection:
         rows = connection.execute(
@@ -25,19 +26,34 @@ def test_economic_nav_inputs_are_seeded_as_source_backed_documents(tmp_path: Pat
             FROM source_documents
             WHERE document_type IN (
                 'ECONOMIC_NAV_COST_ANCHOR',
-                'ECONOMIC_NAV_CASH_FX_ANCHOR'
+                'ECONOMIC_NAV_CASH_FX_ANCHOR',
+                'ECONOMIC_NAV_FX_BACKTEST_OUTCOME'
             )
             ORDER BY document_type, id
             """
         ).fetchall()
 
-    assert len(rows) == 3
-    cash_row = next(row for row in rows if row["document_type"] == "ECONOMIC_NAV_CASH_FX_ANCHOR")
-    metadata = json.loads(cash_row["metadata_json"])
-    assert metadata["total_cash_usd"] == "15881000"
-    assert sum(int(item["usd_equivalent"]) for item in metadata["exposures"]) == 15_881_000
-    assert {item["currency"] for item in metadata["exposures"]} == {"USD", "BRL", "UNALLOCATED"}
-    assert metadata["policy"] == "REVALUE_DOCUMENTED_USD_BRL_ONLY_KEEP_UNALLOCATED_FIXED"
+    assert len(rows) == 7
+    cash_rows = [
+        row for row in rows if row["document_type"] == "ECONOMIC_NAV_CASH_FX_ANCHOR"
+    ]
+    assert len(cash_rows) == 3
+    cash_by_date = {
+        json.loads(row["metadata_json"])["as_of_date"]: json.loads(row["metadata_json"])
+        for row in cash_rows
+    }
+    latest = cash_by_date["2025-12-31"]
+    assert latest["total_cash_usd"] == "15881000"
+    assert sum(int(item["usd_equivalent"]) for item in latest["exposures"]) == 15_881_000
+    assert {item["currency"] for item in latest["exposures"]} == {"USD", "BRL", "UNALLOCATED"}
+    assert latest["policy"] == "REVALUE_DOCUMENTED_USD_BRL_ONLY_KEEP_UNALLOCATED_FIXED"
+
+    outcomes = [
+        json.loads(row["metadata_json"])
+        for row in rows
+        if row["document_type"] == "ECONOMIC_NAV_FX_BACKTEST_OUTCOME"
+    ]
+    assert {item["period_end"] for item in outcomes} == {"2024-12-31", "2025-12-31"}
 
 
 def test_clean_bootstrap_seeds_buyback_volume_history_even_without_network(tmp_path: Path) -> None:
