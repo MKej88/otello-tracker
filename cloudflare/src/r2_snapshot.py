@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable
 SNAPSHOT_VERSION = "d1-logical-snapshot-v2-chunked"
 SNAPSHOT_CHUNK_ROWS = 500
 MAX_CHUNK_UNCOMPRESSED_BYTES = 4 * 1024 * 1024
-MAX_SNAPSHOT_COMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_SNAPSHOT_CHUNKS = 750
 
 # Keep the daily logical snapshot focused on financial-model/audit state. High-churn,
 # reconstructible operational tables are intentionally excluded; D1 Time Travel remains
@@ -49,9 +49,6 @@ def _canonical_json(value: Any) -> bytes:
 
 
 def _reader(repository) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
-    # PerformanceD1Repository exposes an uncached reader specifically so sequential
-    # snapshot chunks are released after each R2 PUT instead of being retained by the
-    # request-scoped memoization layer.
     return getattr(repository, "all_uncached", repository.all)
 
 
@@ -88,11 +85,7 @@ async def archive_d1_snapshot(
     target_date: str,
     preflight_status: str | None = None,
 ) -> dict[str, Any]:
-    """Write a bounded, chunked financial audit snapshot to R2.
-
-    No complete database representation is ever held in Python memory. Each bounded
-    chunk is canonicalized, compressed and uploaded before the next D1 page is read.
-    """
+    """Write a chunked financial audit snapshot without a whole-database memory copy."""
     row_counts: dict[str, int] = {}
     chunks: list[dict[str, Any]] = []
     total_uncompressed = 0
@@ -101,6 +94,10 @@ async def archive_d1_snapshot(
     for table, order_by in _SNAPSHOT_TABLES:
         table_rows = 0
         async for chunk_index, rows in _table_chunks(repository, table, order_by):
+            if len(chunks) >= MAX_SNAPSHOT_CHUNKS:
+                raise ValueError(
+                    f"D1 logical snapshot overstiger grensen på {MAX_SNAPSHOT_CHUNKS} chunks"
+                )
             chunk_payload = {
                 "snapshot_version": SNAPSHOT_VERSION,
                 "target_date": target_date,
@@ -119,11 +116,6 @@ async def archive_d1_snapshot(
             compressed = gzip.compress(raw, compresslevel=6, mtime=0)
             total_uncompressed += len(raw)
             total_compressed += len(compressed)
-            if total_compressed > MAX_SNAPSHOT_COMPRESSED_BYTES:
-                raise ValueError(
-                    "D1 logical snapshot overstiger samlet komprimert sikkerhetsgrense "
-                    f"på {MAX_SNAPSHOT_COMPRESSED_BYTES} bytes"
-                )
             key = (
                 f"snapshots/d1/{target_date}/{table}/"
                 f"part-{chunk_index:05d}-{logical_sha256[:20]}.json.gz"
@@ -171,6 +163,7 @@ async def archive_d1_snapshot(
         "table_count": len(_SNAPSHOT_TABLES),
         "chunk_count": len(chunks),
         "chunk_rows": SNAPSHOT_CHUNK_ROWS,
+        "max_snapshot_chunks": MAX_SNAPSHOT_CHUNKS,
         "chunk_objects": chunks,
         "excluded_reconstructible_tables": list(_EXCLUDED_RECONSTRUCTIBLE_TABLES),
         "preflight_status": preflight_status,
