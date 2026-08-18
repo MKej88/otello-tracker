@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from workers import WorkflowEntrypoint, WorkerEntrypoint
 
@@ -47,7 +47,10 @@ def _workflow_target_date(event) -> str:
     schedule = _event_value(event, "schedule")
     scheduled_ms = _nested_value(schedule, "scheduledTime")
     if scheduled_ms is not None:
-        return datetime.fromtimestamp(float(scheduled_ms) / 1000, tz=UTC).date().isoformat()
+        scheduled_day = datetime.fromtimestamp(float(scheduled_ms) / 1000, tz=UTC).date()
+        # The daily Workflow runs after midnight UTC so both Oslo and São Paulo have
+        # completed the market date being reconciled.
+        return (scheduled_day - timedelta(days=1)).isoformat()
     return datetime.now(UTC).date().isoformat()
 
 
