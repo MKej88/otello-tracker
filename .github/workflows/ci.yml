@@ -157,6 +157,8 @@ jobs:
           --manifest /tmp/otello-worker-bootstrap.json
       - name: Build Python Worker without deploying
         run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
+      - name: Validate scheduled Workflow production config
+        run: pywrangler deploy --dry-run --config wrangler.jsonc --outdir /tmp/otello-workflow-dist
       - name: End-to-end Worker HTTP parity, static assets and headers
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
