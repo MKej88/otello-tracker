@@ -10,9 +10,9 @@ from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 from app.nav.full_nav import FULL_CALCULATION_VERSION
 
 MAX_FX_LOOKBACK_DAYS = 7
-BASE_OPERATING_COST_USD = Decimal("1022000")
+BASE_OPERATING_COST_USD = Decimal("1021000")
 BASE_OPERATING_COST_PERIOD_DAYS = Decimal("184")
-CONSERVATIVE_OPERATING_COST_USD = Decimal("2308000")
+CONSERVATIVE_OPERATING_COST_USD = Decimal("2641000")
 CONSERVATIVE_OPERATING_COST_PERIOD_DAYS = Decimal("365")
 
 
@@ -113,19 +113,22 @@ def build_economic_nav_overlay(
             ),
             "usd_nok": _float(usd_nok),
             "usd_nok_date": usd_nok_date,
-            "method": "latest-half-adjusted-ebitda-run-rate-v1",
+            "method": "latest-half-recurring-operating-cost-run-rate-v2",
             "source_period": "2H25",
-            "source_adjusted_ebitda_usd_m": 1.022,
-            "conservative_source_period": "FY25",
-            "conservative_adjusted_ebitda_usd_m": 2.308,
+            "source_operating_cost_usd_m": 1.021,
+            "source_measure": "employee benefits ex stock compensation + other operating expenses",
+            "conservative_source_period": "FY25_AUDITED",
+            "conservative_operating_cost_usd_m": 2.641,
+            "conservative_source_measure": "audited operating expenses ex stock-based compensation",
             "interest_income_included": False,
         },
         "note": (
             "Economic NAV leaves the validated accounting FULL NAV unchanged, then deducts "
             "the Black-Scholes option value not already recognized in the accounting liability "
-            "and an estimated post-anchor operating-cost run-rate. The base cost proxy uses "
-            "2H25 adjusted EBITDA burn; the conservative sensitivity uses FY25 adjusted EBITDA burn. "
-            "Interest income is not accrued, making the overlay intentionally conservative."
+            "and an estimated post-anchor operating-cost run-rate. The base run-rate uses the "
+            "latest half-year recurring operating costs excluding stock-based compensation; the "
+            "conservative sensitivity uses audited FY25 operating expenses excluding stock-based "
+            "compensation. Interest income is not accrued, making the overlay intentionally conservative."
         ),
     }
 
