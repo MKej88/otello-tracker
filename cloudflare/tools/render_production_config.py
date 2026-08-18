@@ -36,9 +36,10 @@ def render_config(
     }
     # Phase 15.5/15.6 contains Python PDF parsing and logical snapshots. A 10 ms
     # Workers Free CPU ceiling is not a safe production envelope for this workload.
+    # Keep the paid-plan allowance well below the platform maximum to bound runaway work.
     config["limits"] = {
-        "cpu_ms": 300000,
-        "subrequests": 10000,
+        "cpu_ms": 60000,
+        "subrequests": 2000,
     }
 
     databases = config.get("d1_databases") or []
