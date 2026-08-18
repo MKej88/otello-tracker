@@ -100,12 +100,16 @@ def test_deploy_workflow_is_guarded_and_runs_remote_preflight() -> None:
     assert "CLOUDFLARE_WORKER_NAME" in workflow
     assert "CLOUDFLARE_D1_DATABASE_NAME" in workflow
     assert "CLOUDFLARE_R2_BUCKET_NAME" in workflow
+    assert "CLOUDFLARE_CUSTOM_DOMAIN" in workflow
+    assert "CLOUDFLARE_WAF_COST_GUARD_READY" in workflow
+    assert "WAF can protect /api/* before Worker invocation" in workflow
     assert "render_production_config.py" in workflow
     assert "d1 migrations apply DB --remote" in workflow
     assert "pywrangler deploy --config wrangler.production.jsonc" in workflow
     assert "/api/health" in workflow
     assert "/api/dashboard/summary" in workflow
     assert "/api/dashboard/economic" in workflow
+    assert "/api/dashboard/fx-backtest" in workflow
     assert "summary.get('ready') is True" in workflow
     assert "economic.get('ready') is True" in workflow
     assert "economic.get('as_of_date') == summary.get('as_of_date')" in workflow
