@@ -1,4 +1,5 @@
 name: Bootstrap Cloudflare production D1
+run-name: One-time Cloudflare D1 bootstrap
 
 on:
   workflow_dispatch:
