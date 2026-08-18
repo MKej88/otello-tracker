@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 from typing import Any, Awaitable, Callable
 
 try:
     from .bounded_response import read_response_bytes
+    from .oslo_calendar import is_oslo_bors_trading_day
     from .otec_ingestion import (
         FILE_TYPE,
         FULL_DAY_SELECTION,
@@ -14,9 +16,12 @@ try:
         _latest_trade,
         _parse_euronext_trades,
         delayed_download_url,
+        eod_otec_check_done,
+        finalize_otec_eod_from_coverage,
     )
 except ImportError:
     from bounded_response import read_response_bytes
+    from oslo_calendar import is_oslo_bors_trading_day
     from otec_ingestion import (
         FILE_TYPE,
         FULL_DAY_SELECTION,
@@ -26,6 +31,8 @@ except ImportError:
         _latest_trade,
         _parse_euronext_trades,
         delayed_download_url,
+        eod_otec_check_done,
+        finalize_otec_eod_from_coverage,
     )
 
 # The fast path deliberately stops at 32 MiB. A durable Workflow gets a somewhat larger
@@ -146,4 +153,62 @@ async def recover_otec_to_r2(
         "source_document_id": document_id,
         "r2_key": r2_key,
         "content_sha256": digest,
+    }
+
+
+async def ensure_otec_eod(
+    repository,
+    archive_bucket,
+    *,
+    target_date: str,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Use existing rolling coverage first, then escalate to the R2 recovery path."""
+    target = date.fromisoformat(target_date)
+    if not is_oslo_bors_trading_day(target):
+        return {"status": "skipped", "reason": "not_trading_day", "target_date": target_date}
+    if await eod_otec_check_done(repository, target_date):
+        return {
+            "status": "skipped",
+            "reason": "eod_already_finalized",
+            "target_date": target_date,
+            "recovery_used": False,
+        }
+
+    covered = await finalize_otec_eod_from_coverage(
+        repository,
+        target_date=target_date,
+        current_refresh={
+            "status": "ok",
+            "selected": "WORKFLOW_EXISTING_COVERAGE",
+            "gap_recovery": False,
+        },
+    )
+    if covered.get("status") == "ok":
+        return {"recovery_used": False, "coverage_result": covered, **covered}
+
+    recovered = await recover_otec_to_r2(
+        repository,
+        archive_bucket,
+        target_date=target_date,
+        fetcher=fetcher,
+    )
+    if recovered.get("status") != "ok":
+        return {"recovery_used": True, "coverage_result": covered, **recovered}
+
+    finalized = await finalize_otec_eod_from_coverage(
+        repository,
+        target_date=target_date,
+        current_refresh={
+            "status": "ok",
+            "selected": FULL_DAY_SELECTION,
+            "gap_recovery": True,
+        },
+    )
+    return {
+        "status": finalized.get("status", "ok"),
+        "target_date": target_date,
+        "recovery_used": True,
+        "recovery": recovered,
+        "finalization": finalized,
     }
