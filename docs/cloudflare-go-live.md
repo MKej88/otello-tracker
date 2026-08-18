@@ -8,6 +8,8 @@ Bruk **Workers Paid**. Produksjonskonfigurasjonen har bounded CPU/subrequest-gre
 
 Ikke bruk CI-fixtures som produksjonsdata. Ikke legg API-token i Git eller chat.
 
+**Kostnadssikring er en del av go-live:** produksjonsdeploy krever eget domene og en aktiv WAF rate-limit-regel for `/api/*`. Se `docs/cloudflare-paid-cost-guard.md`.
+
 ## 2. Opprett Cloudflare-ressurser
 
 Fra `cloudflare/`:
@@ -66,7 +68,7 @@ CLOUDFLARE_D1_DATABASE_ID=<D1 UUID>
 CLOUDFLARE_WORKER_NAME=otello-tracker
 CLOUDFLARE_D1_DATABASE_NAME=otello-nav
 CLOUDFLARE_R2_BUCKET_NAME=otello-source-archive
-CLOUDFLARE_CUSTOM_DOMAIN=<valgfritt hostname>
+CLOUDFLARE_CUSTOM_DOMAIN=<produksjonshostname>
 ```
 
 Render:
@@ -75,7 +77,7 @@ Render:
 python cloudflare/tools/render_production_config.py
 ```
 
-`cloudflare/wrangler.production.jsonc` er generert og gitignored.
+`cloudflare/wrangler.production.jsonc` er generert og gitignored. Uten custom domain kan config fortsatt renderes lokalt for dry-run, men GitHub-produksjonsdeploy nekter å fortsette.
 
 ## 6. Migrations + bootstrap til remote D1
 
@@ -125,29 +127,43 @@ Variables:
 CLOUDFLARE_WORKER_NAME=otello-tracker
 CLOUDFLARE_D1_DATABASE_NAME=otello-nav
 CLOUDFLARE_R2_BUCKET_NAME=otello-source-archive
-CLOUDFLARE_CUSTOM_DOMAIN=
-CLOUDFLARE_PUBLIC_URL=https://...
+CLOUDFLARE_CUSTOM_DOMAIN=nav.dittdomene.no
+CLOUDFLARE_PUBLIC_URL=https://nav.dittdomene.no
+CLOUDFLARE_WAF_COST_GUARD_READY=true
 CLOUDFLARE_DEPLOY_ENABLED=false
 ```
 
-Hold automatisk deploy deaktivert under første cutover.
+Sett **ikke** `CLOUDFLARE_WAF_COST_GUARD_READY=true` før WAF rate limiting for `/api/*` faktisk er aktiv på domenet. Hold automatisk deploy deaktivert under første cutover.
 
-## 9. Første manuelle deploy
+## 9. WAF og budsjettvarsler før første deploy
+
+Følg `docs/cloudflare-paid-cost-guard.md`:
+
+1. opprett rate limiting-regel for `/api/*` tilpasset domenets WAF-plan;
+2. opprett lave Budget Alerts, anbefalt USD 1 og USD 5 usage-based spend;
+3. aktiver D1-varsler for Rows Read og Rows Written;
+4. sett først deretter `CLOUDFLARE_WAF_COST_GUARD_READY=true` i GitHub production environment.
+
+Budget Alerts er varsling og ikke et hardt kostnadstak. WAF-regelen er derfor den viktige sperren før Worker-invocation.
+
+## 10. Første manuelle deploy
 
 Kjør GitHub Action **Deploy Cloudflare production** manuelt.
 
 Workflowen:
 
-1. bygger dashboardet;
-2. renderer produksjonskonfig;
-3. applyer D1 migrations;
-4. deployer Python Worker + Workflow;
-5. tester `/api/health`;
-6. tester `/api/dashboard/summary`;
-7. tester `/api/dashboard/economic`;
-8. tester `/api/buybacks/forecast`;
-9. krever fersk modelldato og at økonomisk/konservativ NAV er konsistente;
-10. krever at buyback engine ikke mangler volumhistorikk.
+1. validerer custom domain og `CLOUDFLARE_WAF_COST_GUARD_READY=true`;
+2. bygger dashboardet;
+3. renderer produksjonskonfig;
+4. applyer D1 migrations;
+5. deployer Python Worker + Workflow;
+6. tester `/api/health`;
+7. tester `/api/dashboard/summary`;
+8. tester `/api/dashboard/economic`;
+9. tester `/api/dashboard/fx-backtest`;
+10. tester `/api/buybacks/forecast`;
+11. krever fersk modelldato og at økonomisk/konservativ NAV er konsistente;
+12. krever at buyback engine ikke mangler volumhistorikk.
 
 Dersom Worker er deployet, men en senere HTTP-akseptanse feiler, kjører workflowen `wrangler rollback` med eksplisitt rollback-melding. Uten oppgitt versjons-ID velges forrige deployerte Worker-versjon.
 
@@ -155,7 +171,7 @@ Dersom Worker er deployet, men en senere HTTP-akseptanse feiler, kjører workflo
 
 Worker rollback ruller **ikke** tilbake D1 migrations. Produksjonsmigreringer skal derfor være additive/bakoverkompatible. Ved behov for database-restore brukes D1 Time Travel etter egen kontrollert prosedyre.
 
-## 10. Scheduling / writer-lock
+## 11. Scheduling / writer-lock
 
 Produksjon:
 
@@ -166,7 +182,11 @@ Full Workflow:  35 3 * * *
 
 Begge bruker D1 advisory writer-lock. Kontroller i `job_runs`/Workers Logs at fast refresh hopper over kontrollert dersom full Workflow fortsatt holder låsen.
 
-## 11. Observability
+Fast Cron kjører hvert 30. minutt og er derfor underlagt Cloudflares 30-sekunders CPU-grense for Cron-intervaller under én time, uavhengig av at Workerens generelle Paid-grense er satt høyere. Full Workflow har større compute-headroom for de tunge jobbene.
+
+## 12. Observability
+
+Produksjon lagrer 5 % av Workers invocation logs og har tracing avslått som standard. Ved feilsøking kan real-time tailing brukes uten å la høy sampling stå permanent.
 
 Etter flere normale fast-kjøringer og minst én full Workflow, kontroller:
 
@@ -178,9 +198,12 @@ Etter flere normale fast-kjøringer og minst én full Workflow, kontroller:
 - writer-lock ikke blir hengende etter normal fullføring;
 - R2 råkilder/PDF-er/snapshot;
 - økonomisk NAV/cash-FX-quality;
-- buyback forecast status.
+- buyback forecast status;
+- Workers/D1/R2/Workflow billable usage.
 
-## 12. R2 auditsnapshot
+## 13. R2 auditsnapshot
+
+D1 Time Travel på Workers Paid er primær korttids-gjenoppretting. Det separate logiske R2-snapshotet tas derfor **ukentlig (søndag) og ved månedsslutt**, ikke daglig.
 
 Snapshotet skal inneholde finans-/modellstate, inkludert:
 
@@ -193,7 +216,7 @@ Snapshotet skal inneholde finans-/modellstate, inkludert:
 
 `company_news`, `market_activity` og `runtime_state` er rekonstruerbare/høyfrekvente og er ikke del av det logiske snapshotet. Full recovery ligger i D1 Time Travel.
 
-## 13. D1 Time Travel drill
+## 14. D1 Time Travel drill
 
 Gjør restore-test mot egen drill-database eller kontrollert vedlikeholdsvindu – ikke tilfeldig mot live D1.
 
@@ -205,18 +228,11 @@ Prosedyre:
 4. verifiser at mutasjonen forsvinner;
 5. dokumenter hvordan restore eventuelt reverseres.
 
-## 14. Custom domain
+## 15. Custom domain
 
-Når baseproduksjonen er godkjent kan eksempelvis:
+Custom domain er nå et krav for produksjonsworkflowen slik at WAF kan stoppe misbruk før `/api/*` når Worker-koden. Cloudflare håndterer HTTPS for Worker Custom Domain.
 
-```text
-CLOUDFLARE_CUSTOM_DOMAIN=otello.example.com
-CLOUDFLARE_PUBLIC_URL=https://otello.example.com
-```
-
-settes og deploy kjøres på nytt. Cloudflare håndterer HTTPS for Worker Custom Domain.
-
-## 15. Endelig akseptanse
+## 16. Endelig akseptanse
 
 Go-live er godkjent først når:
 
@@ -224,15 +240,19 @@ Go-live er godkjent først når:
 - [ ] remote D1 importerte riktig produksjonshistorikk;
 - [ ] `verify-remote` ga eksakt manifestparitet;
 - [ ] ingen testfixtures finnes remote;
+- [ ] custom domain er satt;
+- [ ] WAF rate limiting for `/api/*` er aktiv;
+- [ ] Budget Alerts er opprettet;
+- [ ] D1 billing notifications er aktivert;
+- [ ] `CLOUDFLARE_WAF_COST_GUARD_READY=true` er satt;
 - [ ] Worker-deploy er grønn;
-- [ ] summary/economic/buyback HTTP-akseptanse er grønn;
+- [ ] summary/economic/FX-backtest/buyback HTTP-akseptanse er grønn;
 - [ ] minst én fast refresh er kontrollert;
 - [ ] minst én full Workflow er kontrollert;
 - [ ] writer-lock fungerer som forventet;
-- [ ] R2 råfiler/PDF/snapshot finnes;
+- [ ] R2 råfiler/PDF/snapshot finnes etter retention-policy;
 - [ ] Workers Logs viser akseptabel CPU/minnebruk;
-- [ ] Time Travel restore-drill er gjennomført;
-- [ ] custom domain fungerer dersom aktivert.
+- [ ] Time Travel restore-drill er gjennomført.
 
 Først etter dette settes:
 
@@ -240,6 +260,6 @@ Først etter dette settes:
 CLOUDFLARE_DEPLOY_ENABLED=true
 ```
 
-## 16. Neste rapportanker
+## 17. Neste rapportanker
 
 Ved Otello 1H26 skal nye rapporterte cash-/balanse-/ONA-/opsjonsdata avstemmes. Driftskostnadsankrene oppdateres til ny rapport dersom bedre run-rate-data finnes. Cash-valutafordeling legges kun inn dersom rapporten faktisk dokumenterer den; ellers gjettes den ikke.
