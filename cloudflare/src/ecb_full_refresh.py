@@ -10,8 +10,10 @@ from typing import Any, Awaitable, Callable
 
 try:
     from .bounded_response import read_response_bytes
+    from .r2_archive import archive_bytes
 except ImportError:
     from bounded_response import read_response_bytes
+    from r2_archive import archive_bytes
 
 ECB_EXR_URL = "https://data-api.ecb.europa.eu/service/data/EXR/D.BRL+NOK+USD.EUR.SP00.A"
 MAX_ECB_BYTES = 2 * 1024 * 1024
@@ -84,6 +86,7 @@ async def refresh_ecb_fx(
     *,
     target_date: str,
     lookback_days: int = 21,
+    archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     target = date.fromisoformat(target_date)
@@ -95,6 +98,18 @@ async def refresh_ecb_fx(
         raise ValueError("ECB-returneringen inneholdt ingen BRL/NOK eller USD/NOK-rader")
 
     digest = hashlib.sha256(payload).hexdigest()
+    archived = (
+        await archive_bytes(
+            archive_bucket,
+            payload,
+            source="ecb",
+            kind="exr",
+            logical_date=target_date,
+            filename=f"exr-{start}-{target_date}.csv",
+        )
+        if archive_bucket is not None
+        else None
+    )
     document_id = await repository.create_source_document(
         source_code="ECB",
         external_id=f"exr-cross:{start}:{target_date}",
@@ -109,6 +124,8 @@ async def refresh_ecb_fx(
             "from": start,
             "to": target_date,
             "workflow": "cloudflare_full_refresh",
+            "r2_key": archived.get("r2_key") if archived else None,
+            "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
         },
     )
     source_id = await repository.source_id("ECB")
@@ -137,4 +154,5 @@ async def refresh_ecb_fx(
         "rows_written": written,
         "source_document_id": document_id,
         "content_sha256": digest,
+        "r2_archive": archived,
     }
