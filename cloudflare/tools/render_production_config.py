@@ -29,17 +29,34 @@ def render_config(
 ) -> dict[str, Any]:
     config = json.loads(json.dumps(base))
     config["name"] = _required(worker_name, "worker_name")
-    config["observability"] = {
-        "enabled": True,
-        "head_sampling_rate": 1,
-        "logs": {"invocation_logs": True},
-    }
-    # Phase 15.5/15.6 contains Python PDF parsing and logical snapshots. A 10 ms
-    # Workers Free CPU ceiling is not a safe production envelope for this workload.
-    # Keep the paid-plan allowance well below the platform maximum to bound runaway work.
+
+    # Paid-plan capacity is deliberately used for the heavy scheduled/workflow path, but
+    # we do not expose Cloudflare's 5-minute/10k-subrequest maxima. Lower per-invocation
+    # ceilings bound runaway work and denial-of-wallet scenarios while still leaving ample
+    # headroom for PDF parsing, historical refreshes and logical model work.
     config["limits"] = {
         "cpu_ms": 60000,
-        "subrequests": 2000,
+        "subrequests": 500,
+    }
+
+    # Workers Caching removes Worker CPU/D1 work on cache hits. Requests are still counted
+    # by Workers pricing, so WAF rate limiting remains the pre-Worker cost guard.
+    config["cache"] = {"enabled": True}
+
+    # Keep enough production telemetry to diagnose failures without storing every request
+    # or paid trace span. Five percent is intentionally conservative for this low-traffic
+    # investor dashboard; real-time tailing remains available when debugging is needed.
+    config["observability"] = {
+        "enabled": True,
+        "logs": {
+            "enabled": True,
+            "invocation_logs": True,
+            "head_sampling_rate": 0.05,
+        },
+        "traces": {
+            "enabled": False,
+            "head_sampling_rate": 0,
+        },
     }
 
     databases = config.get("d1_databases") or []
