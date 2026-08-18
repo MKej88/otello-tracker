@@ -42,43 +42,42 @@ Den ordinære cash-kurven fortsetter å bruke rapportert cash pluss kjente konta
 
 Økonomisk NAV legger i stedet på en separat kostnadsavsetning fra siste `REPORTED` cash-anker.
 
-### Base
+### Base – siste halvårs underliggende kostnadsnivå
 
-Primærkilde: Otello Corporation ASA, 2H 2025 Report:
+2H25-rapporten viser underliggende driftskostnader ekskl. aksjebasert kompensasjon på:
 
-`https://otello.cdn.prismic.io/otello/aZVvCFWLo0XkEnNV_2H25_report.pdf`
-
-Rapporten viser for 2H25:
-
-- revenue: USD 0;
-- adjusted EBITDA: USD -1,022m;
-- employee benefits ekskl. aksjebasert kompensasjon: USD 0,596m;
+- employee benefits: USD 0,596m;
 - other operating expenses: USD 0,425m;
-- depreciation/amortization: USD 0;
-- 3,5 årsverk ved utgangen av perioden.
+- depreciation/amortization: USD 0.
 
-2H25 adjusted EBITDA brukes derfor som en enkel kontantnær proxy for tilbakevendende konsern-/forvaltningskostnader:
+Dette gir USD 1,021m over 184 kalenderdager og brukes som siste observerte kostnadsrun-rate:
 
 ```text
-USD 1,022m / 184 kalenderdager
+USD 1,021m / 184 kalenderdager
 ≈ USD 5,55k per dag
 ≈ USD 2,03m annualisert
 ```
 
 Den daglige USD-run-raten akkumuleres fra siste rapporterte cash-anker og konverteres med siste tilgjengelige USD/NOK-rate innenfor syv kalenderdager før NAV-datoen.
 
-### Konservativ sensitivitet
+### Konservativ sensitivitet – revidert helår
 
-Fullåret 2025 hadde adjusted EBITDA på USD -2,308m. Dette tilsvarer omtrent USD 2,308m annualisert og brukes som en høyere kostnadssensitivitet.
+Primær kontrollkilde er Otello Corporation ASA Annual Report 2025:
+
+`https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf`
+
+Den reviderte årsrapporten opplyser at 2025 operating expenses ekskl. aksjebasert kompensasjon var USD 2,641m. Dette brukes som konservativ annualisert kostnadsrun-rate.
 
 Dashboardet viser derfor både:
 
-- **Økonomisk NAV:** 2H25-run-rate;
-- **Konservativ NAV:** FY25-run-rate.
+- **Økonomisk NAV:** siste observerte 2H25 underliggende kostnadsrun-rate, ca. USD 2,03m annualisert;
+- **Konservativ NAV:** revidert FY25 driftskost, USD 2,641m annualisert.
+
+Vi bruker driftskostnader direkte i stedet for adjusted EBITDA fordi årsrapporten inneholder annen inntekt som gjør EBITDA mindre egnet som ren kostnadsproxy.
 
 ## Renteinntekter
 
-Renteinntekter på kontantbeholdningen estimeres ikke i første versjon av overlayet. 2H25-rapporten viste renteinntekter, men å utelate dem gjør det økonomiske NAV-estimatet bevisst konservativt og unngår å anta fremtidig cash-beholdning og rente uten nytt rapportanker.
+Renteinntekter på kontantbeholdningen estimeres ikke i første versjon av overlayet. Å utelate dem gjør det økonomiske NAV-estimatet bevisst konservativt og unngår å anta fremtidig cash-beholdning og rente uten nytt rapportanker.
 
 ## Automatisk reset ved ny rapport
 
