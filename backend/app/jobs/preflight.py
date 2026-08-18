@@ -9,6 +9,7 @@ from typing import Any
 from app.dashboard import dashboard_summary
 from app.db.connection import get_connection
 from app.db.migration_runner import CORE_TABLES, MIGRATIONS_DIR
+from app.economic_nav import economic_nav_summary
 from app.marketdata.backfill import market_data_status
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.newsweb import newsweb_buyback_status, newsweb_history_status
@@ -183,6 +184,27 @@ def run_preflight(
                 "warnings": [item for item in checks if item["status"] == "WARN"],
             }
 
+        fixture_markers = int(
+            connection.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM source_documents
+                WHERE document_type='TEST_FIXTURE'
+                   OR external_id LIKE 'd1-ci-%'
+                   OR url LIKE 'https://example.test/%'
+                """
+            ).fetchone()["n"]
+        )
+        _check(
+            checks,
+            "production_fixture_sentinel",
+            fixture_markers == 0,
+            details={
+                "fixture_markers": fixture_markers,
+                "rule": "production cutover must never contain CI/test source documents",
+            },
+        )
+
         reference_counts = {
             "cash_anchors": int(connection.execute("SELECT COUNT(*) n FROM cash_anchors WHERE anchor_type='REPORTED'").fetchone()["n"]),
             "bemobi_holdings": int(connection.execute("SELECT COUNT(*) n FROM bemobi_holdings").fetchone()["n"]),
@@ -292,6 +314,7 @@ def run_preflight(
         ona = other_net_assets_status(database_path)
         full = full_nav_status(database_path)
         dashboard = dashboard_summary(database_path)
+        economic = economic_nav_summary(database_path)
 
         cash_to = cash.get("to") or cash.get("last_date")
         core_to = core.get("to")
@@ -333,6 +356,20 @@ def run_preflight(
         )
         _check(
             checks,
+            "economic_nav_overlay",
+            bool(economic.get("ready"))
+            and economic.get("as_of_date") == dashboard.get("as_of_date"),
+            details={
+                "ready": economic.get("ready"),
+                "reason": economic.get("reason"),
+                "as_of_date": economic.get("as_of_date"),
+                "dashboard_as_of_date": dashboard.get("as_of_date"),
+                "nav_per_share": economic.get("nav_per_share"),
+                "accounting_nav_per_share": economic.get("accounting_nav_per_share"),
+            },
+        )
+        _check(
+            checks,
             "dashboard_quality",
             dashboard.get("data_status") not in {"DEGRADED", "ESTIMATED"},
             details={"data_status": dashboard.get("data_status"), "quality_notes": dashboard.get("quality_notes")},
@@ -354,6 +391,7 @@ def run_preflight(
         "known_expected_gaps": [
             "FULL NAV is intentionally not reconstructed before the supported ONA period.",
             "Between financial reports, cash/ONA can legitimately be FORECAST_PARTIAL or ESTIMATED; this is a warning, not a bootstrap blocker when all required inputs exist.",
+            "Economic NAV is a separate investor overlay and must be current/ready before a production cutover, but it does not replace CORE/FULL NAV.",
         ],
     }
 

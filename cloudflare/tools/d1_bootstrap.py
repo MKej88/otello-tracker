@@ -15,29 +15,55 @@ from app.db.d1_bootstrap_package import (  # noqa: E402
     verify_database,
     write_bootstrap_package,
 )
+from app.jobs.preflight import run_preflight  # noqa: E402
 
 
 def _export(args: argparse.Namespace) -> int:
-    manifest = write_bootstrap_package(args.database, args.sql, args.manifest)
-    print(
-        json.dumps(
-            {
-                "status": "ok",
-                "database": args.database,
-                "sql": args.sql,
-                "manifest": args.manifest,
-                "logical_sha256": manifest["logical_sha256"],
-                "row_counts": {
-                    table: data["row_count"]
-                    for table, data in manifest["tables"].items()
-                },
-                "key_metrics": manifest["key_metrics"],
-            },
-            indent=2,
-            ensure_ascii=False,
-            default=str,
+    production_preflight = None
+    if args.production:
+        production_preflight = run_preflight(
+            args.database,
+            target_date=args.date,
+            check_derived=True,
         )
-    )
+        if not production_preflight["ready"]:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "reason": "production_preflight_failed",
+                        "database": args.database,
+                        "blockers": production_preflight["blockers"],
+                        "warnings": production_preflight["warnings"],
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+            return 2
+
+    manifest = write_bootstrap_package(args.database, args.sql, args.manifest)
+    payload = {
+        "status": "ok",
+        "mode": "production" if args.production else "standard",
+        "database": args.database,
+        "sql": args.sql,
+        "manifest": args.manifest,
+        "logical_sha256": manifest["logical_sha256"],
+        "row_counts": {
+            table: data["row_count"]
+            for table, data in manifest["tables"].items()
+        },
+        "key_metrics": manifest["key_metrics"],
+    }
+    if production_preflight is not None:
+        payload["production_preflight"] = {
+            "status": production_preflight["status"],
+            "target_date": production_preflight["target_date"],
+            "warnings": production_preflight["warnings"],
+        }
+    print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
     return 0
 
 
@@ -60,6 +86,16 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--database", required=True, help="Validated SQLite reference DB")
     export_parser.add_argument("--sql", required=True, help="Output SQL file")
     export_parser.add_argument("--manifest", required=True, help="Output JSON manifest")
+    export_parser.add_argument(
+        "--production",
+        action="store_true",
+        help="Require strict production preflight before writing the cutover package",
+    )
+    export_parser.add_argument(
+        "--date",
+        default=None,
+        help="Production target date (YYYY-MM-DD); defaults to today",
+    )
     export_parser.set_defaults(handler=_export)
 
     verify_parser = subparsers.add_parser(

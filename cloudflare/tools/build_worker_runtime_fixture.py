@@ -19,6 +19,7 @@ from app.dashboard import dashboard_history as reference_dashboard_history  # no
 from app.dashboard import dashboard_summary as reference_dashboard_summary  # noqa: E402
 from app.dashboard_freshness import enrich_dashboard_summary  # noqa: E402
 from app.db.connection import get_connection  # noqa: E402
+from app.economic_nav import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
 
@@ -56,6 +57,27 @@ def _components(*, day: str, otec: str, bmob3: str, brl: str, cash: str, status:
     )
 
 
+def _full_components(*, day: str) -> str:
+    return json.dumps(
+        {
+            "other_net_assets": {
+                "option_liability": {
+                    "amount_nok": "2600000",
+                    "fair_value_per_option_nok": "5.902439024390244",
+                    "inputs": {
+                        "option_count": 4100000,
+                        "gross_fair_value_nok": "24200000",
+                        "fixture_date": day,
+                    },
+                    "quality": "FORECAST_MARK_TO_MARKET",
+                }
+            }
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 def _insert_nav_pair(
     connection,
     *,
@@ -76,6 +98,7 @@ def _insert_nav_pair(
         cash=cash,
         status=status,
     )
+    full_components = _full_components(day=day)
     as_of_at = f"{day}T23:59:59Z"
     shares = 70_000_000
     connection.execute(
@@ -108,7 +131,7 @@ def _insert_nav_pair(
             discount_pct, bemobi_value_nok, cash_estimate_nok,
             other_net_assets_nok, shares_outstanding, calculation_version,
             inputs_hash, status, nav_scope, components_json, quality_notes
-        ) VALUES (?, '1510500000', ?, ?, ?, '1350000000', ?, '10500000', ?, ?, ?, ?, 'FULL', '{}', 'worker runtime parity')
+        ) VALUES (?, '1510500000', ?, ?, ?, '1350000000', ?, '10500000', ?, ?, ?, ?, 'FULL', ?, 'worker runtime parity')
         """,
         (
             as_of_at,
@@ -120,6 +143,7 @@ def _insert_nav_pair(
             FULL_VERSION,
             f"worker-full-{day}",
             status,
+            full_components,
         ),
     )
 
@@ -163,6 +187,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
     expected_dir.mkdir(parents=True, exist_ok=True)
     expected = {
         "summary": enrich_dashboard_summary(reference_dashboard_summary(database_path), database_path),
+        "economic": reference_economic_nav_summary(database_path),
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
     }
@@ -177,6 +202,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "expected_dir": str(expected_dir),
         "forecast_ready": bool(expected["forecast"].get("ready")),
         "summary_ready": bool(expected["summary"].get("ready")),
+        "economic_ready": bool(expected["economic"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
     }
 
