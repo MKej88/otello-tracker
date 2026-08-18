@@ -59,6 +59,36 @@ type CashCurrencyEstimate = {
   basis: string;
 };
 
+type FxBacktestPeriod = {
+  ready: boolean;
+  reason?: string;
+  period_start?: string;
+  period_end?: string;
+  model_cash_fx_usd_m?: number | null;
+  actual_cash_fx_usd_m?: number | null;
+  reported_pnl_fx_usd_m?: number | null;
+  error_usd_m?: number | null;
+  absolute_error_usd_m?: number | null;
+  accuracy_pct?: number | null;
+  sign_correct?: boolean;
+  applied_known_movements?: number;
+  skipped_movements?: number;
+  unmodelled_end_cash_gap_usd_m?: number | null;
+};
+
+type FxBacktest = {
+  ready: boolean;
+  reason?: string;
+  periods?: FxBacktestPeriod[];
+  summary?: {
+    periods_ready?: number;
+    periods_total?: number;
+    mean_absolute_error_usd_m?: number | null;
+    sign_hit_rate_pct?: number | null;
+  };
+  method_note?: string;
+};
+
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 function value(input: number | null | undefined, digits = 2) {
@@ -75,6 +105,12 @@ function signedValue(input: number | null | undefined, digits = 1) {
   return `${prefix}${value(input, digits)} mill.`;
 }
 
+function signedUsd(input: number | null | undefined, digits = 2) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  const prefix = input > 0 ? "+" : "";
+  return `${prefix}USD ${value(input, digits)} mill.`;
+}
+
 function dateLabel(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.split("-");
@@ -82,9 +118,24 @@ function dateLabel(input?: string | null) {
   return `${day}.${month}.${year}`;
 }
 
+function yearLabel(input?: string | null) {
+  if (!input) return "–";
+  return input.slice(0, 4);
+}
+
 function reasonLabel(reason?: string) {
   if (reason === "api_error") return "API-feil";
   return "Ikke klart";
+}
+
+function backtestReason(reason?: string) {
+  if (reason === "missing_historical_fx_rates" || reason === "no_backtest_period_ready") {
+    return "Historiske valutakurser mangler";
+  }
+  if (reason === "missing_fx_anchor") return "Historisk valutaanker mangler";
+  if (reason === "missing_reported_fx_outcomes") return "Rapportert valutaeffekt mangler";
+  if (reason === "api_error") return "Backtest-API utilgjengelig";
+  return "Backtest ikke klar";
 }
 
 function daysBetween(from?: string, to?: string) {
@@ -122,9 +173,6 @@ function cashCurrencyEstimate(data: EconomicNav): CashCurrencyEstimate[] | null 
   const rawTotal = rawNok + rawUsd + rawBrl;
   if (!Number.isFinite(rawTotal) || rawTotal <= 0) return null;
 
-  // Netto kontantendringer etter siste rapporterte valutaanker er ikke fordelt på valuta
-  // i kildene. Skaler derfor siste kjente, valutajusterte miks proporsjonalt til dagens
-  // økonomiske kontantbeholdning. Dette er kun et presentasjonsestimat og endrer ikke NAV.
   const scale = targetCash / rawTotal;
   const share = (amount: number) => amount / rawTotal * 100;
 
@@ -166,6 +214,7 @@ function localCashLabel(item: CashCurrencyEstimate) {
 
 export default function EconomicNavPanel() {
   const [data, setData] = useState<EconomicNav | null>(null);
+  const [backtest, setBacktest] = useState<FxBacktest | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -181,6 +230,18 @@ export default function EconomicNavPanel() {
         })
         .catch(() => {
           if (active) setData({ ready: false, reason: "api_error" });
+        });
+
+      fetch("/api/dashboard/fx-backtest")
+        .then((response) => {
+          if (!response.ok) throw new Error("FX backtest API-feil");
+          return response.json() as Promise<FxBacktest>;
+        })
+        .then((result) => {
+          if (active) setBacktest(result);
+        })
+        .catch(() => {
+          if (active) setBacktest({ ready: false, reason: "api_error" });
         });
     };
 
@@ -213,6 +274,7 @@ export default function EconomicNavPanel() {
   const cashFx = data.cash_fx;
   const currencyEstimate = cashCurrencyEstimate(data);
   const currencyConfidence = confidenceLabel(cashFx?.anchor_date, data.as_of_date);
+  const readyBacktestPeriods = backtest?.periods?.filter((period) => period.ready) ?? [];
 
   return (
     <section className="economicNavHost">
@@ -279,6 +341,71 @@ export default function EconomicNavPanel() {
           </div>
         )}
 
+        <div className="fxBacktest">
+          <div className="cashCurrencyHeader">
+            <div>
+              <span className="economicEyebrow">Modellkontroll</span>
+              <h3>Backtest av valutaeffekt</h3>
+            </div>
+            {backtest?.ready && (
+              <span className="cashConfidence">
+                {readyBacktestPeriods.length} PERIODER · RETNING {value(backtest.summary?.sign_hit_rate_pct, 0)} %
+              </span>
+            )}
+          </div>
+
+          {backtest?.ready ? (
+            <>
+              <div className="fxBacktestGrid">
+                {readyBacktestPeriods.map((period) => (
+                  <div className="fxBacktestCard" key={`${period.period_start}-${period.period_end}`}>
+                    <div className="fxBacktestYear">
+                      <strong>{yearLabel(period.period_end)}</strong>
+                      <span className={period.sign_correct ? "fxBacktestHit" : "fxBacktestMiss"}>
+                        {period.sign_correct ? "RIKTIG RETNING" : "FEIL RETNING"}
+                      </span>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Modellert cash-effekt</dt>
+                        <dd>{signedUsd(period.model_cash_fx_usd_m)}</dd>
+                      </div>
+                      <div>
+                        <dt>Faktisk cash-effekt</dt>
+                        <dd>{signedUsd(period.actual_cash_fx_usd_m)}</dd>
+                      </div>
+                      <div>
+                        <dt>Avvik</dt>
+                        <dd>{signedUsd(period.error_usd_m)}</dd>
+                      </div>
+                      <div>
+                        <dt>Treffgrad</dt>
+                        <dd>{value(period.accuracy_pct, 0)} %</dd>
+                      </div>
+                    </dl>
+                    <small>
+                      Resultatført valutaresultat: {signedUsd(period.reported_pnl_fx_usd_m)} · kjente strømmer: {period.applied_known_movements ?? 0}
+                    </small>
+                  </div>
+                ))}
+              </div>
+              <div className="fxBacktestSummary">
+                <span>
+                  Gjennomsnittlig absolutt avvik: USD {value(backtest.summary?.mean_absolute_error_usd_m, 2)} mill.
+                </span>
+                <span>
+                  Fasiten er valutaeffekt på kontanter i kontantstrømoppstillingen. Resultatført valutaresultat vises kun som kontroll.
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="fxBacktestUnavailable">
+              <strong>{backtestReason(backtest?.reason)}</strong>
+              <span>Backtesten påvirker ikke NAV og blir synlig når historiske valutaankre og kurser er komplette.</span>
+            </div>
+          )}
+        </div>
+
         <div className="economicAdjustments">
           <div>
             <span>Kontanter – dokumentert valutaeffekt</span>
@@ -307,7 +434,7 @@ export default function EconomicNavPanel() {
           <span>
             Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
             {costs?.source_period ? ` (${costs.source_period})` : ""}.
-            Kun dokumenterte USD-/BRL-kontanter revalueres i NAV; valutaestimatet over er et separat presentasjonslag. Renteinntekter er ikke lagt til.
+            Kun dokumenterte USD-/BRL-kontanter revalueres i NAV; valutaestimat og backtest er separate kontrollag. Renteinntekter er ikke lagt til.
           </span>
           <span>Data {dateLabel(data.as_of_date)}</span>
         </div>
