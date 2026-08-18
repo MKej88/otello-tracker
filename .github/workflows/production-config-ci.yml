@@ -44,7 +44,7 @@ jobs:
           CLOUDFLARE_R2_BUCKET_NAME: otello-source-archive
         run: python cloudflare/tools/render_production_config.py
 
-      - name: Validate rendered fields
+      - name: Validate rendered fields and cost guards
         run: |
           python - <<'PY'
           import json
@@ -53,11 +53,17 @@ jobs:
           config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
           assert config['name'] == 'otello-tracker'
           assert config['workers_dev'] is True
+          assert config['compatibility_date'] == '2026-08-18'
           assert config['d1_databases'][0]['database_id'] == '11111111-2222-3333-4444-555555555555'
           assert config['r2_buckets'][0]['bucket_name'] == 'otello-source-archive'
+          assert config['cache']['enabled'] is True
           assert config['observability']['enabled'] is True
+          assert config['observability']['logs']['enabled'] is True
+          assert config['observability']['logs']['invocation_logs'] is True
+          assert config['observability']['logs']['head_sampling_rate'] == 0.05
+          assert config['observability']['traces']['enabled'] is False
           assert config['limits']['cpu_ms'] == 60000
-          assert config['limits']['subrequests'] == 2000
+          assert config['limits']['subrequests'] == 500
           assert config['triggers']['crons'] == ['*/30 * * * *']
           assert config['workflows'][0]['schedules'] == ['35 3 * * *']
           PY
