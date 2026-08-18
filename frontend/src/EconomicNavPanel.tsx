@@ -1,0 +1,178 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import "./economic-nav.css";
+
+type EconomicNav = {
+  ready: boolean;
+  reason?: string;
+  as_of_date?: string;
+  quality?: string;
+  accounting_nav_per_share?: number | null;
+  nav_per_share?: number | null;
+  discount_pct?: number | null;
+  conservative_nav_per_share?: number | null;
+  conservative_discount_pct?: number | null;
+  economic_cash_mnok?: number | null;
+  option?: {
+    accounting_liability_mnok?: number | null;
+    economic_value_mnok?: number | null;
+    unrecognized_overhang_mnok?: number | null;
+  };
+  operating_costs?: {
+    anchor_date?: string;
+    days_since_anchor?: number;
+    base_mnok?: number | null;
+    conservative_mnok?: number | null;
+    base_annualized_usd_m?: number | null;
+    conservative_annualized_usd_m?: number | null;
+    usd_nok?: number | null;
+    usd_nok_date?: string;
+    source_period?: string;
+    interest_income_included?: boolean;
+  };
+  note?: string;
+};
+
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
+
+function value(input: number | null | undefined, digits = 2) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return input.toLocaleString("nb-NO", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+
+function dateLabel(input?: string | null) {
+  if (!input) return "–";
+  const [year, month, day] = input.split("-");
+  if (!year || !month || !day) return input;
+  return `${day}.${month}.${year}`;
+}
+
+export default function EconomicNavPanel() {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [data, setData] = useState<EconomicNav | null>(null);
+
+  useEffect(() => {
+    const kpiGrid = document.querySelector(".kpiGrid");
+    const parent = kpiGrid?.parentElement;
+    if (!kpiGrid || !parent) return;
+
+    const node = document.createElement("section");
+    node.className = "economicNavHost";
+    parent.insertBefore(node, kpiGrid);
+    setHost(node);
+
+    return () => {
+      node.remove();
+      setHost(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = () => {
+      fetch("/api/dashboard/economic")
+        .then((response) => {
+          if (!response.ok) throw new Error("Economic NAV API-feil");
+          return response.json() as Promise<EconomicNav>;
+        })
+        .then((result) => {
+          if (active) setData(result);
+        })
+        .catch(() => {
+          if (active) setData({ ready: false, reason: "api_error" });
+        });
+    };
+
+    load();
+    const timer = window.setInterval(load, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  if (!host || data == null) return null;
+
+  if (!data.ready) {
+    return createPortal(
+      <div className="economicNavPanel economicNavUnavailable">
+        <div>
+          <span className="economicEyebrow">Investorjustert NAV</span>
+          <strong>Økonomisk NAV venter på komplett FULL NAV-data</strong>
+        </div>
+        <span>{data.reason ?? "ikke klar"}</span>
+      </div>,
+      host
+    );
+  }
+
+  const option = data.option;
+  const costs = data.operating_costs;
+
+  return createPortal(
+    <article className="economicNavPanel">
+      <div className="economicHeader">
+        <div>
+          <span className="economicEyebrow">Investorjustert verdsettelse</span>
+          <h2>Økonomisk NAV</h2>
+        </div>
+        <span className="economicBadge">ESTIMERT OVERLAY</span>
+      </div>
+
+      <div className="economicMetrics">
+        <div>
+          <span>Regnskapsmessig FULL NAV</span>
+          <strong>{value(data.accounting_nav_per_share)} kr</strong>
+        </div>
+        <div className="economicPrimary">
+          <span>Økonomisk NAV</span>
+          <strong>{value(data.nav_per_share)} kr</strong>
+          <small>Rabatt {value(data.discount_pct, 1)} %</small>
+        </div>
+        <div>
+          <span>Konservativ NAV</span>
+          <strong>{value(data.conservative_nav_per_share)} kr</strong>
+          <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
+        </div>
+        <div>
+          <span>Økonomisk cash</span>
+          <strong>{value(data.economic_cash_mnok, 1)}m kr</strong>
+          <small>etter estimert drift</small>
+        </div>
+      </div>
+
+      <div className="economicAdjustments">
+        <div>
+          <span>Opsjon – regnskapsført</span>
+          <strong>{value(option?.accounting_liability_mnok, 1)}m</strong>
+        </div>
+        <div>
+          <span>Opsjon – økonomisk verdi</span>
+          <strong>{value(option?.economic_value_mnok, 1)}m</strong>
+        </div>
+        <div>
+          <span>Ekstra opsjonsoverheng</span>
+          <strong>−{value(option?.unrecognized_overhang_mnok, 1)}m</strong>
+        </div>
+        <div>
+          <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
+          <strong>−{value(costs?.base_mnok, 1)}m</strong>
+        </div>
+      </div>
+
+      <div className="economicFootnote">
+        <span>
+          Driftsrun-rate: ca. USD {value(costs?.base_annualized_usd_m, 2)}m/år
+          {costs?.source_period ? ` (${costs.source_period})` : ""}.
+          Renteinntekter er ikke lagt til.
+        </span>
+        <span>Data {dateLabel(data.as_of_date)}</span>
+      </div>
+    </article>,
+    host
+  );
+}
