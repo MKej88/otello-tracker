@@ -1,0 +1,63 @@
+name: Python Worker runtime guard
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "cloudflare/pyproject.toml"
+      - "cloudflare/src/**"
+      - ".github/workflows/python-worker-runtime-guard.yml"
+  pull_request:
+    paths:
+      - "cloudflare/pyproject.toml"
+      - "cloudflare/src/**"
+      - ".github/workflows/python-worker-runtime-guard.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  timezone-bundle:
+    name: Pyodide timezone bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Build dashboard assets required by Wrangler
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install pinned Python Worker tooling
+        working-directory: cloudflare
+        run: |
+          python -m pip install workers-py==1.16.2 uv==0.12.3
+          npm install --no-save wrangler@4.123.0
+
+      - name: Build Python Worker bundle without deploying
+        working-directory: cloudflare
+        run: pywrangler deploy --dry-run --config wrangler.jsonc --outdir /tmp/otello-worker-runtime-guard
+
+      - name: Require Europe/Oslo timezone data in vendored Worker packages
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f python_modules/tzdata/__init__.py
+          PYTHONPATH=python_modules python - <<'PY'
+          from importlib import resources
+
+          oslo = resources.files("tzdata.zoneinfo.Europe").joinpath("Oslo")
+          assert oslo.is_file(), f"Missing vendored IANA Europe/Oslo data: {oslo}"
+          print(f"Worker timezone data present: {oslo}")
+          PY
