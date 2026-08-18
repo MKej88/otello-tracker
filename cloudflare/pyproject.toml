@@ -9,6 +9,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "workers-py==1.16.4",
-  "workers-runtime-sdk==1.6.13",
+  "workers-py==1.16.2",
+  "workers-runtime-sdk==1.6.8",
 ]
