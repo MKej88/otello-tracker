@@ -3,10 +3,18 @@
   "name": "otello-tracker-local",
   "main": "src/entry.py",
   "compatibility_date": "2026-08-17",
-  "compatibility_flags": ["python_workers"],
+  "compatibility_flags": ["python_workers", "python_workflows"],
   "triggers": {
     "crons": ["*/30 * * * *"]
   },
+  "workflows": [
+    {
+      "name": "otello-full-refresh",
+      "binding": "FULL_REFRESH",
+      "class_name": "FullRefreshWorkflow",
+      "schedules": ["45 22 * * *"]
+    }
+  ],
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
@@ -19,6 +27,12 @@
       "database_name": "otello-nav-local",
       "database_id": "00000000-0000-0000-0000-000000000001",
       "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SOURCE_ARCHIVE",
+      "bucket_name": "otello-source-archive-local"
     }
   ]
 }
