@@ -18,10 +18,11 @@ frontend/dist/
 .dev.vars
 .dev.vars.*
 
-# Cloudflare local state
+# Cloudflare local/generated state
 .wrangler/
 cloudflare/.wrangler/
 cloudflare/python_modules/
+cloudflare/wrangler.production.jsonc
 
 # Runtime data
 data/*.db
