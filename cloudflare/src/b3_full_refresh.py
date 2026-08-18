@@ -11,9 +11,11 @@ from typing import Any, Awaitable, Callable
 try:
     from .b3_calendar import is_b3_trading_day
     from .bounded_response import read_response_bytes
+    from .r2_archive import archive_bytes
 except ImportError:
     from b3_calendar import is_b3_trading_day
     from bounded_response import read_response_bytes
+    from r2_archive import archive_bytes
 
 B3_DAILY_URL = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D{date_ddmmyyyy}.ZIP"
 MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
@@ -105,6 +107,7 @@ async def refresh_bmob3_close(
     *,
     target_date: str,
     max_lookback_days: int = 10,
+    archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     target = date.fromisoformat(target_date)
@@ -123,6 +126,18 @@ async def refresh_bmob3_close(
             continue
         latest = max(rows, key=lambda item: item.trading_date)
         digest = hashlib.sha256(payload).hexdigest()
+        archived = (
+            await archive_bytes(
+                archive_bucket,
+                payload,
+                source="b3",
+                kind="cotahist-daily",
+                logical_date=candidate.isoformat(),
+                filename=f"COTAHIST_D{candidate.strftime('%d%m%Y')}.ZIP",
+            )
+            if archive_bucket is not None
+            else None
+        )
         document_id = await repository.create_source_document(
             source_code="B3",
             external_id=f"cotahist-daily:{candidate.isoformat()}",
@@ -139,6 +154,8 @@ async def refresh_bmob3_close(
                 "volume_brl": format(latest.volume, "f"),
                 "isin": latest.isin,
                 "workflow": "cloudflare_full_refresh",
+                "r2_key": archived.get("r2_key") if archived else None,
+                "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
             },
         )
         price_id = await repository.upsert_market_price(
@@ -156,6 +173,7 @@ async def refresh_bmob3_close(
                 "trades": latest.trades,
                 "volume_brl": format(latest.volume, "f"),
                 "quotation_factor": 1,
+                "r2_key": archived.get("r2_key") if archived else None,
             },
         )
         return {
@@ -165,6 +183,7 @@ async def refresh_bmob3_close(
             "price_id": price_id,
             "source_document_id": document_id,
             "attempted_dates": attempted,
+            "r2_archive": archived,
         }
 
     return {

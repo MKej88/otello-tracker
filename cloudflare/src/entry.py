@@ -68,7 +68,7 @@ class Default(WorkerEntrypoint):
 
     async def scheduled(self, controller, env, ctx):
         # The legacy top-level Cron remains dedicated to the bounded 30-minute fast path.
-        # Phase 15.5 uses a separate Workflow binding with its own schedule.
+        # The heavier durable Workflow owns full refresh and R2 archiving.
         from scheduled import run_scheduled
 
         await run_scheduled(
@@ -79,7 +79,7 @@ class Default(WorkerEntrypoint):
 
 
 class FullRefreshWorkflow(WorkflowEntrypoint):
-    """Durable, source-isolated full refresh with source-specific retry policies."""
+    """Durable full refresh, attachment enrichment and content-addressed R2 archive."""
 
     async def run(self, event, step):
         from b3_full_refresh import refresh_bmob3_close
@@ -92,9 +92,11 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_nav,
             start_full_refresh,
         )
+        from newsweb_daily_buybacks import enrich_newsweb_buybacks_with_r2
         from newsweb_reconciliation import reconcile_newsweb
         from otec_workflow_recovery import ensure_otec_eod
         from performance_repository import PerformanceD1WriteRepository
+        from r2_snapshot import archive_d1_snapshot
 
         target_date = _workflow_target_date(event)
         trigger = _workflow_trigger(event)
@@ -115,7 +117,11 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         async def ecb_step():
             repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_ecb_fx(repository, target_date=target_date)
+            result = await refresh_ecb_fx(
+                repository,
+                target_date=target_date,
+                archive_bucket=self.env.SOURCE_ARCHIVE,
+            )
             return {**result, "repository": repository.performance_metrics()}
 
         try:
@@ -129,7 +135,11 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         async def b3_step():
             repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_bmob3_close(repository, target_date=target_date)
+            result = await refresh_bmob3_close(
+                repository,
+                target_date=target_date,
+                archive_bucket=self.env.SOURCE_ARCHIVE,
+            )
             return {**result, "repository": repository.performance_metrics()}
 
         try:
@@ -164,6 +174,24 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             source_results["newsweb"] = await newsweb_step()
         except Exception as exc:
             source_results["newsweb"] = error_result(exc)
+
+        @step.do(
+            "archive NewsWeb buyback PDFs",
+            config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
+        )
+        async def newsweb_pdf_step():
+            repository = PerformanceD1WriteRepository(self.env.DB)
+            result = await enrich_newsweb_buybacks_with_r2(
+                repository,
+                self.env.SOURCE_ARCHIVE,
+                target_date=target_date,
+            )
+            return {**result, "repository": repository.performance_metrics()}
+
+        try:
+            source_results["newsweb_attachments"] = await newsweb_pdf_step()
+        except Exception as exc:
+            source_results["newsweb_attachments"] = error_result(exc)
 
         @step.do(
             "ensure OTEC EOD",
@@ -213,6 +241,25 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             }
 
         @step.do(
+            "archive D1 logical snapshot",
+            config={"retries": {"limit": 2, "delay": "30 seconds"}, "timeout": "10 minutes"},
+        )
+        async def snapshot_step():
+            repository = PerformanceD1WriteRepository(self.env.DB)
+            result = await archive_d1_snapshot(
+                repository,
+                self.env.SOURCE_ARCHIVE,
+                target_date=target_date,
+                preflight_status=preflight_result.get("status"),
+            )
+            return {**result, "repository": repository.performance_metrics()}
+
+        try:
+            archive_result = await snapshot_step()
+        except Exception as exc:
+            archive_result = error_result(exc)
+
+        @step.do(
             "finish full refresh",
             config={"retries": {"limit": 3, "delay": "10 seconds"}, "timeout": "3 minutes"},
         )
@@ -224,6 +271,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results=source_results,
                 nav_result=nav_result,
                 preflight_result=preflight_result,
+                archive_result=archive_result,
             )
 
         return await finish_step()
