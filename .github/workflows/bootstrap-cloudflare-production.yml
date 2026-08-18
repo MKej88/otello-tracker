@@ -30,6 +30,8 @@ jobs:
       CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
       CLOUDFLARE_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
       BOOTSTRAP_DATE: "2026-08-18"
+      OTEC_ENCODED_LENGTH: "25748"
+      OTEC_GZIP_SHA256: "6ee71a31d1790be63e4c58a04d970b86a791348d3c6510c30caa622fb159db20"
       OTEC_RAW_SHA256: "199a787558ac67055171bd4b0ea362b2c75a69bbc85a523825875faf367b109f"
     steps:
       - uses: actions/checkout@v7
@@ -73,15 +75,42 @@ jobs:
           import os
           from pathlib import Path
 
-          encoded = Path('bootstrap_inputs/otec_investing_20260814.csv.gz.b64').read_text().strip()
-          raw = gzip.decompress(base64.b64decode(encoded))
+          parts = [
+              Path(f'bootstrap_inputs/otec_investing_20260814.part{i}.b64')
+              for i in range(4)
+          ]
+          missing = [str(path) for path in parts if not path.exists()]
+          if missing:
+              raise SystemExit(f'Missing OTEC bootstrap part(s): {missing}')
+
+          encoded = ''.join(path.read_text(encoding='utf-8').strip() for path in parts)
+          expected_length = int(os.environ['OTEC_ENCODED_LENGTH'])
+          if len(encoded) != expected_length:
+              raise SystemExit(
+                  f'OTEC encoded length mismatch: {len(encoded)} != {expected_length}'
+              )
+
+          compressed = base64.b64decode(encoded, validate=True)
+          compressed_digest = hashlib.sha256(compressed).hexdigest()
+          expected_compressed = os.environ['OTEC_GZIP_SHA256']
+          if compressed_digest != expected_compressed:
+              raise SystemExit(
+                  'OTEC gzip checksum mismatch: '
+                  f'{compressed_digest} != {expected_compressed}'
+              )
+
+          raw = gzip.decompress(compressed)
           digest = hashlib.sha256(raw).hexdigest()
           expected = os.environ['OTEC_RAW_SHA256']
           if digest != expected:
               raise SystemExit(f'OTEC bootstrap checksum mismatch: {digest} != {expected}')
+
           output = Path('/tmp/otec-investing-history.csv')
           output.write_bytes(raw)
-          print(f'Validated OTEC bootstrap input: {len(raw)} bytes, sha256={digest}')
+          print(
+              'Validated OTEC bootstrap input: '
+              f'{len(raw)} bytes, gzip_sha256={compressed_digest}, raw_sha256={digest}'
+          )
           PY
 
       - name: Build clean production SQLite and run strict preflight
