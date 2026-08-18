@@ -92,7 +92,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_nav,
             start_full_refresh,
         )
-        from newsweb_daily_buybacks import enrich_newsweb_buybacks_with_r2
+        from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
         from otec_workflow_recovery import ensure_otec_eod
         from performance_repository import PerformanceD1WriteRepository
@@ -181,7 +181,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         async def newsweb_pdf_step():
             repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await enrich_newsweb_buybacks_with_r2(
+            result = await enrich_newsweb_buybacks_if_due(
                 repository,
                 self.env.SOURCE_ARCHIVE,
                 target_date=target_date,

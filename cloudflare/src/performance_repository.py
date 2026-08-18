@@ -55,6 +55,10 @@ class _PerformanceState:
             self._read_cache.clear()
         self._read_cache[key] = _clone_rows(rows)
 
+    def _record_uncached_read(self, started: float) -> None:
+        self._read_ms += (perf_counter() - started) * 1000
+        self._read_queries += 1
+
     def performance_metrics(self) -> dict[str, Any]:
         return {
             "d1_reads": self._read_queries,
@@ -89,12 +93,24 @@ class PerformanceD1Repository(_PerformanceState, D1Repository):
         self._remember(key, rows)
         return rows
 
+    async def all_uncached(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
+        started = perf_counter()
+        rows = await D1Repository.all(self, sql, parameters)
+        self._record_uncached_read(started)
+        return rows
+
 
 class PerformanceD1WriteRepository(_PerformanceState, D1WriteRepository):
     """Scheduled-ingestion repository that minimizes repeated D1 round trips.
 
     The general SELECT cache is invalidated after every write, while source/instrument
     IDs stay cached because reference rows are immutable during a Worker invocation.
+    Large sequential audit exports can explicitly use ``all_uncached`` so those pages do
+    not accumulate inside the request-scoped memoization cache.
     """
 
     def __init__(self, database: Any):
@@ -112,6 +128,16 @@ class PerformanceD1WriteRepository(_PerformanceState, D1WriteRepository):
         self._read_ms += (perf_counter() - started) * 1000
         self._read_queries += 1
         self._remember(key, rows)
+        return rows
+
+    async def all_uncached(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
+        started = perf_counter()
+        rows = await D1Repository.all(self, sql, parameters)
+        self._record_uncached_read(started)
         return rows
 
     async def run(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any:

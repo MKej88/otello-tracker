@@ -56,13 +56,12 @@ def _declared_content_length(response: Any, *, label: str) -> int | None:
     return declared
 
 
-async def read_response_bytes(response: Any, *, max_bytes: int, label: str) -> bytes:
-    """Read a Fetch Response without ever accumulating more than ``max_bytes``.
+async def read_response_buffer(response: Any, *, max_bytes: int, label: str) -> bytearray:
+    """Read a bounded response into one mutable buffer.
 
-    Cloudflare/JS responses do not have to include Content-Length. Prefer the
-    ReadableStream when available so an oversized chunked response is rejected while it
-    is being consumed instead of after ``arrayBuffer()`` has already materialised the
-    whole body. The fallback keeps CPython unit-test fakes and older Worker shims working.
+    The streaming path grows a single ``bytearray`` instead of retaining every response
+    chunk and then allocating an additional joined copy. Callers that can work with a
+    bytes-like object (notably Euronext ZIP recovery) can therefore avoid that peak.
     """
     declared = _declared_content_length(response, label=label)
     if declared is not None and declared > max_bytes:
@@ -72,39 +71,41 @@ async def read_response_bytes(response: Any, *, max_bytes: int, label: str) -> b
     get_reader = getattr(body, "getReader", None)
     if callable(get_reader):
         reader = get_reader()
-        chunks: list[bytes] = []
-        total = 0
+        payload = bytearray()
         try:
             while True:
                 result = await _maybe_await(reader.read())
                 if bool(getattr(result, "done", False)):
                     break
                 chunk = _chunk_bytes(getattr(result, "value", None))
-                total += len(chunk)
-                if total > max_bytes:
+                if len(payload) + len(chunk) > max_bytes:
                     cancel = getattr(reader, "cancel", None)
                     if callable(cancel):
                         await _maybe_await(cancel("response too large"))
                     raise ValueError(f"{label} overstiger Worker-grensen")
-                chunks.append(chunk)
+                payload.extend(chunk)
         finally:
             release = getattr(reader, "releaseLock", None)
             if callable(release):
                 release()
-        return b"".join(chunks)
+        return payload
 
     array_buffer = getattr(response, "arrayBuffer", None)
     if callable(array_buffer):
-        payload = _chunk_bytes(await _maybe_await(array_buffer()))
+        raw = _chunk_bytes(await _maybe_await(array_buffer()))
     else:
         text = getattr(response, "text", None)
         if not callable(text):
             raise TypeError(f"{label} response mangler lesbar body")
-        payload = str(await _maybe_await(text())).encode("utf-8")
-
-    if len(payload) > max_bytes:
+        raw = str(await _maybe_await(text())).encode("utf-8")
+    if len(raw) > max_bytes:
         raise ValueError(f"{label} overstiger Worker-grensen")
-    return payload
+    return bytearray(raw)
+
+
+async def read_response_bytes(response: Any, *, max_bytes: int, label: str) -> bytes:
+    """Read a Fetch Response into immutable bytes with a strict size bound."""
+    return bytes(await read_response_buffer(response, max_bytes=max_bytes, label=label))
 
 
 async def read_response_text(response: Any, *, max_bytes: int, label: str) -> str:

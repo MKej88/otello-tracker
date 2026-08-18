@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any, Awaitable, Callable
 
 try:
-    from .bounded_response import read_response_bytes
+    from .bounded_response import read_response_buffer
     from .oslo_calendar import is_oslo_bors_trading_day
     from .otec_ingestion import (
         FILE_TYPE,
@@ -20,7 +20,7 @@ try:
         finalize_otec_eod_from_coverage,
     )
 except ImportError:
-    from bounded_response import read_response_bytes
+    from bounded_response import read_response_buffer
     from oslo_calendar import is_oslo_bors_trading_day
     from otec_ingestion import (
         FILE_TYPE,
@@ -35,17 +35,17 @@ except ImportError:
         finalize_otec_eod_from_coverage,
     )
 
-# The fast path deliberately stops at 32 MiB. A durable Workflow gets a somewhat larger
-# recovery envelope and archives the raw ZIP to R2, but still fails closed well below the
-# Python Worker memory ceiling rather than attempting an effectively unbounded download.
-MAX_WORKFLOW_ZIP_BYTES = 48 * 1024 * 1024
+# Full-day recovery is an exceptional path, not a reason to run near the 128 MiB Worker
+# memory ceiling. Keep the compressed payload small enough that one temporary immutable
+# R2 upload copy or one BytesIO ZIP view still leaves substantial runtime headroom.
+MAX_WORKFLOW_ZIP_BYTES = 28 * 1024 * 1024
 MAX_WORKFLOW_CSV_BYTES = 384 * 1024 * 1024
 
 
 async def _download(
     *,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
-) -> tuple[str, bytes]:
+) -> tuple[str, bytearray]:
     if fetcher is None:
         from workers import fetch
 
@@ -62,7 +62,7 @@ async def _download(
         raise RuntimeError(
             f"Euronext Workflow recovery feilet med HTTP {getattr(response, 'status', 'unknown')}"
         )
-    payload = await read_response_bytes(
+    payload = await read_response_buffer(
         response,
         max_bytes=MAX_WORKFLOW_ZIP_BYTES,
         label="Euronext Workflow recovery ZIP",
@@ -77,16 +77,21 @@ async def recover_otec_to_r2(
     target_date: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Recover the full Euronext session with a larger Workflow/R2 envelope.
+    """Recover one full Euronext session with a conservative memory envelope.
 
-    This is still a delayed-trade source and is therefore persisted as LAST/DIRECT, never
-    as official CLOSE. The raw compressed source is archived content-addressed in R2 so a
-    later audit or Phase 15.6 parser can reproduce the exact input used by the recovery.
+    The compressed response is accumulated in one mutable buffer. The short-lived bytes
+    copy needed by the R2 Python binding is uploaded and released before ZIP parsing, so
+    the upload representation and the parser's random-access view do not overlap.
     """
     url, payload = await _download(fetcher=fetcher)
     digest = hashlib.sha256(payload).hexdigest()
     r2_key = f"raw/euronext/otec/{target_date}/current-trading-day-{digest[:20]}.zip"
-    await archive_bucket.put(r2_key, payload)
+
+    upload_payload = bytes(payload)
+    try:
+        await archive_bucket.put(r2_key, upload_payload)
+    finally:
+        del upload_payload
 
     trades = _parse_euronext_trades(
         payload,
@@ -116,7 +121,7 @@ async def recover_otec_to_r2(
         "trade_unique_identifier": trade.trade_unique_identifier,
         "publication_datetime": trade.publication_datetime,
         "price_semantics": "LATEST_REPORTED_TRADE_NOT_OFFICIAL_CLOSE",
-        "payload_policy": "BOUNDED_WORKFLOW_ZIP_R2_ARCHIVED_STREAMED_CSV_MEMBER",
+        "payload_policy": "SINGLE_BUFFER_28MIB_R2_ARCHIVED_STREAMED_CSV_MEMBER",
         "r2_key": r2_key,
         "content_sha256": digest,
     }
