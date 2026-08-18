@@ -42,6 +42,9 @@ def test_economic_overlay_is_identical_in_reference_and_worker() -> None:
     assert expected["operating_costs"]["days_since_anchor"] == 226
     assert expected["operating_costs"]["base_mnok"] > 12
     assert expected["operating_costs"]["conservative_mnok"] > expected["operating_costs"]["base_mnok"]
+    assert 2.02 < expected["operating_costs"]["base_annualized_usd_m"] < 2.03
+    assert expected["operating_costs"]["conservative_annualized_usd_m"] == 2.641
+    assert expected["operating_costs"]["method"] == "latest-half-recurring-operating-cost-run-rate-v2"
     assert expected["nav_per_share"] < expected["accounting_nav_per_share"]
     assert expected["conservative_nav_per_share"] < expected["nav_per_share"]
     assert expected["discount_pct"] > expected["conservative_discount_pct"]
