@@ -13,6 +13,12 @@ except ImportError:
 RECONCILIATION_LOOKBACK_DAYS = 45
 
 
+def _compact_buybacks(result: dict[str, Any]) -> dict[str, Any]:
+    # Individual weekly rows already live durably in D1. Do not duplicate the potentially
+    # large result list into Workflow step state and job_runs metadata.
+    return {key: value for key, value in result.items() if key != "results"}
+
+
 async def reconcile_newsweb(
     repository,
     *,
@@ -36,12 +42,13 @@ async def reconcile_newsweb(
         to_date=target_date,
         fetcher=fetcher,
     )
-    buybacks = await collect_newsweb_buybacks(
+    raw_buybacks = await collect_newsweb_buybacks(
         repository,
         from_date=start,
         to_date=target_date,
         fetcher=fetcher,
     )
+    buybacks = _compact_buybacks(raw_buybacks)
 
     errors: list[dict[str, Any]] = []
     for scope, result in (("history", history), ("buybacks", buybacks)):
