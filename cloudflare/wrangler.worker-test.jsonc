@@ -3,7 +3,14 @@
   "name": "otello-tracker-worker-ci",
   "main": "src/entry.py",
   "compatibility_date": "2026-08-17",
-  "compatibility_flags": ["python_workers"],
+  "compatibility_flags": ["python_workers", "python_workflows"],
+  "workflows": [
+    {
+      "name": "otello-full-refresh-ci",
+      "binding": "FULL_REFRESH",
+      "class_name": "FullRefreshWorkflow"
+    }
+  ],
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
@@ -16,6 +23,12 @@
       "database_name": "otello-nav-ci",
       "database_id": "00000000-0000-0000-0000-000000000001",
       "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SOURCE_ARCHIVE",
+      "bucket_name": "otello-source-archive-ci"
     }
   ]
 }
