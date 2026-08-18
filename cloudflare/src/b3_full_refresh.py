@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import hashlib
+import io
+import zipfile
+from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import Any, Awaitable, Callable
+
+try:
+    from .b3_calendar import is_b3_trading_day
+    from .bounded_response import read_response_bytes
+except ImportError:
+    from b3_calendar import is_b3_trading_day
+    from bounded_response import read_response_bytes
+
+B3_DAILY_URL = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D{date_ddmmyyyy}.ZIP"
+MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class B3DailyClose:
+    trading_date: str
+    close: Decimal
+    isin: str
+    trades: int
+    volume: Decimal
+
+
+def _implied_two_decimals(raw: str) -> Decimal:
+    return Decimal(raw.strip() or "0") / Decimal("100")
+
+
+def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("B3 COTAHIST er ikke en gyldig ZIP") from exc
+
+    rows: list[B3DailyClose] = []
+    with archive:
+        members = [name for name in archive.namelist() if name.upper().endswith(".TXT")]
+        if len(members) != 1:
+            raise ValueError(f"Forventet én B3 COTAHIST TXT-fil, fant {len(members)}")
+        with archive.open(members[0]) as raw:
+            for raw_line in raw:
+                line = raw_line.decode("latin-1").rstrip("\r\n")
+                if len(line) < 245 or line[0:2] != "01":
+                    continue
+                if line[12:24].strip().upper() != "BMOB3":
+                    continue
+                if line[10:12] != "02" or line[24:27] != "010":
+                    continue
+                factor = int(line[210:217] or "0")
+                if factor != 1:
+                    raise ValueError(f"Uventet B3 quotation factor: {factor}")
+                raw_date = line[2:10]
+                trading_date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                date.fromisoformat(trading_date)
+                rows.append(
+                    B3DailyClose(
+                        trading_date=trading_date,
+                        close=_implied_two_decimals(line[108:121]),
+                        isin=line[230:242].strip(),
+                        trades=int(line[147:152] or "0"),
+                        volume=_implied_two_decimals(line[170:188]),
+                    )
+                )
+    return rows
+
+
+async def _download_day(
+    candidate: date,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[str, bytes] | None:
+    if fetcher is None:
+        from workers import fetch
+
+        fetcher = fetch
+    url = B3_DAILY_URL.format(date_ddmmyyyy=candidate.strftime("%d%m%Y"))
+    response = await fetcher(
+        url,
+        headers={
+            "Accept": "application/zip,application/octet-stream,*/*;q=0.8",
+            "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
+        },
+    )
+    status = int(getattr(response, "status", 0) or 0)
+    if status == 404:
+        return None
+    if not bool(getattr(response, "ok", False)):
+        raise RuntimeError(f"B3 COTAHIST feilet med HTTP {status or 'unknown'}")
+    payload = await read_response_bytes(
+        response,
+        max_bytes=MAX_DAILY_ZIP_BYTES,
+        label=f"B3 COTAHIST {candidate.isoformat()}",
+    )
+    return url, payload
+
+
+async def refresh_bmob3_close(
+    repository,
+    *,
+    target_date: str,
+    max_lookback_days: int = 10,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    target = date.fromisoformat(target_date)
+    attempted: list[str] = []
+    for offset in range(max_lookback_days + 1):
+        candidate = target - timedelta(days=offset)
+        if not is_b3_trading_day(candidate):
+            continue
+        attempted.append(candidate.isoformat())
+        downloaded = await _download_day(candidate, fetcher=fetcher)
+        if downloaded is None:
+            continue
+        url, payload = downloaded
+        rows = parse_bmob3_daily_zip(payload)
+        if not rows:
+            continue
+        latest = max(rows, key=lambda item: item.trading_date)
+        digest = hashlib.sha256(payload).hexdigest()
+        document_id = await repository.create_source_document(
+            source_code="B3",
+            external_id=f"cotahist-daily:{candidate.isoformat()}",
+            document_type="MARKET_DATA_FILE",
+            title=f"B3 COTAHIST daily {candidate.isoformat()} - BMOB3",
+            url=url,
+            published_at=f"{candidate.isoformat()}T23:59:59Z",
+            content_sha256=digest,
+            metadata={
+                "ticker": "BMOB3",
+                "format": "COTAHIST",
+                "scope": "DAILY",
+                "trades": latest.trades,
+                "volume_brl": format(latest.volume, "f"),
+                "isin": latest.isin,
+                "workflow": "cloudflare_full_refresh",
+            },
+        )
+        price_id = await repository.upsert_market_price(
+            symbol="BMOB3",
+            observed_at=f"{latest.trading_date}T23:59:59Z",
+            trading_date=latest.trading_date,
+            price_type="CLOSE",
+            price=format(latest.close, "f"),
+            currency="BRL",
+            source_code="B3",
+            source_document_id=document_id,
+            quality="DIRECT",
+            metadata={
+                "source": "B3_COTAHIST_DAILY",
+                "trades": latest.trades,
+                "volume_brl": format(latest.volume, "f"),
+                "quotation_factor": 1,
+            },
+        )
+        return {
+            "status": "ok",
+            "trading_date": latest.trading_date,
+            "price_brl": format(latest.close, "f"),
+            "price_id": price_id,
+            "source_document_id": document_id,
+            "attempted_dates": attempted,
+        }
+
+    return {
+        "status": "not_available",
+        "attempted_dates": attempted,
+        "retryable": True,
+    }
