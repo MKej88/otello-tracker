@@ -134,6 +134,26 @@ async def run_d1_preflight(
     ping = await repository.first("SELECT 1 AS ok")
     _check(checks, "d1_query", bool(ping and int(ping.get("ok") or 0) == 1), details=ping)
 
+    fixture_row = await repository.first(
+        """
+        SELECT COUNT(*) AS n
+        FROM source_documents
+        WHERE document_type='TEST_FIXTURE'
+           OR external_id LIKE 'd1-ci-%'
+           OR url LIKE 'https://example.test/%'
+        """
+    ) or {}
+    fixture_markers = int(fixture_row.get("n") or 0)
+    _check(
+        checks,
+        "production_fixture_sentinel",
+        fixture_markers == 0,
+        details={
+            "fixture_markers": fixture_markers,
+            "rule": "remote production D1 must never contain CI/test source documents",
+        },
+    )
+
     refs = await repository.first(
         """
         SELECT
