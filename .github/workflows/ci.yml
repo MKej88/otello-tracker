@@ -127,7 +127,7 @@ jobs:
       - name: Install backend and pinned Python Worker tooling
         run: |
           python -m pip install -r ../backend/requirements-dev.txt
-          python -m pip install workers-py==1.16.4 uv==0.12.3
+          python -m pip install workers-py==1.16.2 uv==0.12.3
           python -m pip check
       - name: Install pinned Wrangler
         run: npm install --no-save wrangler@4.123.0
@@ -212,8 +212,8 @@ jobs:
 
           index = Path('/tmp/worker-index.html').read_text()
           fallback = Path('/tmp/worker-spa-fallback.html').read_text()
-          assert '<title>Otello NAV Dashboard</title>' in index
-          assert '<title>Otello NAV Dashboard</title>' in fallback
+          assert '<title>Otello NAV-oversikt</title>' in index
+          assert '<title>Otello NAV-oversikt</title>' in fallback
 
           index_headers = Path('/tmp/worker-index.headers').read_text().lower()
           summary_headers = Path('/tmp/worker-summary.headers').read_text().lower()
@@ -224,10 +224,10 @@ jobs:
           assert 'x-content-type-options: nosniff' in index_headers
           assert 'x-content-type-options: nosniff' in summary_headers
           assert 'x-frame-options: deny' in summary_headers
-          assert 'cache-control: public, max-age=30' in summary_headers
-          assert 'cache-control: public, max-age=30' in economic_headers
-          assert 'cache-control: public, max-age=900' in history_headers
-          assert 'cache-control: public, max-age=900' in forecast_headers
+          assert 'cache-control: public, max-age=15' in summary_headers
+          assert 'cache-control: public, max-age=15' in economic_headers
+          assert 'cache-control: public, max-age=300' in history_headers
+          assert 'cache-control: public, max-age=300' in forecast_headers
           print('Populated D1 -> workerd -> HTTP parity and header test passed')
           PY
 
