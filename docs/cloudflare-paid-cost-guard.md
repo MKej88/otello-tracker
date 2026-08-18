@@ -6,7 +6,7 @@ Dette dokumentet er produksjonspolicy for Otello NAV på Workers Paid. Målet er
 
 1. **Statiske filer skal ikke gå gjennom Worker-kode.** Frontend bygges som Workers Static Assets. Bare `/api/*` bruker Worker-kode.
 2. **Betalt compute brukes til tunge bakgrunnsjobber, ikke som standardbudsjett for alle forespørsler.** Produksjonsgrensen er 60 000 ms CPU og 500 subrequests per invocation, selv om Workers Paid tillater høyere maksimum.
-3. **API-responser caches på Workers-edge.** Dashboard-sammendrag og Economic NAV har kort TTL, mens historikk, tilbakekjøpsprognose og valuta-backtest caches lenger.
+3. **Workers Caching er kun aktivert på API-entrypointen.** Dashboard-sammendrag og Economic NAV har kort TTL, mens historikk, tilbakekjøpsprognose og valuta-backtest caches lenger. Statiske assets arver ikke global Worker-cache.
 4. **Observability samples.** Produksjonslogger lagres for 5 % av invocations. Tracing er avslått som standard.
 5. **D1-spørringer skal være indekserte og avgrensede.** Query-parametre er allerede bounded i API-et; egne kostnads-/ytelsesindekser ligger i migrasjonene.
 6. **R2-logisk snapshot er ikke daglig backup på Paid-planen.** D1 Time Travel er primær korttids-gjenoppretting. R2-snapshot tas ukentlig og ved månedsslutt for revisjons-/langtidsformål.
@@ -81,11 +81,12 @@ Dette gir en ekstra alarm dersom en query-regresjon begynner å lese eller skriv
 `cloudflare/tools/render_production_config.py` setter:
 
 ```text
-CPU per invocation:          60 000 ms
-Subrequests per invocation:  500
-Workers Caching:             på
-Workers Logs sampling:       5 %
-Tracing:                     av
+CPU per invocation:                60 000 ms
+Subrequests per invocation:        500
+Workers Caching, API-entrypoint:   på
+Global Workers Caching:            av
+Workers Logs sampling:             5 %
+Tracing:                           av
 ```
 
 Disse grensene er bevisst betydelig lavere enn Workers Paid-plattformens maksimum. Den 30-minutters Cron-jobben er i tillegg underlagt Cloudflares plattformgrense på 30 sekunder CPU fordi intervallet er kortere enn én time.
@@ -101,9 +102,9 @@ Disse grensene er bevisst betydelig lavere enn Workers Paid-plattformens maksimu
 | `/api/dashboard/fx-backtest` | 30 min | 6 t |
 | `/api/health` | ingen | ingen |
 
-Cache reduserer CPU og D1-belastning, men cached Worker-requests teller fortsatt som Workers requests. WAF er derfor nødvendig dersom målet er sterk beskyttelse mot request-overforbruk.
+API-cache reduserer CPU og D1-belastning, men cachetreff på en Worker-entrypoint teller fortsatt som Workers requests. WAF er derfor nødvendig dersom målet er sterk beskyttelse mot request-overforbruk.
 
-Statiske React/Vite-filer omfattes ikke av `/api/*`-ruten og serveres direkte som Workers Static Assets. De skal derfor ikke tvinges gjennom Worker-koden.
+Statiske React/Vite-filer omfattes ikke av `/api/*`-ruten, går ikke gjennom den cache-aktiverte API-entrypointen og serveres direkte som Workers Static Assets. De beholder dermed Cloudflares gratis/uavgrensede static-assets-modell.
 
 ## R2 og D1
 
