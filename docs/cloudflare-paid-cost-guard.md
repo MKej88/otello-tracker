@@ -26,17 +26,33 @@ Sett `CLOUDFLARE_CUSTOM_DOMAIN` i GitHub production environment. Da settes `work
 
 ### 2. Lag WAF rate limiting-regel for API-et
 
-Anbefalt utgangspunkt for dette private investorverktøyet:
+**Workers Paid endrer ikke WAF-planen til domenet.** Tilgjengelige tellevinduer og sperretid bestemmes av om selve sonen står på Cloudflare Free, Pro, Business eller Enterprise.
+
+Anbefalt utgangspunkt for dette investorverktøyet:
+
+#### Hvis domenet står på Cloudflare Free
+
+- filter: URI path starter med `/api/`
+- teller: per klient-IP
+- terskel: **20 forespørsler per 10 sekunder per IP**
+- handling: **Block**
+- varighet: **10 sekunder**
+
+Free-planen har ett rate limiting-regelsett med 10-sekunders tellevindu. Grensen over tåler normal sidelasting med flere samtidige API-kall, men stopper en enkel aggressiv klient raskt.
+
+#### Hvis domenet står på Cloudflare Pro eller høyere
+
+Bruk som utgangspunkt:
 
 - filter: URI path starter med `/api/`
 - teller: per klient-IP
 - terskel: **120 forespørsler per minutt per IP**
 - handling: **Block**
-- varighet: **10 minutter**
+- varighet: **10 minutter** når sonens plan støtter dette
 
-Normal dashboardbruk ligger svært langt under dette. Reglens formål er å stoppe en enkel bot, feilsløyfe eller aggressiv klient før forespørslene når Worker-koden.
+Normal dashboardbruk ligger svært langt under disse grensene. Reglens formål er å stoppe en enkel bot, feilsløyfe eller aggressiv klient før forespørslene når Worker-koden. Forespørsler som WAF blokkerer registreres ikke som Worker-invocations.
 
-Hvis siden senere blir offentlig/populær, skal terskelen vurderes mot reell trafikk før den endres.
+WAF rate limiting er ikke et matematisk globalt kostnadstak: tellerne er per Cloudflare-datasenter og reglene kan operere fail-open under sjeldne infrastrukturproblemer. Hvis siden senere blir offentlig/populær, skal terskelen vurderes mot reell trafikk.
 
 ### 3. Opprett lave Budget Alerts
 
@@ -49,7 +65,7 @@ Anbefalt:
 - første varsel: **USD 1** i usage-based spend
 - andre varsel: **USD 5**
 
-Workers Paid-abonnementets faste månedspris inngår ikke i disse tersklene. Varslene er bare informasjonsvarsler og kan komme etter at forbruket allerede har skjedd.
+Workers Paid-abonnementets faste månedspris inngår ikke i disse tersklene. Varslene er bare informasjonsvarsler, behandles etterskuddsvis og kan derfor komme etter at forbruket allerede har skjedd.
 
 ### 4. Slå på D1 billing notifications
 
@@ -72,7 +88,7 @@ Workers Logs sampling:       5 %
 Tracing:                     av
 ```
 
-Disse grensene er bevisst betydelig lavere enn Workers Paid-plattformens maksimum.
+Disse grensene er bevisst betydelig lavere enn Workers Paid-plattformens maksimum. Den 30-minutters Cron-jobben er i tillegg underlagt Cloudflares plattformgrense på 30 sekunder CPU fordi intervallet er kortere enn én time.
 
 ## Cache-policy
 
@@ -86,6 +102,8 @@ Disse grensene er bevisst betydelig lavere enn Workers Paid-plattformens maksimu
 | `/api/health` | ingen | ingen |
 
 Cache reduserer CPU og D1-belastning, men cached Worker-requests teller fortsatt som Workers requests. WAF er derfor nødvendig dersom målet er sterk beskyttelse mot request-overforbruk.
+
+Statiske React/Vite-filer omfattes ikke av `/api/*`-ruten og serveres direkte som Workers Static Assets. De skal derfor ikke tvinges gjennom Worker-koden.
 
 ## R2 og D1
 
