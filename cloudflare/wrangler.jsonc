@@ -12,7 +12,7 @@
       "name": "otello-full-refresh",
       "binding": "FULL_REFRESH",
       "class_name": "FullRefreshWorkflow",
-      "schedules": ["45 22 * * *"]
+      "schedules": ["30 3 * * *"]
     }
   ],
   "assets": {
