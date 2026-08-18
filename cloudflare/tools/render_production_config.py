@@ -39,9 +39,16 @@ def render_config(
         "subrequests": 500,
     }
 
-    # Workers Caching removes Worker CPU/D1 work on cache hits. Requests are still counted
-    # by Workers pricing, so WAF rate limiting remains the pre-Worker cost guard.
-    config["cache"] = {"enabled": True}
+    # Enable Workers Caching only for the default WorkerEntrypoint used by /api/*. Static
+    # assets bypass that entrypoint via assets.run_worker_first and remain on the free,
+    # automatic Static Assets path instead of inheriting global Worker-cache billing.
+    config.pop("cache", None)
+    config["exports"] = {
+        "default": {
+            "type": "worker",
+            "cache": {"enabled": True},
+        }
+    }
 
     # Keep enough production telemetry to diagnose failures without storing every request
     # or paid trace span. Five percent is intentionally conservative for this low-traffic
