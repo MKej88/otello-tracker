@@ -19,7 +19,7 @@ def _base_config() -> dict:
     return {
         "name": "otello-tracker-local",
         "main": "src/entry.py",
-        "compatibility_date": "2026-08-17",
+        "compatibility_date": "2026-08-18",
         "compatibility_flags": ["python_workers", "python_workflows"],
         "triggers": {"crons": ["*/30 * * * *"]},
         "workflows": [
@@ -60,9 +60,13 @@ def test_renderer_produces_paid_guardrails_and_workers_dev_bootstrap() -> None:
     assert config["r2_buckets"][0]["bucket_name"] == "otello-source-archive"
     assert config["workers_dev"] is True
     assert "routes" not in config
+    assert config["cache"]["enabled"] is True
     assert config["observability"]["enabled"] is True
-    assert config["observability"]["head_sampling_rate"] == 1
-    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 2000}
+    assert config["observability"]["logs"]["enabled"] is True
+    assert config["observability"]["logs"]["invocation_logs"] is True
+    assert config["observability"]["logs"]["head_sampling_rate"] == 0.05
+    assert config["observability"]["traces"]["enabled"] is False
+    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 500}
     assert config["triggers"]["crons"] == ["*/30 * * * *"]
     assert config["workflows"][0]["class_name"] == "FullRefreshWorkflow"
 
