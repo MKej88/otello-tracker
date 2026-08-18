@@ -225,8 +225,18 @@ def test_daily_buyback_cash_replaces_weekly_fallback(tmp_path: Path) -> None:
 
 class _SnapshotRepository:
     async def all(self, sql: str, parameters=()):
+        if " WHERE " in sql:
+            return []
         table = sql.split("FROM ", 1)[1].split(" ", 1)[0]
-        return [{"table": table, "id": 1, "value": "x"}]
+        return [
+            {
+                "table": table,
+                "id": 1,
+                "estimate_date": "2026-08-17",
+                "key": "test-key",
+                "value": "x",
+            }
+        ]
 
 
 def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
@@ -241,17 +251,29 @@ def test_d1_logical_snapshot_is_reproducible_and_manifested() -> None:
     )
     assert result["status"] == "ok"
     assert result["snapshot_version"] == SNAPSHOT_VERSION
-    assert result["snapshot_key"] in bucket.objects
     assert result["manifest_key"] in bucket.objects
+    assert result["chunk_count"] == result["table_count"]
+    assert result["chunk_count"] > 0
 
-    decoded = json.loads(gzip.decompress(bucket.objects[result["snapshot_key"]]))
+    nav_chunk = next(
+        item for item in result["chunk_objects"] if item["table"] == "nav_snapshots"
+    )
+    decoded = json.loads(gzip.decompress(bucket.objects[nav_chunk["key"]]))
     assert decoded["snapshot_version"] == SNAPSHOT_VERSION
     assert decoded["target_date"] == "2026-08-17"
-    assert "nav_snapshots" in decoded["tables"]
+    assert decoded["table"] == "nav_snapshots"
+    assert decoded["rows"][0]["table"] == "nav_snapshots"
+
     manifest = json.loads(bucket.objects[result["manifest_key"]])
     assert manifest["logical_sha256"] == result["logical_sha256"]
     assert manifest["preflight_status"] == "READY"
     assert "NOT_D1_TIME_TRAVEL_REPLACEMENT" in manifest["restore_scope"]
+    assert set(manifest["excluded_reconstructible_tables"]) == {
+        "company_news",
+        "market_activity",
+        "runtime_state",
+    }
+    assert "market_activity" not in manifest["row_counts"]
 
 
 def test_phase_15_6_worker_config_bundles_pdf_parser_and_archive_steps() -> None:
