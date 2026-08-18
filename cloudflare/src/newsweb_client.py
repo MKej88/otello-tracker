@@ -6,13 +6,14 @@ from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlencode
 
-from bounded_response import read_response_text
+from bounded_response import read_response_bytes, read_response_text
 
 API_BASE = "https://api3.oslo.oslobors.no/v1/newsreader"
 WEB_BASE = "https://newsweb.oslobors.no"
 OTEC_ISSUER_ID = 7759
 OTEC_SIGN = "OTEC"
 MAX_JSON_BYTES = 5 * 1024 * 1024
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,48 @@ async def fetch_message(
             f"NewsWeb returnerte messageId {message.message_id}, forventet {message_id}"
         )
     return message
+
+
+def attachment_url(message_id: int, attachment_id: int) -> str:
+    return (
+        f"{API_BASE}/attachment?messageId={int(message_id)}"
+        f"&attachmentId={int(attachment_id)}"
+    )
+
+
+async def fetch_attachment(
+    message_id: int,
+    attachment_id: int,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> bytes:
+    if fetcher is None:
+        from workers import fetch
+
+        fetcher = fetch
+    url = attachment_url(message_id, attachment_id)
+    response = await fetcher(
+        url,
+        headers={
+            "Accept": "application/pdf,application/octet-stream,*/*;q=0.8",
+            "Origin": WEB_BASE,
+            "Referer": f"{WEB_BASE}/message/{int(message_id)}",
+            "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
+        },
+    )
+    if not bool(getattr(response, "ok", False)):
+        status = getattr(response, "status", "unknown")
+        raise RuntimeError(
+            f"NewsWeb attachment {message_id}/{attachment_id} feilet med HTTP {status}"
+        )
+    payload = await read_response_bytes(
+        response,
+        max_bytes=MAX_ATTACHMENT_BYTES,
+        label=f"NewsWeb attachment {message_id}/{attachment_id}",
+    )
+    if not payload.startswith(b"%PDF"):
+        raise ValueError(f"NewsWeb attachment {message_id}/{attachment_id} er ikke en PDF")
+    return payload
 
 
 async def _list_window(
