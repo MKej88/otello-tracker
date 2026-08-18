@@ -36,6 +36,24 @@ def error_result(exc: Exception) -> dict[str, Any]:
     }
 
 
+def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep operational evidence useful without duplicating large parser outputs in D1."""
+    compact: dict[str, Any] = {}
+    for key, value in result.items():
+        if key == "results":
+            compact["result_count"] = len(value) if isinstance(value, list) else None
+            continue
+        if key == "errors" and isinstance(value, list):
+            compact["error_count"] = len(value)
+            compact["errors"] = value[:10]
+            continue
+        if key in {"history", "buybacks", "recovery", "finalization", "coverage_result"} and isinstance(value, dict):
+            compact[key] = _compact_source_result(value)
+            continue
+        compact[key] = value
+    return compact
+
+
 async def start_full_refresh(database: Any, *, target_date: str, trigger: str) -> int:
     repository = PerformanceD1WriteRepository(database)
     return await repository.start_job(
@@ -76,7 +94,8 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     newsweb = results.get("newsweb") or {}
     total += int((newsweb.get("history") or {}).get("archived") or 0)
     total += int((newsweb.get("buybacks") or {}).get("ingested") or 0)
-    if (results.get("otec_recovery") or {}).get("recovery_used"):
+    otec = results.get("otec_recovery") or {}
+    if otec.get("recovery_used") and otec.get("status") == "ok":
         total += 1
     total += len(nav.get("dirty_layers") or [])
     return total
@@ -93,6 +112,9 @@ async def finish_full_refresh(
 ) -> dict[str, Any]:
     repository = PerformanceD1WriteRepository(database)
     errors: list[dict[str, str]] = []
+    compact_sources = {
+        name: _compact_source_result(result) for name, result in source_results.items()
+    }
 
     for step_name, result in source_results.items():
         source_code = _SOURCE_CODE_BY_STEP.get(step_name)
@@ -113,7 +135,11 @@ async def finish_full_refresh(
                 health,
                 detail,
                 json.dumps(
-                    {"phase": PHASE, "target_date": target_date, "result": result},
+                    {
+                        "phase": PHASE,
+                        "target_date": target_date,
+                        "result": compact_sources[step_name],
+                    },
                     ensure_ascii=False,
                     sort_keys=True,
                     default=str,
@@ -149,8 +175,8 @@ async def finish_full_refresh(
     metadata = {
         "phase": PHASE,
         "target_date": target_date,
-        "sources": source_results,
-        "nav": nav_result,
+        "sources": compact_sources,
+        "nav": _compact_source_result(nav_result),
         "preflight": {
             "status": preflight_result.get("status"),
             "ready": preflight_result.get("ready"),
