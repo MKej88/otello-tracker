@@ -1,0 +1,38 @@
+.economicNavHost { margin: 0 0 14px; }
+.economicNavPanel {
+  background: linear-gradient(135deg, rgba(17, 46, 85, .98), rgba(12, 29, 51, .98));
+  border: 1px solid #29548a;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.12);
+}
+.economicHeader { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.economicHeader h2 { margin: 4px 0 0; font-size: 19px; }
+.economicEyebrow { color: #85a8d8; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.economicBadge { border: 1px solid #3d6da7; background: rgba(35, 78, 132, .55); color: #b8d4fa; border-radius: 999px; padding: 6px 9px; font-size: 10px; font-weight: 800; }
+.economicMetrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.economicMetrics > div { background: rgba(7, 18, 33, .5); border: 1px solid rgba(67, 103, 148, .45); border-radius: 11px; padding: 13px; }
+.economicMetrics span, .economicAdjustments span { display: block; color: #8da2be; font-size: 11px; }
+.economicMetrics strong { display: block; margin-top: 7px; font-size: 22px; color: #eef5ff; }
+.economicMetrics small { display: block; margin-top: 5px; color: #7690b3; font-size: 11px; }
+.economicMetrics .economicPrimary { border-color: #2fb998; background: rgba(20, 93, 79, .22); }
+.economicMetrics .economicPrimary strong { color: #54d8b7; }
+.economicAdjustments { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 12px; border-top: 1px solid rgba(75, 110, 154, .38); border-bottom: 1px solid rgba(75, 110, 154, .38); }
+.economicAdjustments > div { padding: 11px 13px; border-right: 1px solid rgba(75, 110, 154, .3); }
+.economicAdjustments > div:last-child { border-right: 0; }
+.economicAdjustments strong { display: block; margin-top: 4px; color: #dae7fa; font-size: 14px; }
+.economicFootnote { display: flex; justify-content: space-between; gap: 16px; color: #748aa8; font-size: 11px; margin-top: 11px; }
+.economicNavUnavailable { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #8295af; }
+.economicNavUnavailable strong { display: block; margin-top: 4px; color: #c4d2e5; font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .economicMetrics, .economicAdjustments { grid-template-columns: repeat(2, 1fr); }
+  .economicAdjustments > div:nth-child(2) { border-right: 0; }
+  .economicAdjustments > div:nth-child(-n+2) { border-bottom: 1px solid rgba(75, 110, 154, .3); }
+}
+@media (max-width: 600px) {
+  .economicMetrics, .economicAdjustments { grid-template-columns: 1fr; }
+  .economicHeader, .economicFootnote, .economicNavUnavailable { align-items: flex-start; flex-direction: column; }
+  .economicAdjustments > div { border-right: 0; border-bottom: 1px solid rgba(75, 110, 154, .3); }
+  .economicAdjustments > div:last-child { border-bottom: 0; }
+}
