@@ -52,7 +52,7 @@ For 31.12.2025 er følgende lagret som kildebelagt cash-FX-anker, uttrykt i USD-
 
 Den siste delen lagres som `UNALLOCATED`.
 
-### Prinsipp
+### Prinsipp i NAV-beregningen
 
 ```text
 USD-komponent → revalueres med USD/NOK
@@ -63,6 +63,22 @@ UNALLOCATED   → holdes på ankerverdi i NOK
 Dermed får vi løpende valutaeffekt der det finnes dokumentasjon, men gjetter ikke at residualen ligger i NOK, USD, BRL eller en annen valuta.
 
 Hvis en ny rapportert cash-anchor ikke har en matching dokumentert valutafordeling, brukes ingen cash-FX-justering for det nye ankeret. Kvaliteten vises eksplisitt i API-et.
+
+### Presentasjonsestimat for NOK, USD og BRL
+
+NAV-siden viser i tillegg et separat **estimat på kontantbeholdningen per valuta**. Dette er et presentasjonslag og endrer ikke CORE NAV, FULL NAV eller økonomisk NAV.
+
+Metoden er:
+
+1. USD- og BRL-komponentene starter på de eksplisitt rapporterte eksponeringene per 31.12.2025.
+2. Residualen på USD 2,495m klassifiseres **kun i presentasjonsestimatet** som estimert NOK. Dette er en analytisk slutning, ikke et eksplisitt rapportert NOK-beløp.
+3. USD- og BRL-komponentene verdsettes med de samme løpende valutakursene som brukes av det kildebelagte valutaoverlaget.
+4. Den resulterende valutamiksen skaleres proporsjonalt slik at summen alltid avstemmer til vist økonomisk kontantbeholdning.
+5. Netto kontantendringer etter siste rapporterte valutaanker fordeles dermed proporsjonalt mellom NOK, USD og BRL i presentasjonsestimatet. Faktiske valutavekslinger mellom rapportdatoene er ikke offentlig kjent og modelleres derfor ikke som fakta.
+
+Dette gir en løpende indikasjon på valutaeksponeringen, men sikkerheten faller jo lenger tid som går siden siste rapporterte valutaanker. Grensesnittet viser derfor en egen kvalitetsindikasjon basert på alderen på ankeret.
+
+**Viktig:** Den estimerte NOK-andelen brukes ikke som et nytt kildeanker og får ingen egen valutaeffekt i NAV-beregningen. Den konservative NAV-policyen over er uendret: bare dokumentert USD-/BRL-eksponering revalueres.
 
 ## Opsjon
 
@@ -85,6 +101,8 @@ Driftskostnadsakkumuleringen starter alltid på nyeste `REPORTED` cash-anker. N�
 4. driftskostnadsankeret skal oppdateres når rapporten gir et bedre observerbart run-rate-grunnlag;
 5. cash-FX revalueres bare dersom det finnes en matching dokumentert valutafordeling.
 
+Presentasjonsestimatet for NOK/USD/BRL skal samtidig flyttes til det nye rapportankeret når rapporten gir tilstrekkelig informasjon. Dersom valutaopplysningene er svakere enn ved forrige rapport, skal kvaliteten nedgraderes i stedet for å fylle inn manglende informasjon som fakta.
+
 ## API
 
 ```text
@@ -98,11 +116,13 @@ Returnerer blant annet:
 - konservativ økonomisk NAV;
 - rabatt til økonomisk NAV;
 - økonomisk cash;
-- `cash_fx` med justering, dekningsgrad og kildekvalitet;
+- `cash_fx` med justering, dekningsgrad, kildekvalitet og valutakomponenter;
 - regnskapsført og økonomisk opsjonsverdi;
 - ekstra opsjonsoverheng;
 - driftskostnad siden cash-anker;
 - source document IDs/metodikk for kostnadsankrene.
+
+Frontenden bruker `cash_fx.components` sammen med økonomisk cash til det separate valutaestimatet. Det legges ikke til en ny API-verdi som kan forveksles med et rapportert valutabeløp.
 
 Hvis FULL og CORE ikke er på samme dato, nødvendige markeds-/FX-input mangler eller driftskostnadsankrene mangler, returneres `ready=false` i stedet for et delvis skjult estimat.
 
