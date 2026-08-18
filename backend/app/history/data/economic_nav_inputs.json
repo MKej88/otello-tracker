@@ -1,6 +1,11 @@
 {
-  "version": "economic-nav-inputs-2026-08-18.1",
+  "version": "economic-nav-inputs-2026-08-18.2",
   "documents": {
+    "otello_ar24": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - Annual Report 2024",
+      "url": "https://otello.cdn.prismic.io/otello/aBJT_PIqRLdaBwvK_otellocorporation-2024-12-31-en.pdf"
+    },
     "otello_ar25": {
       "source_code": "OTELLO_IR",
       "title": "Otello Corporation ASA - Annual Report 2025",
@@ -37,6 +42,56 @@
   ],
   "cash_fx_exposure_anchors": [
     {
+      "as_of_date": "2023-12-31",
+      "total_cash_usd": "14576000",
+      "source_key": "otello_ar24",
+      "source_locator": "Annual Report 2024 Note 16 currency exposure and cash-flow statement; bank accounts USD 4.919m and BRL USD-equivalent 2.266m; audited cash USD 14.576m",
+      "exposures": [
+        {
+          "currency": "USD",
+          "usd_equivalent": "4919000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "BRL",
+          "usd_equivalent": "2266000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "UNALLOCATED",
+          "usd_equivalent": "7391000",
+          "quality": "DERIVED_RESIDUAL",
+          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. Used as estimated NOK only inside the FX backtest hypothesis."
+        }
+      ],
+      "notes": "Historical exposure anchor used for out-of-sample FX backtesting. The residual is not treated as documented NOK in NAV."
+    },
+    {
+      "as_of_date": "2024-12-31",
+      "total_cash_usd": "10454000",
+      "source_key": "otello_ar24",
+      "source_locator": "Annual Report 2024 Note 16 currency exposure and cash-flow statement; bank accounts USD 4.827m and BRL USD-equivalent 4.400m; audited cash USD 10.454m",
+      "exposures": [
+        {
+          "currency": "USD",
+          "usd_equivalent": "4827000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "BRL",
+          "usd_equivalent": "4400000",
+          "quality": "REPORTED_CURRENCY_EXPOSURE"
+        },
+        {
+          "currency": "UNALLOCATED",
+          "usd_equivalent": "1227000",
+          "quality": "DERIVED_RESIDUAL",
+          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. Used as estimated NOK only inside the FX backtest hypothesis."
+        }
+      ],
+      "notes": "Historical exposure anchor used for out-of-sample FX backtesting. The residual is not treated as documented NOK in NAV."
+    },
+    {
       "as_of_date": "2025-12-31",
       "total_cash_usd": "15881000",
       "source_key": "otello_ar25",
@@ -56,10 +111,32 @@
           "currency": "UNALLOCATED",
           "usd_equivalent": "2495000",
           "quality": "DERIVED_RESIDUAL",
-          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. It is deliberately not assigned to NOK or another currency and is therefore not revalued between reports."
+          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. It is deliberately not assigned to NOK or another currency in NAV."
         }
       ],
       "notes": "The economic overlay revalues only explicitly documented USD/BRL cash exposure. The unallocated residual stays fixed at anchor NOK value to avoid guessing currency composition."
+    }
+  ],
+  "fx_backtest_outcomes": [
+    {
+      "period_start": "2023-12-31",
+      "period_end": "2024-12-31",
+      "cash_fx_effect_usd": "-1510000",
+      "pnl_fx_result_usd": "-178000",
+      "other_balance_sheet_fx_usd": "-216000",
+      "source_key": "otello_ar24",
+      "source_locator": "Annual Report 2024 consolidated cash-flow statement: effects of exchange rate changes on cash and cash equivalents USD -1.510m; Note 16: net FX loss in other net financial items USD -0.178m",
+      "notes": "Cash FX effect is the primary validation target. P&L FX is diagnostic only because it includes monetary items beyond cash."
+    },
+    {
+      "period_start": "2024-12-31",
+      "period_end": "2025-12-31",
+      "cash_fx_effect_usd": "867000",
+      "pnl_fx_result_usd": "-1214000",
+      "other_balance_sheet_fx_usd": null,
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025 consolidated cash-flow statement: effects of exchange rate changes on cash and cash equivalents USD +0.867m; Note 16: net FX loss in other net financial items USD -1.214m",
+      "notes": "Cash FX effect is the primary validation target. P&L FX is diagnostic only because it includes monetary items beyond cash."
     }
   ]
 }
