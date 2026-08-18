@@ -6,7 +6,6 @@ import json
 import sqlite3
 import sys
 import zipfile
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -134,7 +133,12 @@ def test_newsweb_reconciliation_forces_full_overlap_revalidation(monkeypatch) ->
 
     async def fake_buybacks(repository, *, from_date, to_date, fetcher=None):
         calls.append(("buybacks", from_date, to_date))
-        return {"status": "ok", "ingested": 1, "errors": []}
+        return {
+            "status": "ok",
+            "ingested": 1,
+            "errors": [],
+            "results": [{"large": "already durable in D1"}],
+        }
 
     monkeypatch.setattr(nw_reconcile, "collect_newsweb_history", fake_history)
     monkeypatch.setattr(nw_reconcile, "collect_newsweb_buybacks", fake_buybacks)
@@ -146,6 +150,7 @@ def test_newsweb_reconciliation_forces_full_overlap_revalidation(monkeypatch) ->
         ("history", "2026-07-03", "2026-08-17"),
         ("buybacks", "2026-07-03", "2026-08-17"),
     ]
+    assert "results" not in result["buybacks"]
     assert result["reconciliation_policy"] == "FULL_OVERLAP_BODY_HASH_REVALIDATION"
 
 
@@ -270,10 +275,11 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
     assert "python_workflows" in config["compatibility_flags"]
     workflow = config["workflows"][0]
     assert workflow["class_name"] == "FullRefreshWorkflow"
-    assert workflow["schedules"] == ["45 22 * * *"]
+    assert workflow["schedules"] == ["30 3 * * *"]
     assert config["r2_buckets"][0]["binding"] == "SOURCE_ARCHIVE"
 
     entry = (ROOT / "cloudflare" / "src" / "entry.py").read_text(encoding="utf-8")
     assert "class FullRefreshWorkflow(WorkflowEntrypoint)" in entry
+    assert "scheduled_day - timedelta(days=1)" in entry
     assert '"refresh ECB FX"' in entry
     assert '"D1 data health preflight"' in entry
