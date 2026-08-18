@@ -60,7 +60,9 @@ def test_renderer_produces_paid_guardrails_and_workers_dev_bootstrap() -> None:
     assert config["r2_buckets"][0]["bucket_name"] == "otello-source-archive"
     assert config["workers_dev"] is True
     assert "routes" not in config
-    assert config["cache"]["enabled"] is True
+    assert "cache" not in config
+    assert config["exports"]["default"]["type"] == "worker"
+    assert config["exports"]["default"]["cache"]["enabled"] is True
     assert config["observability"]["enabled"] is True
     assert config["observability"]["logs"]["enabled"] is True
     assert config["observability"]["logs"]["invocation_logs"] is True
