@@ -9,7 +9,6 @@ from app.db.connection import get_connection
 
 # Curated from Bemobi's 2Q26 results release. The production service links the metrics to
 # the newest official CVM RESULTS document when that metadata is available in company_news.
-# The landing-page fallback remains Bemobi IR so the investor UI never invents a source.
 LATEST_RESULT = {
     "period": "2Q26",
     "period_end": "2026-06-30",
@@ -29,8 +28,6 @@ LATEST_RESULT = {
     "quality": "CURATED_FROM_RESULTS_RELEASE",
 }
 
-# Checked against Bemobi's official ownership-structure page on 2026-08-19. This is a
-# presentation anchor for the Bemobi page; NAV continues to use the explicit holding row.
 CURRENT_OWNERSHIP = {
     "shares": 32_719_588,
     "ownership_pct": 38.220,
@@ -39,14 +36,15 @@ CURRENT_OWNERSHIP = {
     "quality": "OFFICIAL_IR_CURRENT",
 }
 
-# Last-twelve-month valuation anchor through 2Q26. Quarterly values are kept explicitly so
-# the UI can explain the denominator instead of presenting an opaque multiple. The current
-# market price is never curated here; it always comes from the live BMOB3 market-data path.
+# The cash-generation metric follows Bemobi's own non-GAAP definition: adjusted EBITDA
+# less tangible/intangible investments, excluding right-of-use capex. It is an operating
+# FCF proxy and is deliberately labelled adjusted FCF in the investor UI.
 TTM_QUARTERS = [
     {
         "period": "3Q25",
         "adjusted_net_income_mbrl": 41.0,
         "adjusted_ebitda_mbrl": 62.7,
+        "adjusted_cash_generation_mbrl": 47.5,
         "source": "XP",
         "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-revisao-do-3t25-resultados-fortes-superando-expectativas-e-acelerando-a-receita/",
     },
@@ -54,24 +52,42 @@ TTM_QUARTERS = [
         "period": "4Q25",
         "adjusted_net_income_mbrl": 61.0,
         "adjusted_ebitda_mbrl": 66.0,
-        "source": "XP",
+        "adjusted_cash_generation_mbrl": 52.5,
+        "source": "XP / CVM",
         "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/",
     },
     {
         "period": "1Q26",
         "adjusted_net_income_mbrl": 37.0,
         "adjusted_ebitda_mbrl": 75.0,
-        "source": "XP",
+        "adjusted_cash_generation_mbrl": 61.4,
+        "source": "Bemobi / CVM",
         "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-surpresa-positiva-solida-com-pagamentos-e-saas-impulsionando-o-crescimento/",
     },
     {
         "period": "2Q26",
         "adjusted_net_income_mbrl": 45.2,
         "adjusted_ebitda_mbrl": 79.4,
+        "adjusted_cash_generation_mbrl": 64.8,
         "source": "Bemobi/CVM",
         "source_url": None,
     },
 ]
+
+# Standardised accounting EBIT for the last four reported quarters through 2Q26, based on
+# CVM-derived financial statements. Net debt is an approximate 2Q26 CVM-derived anchor;
+# negative means net cash. Keeping the quality flag visible prevents false precision.
+TTM_EBIT_MBRL = 175.08
+NET_DEBT_2Q26_MBRL = -287.2
+EV_ANCHOR = {
+    "period": "2Q26",
+    "ttm_ebit_mbrl": TTM_EBIT_MBRL,
+    "net_debt_mbrl": NET_DEBT_2Q26_MBRL,
+    "cash_position_mbrl": 328.0,
+    "quality": "CVM_DERIVED_APPROX",
+    "source": "CVM-derived / Bemobi 2Q26",
+    "source_url": "https://sabbius.com.br/company/show/BMOB3",
+}
 
 VALUATION_MULTIPLES = (12.0, 14.0, 16.0)
 
@@ -164,19 +180,28 @@ def _valuation_payload(price_brl: float | None, result_url: str) -> dict[str, An
     total_shares = int(CURRENT_OWNERSHIP["bemobi_total_shares"])
     ttm_net_income = sum(float(item["adjusted_net_income_mbrl"]) for item in TTM_QUARTERS)
     ttm_ebitda = sum(float(item["adjusted_ebitda_mbrl"]) for item in TTM_QUARTERS)
+    ttm_adjusted_fcf = sum(float(item["adjusted_cash_generation_mbrl"]) for item in TTM_QUARTERS)
+    ttm_ebit = float(EV_ANCHOR["ttm_ebit_mbrl"])
+    net_debt = float(EV_ANCHOR["net_debt_mbrl"])
     adjusted_eps = ttm_net_income * 1_000_000 / total_shares
 
     market_cap_mbrl = None
+    enterprise_value_mbrl = None
     pe_ttm = None
     price_to_ebitda_ttm = None
     earnings_yield_pct = None
+    adjusted_fcf_yield_pct = None
+    ev_ebit_ttm = None
     scenarios: list[dict[str, Any]] = []
 
     if price_brl is not None and price_brl > 0:
         market_cap_mbrl = price_brl * total_shares / 1_000_000
+        enterprise_value_mbrl = market_cap_mbrl + net_debt
         pe_ttm = market_cap_mbrl / ttm_net_income
         price_to_ebitda_ttm = market_cap_mbrl / ttm_ebitda
         earnings_yield_pct = ttm_net_income / market_cap_mbrl * 100
+        adjusted_fcf_yield_pct = ttm_adjusted_fcf / market_cap_mbrl * 100
+        ev_ebit_ttm = enterprise_value_mbrl / ttm_ebit if enterprise_value_mbrl > 0 else None
         scenarios = [
             {
                 "multiple": multiple,
@@ -198,18 +223,32 @@ def _valuation_payload(price_brl: float | None, result_url: str) -> dict[str, An
     return {
         "period": "TTM 3Q25–2Q26",
         "market_cap_mbrl": market_cap_mbrl,
+        "enterprise_value_mbrl": enterprise_value_mbrl,
+        "net_debt_mbrl": net_debt,
+        "net_cash_mbrl": -net_debt,
+        "ev_anchor_period": EV_ANCHOR["period"],
+        "ev_anchor_quality": EV_ANCHOR["quality"],
+        "ev_anchor_source": EV_ANCHOR["source"],
+        "ev_anchor_source_url": EV_ANCHOR["source_url"],
         "adjusted_net_income_ttm_mbrl": ttm_net_income,
         "adjusted_ebitda_ttm_mbrl": ttm_ebitda,
+        "adjusted_fcf_ttm_mbrl": ttm_adjusted_fcf,
+        "ebit_ttm_mbrl": ttm_ebit,
         "adjusted_eps_ttm_brl": adjusted_eps,
         "pe_ttm": pe_ttm,
         "price_to_ebitda_ttm": price_to_ebitda_ttm,
         "earnings_yield_pct": earnings_yield_pct,
+        "adjusted_fcf_yield_pct": adjusted_fcf_yield_pct,
+        "ev_ebit_ttm": ev_ebit_ttm,
         "scenarios": scenarios,
         "source_quarters": source_quarters,
         "methodology_note": (
-            "P/E og earnings yield bruker justert resultat siste fire kvartaler. "
-            "Markedsverdi/EBITDA bruker egenkapitalverdien, ikke enterprise value, og må derfor "
-            "ikke leses som EV/EBITDA. 12x/14x/16x er kun multipelsensitivitet, ikke kursmål."
+            "FCF yield (just.) bruker Bemobis egen justerte kontantgenerering, definert som "
+            "justert EBITDA minus investeringer i materielle og immaterielle eiendeler (uten "
+            "bruksrett-CAPEX). Det er en operasjonell FCF-proxy, ikke IFRS-kontantstrøm. "
+            "EV/EBIT bruker standardisert EBIT TTM og et CVM-avledet netto kontantanker for 2Q26; "
+            "netto kontantankeret er merket som omtrentlig. 12x/14x/16x er kun "
+            "multipelsensitivitet, ikke kursmål."
         ),
     }
 
@@ -283,6 +322,11 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
             "label": "Verdsettelse TTM",
             "source": "3Q25–2Q26 rapporttall",
             "url": result_url,
+        },
+        {
+            "label": "EV / EBIT og netto kontant",
+            "source": EV_ANCHOR["source"],
+            "url": EV_ANCHOR["source_url"],
         },
     ]
     if distribution is not None and distribution.get("source_url"):

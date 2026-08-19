@@ -70,11 +70,20 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     assert valuation["period"] == "TTM 3Q25–2Q26"
     assert valuation["adjusted_net_income_ttm_mbrl"] == 184.2
     assert valuation["adjusted_ebitda_ttm_mbrl"] == 283.1
+    assert abs(valuation["adjusted_fcf_ttm_mbrl"] - 226.2) < 1e-12
+    assert valuation["ebit_ttm_mbrl"] == 175.08
+    assert valuation["net_debt_mbrl"] == -287.2
+    assert valuation["net_cash_mbrl"] == 287.2
+    assert valuation["ev_anchor_period"] == "2Q26"
+    assert valuation["ev_anchor_quality"] == "CVM_DERIVED_APPROX"
     assert abs(valuation["market_cap_mbrl"] - 1951.8713376) < 1e-9
+    assert abs(valuation["enterprise_value_mbrl"] - 1664.6713376) < 1e-9
     assert abs(valuation["adjusted_eps_ttm_brl"] - 2.1516582159375215) < 1e-12
     assert abs(valuation["pe_ttm"] - 10.596478488599349) < 1e-12
     assert abs(valuation["price_to_ebitda_ttm"] - 6.894635597315435) < 1e-12
     assert abs(valuation["earnings_yield_pct"] - 9.437097438322462) < 1e-12
+    assert abs(valuation["adjusted_fcf_yield_pct"] - 11.588878613184262) < 1e-12
+    assert abs(valuation["ev_ebit_ttm"] - 9.508061101210874) < 1e-12
     assert [item["multiple"] for item in valuation["scenarios"]] == [12.0, 14.0, 16.0]
     assert abs(valuation["scenarios"][0]["implied_price_brl"] - 25.819898591250258) < 1e-12
     assert abs(valuation["scenarios"][1]["implied_price_brl"] - 30.1232150231253) < 1e-12
@@ -82,6 +91,7 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     assert len(valuation["source_quarters"]) == 4
     assert valuation["source_quarters"][-1]["period"] == "2Q26"
     assert valuation["source_quarters"][-1]["source_url"]
+    assert valuation["source_quarters"][-1]["adjusted_cash_generation_mbrl"] == 64.8
 
     latest = result["latest_result"]
     assert latest["period"] == "2Q26"
@@ -120,6 +130,8 @@ def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
     assert '@app.get("/api/bemobi/dashboard")' in worker_app
     assert 'CURRENT_OWNERSHIP' in worker_service
     assert 'TTM_QUARTERS' in worker_service
+    assert 'TTM_EBIT_MBRL = 175.08' in worker_service
+    assert 'NET_DEBT_2Q26_MBRL = -287.2' in worker_service
     assert 'VALUATION_MULTIPLES = (12.0, 14.0, 16.0)' in worker_service
     assert '"ownership_pct": 38.220' in worker_service
     assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi";' in frontend
@@ -127,6 +139,8 @@ def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
     assert '<BemobiPage />' in frontend
     assert 'fetch("/api/bemobi/dashboard")' in page
     assert "Verdsettelse nå" in page
+    assert "EV / EBIT TTM" in page
+    assert "FCF yield (just.)" in page
     assert "Multipelsensitivitet" in page
     assert "Ikke kursmål" in page
     assert "Ikke bekreftet" in page
