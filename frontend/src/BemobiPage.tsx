@@ -17,6 +17,7 @@ type ValuationSourceQuarter = {
   period: string;
   adjusted_net_income_mbrl: number;
   adjusted_ebitda_mbrl: number;
+  adjusted_cash_generation_mbrl?: number | null;
   source: string;
   source_url?: string | null;
 };
@@ -43,12 +44,23 @@ type BemobiDashboard = {
   valuation?: {
     period?: string | null;
     market_cap_mbrl?: number | null;
+    enterprise_value_mbrl?: number | null;
+    net_debt_mbrl?: number | null;
+    net_cash_mbrl?: number | null;
+    ev_anchor_period?: string | null;
+    ev_anchor_quality?: string | null;
+    ev_anchor_source?: string | null;
+    ev_anchor_source_url?: string | null;
     adjusted_net_income_ttm_mbrl?: number | null;
     adjusted_ebitda_ttm_mbrl?: number | null;
+    adjusted_fcf_ttm_mbrl?: number | null;
+    ebit_ttm_mbrl?: number | null;
     adjusted_eps_ttm_brl?: number | null;
     pe_ttm?: number | null;
     price_to_ebitda_ttm?: number | null;
     earnings_yield_pct?: number | null;
+    adjusted_fcf_yield_pct?: number | null;
+    ev_ebit_ttm?: number | null;
     scenarios?: ValuationScenario[];
     source_quarters?: ValuationSourceQuarter[];
     methodology_note?: string | null;
@@ -277,14 +289,24 @@ export default function BemobiPage() {
             <small>Justert resultat</small>
           </div>
           <div>
-            <span>Markedsverdi / EBITDA</span>
-            <strong>{value(valuation?.price_to_ebitda_ttm, 1)}x</strong>
-            <small>Ikke EV/EBITDA</small>
+            <span>EV / EBIT TTM</span>
+            <strong>{value(valuation?.ev_ebit_ttm, 1)}x</strong>
+            <small>Etter netto kontant</small>
+          </div>
+          <div>
+            <span>FCF yield (just.)</span>
+            <strong>{value(valuation?.adjusted_fcf_yield_pct, 1)} %</strong>
+            <small>EBITDA − capex</small>
           </div>
           <div>
             <span>Earnings yield</span>
             <strong>{value(valuation?.earnings_yield_pct, 1)} %</strong>
             <small>Justert TTM-resultat</small>
+          </div>
+          <div>
+            <span>Markedsverdi / EBITDA</span>
+            <strong>{value(valuation?.price_to_ebitda_ttm, 1)}x</strong>
+            <small>Egenkapitalverdi</small>
           </div>
         </div>
 
@@ -315,6 +337,10 @@ export default function BemobiPage() {
             <div className="placeholderRows">
               <div><span>Justert resultat TTM</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert EBITDA TTM</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Justert FCF-proxy TTM</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
+              <div><span>EBIT TTM</span><strong>R$ {value(valuation?.ebit_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Netto kontant 2Q26</span><strong>R$ {value(valuation?.net_cash_mbrl, 1)}m</strong></div>
+              <div><span>Enterprise value</span><strong>R$ {value(valuation?.enterprise_value_mbrl, 0)}m</strong></div>
               <div><span>Justert EPS TTM</span><strong>R$ {value(valuation?.adjusted_eps_ttm_brl, 2)}</strong></div>
             </div>
           </div>
@@ -327,6 +353,9 @@ export default function BemobiPage() {
               <span>{quarter.period} · {quarter.source}</span>
             </SourceLink>
           ))}
+          <SourceLink url={valuation?.ev_anchor_source_url}>
+            <span>EV-anker · {valuation?.ev_anchor_source ?? "CVM"}</span>
+          </SourceLink>
         </div>
         {valuation?.methodology_note && <p className="bemobiValuationNote">{valuation.methodology_note}</p>}
       </section>
