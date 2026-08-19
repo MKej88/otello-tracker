@@ -65,8 +65,9 @@ class Default(WorkerEntrypoint):
     async def scheduled(self, controller, env, ctx):
         from scheduled import run_scheduled
 
-        await run_scheduled(
-            env.DB,
+        bindings = env if env is not None else self.env
+        return await run_scheduled(
+            bindings.DB,
             cron=str(controller.cron),
             scheduled_time_ms=controller.scheduledTime,
         )
