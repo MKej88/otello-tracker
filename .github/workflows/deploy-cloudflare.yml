@@ -164,6 +164,8 @@ jobs:
             "$base/api/dashboard/fx-backtest" -o /tmp/otello-fx-backtest.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/buybacks/dashboard" -o /tmp/otello-buyback-dashboard.json
           python - <<'PY'
           import json
           from datetime import UTC, date, datetime
@@ -177,6 +179,7 @@ jobs:
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
           fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
+          buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
@@ -199,6 +202,16 @@ jobs:
           fx_summary = fx_backtest.get('summary') or {}
           assert int(fx_summary.get('periods_ready') or 0) >= 2, fx_backtest
           assert forecast.get('status') != 'INSUFFICIENT_VOLUME_HISTORY', forecast
+          assert buyback_dashboard.get('ready') is True, buyback_dashboard
+          buyback_program = buyback_dashboard.get('program') or {}
+          buyback_latest = buyback_dashboard.get('latest_week') or {}
+          buyback_shares = buyback_dashboard.get('shares') or {}
+          buyback_backtest = buyback_dashboard.get('backtest') or {}
+          assert int(buyback_program.get('max_shares') or 0) > 0, buyback_dashboard
+          assert int(buyback_latest.get('shares') or 0) > 0, buyback_dashboard
+          assert int(buyback_shares.get('treasury_shares') or 0) > 0, buyback_dashboard
+          assert int(buyback_shares.get('outstanding_shares') or 0) > 0, buyback_dashboard
+          assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
           age = (today - as_of).days
@@ -211,6 +224,7 @@ jobs:
               f"economic_nav={economic.get('nav_per_share')}",
               f"fx_backtest_periods={fx_summary.get('periods_ready')}",
               f"buyback_status={forecast.get('status')}",
+              f"buyback_latest={buyback_latest.get('shares')}",
               f'age_days={age}',
           )
           PY
