@@ -7,7 +7,7 @@ from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from economic_nav_investor import economic_nav_summary
 from fx_backtest import fx_backtest_summary
-from nav_waterfall_investor import nav_waterfall_summary
+from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from report_status import report_status_summary
 
