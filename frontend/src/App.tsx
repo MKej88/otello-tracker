@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import BemobiPage from "./BemobiPage";
 import BuybackPage from "./BuybackPage";
 import EconomicNavPanel from "./EconomicNavPanel";
 import NavWaterfallPanel from "./NavWaterfallPanel";
@@ -111,7 +112,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV" | "Tilbakekjøp";
+type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -123,7 +124,7 @@ const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "NAV", enabled: true },
   { label: "Historikk", enabled: false },
   { label: "Tilbakekjøp", enabled: true },
-  { label: "Bemobi", enabled: false },
+  { label: "Bemobi", enabled: true },
   { label: "Konsensus", enabled: false },
   { label: "Aksjonærer", enabled: false },
   { label: "Nyheter", enabled: false },
@@ -380,7 +381,9 @@ export default function App() {
     ? "NAV og verdsettelse"
     : activeView === "Tilbakekjøp"
       ? "Tilbakekjøp"
-      : "Otello investoroversikt";
+      : activeView === "Bemobi"
+        ? "Bemobi"
+        : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -431,7 +434,7 @@ export default function App() {
             </span>
           </div>
         )}
-        {activeView !== "Tilbakekjøp" && qualityWarning && (
+        {(activeView === "Oversikt" || activeView === "NAV") && qualityWarning && (
           <div className="modelWarning">
             <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>
             <span>
@@ -493,6 +496,8 @@ export default function App() {
           </>
         ) : activeView === "Tilbakekjøp" ? (
           <BuybackPage />
+        ) : activeView === "Bemobi" ? (
+          <BemobiPage />
         ) : (
           <>
             <div className="pageIntro">
