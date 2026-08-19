@@ -85,7 +85,7 @@ def test_shareholders_is_exposed_in_backend_worker_frontend_and_csp() -> None:
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ShareholdersPage.tsx").read_text(encoding="utf-8")
     headers = (ROOT / "frontend/public/_headers").read_text(encoding="utf-8")
-    migration = (ROOT / "backend/app/db/migrations/0013_shareholder_snapshots.sql").read_text(encoding="utf-8")
+    migration = (ROOT / "backend/app/db/migrations/0018_shareholder_snapshots.sql").read_text(encoding="utf-8")
 
     assert '@app.get("/api/shareholders/dashboard")' in backend_app
     assert '@app.get("/api/shareholders/dashboard")' in worker_app
