@@ -39,6 +39,42 @@ CURRENT_OWNERSHIP = {
     "quality": "OFFICIAL_IR_CURRENT",
 }
 
+# Last-twelve-month valuation anchor through 2Q26. Quarterly values are kept explicitly so
+# the UI can explain the denominator instead of presenting an opaque multiple. The current
+# market price is never curated here; it always comes from the live BMOB3 market-data path.
+TTM_QUARTERS = [
+    {
+        "period": "3Q25",
+        "adjusted_net_income_mbrl": 41.0,
+        "adjusted_ebitda_mbrl": 62.7,
+        "source": "XP",
+        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-revisao-do-3t25-resultados-fortes-superando-expectativas-e-acelerando-a-receita/",
+    },
+    {
+        "period": "4Q25",
+        "adjusted_net_income_mbrl": 61.0,
+        "adjusted_ebitda_mbrl": 66.0,
+        "source": "XP",
+        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/",
+    },
+    {
+        "period": "1Q26",
+        "adjusted_net_income_mbrl": 37.0,
+        "adjusted_ebitda_mbrl": 75.0,
+        "source": "XP",
+        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-surpresa-positiva-solida-com-pagamentos-e-saas-impulsionando-o-crescimento/",
+    },
+    {
+        "period": "2Q26",
+        "adjusted_net_income_mbrl": 45.2,
+        "adjusted_ebitda_mbrl": 79.4,
+        "source": "Bemobi/CVM",
+        "source_url": None,
+    },
+]
+
+VALUATION_MULTIPLES = (12.0, 14.0, 16.0)
+
 RESULTS_FALLBACK_URL = "https://ri.bemobi.com.br/informacoes-financeiras/resultados-trimestrais/"
 OWNERSHIP_URL = "https://ri.bemobi.com.br/governanca/composicao-acionaria/"
 EVENTS_URL = "https://ri.bemobi.com.br/nossas-acoes/calendario-de-eventos/"
@@ -124,6 +160,60 @@ def _distribution_payload(row: dict[str, Any] | None, holding_shares: int | None
     }
 
 
+def _valuation_payload(price_brl: float | None, result_url: str) -> dict[str, Any]:
+    total_shares = int(CURRENT_OWNERSHIP["bemobi_total_shares"])
+    ttm_net_income = sum(float(item["adjusted_net_income_mbrl"]) for item in TTM_QUARTERS)
+    ttm_ebitda = sum(float(item["adjusted_ebitda_mbrl"]) for item in TTM_QUARTERS)
+    adjusted_eps = ttm_net_income * 1_000_000 / total_shares
+
+    market_cap_mbrl = None
+    pe_ttm = None
+    price_to_ebitda_ttm = None
+    earnings_yield_pct = None
+    scenarios: list[dict[str, Any]] = []
+
+    if price_brl is not None and price_brl > 0:
+        market_cap_mbrl = price_brl * total_shares / 1_000_000
+        pe_ttm = market_cap_mbrl / ttm_net_income
+        price_to_ebitda_ttm = market_cap_mbrl / ttm_ebitda
+        earnings_yield_pct = ttm_net_income / market_cap_mbrl * 100
+        scenarios = [
+            {
+                "multiple": multiple,
+                "implied_price_brl": adjusted_eps * multiple,
+                "upside_pct": (adjusted_eps * multiple / price_brl - 1) * 100,
+            }
+            for multiple in VALUATION_MULTIPLES
+        ]
+
+    source_quarters = []
+    for item in TTM_QUARTERS:
+        source_quarters.append(
+            {
+                **item,
+                "source_url": result_url if item["period"] == "2Q26" else item["source_url"],
+            }
+        )
+
+    return {
+        "period": "TTM 3Q25–2Q26",
+        "market_cap_mbrl": market_cap_mbrl,
+        "adjusted_net_income_ttm_mbrl": ttm_net_income,
+        "adjusted_ebitda_ttm_mbrl": ttm_ebitda,
+        "adjusted_eps_ttm_brl": adjusted_eps,
+        "pe_ttm": pe_ttm,
+        "price_to_ebitda_ttm": price_to_ebitda_ttm,
+        "earnings_yield_pct": earnings_yield_pct,
+        "scenarios": scenarios,
+        "source_quarters": source_quarters,
+        "methodology_note": (
+            "P/E og earnings yield bruker justert resultat siste fire kvartaler. "
+            "Markedsverdi/EBITDA bruker egenkapitalverdien, ikke enterprise value, og må derfor "
+            "ikke leses som EV/EBITDA. 12x/14x/16x er kun multipelsensitivitet, ikke kursmål."
+        ),
+    }
+
+
 def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
     summary = enrich_dashboard_summary(dashboard_summary(database_path), database_path)
     if not summary.get("ready"):
@@ -171,6 +261,7 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         "source_title": result_source_title,
     }
     distribution = _distribution_payload(distribution_row, shares)
+    valuation = _valuation_payload(bmob3_price, result_url)
 
     sources = [
         {
@@ -186,6 +277,11 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         {
             "label": "2Q26 nøkkeltall",
             "source": result_source_code,
+            "url": result_url,
+        },
+        {
+            "label": "Verdsettelse TTM",
+            "source": "3Q25–2Q26 rapporttall",
             "url": result_url,
         },
     ]
@@ -219,6 +315,7 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
             "value_nok_m": value_nok_m,
             "value_per_otello_share_nok": value_per_otello_share,
         },
+        "valuation": valuation,
         "latest_result": latest_result,
         "latest_distribution": distribution,
         "next_report": {
@@ -231,7 +328,7 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         "sources": sources,
         "note": (
             "BMOB3 og markedsverdi følger NAV-grunnlaget. Eierandelen 38,22 % er kontrollert "
-            "mot Bemobis offisielle aksjonærside 19.08.2026. 2Q26-nøkkeltall er kuraterte "
-            "rapporttall; neste resultatdato vises først når Bemobi har publisert en bekreftet dato."
+            "mot Bemobis offisielle aksjonærside 19.08.2026. Verdsettelsen bruker rapporterte "
+            "3Q25–2Q26-tall og oppdateres med løpende BMOB3-kurs."
         ),
     }
