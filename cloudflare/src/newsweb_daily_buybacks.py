@@ -51,7 +51,7 @@ RECONCILIATION_LOOKBACK_DAYS = 45
 RECONCILIATION_MIN_TOLERANCE_NOK = Decimal("1.00")
 RECONCILIATION_RELATIVE_TOLERANCE = Decimal("0.00001")
 AVERAGE_PRICE_TOLERANCE_NOK = Decimal("0.02")
-PARSER_VERSION = "newsweb-otec-transactions-v3-worker-r2"
+PARSER_VERSION = "newsweb-otec-transactions-v4-worker-r2-content-fallback"
 
 _DATE_RE = re.compile(r"\d{2}\.\d{2}\.\d{4}")
 _TIME_RE = re.compile(r"\d{2}:\d{2}:\d{2}")
@@ -261,21 +261,28 @@ def validate_daily_buybacks(
     }
 
 
-def _transaction_attachment(message: NewsWebMessage) -> NewsWebAttachment | None:
-    candidates = [
-        item
-        for item in message.attachments
-        if item.name.lower().endswith(".pdf")
-        and (
-            "transaksjonsoversikt" in item.name.lower()
-            or "transaction" in item.name.lower()
+def _has_transaction_name_hint(attachment: NewsWebAttachment) -> bool:
+    name = attachment.name.lower().strip()
+    return "transaksjonsoversikt" in name or "transaction" in name
+
+
+def _attachment_candidates(message: NewsWebMessage) -> list[NewsWebAttachment]:
+    """Return all NewsWeb attachments, preferring familiar transaction-PDF names.
+
+    NewsWeb has changed attachment filenames over time. The attachment endpoint itself
+    validates PDF bytes, and the parser later reconciles shares/amount/price to the
+    canonical weekly status, so filename matching is only a priority hint.
+    """
+
+    def priority(item: NewsWebAttachment) -> tuple[int, int, int]:
+        name = item.name.lower().strip()
+        return (
+            0 if _has_transaction_name_hint(item) else 1,
+            0 if name.endswith(".pdf") else 1,
+            item.attachment_id,
         )
-    ]
-    if len(candidates) > 1:
-        raise ValueError(
-            f"NewsWeb-melding {message.message_id} har flere mulige transaksjonsvedlegg"
-        )
-    return candidates[0] if candidates else None
+
+    return sorted(message.attachments, key=priority)
 
 
 async def _weekly_buyback_row(repository, parsed: BuybackStatus) -> dict[str, Any]:
@@ -534,82 +541,120 @@ async def _ingest_message(
             "message_id": message.message_id,
             "daily_status": "NO_PURCHASES",
             "daily_rows_written": 0,
+            "attachment_candidates": [
+                {"id": item.attachment_id, "name": item.name} for item in message.attachments
+            ],
         }
 
     parsed = parse_newsweb_weekly_status(normalized)
     weekly = await _weekly_buyback_row(repository, parsed)
-    attachment = _transaction_attachment(message)
-    if attachment is None:
+    candidates = _attachment_candidates(message)
+    candidate_log = [{"id": item.attachment_id, "name": item.name} for item in candidates]
+    if not candidates:
         return {
             "status": "ok",
             "message_id": message.message_id,
             "buyback_id": int(weekly["id"]),
             "daily_status": "NO_TRANSACTION_ATTACHMENT",
             "daily_rows_written": 0,
+            "attachment_candidates": [],
         }
 
-    pdf = await fetch_attachment(
-        message.message_id,
-        attachment.attachment_id,
-        fetcher=fetcher,
-    )
-    logical_date = str(message.published_at)[:10] or parsed.period_end
-    archived = await archive_bytes(
-        bucket,
-        pdf,
-        source="newsweb",
-        kind="buyback-pdf",
-        logical_date=logical_date,
-        filename=attachment.name or f"attachment-{attachment.attachment_id}.pdf",
-    )
-    daily = parse_buyback_transaction_text(extract_pdf_text(pdf))
-    validation = validate_daily_buybacks(daily, parsed)
-    document_id = await repository.create_source_document(
-        source_code="NEWSWEB",
-        external_id=f"newsweb-attachment:{message.message_id}:{attachment.attachment_id}",
-        document_type="BUYBACK_TRANSACTION_ATTACHMENT",
-        title=attachment.name or f"NewsWeb attachment {attachment.attachment_id}",
-        url=attachment_url(message.message_id, attachment.attachment_id),
-        published_at=message.published_at,
-        content_sha256=archived["content_sha256"],
-        metadata={
-            "newsweb_message_id": message.message_id,
-            "newsweb_attachment_id": attachment.attachment_id,
-            "filename": attachment.name,
-            "parent_weekly_source_document_id": int(weekly["source_document_id"]),
-            "parser": PARSER_VERSION,
-            "weekly_reconciliation": validation,
+    attempts: list[dict[str, Any]] = []
+    for attachment in candidates:
+        try:
+            pdf = await fetch_attachment(
+                message.message_id,
+                attachment.attachment_id,
+                fetcher=fetcher,
+            )
+            daily = parse_buyback_transaction_text(extract_pdf_text(pdf))
+            validation = validate_daily_buybacks(daily, parsed)
+        except Exception as exc:
+            attempts.append(
+                {
+                    "id": attachment.attachment_id,
+                    "name": attachment.name,
+                    "error": str(exc)[:500],
+                }
+            )
+            continue
+
+        logical_date = str(message.published_at)[:10] or parsed.period_end
+        archived = await archive_bytes(
+            bucket,
+            pdf,
+            source="newsweb",
+            kind="buyback-pdf",
+            logical_date=logical_date,
+            filename=attachment.name or f"attachment-{attachment.attachment_id}.pdf",
+        )
+        document_id = await repository.create_source_document(
+            source_code="NEWSWEB",
+            external_id=f"newsweb-attachment:{message.message_id}:{attachment.attachment_id}",
+            document_type="BUYBACK_TRANSACTION_ATTACHMENT",
+            title=attachment.name or f"NewsWeb attachment {attachment.attachment_id}",
+            url=attachment_url(message.message_id, attachment.attachment_id),
+            published_at=message.published_at,
+            content_sha256=archived["content_sha256"],
+            metadata={
+                "newsweb_message_id": message.message_id,
+                "newsweb_attachment_id": attachment.attachment_id,
+                "filename": attachment.name,
+                "parent_weekly_source_document_id": int(weekly["source_document_id"]),
+                "parser": PARSER_VERSION,
+                "attachment_selection": (
+                    "NAME_HINT" if _has_transaction_name_hint(attachment)
+                    else "CONTENT_RECONCILIATION_FALLBACK"
+                ),
+                "attachment_candidates": candidate_log,
+                "attachment_attempts_before_match": attempts,
+                "weekly_reconciliation": validation,
+                "r2_key": archived["r2_key"],
+                "r2_bytes": archived["bytes"],
+                "archive_policy": "CONTENT_ADDRESSED_R2",
+            },
+        )
+        written = await _store_daily_rows(
+            repository,
+            weekly_buyback_id=int(weekly["id"]),
+            attachment_document_id=document_id,
+            message=message,
+            attachment=attachment,
+            daily=daily,
+            validation=validation,
+            r2_key=archived["r2_key"],
+        )
+        cash = await sync_daily_buyback_cash(repository, weekly_buyback_id=int(weekly["id"]))
+        return {
+            "status": "ok",
+            "message_id": message.message_id,
+            "buyback_id": int(weekly["id"]),
+            "attachment_id": attachment.attachment_id,
+            "attachment": attachment.name,
+            "attachment_selection": (
+                "NAME_HINT" if _has_transaction_name_hint(attachment)
+                else "CONTENT_RECONCILIATION_FALLBACK"
+            ),
+            "attachment_candidates": candidate_log,
+            "attachment_attempts_before_match": attempts,
+            "attachment_sha256": archived["content_sha256"],
             "r2_key": archived["r2_key"],
             "r2_bytes": archived["bytes"],
-            "archive_policy": "CONTENT_ADDRESSED_R2",
-        },
+            "daily_status": validation["quality"],
+            "daily_rows": len(daily),
+            "daily_rows_written": written,
+            "daily_reconciliation": validation,
+            "cash_sync": cash,
+        }
+
+    attempted = "; ".join(
+        f"{item['id']}:{item['name'] or '<uten navn>'} -> {item['error']}" for item in attempts
     )
-    written = await _store_daily_rows(
-        repository,
-        weekly_buyback_id=int(weekly["id"]),
-        attachment_document_id=document_id,
-        message=message,
-        attachment=attachment,
-        daily=daily,
-        validation=validation,
-        r2_key=archived["r2_key"],
+    raise ValueError(
+        f"NewsWeb-melding {message.message_id} har {len(candidates)} vedlegg, men ingen kunne "
+        f"avstemmes som transaksjons-PDF mot ukemeldingen. Forsøk: {attempted}"
     )
-    cash = await sync_daily_buyback_cash(repository, weekly_buyback_id=int(weekly["id"]))
-    return {
-        "status": "ok",
-        "message_id": message.message_id,
-        "buyback_id": int(weekly["id"]),
-        "attachment_id": attachment.attachment_id,
-        "attachment": attachment.name,
-        "attachment_sha256": archived["content_sha256"],
-        "r2_key": archived["r2_key"],
-        "r2_bytes": archived["bytes"],
-        "daily_status": validation["quality"],
-        "daily_rows": len(daily),
-        "daily_rows_written": written,
-        "daily_reconciliation": validation,
-        "cash_sync": cash,
-    }
 
 
 async def enrich_newsweb_buybacks_with_r2(
