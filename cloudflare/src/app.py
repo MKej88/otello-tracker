@@ -6,6 +6,7 @@ from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from economic_nav import economic_nav_summary
 from fx_backtest import fx_backtest_summary
+from nav_waterfall import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from report_status import report_status_summary
 
@@ -32,6 +33,10 @@ CACHE_POLICIES = {
         "public, max-age=120, stale-while-revalidate=300",
     ),
     "/api/dashboard/economic": (
+        "public, max-age=15",
+        "public, max-age=60, stale-while-revalidate=120",
+    ),
+    "/api/dashboard/waterfall": (
         "public, max-age=15",
         "public, max-age=60, stale-while-revalidate=120",
     ),
@@ -113,6 +118,11 @@ async def get_report_status(request: Request) -> dict:
 @app.get("/api/dashboard/economic")
 async def get_economic_nav(request: Request) -> dict:
     return await economic_nav_summary(_repository(request))
+
+
+@app.get("/api/dashboard/waterfall")
+async def get_nav_waterfall(request: Request) -> dict:
+    return await nav_waterfall_summary(_repository(request))
 
 
 @app.get("/api/dashboard/fx-backtest")
