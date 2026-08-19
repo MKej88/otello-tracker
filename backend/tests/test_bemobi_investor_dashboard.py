@@ -33,7 +33,7 @@ def _summary() -> dict:
     }
 
 
-def test_bemobi_dashboard_combines_market_ownership_result_and_jcp(tmp_path, monkeypatch) -> None:
+def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "bemobi-investor.db")
     init_database(database)
     seed_curated_history(database)
@@ -65,6 +65,23 @@ def test_bemobi_dashboard_combines_market_ownership_result_and_jcp(tmp_path, mon
     assert result["otello"]["bemobi_total_shares"] == 85_608_392
     assert result["otello"]["value_brl_m"] == 22.8 * 32_719_588 / 1_000_000
     assert result["otello"]["value_per_otello_share_nok"] == 1418.0 / 70.0
+
+    valuation = result["valuation"]
+    assert valuation["period"] == "TTM 3Q25–2Q26"
+    assert valuation["adjusted_net_income_ttm_mbrl"] == 184.2
+    assert valuation["adjusted_ebitda_ttm_mbrl"] == 283.1
+    assert abs(valuation["market_cap_mbrl"] - 1951.8713376) < 1e-9
+    assert abs(valuation["adjusted_eps_ttm_brl"] - 2.1516582159375215) < 1e-12
+    assert abs(valuation["pe_ttm"] - 10.596478488599349) < 1e-12
+    assert abs(valuation["price_to_ebitda_ttm"] - 6.894635597315435) < 1e-12
+    assert abs(valuation["earnings_yield_pct"] - 9.437097438322462) < 1e-12
+    assert [item["multiple"] for item in valuation["scenarios"]] == [12.0, 14.0, 16.0]
+    assert abs(valuation["scenarios"][0]["implied_price_brl"] - 25.819898591250258) < 1e-12
+    assert abs(valuation["scenarios"][1]["implied_price_brl"] - 30.1232150231253) < 1e-12
+    assert abs(valuation["scenarios"][2]["implied_price_brl"] - 34.426531455000344) < 1e-12
+    assert len(valuation["source_quarters"]) == 4
+    assert valuation["source_quarters"][-1]["period"] == "2Q26"
+    assert valuation["source_quarters"][-1]["source_url"]
 
     latest = result["latest_result"]
     assert latest["period"] == "2Q26"
@@ -102,9 +119,14 @@ def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
     assert '@app.get("/api/bemobi/dashboard")' in backend_app
     assert '@app.get("/api/bemobi/dashboard")' in worker_app
     assert 'CURRENT_OWNERSHIP' in worker_service
+    assert 'TTM_QUARTERS' in worker_service
+    assert 'VALUATION_MULTIPLES = (12.0, 14.0, 16.0)' in worker_service
     assert '"ownership_pct": 38.220' in worker_service
     assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi";' in frontend
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
     assert 'fetch("/api/bemobi/dashboard")' in page
+    assert "Verdsettelse nå" in page
+    assert "Multipelsensitivitet" in page
+    assert "Ikke kursmål" in page
     assert "Ikke bekreftet" in page
