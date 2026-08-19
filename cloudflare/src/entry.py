@@ -70,6 +70,7 @@ class Default(WorkerEntrypoint):
         return await run_scheduled(
             bindings.DB,
             cron=str(controller.cron),
+            archive_bucket=bindings.SOURCE_ARCHIVE,
             scheduled_time_ms=controller.scheduledTime,
         )
 
@@ -92,6 +93,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
         from otec_workflow_recovery import ensure_otec_eod
+        from otello_report_ingestion import process_pending_otello_reports
         from performance_repository import PerformanceD1WriteRepository
         from r2_snapshot import archive_d1_snapshot
 
@@ -210,6 +212,24 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             source_results["newsweb_attachments"] = await newsweb_pdf_step()
         except Exception as exc:
             source_results["newsweb_attachments"] = error_result(exc)
+
+        @step.do(
+            "ingest Otello financial reports",
+            config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
+        )
+        async def report_step():
+            repository = PerformanceD1WriteRepository(self.env.DB)
+            result = await process_pending_otello_reports(
+                repository,
+                self.env.SOURCE_ARCHIVE,
+                target_date=target_date,
+            )
+            return {**result, "repository": repository.performance_metrics()}
+
+        try:
+            source_results["otello_reports"] = await report_step()
+        except Exception as exc:
+            source_results["otello_reports"] = error_result(exc)
 
         @step.do(
             "ensure OTEC EOD",
