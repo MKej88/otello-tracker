@@ -56,7 +56,8 @@ def test_attachment_fallback_is_content_reconciled_and_not_silent() -> None:
     assert "CONTENT_RECONCILIATION_FALLBACK" in source
     assert "for attachment in candidates:" in source
     assert "validate_daily_buybacks(daily, parsed)" in source
-    assert "ingen kunne avstemmes som transaksjons-PDF mot ukemeldingen" in source
+    assert "men ingen kunne" in source
+    assert "avstemmes som transaksjons-PDF mot ukemeldingen. Forsøk:" in source
 
 
 def test_dashboard_surfaces_share_count_and_nav_reconciliation() -> None:
