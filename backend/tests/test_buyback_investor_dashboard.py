@@ -127,8 +127,11 @@ def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(tmp_path: Pa
     assert result["program"]["progress_pct"] == 27.4
     assert result["latest_week"]["shares"] == 59_512
     assert result["latest_week"]["market_volume_shares"] > 59_512
-    assert 0 < result["latest_week"]["volume_share_pct"] < 25
+    # Weekly market share is a descriptive ratio, not the Safe Harbour legal test.
+    # The 25% limit is assessed per purchase day against prior-20-day ADV.
+    assert 0 < result["latest_week"]["volume_share_pct"] < 100
     assert result["latest_week"]["safe_harbour_capacity_shares"] > 0
+    assert result["latest_week"]["safe_harbour_utilization_pct"] > 0
     assert result["shares"]["treasury_shares"] == 5_600_393
     assert result["shares"]["outstanding_shares"] == 85_599_607
     assert result["shares"]["treasury_source"] == "LATEST_BUYBACK"
