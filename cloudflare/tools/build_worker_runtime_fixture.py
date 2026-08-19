@@ -13,6 +13,7 @@ for path in (BACKEND, TOOLS):
         sys.path.insert(0, str(path))
 
 from build_d1_bootstrap_fixture import build_fixture  # noqa: E402
+from app.bemobi.consensus import bemobi_consensus as reference_bemobi_consensus  # noqa: E402
 from app.buybacks import buyback_forecast as reference_buyback_forecast  # noqa: E402
 from app.buybacks.activity import seed_otec_activity_history  # noqa: E402
 from app.dashboard import dashboard_history as reference_dashboard_history  # noqa: E402
@@ -207,6 +208,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "economic": reference_economic_nav_summary(database_path),
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
+        "consensus": reference_bemobi_consensus(database_path),
     }
     for name, payload in expected.items():
         (expected_dir / f"{name}.json").write_text(
@@ -220,6 +222,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "forecast_ready": bool(expected["forecast"].get("ready")),
         "summary_ready": bool(expected["summary"].get("ready")),
         "economic_ready": bool(expected["economic"].get("ready")),
+        "consensus_ready": bool(expected["consensus"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
     }
 
