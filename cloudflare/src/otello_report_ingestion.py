@@ -81,9 +81,8 @@ def _row_current_value(
         line = lines[index]
         if not any(regex.search(line) for regex in regexes):
             continue
-        # Otello reports normally show current and comparison period as the final two
-        # numeric columns. A note number may precede those columns, so always take the
-        # second-to-last parsed value after allowing one wrapped continuation line.
+        # Current and comparison period are normally the final two numeric columns.
+        # A note number may precede them, so the current value is the second-to-last.
         candidate = line
         values = [_parse_number(token) for token in _NUMBER_RE.findall(candidate)]
         if len(values) < 2 and index + 1 < limit:
@@ -165,7 +164,10 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         issues.append("missing_otello_issuer_signature")
     if "CONSOLIDATED STATEMENT OF FINANCIAL POSITION" not in upper:
         issues.append("missing_financial_position")
-    if not re.search(r"USD\s+(?:IN\s+)?THOUSANDS|US\$\s*(?:IN\s+)?THOUSANDS", upper):
+    if not re.search(
+        r"USD\s*(?:\(\s*)?(?:IN\s+)?THOUSANDS|US\$\s*(?:\(\s*)?(?:IN\s+)?THOUSANDS",
+        upper,
+    ):
         issues.append("missing_usd_thousands_unit")
 
     report_day = _report_date(lines)
@@ -197,28 +199,28 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
     )
     total_assets_k = _row_current_value(
         lines,
-        (r"^total assets\b",),
+        (r"^total assets\s+(?:\(?-?\d|-)",),
         start=balance_start,
         end=balance_end,
     )
     total_equity_k = _row_current_value(
         lines,
-        (r"^total equity(?:\s|$)",),
+        (r"^total equity\s+(?:\(?-?\d|-)",),
         start=balance_start,
         end=balance_end,
     )
     total_liabilities_k = _row_current_value(
         lines,
-        (r"^total liabilities(?:\s|$)",),
+        (r"^total liabilities\s+(?:\(?-?\d|-)",),
         start=balance_start,
         end=balance_end,
     )
     option_liability_k = _row_current_value(
         lines,
         (
-            r"^options? liabilities\b",
-            r"^share[- ]based payment liabilities\b",
-            r"^share[- ]based compensation liabilities\b",
+            r"^options? liabilit(?:y|ies)\b",
+            r"^share[- ]based payment liabilit(?:y|ies)\b",
+            r"^share[- ]based compensation liabilit(?:y|ies)\b",
         ),
         start=balance_start,
         end=balance_end,
@@ -227,8 +229,8 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
     bemobi_k = _row_current_value(
         lines,
         (
-            r"investments? in bemobi mobile tech(?:nology)? s\.?a\.?\s*\(associate\)",
-            r"bemobi mobile tech(?:nology)? s\.?a\.?\s*\(associate\)",
+            r"^investments? in bemobi mobile tech(?:nology)?\b",
+            r"^bemobi mobile tech(?:nology)?\b.*(?:associate|carrying)",
             r"carrying (?:amount|value).*bemobi",
         ),
     )
@@ -489,6 +491,7 @@ async def _archive_and_stage_report(
         "parsed_r2": parsed_archive,
         "source_quality": "OFFICIAL_ORIGINAL",
         "auto_apply_policy": "STRICT_VALIDATION_FAIL_CLOSED",
+        "auto_apply_status": "STAGED",
     }
     document_id = await repository.create_source_document(
         source_code="NEWSWEB",
@@ -501,6 +504,49 @@ async def _archive_and_stage_report(
         metadata=metadata,
     )
     return document_id, {"pdf": pdf_archive, "parsed": parsed_archive}
+
+
+async def _set_report_document_apply_status(repository, report_doc_id: int, status: str) -> None:
+    row = await repository.first(
+        "SELECT metadata_json FROM source_documents WHERE id=? LIMIT 1",
+        (report_doc_id,),
+    )
+    if row is None:
+        raise RuntimeError("Rapportens source_document mangler")
+    try:
+        metadata = json.loads(str(row.get("metadata_json") or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    metadata["auto_apply_status"] = status
+    await repository.run(
+        """
+        UPDATE source_documents
+        SET metadata_json=?, fetched_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=?
+        """,
+        (json.dumps(metadata, ensure_ascii=False, sort_keys=True), report_doc_id),
+    )
+
+
+async def _cleanup_report_anchors(repository, report_doc_id: int) -> None:
+    await repository.run(
+        """
+        DELETE FROM other_net_assets_anchors
+        WHERE reported_anchor_id IN (
+            SELECT id FROM other_net_assets_reported_anchors WHERE source_document_id=?
+        )
+        """,
+        (report_doc_id,),
+    )
+    await repository.run(
+        "DELETE FROM other_net_assets_reported_anchors WHERE source_document_id=?",
+        (report_doc_id,),
+    )
+    await repository.run(
+        "DELETE FROM cash_anchors WHERE source_document_id=?",
+        (report_doc_id,),
+    )
+    await _set_report_document_apply_status(repository, report_doc_id, "STAGED")
 
 
 async def _upsert_cash_anchor(repository, report_doc_id: int, facts: dict[str, Any], fx: dict[str, Any]) -> int:
@@ -698,9 +744,6 @@ async def _upsert_cost_anchors(repository, report_doc_id: int, facts: dict[str, 
         metadata=base_meta,
     )
 
-    # Conservative scenario becomes a source-backed trailing-period measure when the
-    # preceding BASE anchor is another half-year period. Otherwise the existing
-    # conservative source remains in force rather than inventing a number.
     rows = await repository.all(
         """
         SELECT id, metadata_json FROM source_documents
@@ -831,10 +874,32 @@ async def _apply_report(
             "rapportens tilknyttede fordring må identifiseres eksplisitt før automatisk ONA-anker"
         )
 
-    cash_id = await _upsert_cash_anchor(repository, report_doc_id, facts, fx)
-    ona_reported_id, ona_converted_id = await _upsert_ona_anchor(repository, report_doc_id, facts, fx)
-    cost_result = await _upsert_cost_anchors(repository, report_doc_id, facts)
-    backfill = await _backfill_affected_nav(repository, report_date, target_date)
+    try:
+        cash_id = await _upsert_cash_anchor(repository, report_doc_id, facts, fx)
+        ona_reported_id, ona_converted_id = await _upsert_ona_anchor(repository, report_doc_id, facts, fx)
+    except Exception:
+        await _cleanup_report_anchors(repository, report_doc_id)
+        raise
+
+    # Critical report anchors are now consistent. Activating the report source here lets
+    # the option model use its reported liability while the affected NAV dates rebuild.
+    await _set_report_document_apply_status(repository, report_doc_id, "APPLIED")
+
+    warnings: list[dict[str, str]] = []
+    try:
+        cost_result = await _upsert_cost_anchors(repository, report_doc_id, facts)
+    except Exception as exc:
+        cost_result = {"status": "error", "error": str(exc)[:800]}
+        warnings.append({"step": "cost_anchors", "error": str(exc)[:800]})
+
+    try:
+        backfill = await _backfill_affected_nav(repository, report_date, target_date)
+        if backfill.get("status") == "partial":
+            warnings.append({"step": "nav_backfill", "error": "one or more historical NAV dates were not ready"})
+    except Exception as exc:
+        backfill = {"status": "error", "error": str(exc)[:800]}
+        warnings.append({"step": "nav_backfill", "error": str(exc)[:800]})
+
     return {
         "status": "applied",
         "report_date": report_date,
@@ -843,6 +908,7 @@ async def _apply_report(
         "ona_anchor_id": ona_converted_id,
         "cost_anchors": cost_result,
         "nav_backfill": backfill,
+        "warnings": warnings,
         "share_count_policy": "NOT_APPLIED_FROM_REPORT_WITHOUT_EXTERNAL_RECONCILIATION",
         "cash_fx_allocation_policy": "NO_NEW_ALLOCATION_UNLESS_REPORT_EXPLICITLY_DOCUMENTS_CURRENCIES",
     }
@@ -1005,13 +1071,14 @@ async def process_pending_otello_reports(
             continue
 
         applied += 1
+        warning_count = len(applied_result.get("warnings") or [])
         await _set_news_status(
             repository,
             company_news_id,
             status="APPLIED",
             summary=(
                 f"Otello {facts['source_period']} automatisk innlest: cash, ONA, opsjonsanker "
-                "og driftskostnadsgrunnlag oppdatert; NAV bygget på nytt."
+                f"og driftskostnadsgrunnlag oppdatert; NAV bygget på nytt. warnings={warning_count}"
             ),
             notes=(
                 f"parser={REPORT_PARSER_VERSION}; report_document_id={report_doc_id}; "
