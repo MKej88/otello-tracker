@@ -10,6 +10,7 @@ from app.buybacks import (
     market_activity_status,
     seed_otec_activity_history,
 )
+from app.buybacks.dashboard import buyback_dashboard
 from app.dashboard import dashboard_history as get_dashboard_history
 from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.dashboard_freshness import enrich_dashboard_summary
@@ -86,8 +87,17 @@ def system_buybacks() -> dict:
 
 
 @app.get("/api/buybacks/forecast")
-def system_buyback_forecast() -> dict:
-    return buyback_forecast(settings.database_path)
+def system_buyback_forecast(
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
+    return buyback_forecast(settings.database_path, as_of_date=as_of_date)
+
+
+@app.get("/api/buybacks/dashboard")
+def system_buyback_dashboard(
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
+    return buyback_dashboard(settings.database_path, as_of_date=as_of_date)
 
 
 @app.get("/api/bemobi/news")
