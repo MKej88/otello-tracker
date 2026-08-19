@@ -1,11 +1,15 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "otello-tracker-local",
-  "main": "src/entry.py",
+  "main": "src/worker.py",
   "compatibility_date": "2026-08-18",
   "compatibility_flags": ["python_workers", "python_workflows"],
   "triggers": {
     "crons": ["*/30 * * * *"]
+  },
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
   },
   "workflows": [
     {
@@ -13,6 +17,12 @@
       "binding": "FULL_REFRESH",
       "class_name": "FullRefreshWorkflow",
       "schedules": ["35 3 * * *"]
+    },
+    {
+      "name": "otello-shareholder-snapshot",
+      "binding": "SHAREHOLDER_SNAPSHOT",
+      "class_name": "ShareholderSnapshotWorkflow",
+      "schedules": ["15 7 * * 6"]
     },
     {
       "name": "otello-r2-snapshot-drill",
