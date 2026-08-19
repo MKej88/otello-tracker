@@ -52,10 +52,13 @@ jobs:
 
           config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
           assert config['name'] == 'otello-tracker'
+          assert config['main'] == 'src/worker.py'
           assert config['workers_dev'] is True
           assert config['compatibility_date'] == '2026-08-18'
           assert config['d1_databases'][0]['database_id'] == '11111111-2222-3333-4444-555555555555'
           assert config['r2_buckets'][0]['bucket_name'] == 'otello-source-archive'
+          assert config['browser']['binding'] == 'BROWSER'
+          assert config['browser']['remote'] is True
           assert 'cache' not in config
           assert config['exports']['default']['type'] == 'worker'
           assert config['exports']['default']['cache']['enabled'] is True
@@ -67,7 +70,10 @@ jobs:
           assert config['limits']['cpu_ms'] == 60000
           assert config['limits']['subrequests'] == 500
           assert config['triggers']['crons'] == ['*/30 * * * *']
-          assert config['workflows'][0]['schedules'] == ['35 3 * * *']
+          workflows = {item['binding']: item for item in config['workflows']}
+          assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+          assert workflows['SHAREHOLDER_SNAPSHOT']['class_name'] == 'ShareholderSnapshotWorkflow'
+          assert workflows['SHAREHOLDER_SNAPSHOT']['schedules'] == ['15 7 * * 6']
           PY
 
       - name: Dry-run production Python Worker bundle
