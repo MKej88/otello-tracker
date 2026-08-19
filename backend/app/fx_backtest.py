@@ -103,7 +103,7 @@ def _initial_balances(anchor: dict[str, Any], usd_nok: Decimal, brl_nok: Decimal
             balances["USD"] += usd_equivalent
         elif currency == "BRL":
             balances["BRL"] += usd_equivalent * usd_nok / brl_nok
-        elif currency == "UNALLOCATED":
+        elif currency in {"NOK", "UNALLOCATED"}:
             balances["NOK"] += usd_equivalent * usd_nok
     return balances
 
@@ -248,9 +248,10 @@ def fx_backtest_summary(database_path: str | None = None) -> dict[str, Any]:
             "pnl_fx_role": "diagnostic_only",
         },
         "method_note": (
-            "Backtesten starter med rapportert USD/BRL-eksponering og behandler residualen som NOK-hypotese. "
-            "Kjente kontantstrømmer legges til i opprinnelig valuta, og valutaeffekten isoleres mellom "
-            "strømdatoene med historiske ECB-krysskurser. Resultatført netto valutaresultat brukes ikke som "
-            "fasit fordi det også påvirkes av andre monetære poster enn kontanter."
+            "Backtesten starter med kildebasert kontantfordeling. Rapportert USD/BRL brukes direkte, "
+            "eksplisitt NOK eller eldre ufordelt residual holdes i NOK, og kjente kontantstrømmer legges "
+            "til i opprinnelig valuta. Valutaeffekten isoleres mellom strømdatoene med historiske "
+            "ECB-krysskurser. Resultatført netto valutaresultat brukes ikke som fasit fordi det også "
+            "påvirkes av andre monetære poster enn kontanter."
         ),
     }
