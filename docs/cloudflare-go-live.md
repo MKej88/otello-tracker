@@ -162,8 +162,10 @@ Følg `docs/cloudflare-paid-cost-guard.md`:
 
 1. opprett rate limiting-regel for `/api/*` tilpasset domenets WAF-plan;
 2. opprett lave Budget Alerts, anbefalt USD 1 og USD 5 usage-based spend;
-3. aktiver D1-varsler for Rows Read og Rows Written;
+3. aktiver D1-varsler for Rows Read og Rows Written **dersom Usage Based Billing-notifikasjoner er tilgjengelige på kontoens zone-plan**;
 4. sett først deretter `CLOUDFLARE_WAF_COST_GUARD_READY=true` i GitHub production environment.
+
+Cloudflare dokumenterer D1-metrikkene Rows Read/Rows Written som varslingsbare, men Usage Based Billing-notifikasjoner krever Professional-plan eller høyere. På Workers Paid uten slik zone-plan markeres D1-spesifikke varsler derfor som **N/A**, og kostnadskontrollen baseres på Budget Alerts + Billable Usage + WAF cost guard.
 
 Budget Alerts er varsling og ikke et hardt kostnadstak. WAF-regelen er derfor den viktige sperren før Worker-invocation.
 
@@ -240,6 +242,8 @@ Snapshotet skal inneholde finans-/modellstate, inkludert:
 
 `company_news`, `market_activity` og `runtime_state` er rekonstruerbare/høyfrekvente og er ikke del av det logiske snapshotet. Full recovery ligger i D1 Time Travel.
 
+En manuell `R2 logical snapshot drill` kan brukes for å verifisere snapshotbanen uten å skrive til D1. Produksjonsdrillen 2026-08-19 skrev 23 tabeller / 42 chunks til R2 med `d1_writes=0`.
+
 ## 14. D1 Time Travel drill
 
 Gjør restore-test mot egen drill-database eller kontrollert vedlikeholdsvindu – ikke tilfeldig mot live D1.
@@ -252,39 +256,39 @@ Prosedyre:
 4. verifiser at mutasjonen forsvinner;
 5. dokumenter hvordan restore eventuelt reverseres.
 
+Restore-drill ble gjennomført mot separat testdatabase 2026-08-19 og verifiserte at en kjent endring ble fjernet ved restore til tidligere bookmark.
+
 ## 15. Custom domain
 
 Custom domain er et krav for produksjonsworkflowen slik at WAF kan stoppe misbruk før `/api/*` når Worker-koden. Cloudflare håndterer HTTPS for Worker Custom Domain.
 
 ## 16. Endelig akseptanse
 
-Go-live er godkjent først når:
+Produksjons-go-live ble kontrollert 2026-08-19. Status:
 
-- [ ] produksjonsbootstrap-preflight passerte;
-- [ ] remote D1 importerte riktig produksjonshistorikk;
-- [ ] `verify-remote` ga eksakt manifestparitet;
-- [ ] ingen testfixtures finnes remote;
-- [ ] custom domain er satt;
-- [ ] HTTPS `CLOUDFLARE_PUBLIC_URL` matcher custom domain;
-- [ ] WAF rate limiting for `/api/*` er aktiv;
-- [ ] Budget Alerts er opprettet;
-- [ ] D1 billing notifications er aktivert;
-- [ ] `CLOUDFLARE_WAF_COST_GUARD_READY=true` er satt;
-- [ ] Worker-deploy er grønn;
-- [ ] frontend/summary/history/economic/FX-backtest/buyback HTTP-akseptanse er grønn;
-- [ ] FX-backtest har minst to klare perioder;
-- [ ] minst én fast refresh er kontrollert;
-- [ ] minst én full Workflow er kontrollert;
-- [ ] writer-lock fungerer som forventet;
-- [ ] R2 råfiler/PDF/snapshot finnes etter retention-policy;
-- [ ] Workers Logs viser akseptabel CPU/minnebruk;
-- [ ] Time Travel restore-drill er gjennomført.
+- [x] produksjonsbootstrap-preflight passerte;
+- [x] remote D1 importerte riktig produksjonshistorikk;
+- [x] `verify-remote` ga eksakt manifestparitet;
+- [x] ingen testfixtures finnes remote;
+- [x] custom domain er satt;
+- [x] HTTPS `CLOUDFLARE_PUBLIC_URL` matcher custom domain;
+- [x] WAF rate limiting for `/api/*` er aktiv;
+- [x] Budget Alerts USD 1 og USD 5 er opprettet;
+- [x] D1 billing notifications vurdert — **N/A på nåværende plan**, se punkt 9;
+- [x] `CLOUDFLARE_WAF_COST_GUARD_READY=true` er satt;
+- [x] Worker-deploy er grønn;
+- [x] frontend/summary/history/economic/FX-backtest/buyback HTTP-akseptanse er grønn;
+- [x] FX-backtest har minst to klare perioder;
+- [x] fast refresh kontrollert i `job_runs` med `SUCCESS`;
+- [x] full Workflow kontrollert med `SUCCESS`;
+- [x] writer-lock verifisert med sekvensen normal → blokkert → normal;
+- [x] R2 råfiler/PDF/snapshot er verifisert;
+- [x] Workers Metrics viser 0 % feil på aktiv deployment og god CPU/wall-time-margin;
+- [x] Time Travel restore-drill er gjennomført mot separat drill-database.
 
-Først etter dette settes:
+**Go-live er dermed godkjent med manuell produksjonsdeploy.** `CLOUDFLARE_DEPLOY_ENABLED=true` er ikke et krav for at løsningen skal være i produksjon; det er et eget CI/CD-valg.
 
-```text
-CLOUDFLARE_DEPLOY_ENABLED=true
-```
+Per 2026-08-19 er `main` ikke branch-protected. Behold derfor `CLOUDFLARE_DEPLOY_ENABLED=false` inntil branch protection/PR-kontroll er etablert, eller til direkte auto-deploy fra enhver push til `main` er et bevisst valgt risikonivå.
 
 ## 17. Neste rapportanker
 
