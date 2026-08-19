@@ -20,6 +20,17 @@ type Buyback = {
   cumulative_program_amount_nok: string | null;
 };
 
+type ShareCount = {
+  effective_from: string;
+  total_shares: number;
+  treasury_shares: number;
+  outstanding_shares: number;
+  source_document_id: number | null;
+  source_code: string | null;
+  source_url: string | null;
+  used_in_nav: boolean;
+};
+
 type BuybackForecast = {
   ready: boolean;
   status: string;
@@ -84,6 +95,7 @@ type Summary = {
   bemobi_shares?: number | null;
   bemobi_ownership_pct?: number | null;
   shares_outstanding?: number | null;
+  share_count?: ShareCount | null;
   cash_quality?: string | null;
   cash_calibration_quality?: string | null;
   share_count_quality?: string | null;
@@ -211,6 +223,13 @@ function statusLabel(input?: string | null) {
 function warningLabel(input?: string | null) {
   if (!input) return "–";
   return warningTranslations[input] ?? input;
+}
+
+function shareSourceLabel(input?: string | null) {
+  if (!input) return "Ukjent kilde";
+  if (input.toUpperCase() === "NEWSWEB") return "NewsWeb";
+  if (input.toUpperCase() === "EURONEXT") return "Euronext";
+  return input;
 }
 
 function modelScopeLabel(scope?: string | null) {
@@ -358,6 +377,7 @@ export default function App() {
   const estimated = !degraded && summary.data_status === "ESTIMATED";
   const qualityWarning = degraded || estimated;
   const latestBuyback = summary.latest_buyback;
+  const shareCount = summary.share_count;
   const ownership = summary.bemobi_ownership_pct;
   const ownershipChart = ownership ?? 0;
   const scope = summary.model_scope ?? "CORE";
@@ -467,6 +487,9 @@ export default function App() {
             </div>
             <div className="placeholderRows">
               <div><span>Siste uke</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
+              <div><span>Egne aksjer</span><strong>{shareCount ? integer.format(shareCount.treasury_shares) : latestBuyback?.treasury_shares_after != null ? integer.format(latestBuyback.treasury_shares_after) : "–"}</strong></div>
+              <div><span>Utestående aksjer (NAV)</span><strong>{summary.shares_outstanding != null ? integer.format(summary.shares_outstanding) : "–"}</strong></div>
+              <div><span>Sist bekreftet aksjetall</span><strong>{shareCount ? `${dateLabel(shareCount.effective_from)} · ${shareSourceLabel(shareCount.source_code)}` : "–"}</strong></div>
               <div>
                 <span>{forecastWeek ? `Estimert ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
                 <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
@@ -500,6 +523,7 @@ export default function App() {
               <div><span>Kontantbeholdning</span><span className={qualityWarning ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_quality)}</span></div>
               {summary.cash_calibration_quality && <div><span>Kontantavstemming</span><span className={summary.cash_calibration_quality === "HIGH_RESIDUAL" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_calibration_quality)}</span></div>}
               {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.share_count_quality)}</span></div>}
+              {shareCount && <div><span>Aksjetall mot siste kilde</span><span className={shareCount.used_in_nav ? "sourceOk" : "sourceWarn"}>{shareCount.used_in_nav ? "AVSTEMT" : "AVVIK"}</span></div>}
               <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
               <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
               <div><span>Tilbakekjøpsprognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? statusLabel(forecastConfidence) : statusLabel(forecast.status)}</span></div>
