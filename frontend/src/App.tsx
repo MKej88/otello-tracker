@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import BuybackPage from "./BuybackPage";
 import EconomicNavPanel from "./EconomicNavPanel";
+import NavWaterfallPanel from "./NavWaterfallPanel";
 
 type ChangeSet = {
   nav_pct: number | null;
@@ -109,7 +111,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV";
+type View = "Oversikt" | "NAV" | "Tilbakekjøp";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -120,7 +122,7 @@ const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "Oversikt", enabled: true },
   { label: "NAV", enabled: true },
   { label: "Historikk", enabled: false },
-  { label: "Tilbakekjøp", enabled: false },
+  { label: "Tilbakekjøp", enabled: true },
   { label: "Bemobi", enabled: false },
   { label: "Konsensus", enabled: false },
   { label: "Aksjonærer", enabled: false },
@@ -374,7 +376,11 @@ export default function App() {
   const forecastWeek = forecast.forecast_week;
   const timestamps = summary.market_timestamps;
   const timestampStatus = timestamps?.status ?? "UNKNOWN";
-  const pageTitle = activeView === "NAV" ? "NAV og verdsettelse" : "Otello investoroversikt";
+  const pageTitle = activeView === "NAV"
+    ? "NAV og verdsettelse"
+    : activeView === "Tilbakekjøp"
+      ? "Tilbakekjøp"
+      : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -425,7 +431,7 @@ export default function App() {
             </span>
           </div>
         )}
-        {qualityWarning && (
+        {activeView !== "Tilbakekjøp" && qualityWarning && (
           <div className="modelWarning">
             <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>
             <span>
@@ -485,17 +491,20 @@ export default function App() {
               </article>
             </section>
           </>
+        ) : activeView === "Tilbakekjøp" ? (
+          <BuybackPage />
         ) : (
           <>
             <div className="pageIntro">
               <div>
-                <span className="eyebrow">FASE 16.5</span>
+                <span className="eyebrow">NAV</span>
                 <h2>Fra rapportert balanse til dagens investor-NAV</h2>
               </div>
               <p>Her samles verdsettelsen. Modellkontroller og teknisk diagnostikk holdes utenfor investorvisningen.</p>
             </div>
 
             <EconomicNavPanel variant="detail" />
+            <NavWaterfallPanel />
 
             <section className="kpiGrid navKpiGrid">
               {navCards.map((card) => (
