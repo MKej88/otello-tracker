@@ -190,9 +190,6 @@ async def _parameter_pair(repository, current: date) -> tuple[Decimal, Decimal, 
     eligible = [item for item in anchors if date.fromisoformat(str(item["as_of_date"])) <= current]
     active = eligible[-1] if eligible else first
 
-    # Preserve the original interpolation between grant and the first audited year-end
-    # parameter set. Once a report-date parameter set exists, hold the latest published
-    # pair until a newer validated report supplies another pair.
     static_first = OPTION_PROGRAM["valuation_anchors"][0]
     static_last = OPTION_PROGRAM["valuation_anchors"][-1]
     first_day = date.fromisoformat(static_first["as_of_date"])
@@ -200,8 +197,16 @@ async def _parameter_pair(repository, current: date) -> tuple[Decimal, Decimal, 
     if first_day < current < last_day:
         fraction = Decimal((current - first_day).days) / Decimal((last_day - first_day).days)
         return (
-            _interpolate(Decimal(static_first["risk_free_rate"]), Decimal(static_last["risk_free_rate"]), fraction),
-            _interpolate(Decimal(static_first["volatility"]), Decimal(static_last["volatility"]), fraction),
+            _interpolate(
+                Decimal(static_first["risk_free_rate"]),
+                Decimal(static_last["risk_free_rate"]),
+                fraction,
+            ),
+            _interpolate(
+                Decimal(static_first["volatility"]),
+                Decimal(static_last["volatility"]),
+                fraction,
+            ),
             {"as_of_date": current.isoformat(), "source": "INTERPOLATED_STATIC_PARAMETERS"},
         )
     return Decimal(str(active["risk_free_rate"])), Decimal(str(active["volatility"])), active
@@ -264,7 +269,6 @@ async def _anchor_recognition_fraction(repository, anchor: dict[str, Any]) -> De
     volatility = Decimal(str(anchor["volatility"]))
     strike, _ = await _adjusted_strike(repository, anchor_date)
     spot_raw = anchor.get("spot_price_nok")
-    price = None
     if spot_raw is None:
         price = await _preferred_otec_price(repository, anchor_date)
         if price is None:
@@ -294,7 +298,10 @@ async def _reported_anchors(repository) -> list[dict[str, Any]]:
     ]
 
 
-async def _recognition_fraction(repository, current: date) -> tuple[Decimal | None, dict[str, Any] | None]:
+async def _recognition_fraction(
+    repository,
+    current: date,
+) -> tuple[Decimal | None, dict[str, Any] | None]:
     grant = date.fromisoformat(OPTION_PROGRAM["program"]["grant_date"])
     anchors = await _reported_anchors(repository)
     if not anchors:
@@ -350,7 +357,9 @@ async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any
 
     report_anchor_date = str(report_anchor["as_of_date"])
     if as_of_date == report_anchor_date and report_anchor.get("reported_liability_usd") is not None:
-        liability_nok = Decimal(str(report_anchor["reported_liability_usd"])) * Decimal(str(usd_nok["rate"]))
+        liability_nok = Decimal(str(report_anchor["reported_liability_usd"])) * Decimal(
+            str(usd_nok["rate"])
+        )
         quality = "REPORTED_CALIBRATED"
     elif current < date.fromisoformat(report_anchor_date):
         quality = "INTERPOLATED_TO_REPORTED"
@@ -373,28 +382,30 @@ async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any
         "time_to_maturity_years": decimal_text(years),
         "risk_free_rate": decimal_text(risk_free),
         "volatility": decimal_text(volatility),
-        "parameter_anchor": {
-            "as_of_date": parameter_anchor.get("as_of_date"),
-            "source": parameter_anchor.get("source"),
-            "source_document_id": parameter_anchor.get("source_document_id"),
-            "quality": parameter_anchor.get("parameter_quality"),
-        },
-        "reported_liability_anchor": {
-            "as_of_date": report_anchor_date,
-            "reported_liability_usd": report_anchor.get("reported_liability_usd"),
-            "source": report_anchor.get("source"),
-            "source_document_id": report_anchor.get("source_document_id"),
-        },
         "dividend_yield": "0",
         "fair_value_per_option_nok": decimal_text(fair_value),
         "gross_fair_value_nok": decimal_text(gross_fair_value),
         "recognition_fraction": decimal_text(recognition),
-        "recognition_policy": "HOLD_LATEST_REPORTED_FACTOR_UNTIL_NEW_REPORT_OR_QUALIFYING_BEMOBI_DISPOSAL",
+        "recognition_policy": "HOLD_LAST_REPORTED_FACTOR_UNTIL_NEW_REPORT_OR_QUALIFYING_BEMOBI_DISPOSAL",
         "usd_nok_rate_id": usd_nok["id"],
         "usd_nok_rate_date": usd_nok["rate_date"],
         "usd_nok": usd_nok["rate"],
         "quality": quality,
     }
+    if report_anchor.get("source_document_id") is not None:
+        inputs["reported_liability_anchor"] = {
+            "as_of_date": report_anchor_date,
+            "reported_liability_usd": report_anchor.get("reported_liability_usd"),
+            "source": report_anchor.get("source"),
+            "source_document_id": report_anchor.get("source_document_id"),
+        }
+    if parameter_anchor.get("source_document_id") is not None:
+        inputs["parameter_anchor"] = {
+            "as_of_date": parameter_anchor.get("as_of_date"),
+            "source": parameter_anchor.get("source"),
+            "source_document_id": parameter_anchor.get("source_document_id"),
+            "quality": parameter_anchor.get("parameter_quality"),
+        }
     inputs["inputs_hash"] = _hash(inputs)
     return {
         "liability_nok": liability_nok,
