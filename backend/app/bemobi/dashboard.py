@@ -7,8 +7,6 @@ from app.dashboard import dashboard_summary
 from app.dashboard_freshness import enrich_dashboard_summary
 from app.db.connection import get_connection
 
-MILLION = Decimal("1000000")
-
 # Curated from Bemobi's 2Q26 results release. The production service links the metrics to
 # the newest official CVM RESULTS document when that metadata is available in company_news.
 # The landing-page fallback remains Bemobi IR so the investor UI never invents a source.
@@ -29,6 +27,16 @@ LATEST_RESULT = {
     "payments_yoy_pct": 75.0,
     "saas_yoy_pct": 21.0,
     "quality": "CURATED_FROM_RESULTS_RELEASE",
+}
+
+# Checked against Bemobi's official ownership-structure page on 2026-08-19. This is a
+# presentation anchor for the Bemobi page; NAV continues to use the explicit holding row.
+CURRENT_OWNERSHIP = {
+    "shares": 32_719_588,
+    "ownership_pct": 38.220,
+    "bemobi_total_shares": 85_608_392,
+    "checked_date": "2026-08-19",
+    "quality": "OFFICIAL_IR_CURRENT",
 }
 
 RESULTS_FALLBACK_URL = "https://ri.bemobi.com.br/informacoes-financeiras/resultados-trimestrais/"
@@ -91,6 +99,9 @@ def _distribution_payload(row: dict[str, Any] | None, holding_shares: int | None
         return None
     gross_per_share = _number(row.get("gross_per_share"))
     net_per_share = _number(row.get("net_per_share"))
+    gross_total = _number(row.get("gross_total"))
+    net_total = _number(row.get("net_total"))
+    withholding = _number(row.get("withholding_rate"))
     holding = int(holding_shares or 0)
     return {
         "type": row.get("action_type"),
@@ -100,9 +111,9 @@ def _distribution_payload(row: dict[str, Any] | None, holding_shares: int | None
         "payment_date": row.get("payment_date"),
         "gross_per_share_brl": gross_per_share,
         "net_per_share_brl": net_per_share,
-        "gross_total_mbrl": None if _number(row.get("gross_total")) is None else _number(row.get("gross_total")) / 1_000_000,
-        "net_total_mbrl": None if _number(row.get("net_total")) is None else _number(row.get("net_total")) / 1_000_000,
-        "withholding_rate_pct": None if _number(row.get("withholding_rate")) is None else _number(row.get("withholding_rate")) * 100,
+        "gross_total_mbrl": None if gross_total is None else gross_total / 1_000_000,
+        "net_total_mbrl": None if net_total is None else net_total / 1_000_000,
+        "withholding_rate_pct": None if withholding is None else withholding * 100,
         "tax_treatment": row.get("tax_treatment"),
         "otello_gross_mbrl": None if gross_per_share is None or holding <= 0 else gross_per_share * holding / 1_000_000,
         "otello_net_mbrl": None if net_per_share is None or holding <= 0 else net_per_share * holding / 1_000_000,
@@ -126,14 +137,18 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         distribution_row = _latest_distribution(connection)
         result_source = _latest_result_source(connection)
 
-    shares = int(summary.get("bemobi_shares") or 0)
-    ownership_pct = _number(summary.get("bemobi_ownership_pct"))
+    nav_shares = int(summary.get("bemobi_shares") or 0)
+    shares = nav_shares or int(CURRENT_OWNERSHIP["shares"])
+    ownership_matches_nav = shares == int(CURRENT_OWNERSHIP["shares"])
+    ownership_pct = (
+        float(CURRENT_OWNERSHIP["ownership_pct"])
+        if ownership_matches_nav
+        else _number(summary.get("bemobi_ownership_pct"))
+    )
     bmob3_price = _number(summary.get("bmob3_price"))
     brl_nok = _number(summary.get("brl_nok"))
     value_nok_m = _number(summary.get("bemobi_value_mnok"))
-    value_brl_m = None
-    if bmob3_price is not None and shares > 0:
-        value_brl_m = bmob3_price * shares / 1_000_000
+    value_brl_m = None if bmob3_price is None or shares <= 0 else bmob3_price * shares / 1_000_000
 
     outstanding_otello = int(summary.get("shares_outstanding") or 0)
     value_per_otello_share = None
@@ -197,6 +212,9 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         "otello": {
             "shares": shares or None,
             "ownership_pct": ownership_pct,
+            "ownership_source_date": CURRENT_OWNERSHIP["checked_date"] if ownership_matches_nav else None,
+            "ownership_quality": CURRENT_OWNERSHIP["quality"] if ownership_matches_nav else summary.get("bemobi_ownership_quality"),
+            "bemobi_total_shares": CURRENT_OWNERSHIP["bemobi_total_shares"] if ownership_matches_nav else None,
             "value_brl_m": value_brl_m,
             "value_nok_m": value_nok_m,
             "value_per_otello_share_nok": value_per_otello_share,
@@ -212,7 +230,8 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         },
         "sources": sources,
         "note": (
-            "Markedsverdi og eierandel er løpende. 2Q26-nøkkeltall er kuraterte rapporttall; "
-            "neste resultatdato vises ikke før Bemobi har publisert en bekreftet dato."
+            "BMOB3 og markedsverdi følger NAV-grunnlaget. Eierandelen 38,22 % er kontrollert "
+            "mot Bemobis offisielle aksjonærside 19.08.2026. 2Q26-nøkkeltall er kuraterte "
+            "rapporttall; neste resultatdato vises først når Bemobi har publisert en bekreftet dato."
         ),
     }
