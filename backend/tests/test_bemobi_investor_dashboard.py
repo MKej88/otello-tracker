@@ -107,4 +107,4 @@ def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
     assert 'fetch("/api/bemobi/dashboard")' in page
-    assert "Dato ikke bekreftet" in page
+    assert "Ikke bekreftet" in page
