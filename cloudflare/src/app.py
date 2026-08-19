@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
+from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from economic_nav import economic_nav_summary
@@ -51,6 +52,10 @@ CACHE_POLICIES = {
     "/api/buybacks/forecast": (
         "public, max-age=300",
         "public, max-age=900, stale-while-revalidate=1800",
+    ),
+    "/api/buybacks/dashboard": (
+        "public, max-age=60",
+        "public, max-age=300, stale-while-revalidate=600",
     ),
 }
 
@@ -148,5 +153,17 @@ async def get_buyback_forecast(
     repository = _repository(request)
     try:
         return await buyback_forecast(repository, as_of_date=as_of_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
+
+
+@app.get("/api/buybacks/dashboard")
+async def get_buyback_dashboard(
+    request: Request,
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
+    repository = _repository(request)
+    try:
+        return await buyback_dashboard(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
