@@ -16,6 +16,8 @@ button { font: inherit; }
 .brand small { display: block; color: #71809a; margin-top: 2px; }
 nav { display: grid; gap: 5px; }
 .navItem { border: 0; background: transparent; color: #8998b2; border-radius: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; cursor: default; text-align: left; }
+.navItem:not(:disabled) { cursor: pointer; }
+.navItem:not(:disabled):hover { background: rgba(17, 45, 90, .48); color: #dbe9ff; }
 .navItem.active { background: #112d5a; color: #fff; }
 .navItem:disabled:not(.active) { opacity: .55; cursor: not-allowed; }
 .navDot { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
@@ -35,12 +37,17 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .neutralWarning strong { color: #b9cef0; }
 .card { background: linear-gradient(180deg, rgba(16, 28, 48, .97), rgba(11, 21, 38, .97)); border: 1px solid #1c2b43; border-radius: 14px; padding: 18px; box-shadow: 0 18px 40px rgba(0,0,0,.10); }
 .kpiGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.overviewKpiGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.navKpiGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .kpi { min-height: 116px; position: relative; overflow: hidden; }
 .kpi strong { display: block; font-size: 25px; margin-top: 12px; letter-spacing: -.025em; }
 .change { display: block; margin-top: 8px; font-size: 12px; font-weight: 700; }
 .positive { color: #27d3a5; }
 .negative { color: #ff6c88; }
 .neutral { color: #74849d; }
+.pageIntro { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin: -2px 0 16px; padding: 0 2px; }
+.pageIntro h2 { font-size: 20px; }
+.pageIntro p { max-width: 620px; margin: 0; color: #7f90aa; font-size: 12px; line-height: 1.55; text-align: right; }
 .chartGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
 .chart { min-height: 340px; }
 .cardHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -63,6 +70,7 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .chartDates { position: absolute; left: 13px; right: 13px; bottom: 8px; display: flex; justify-content: space-between; color: #596a84; font-size: 10px; }
 .chartEmpty { height: 252px; margin-top: 20px; border: 1px dashed #24354f; border-radius: 10px; display: grid; place-items: center; color: #607089; font-size: 12px; }
 .lowerGrid { display: grid; grid-template-columns: 1.15fr 1fr .8fr; gap: 14px; margin-top: 14px; }
+.overviewGrid, .navCompositionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
 .placeholderRows, .sourceList { display: grid; gap: 0; margin-top: 14px; }
 .placeholderRows > div, .sourceList > div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid #1b2a40; color: #91a0b8; font-size: 13px; }
 .placeholderRows strong { color: #e9f1ff; text-align: right; }
@@ -77,19 +85,20 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .sourceWait { color: #71809a; }
 
 @media (max-width: 1250px) {
-  .kpiGrid { grid-template-columns: repeat(3, 1fr); }
+  .kpiGrid, .overviewKpiGrid, .navKpiGrid { grid-template-columns: repeat(3, 1fr); }
   .lowerGrid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 850px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .main { padding: 20px; }
-  .kpiGrid { grid-template-columns: repeat(2, 1fr); }
-  .chartGrid, .lowerGrid { grid-template-columns: 1fr; }
-  header { align-items: flex-start; flex-direction: column; }
+  .kpiGrid, .overviewKpiGrid, .navKpiGrid { grid-template-columns: repeat(2, 1fr); }
+  .chartGrid, .lowerGrid, .overviewGrid, .navCompositionGrid { grid-template-columns: 1fr; }
+  header, .pageIntro { align-items: flex-start; flex-direction: column; }
+  .pageIntro p { text-align: left; }
 }
 @media (max-width: 500px) {
-  .kpiGrid { grid-template-columns: 1fr; }
+  .kpiGrid, .overviewKpiGrid, .navKpiGrid { grid-template-columns: 1fr; }
   .modelWarning { display: block; }
   .modelWarning strong { display: block; margin-bottom: 5px; }
   .exposure { align-items: flex-start; }
