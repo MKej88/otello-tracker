@@ -14,14 +14,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  gate:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (vars.CLOUDFLARE_DEPLOY_ENABLED == 'true' &&
-       github.event_name == 'workflow_run' &&
+      (github.event_name == 'workflow_run' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      deploy: ${{ steps.resolve.outputs.deploy }}
+    steps:
+      - name: Resolve production deploy gate
+        id: resolve
+        shell: bash
+        env:
+          AUTO_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Manual production deploy approved for main."
+          elif [ "$AUTO_DEPLOY_ENABLED" = "true" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Automatic production deploy is enabled."
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Automatic production deploy is disabled by the production environment variable."
+          fi
+
+  deploy:
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
