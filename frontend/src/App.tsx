@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import BemobiPage from "./BemobiPage";
 import BuybackPage from "./BuybackPage";
+import ConsensusPage from "./ConsensusPage";
 import EconomicNavPanel from "./EconomicNavPanel";
 import NavWaterfallPanel from "./NavWaterfallPanel";
 
@@ -112,7 +113,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi";
+type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -125,7 +126,7 @@ const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "Historikk", enabled: false },
   { label: "Tilbakekjøp", enabled: true },
   { label: "Bemobi", enabled: true },
-  { label: "Konsensus", enabled: false },
+  { label: "Konsensus", enabled: true },
   { label: "Aksjonærer", enabled: false },
   { label: "Nyheter", enabled: false },
   { label: "Innstillinger", enabled: false }
@@ -383,7 +384,9 @@ export default function App() {
       ? "Tilbakekjøp"
       : activeView === "Bemobi"
         ? "Bemobi"
-        : "Otello investoroversikt";
+        : activeView === "Konsensus"
+          ? "Konsensus"
+          : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -498,6 +501,8 @@ export default function App() {
           <BuybackPage />
         ) : activeView === "Bemobi" ? (
           <BemobiPage />
+        ) : activeView === "Konsensus" ? (
+          <ConsensusPage />
         ) : (
           <>
             <div className="pageIntro">
