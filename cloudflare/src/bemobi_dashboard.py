@@ -24,6 +24,14 @@ LATEST_RESULT = {
     "quality": "CURATED_FROM_RESULTS_RELEASE",
 }
 
+CURRENT_OWNERSHIP = {
+    "shares": 32_719_588,
+    "ownership_pct": 38.220,
+    "bemobi_total_shares": 85_608_392,
+    "checked_date": "2026-08-19",
+    "quality": "OFFICIAL_IR_CURRENT",
+}
+
 RESULTS_FALLBACK_URL = "https://ri.bemobi.com.br/informacoes-financeiras/resultados-trimestrais/"
 OWNERSHIP_URL = "https://ri.bemobi.com.br/governanca/composicao-acionaria/"
 EVENTS_URL = "https://ri.bemobi.com.br/nossas-acoes/calendario-de-eventos/"
@@ -119,8 +127,14 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
     distribution_row = await _latest_distribution(repository)
     result_source = await _latest_result_source(repository)
 
-    shares = int(summary.get("bemobi_shares") or 0)
-    ownership_pct = _number(summary.get("bemobi_ownership_pct"))
+    nav_shares = int(summary.get("bemobi_shares") or 0)
+    shares = nav_shares or int(CURRENT_OWNERSHIP["shares"])
+    ownership_matches_nav = shares == int(CURRENT_OWNERSHIP["shares"])
+    ownership_pct = (
+        float(CURRENT_OWNERSHIP["ownership_pct"])
+        if ownership_matches_nav
+        else _number(summary.get("bemobi_ownership_pct"))
+    )
     bmob3_price = _number(summary.get("bmob3_price"))
     brl_nok = _number(summary.get("brl_nok"))
     value_nok_m = _number(summary.get("bemobi_value_mnok"))
@@ -188,6 +202,9 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
         "otello": {
             "shares": shares or None,
             "ownership_pct": ownership_pct,
+            "ownership_source_date": CURRENT_OWNERSHIP["checked_date"] if ownership_matches_nav else None,
+            "ownership_quality": CURRENT_OWNERSHIP["quality"] if ownership_matches_nav else summary.get("bemobi_ownership_quality"),
+            "bemobi_total_shares": CURRENT_OWNERSHIP["bemobi_total_shares"] if ownership_matches_nav else None,
             "value_brl_m": value_brl_m,
             "value_nok_m": value_nok_m,
             "value_per_otello_share_nok": value_per_otello_share,
@@ -203,7 +220,8 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
         },
         "sources": sources,
         "note": (
-            "Markedsverdi og eierandel er løpende. 2Q26-nøkkeltall er kuraterte rapporttall; "
-            "neste resultatdato vises ikke før Bemobi har publisert en bekreftet dato."
+            "BMOB3 og markedsverdi følger NAV-grunnlaget. Eierandelen 38,22 % er kontrollert "
+            "mot Bemobis offisielle aksjonærside 19.08.2026. 2Q26-nøkkeltall er kuraterte "
+            "rapporttall; neste resultatdato vises først når Bemobi har publisert en bekreftet dato."
         ),
     }
