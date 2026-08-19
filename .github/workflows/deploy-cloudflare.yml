@@ -2,8 +2,9 @@ name: Deploy Cloudflare production
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -14,7 +15,13 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (vars.CLOUDFLARE_DEPLOY_ENABLED == 'true' &&
+       github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -29,7 +36,22 @@ jobs:
       CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
       CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out tested production revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Verify deployment revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked out $actual_sha, but the tested deployment SHA is $EXPECTED_SHA."
+            exit 1
+          fi
+          echo "Deploying tested revision: $actual_sha"
 
       - uses: actions/setup-python@v7
         with:
