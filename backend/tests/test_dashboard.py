@@ -93,6 +93,15 @@ def test_dashboard_summary_uses_latest_real_snapshot(tmp_path):
     assert result["cash_quality"] == "FORECAST_PARTIAL"
     assert result["otec_price_source"] == "EURONEXT"
 
+    share_count = result["share_count"]
+    assert share_count is not None
+    assert share_count["effective_from"] <= result["as_of_date"]
+    assert share_count["total_shares"] - share_count["treasury_shares"] == share_count["outstanding_shares"]
+    assert share_count["used_in_nav"] is (
+        share_count["outstanding_shares"] == result["shares_outstanding"]
+    )
+    assert share_count["source_code"] is not None
+
 
 def test_dashboard_summary_returns_not_ready_without_nav(tmp_path):
     db = str(tmp_path / "empty.db")
