@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
+from bemobi_dashboard import bemobi_dashboard
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
@@ -54,6 +55,10 @@ CACHE_POLICIES = {
         "public, max-age=900, stale-while-revalidate=1800",
     ),
     "/api/buybacks/dashboard": (
+        "public, max-age=60",
+        "public, max-age=300, stale-while-revalidate=600",
+    ),
+    "/api/bemobi/dashboard": (
         "public, max-age=60",
         "public, max-age=300, stale-while-revalidate=600",
     ),
@@ -167,3 +172,8 @@ async def get_buyback_dashboard(
         return await buyback_dashboard(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
+
+
+@app.get("/api/bemobi/dashboard")
+async def get_bemobi_dashboard(request: Request) -> dict:
+    return await bemobi_dashboard(_repository(request))
