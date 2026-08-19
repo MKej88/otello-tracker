@@ -10,6 +10,16 @@ type WaterfallComponent = {
   note?: string;
 };
 
+type WaterfallBreakdown = {
+  label: string;
+  perShareNok: number;
+  amountMnok?: number | null;
+};
+
+type DisplayWaterfallComponent = WaterfallComponent & {
+  breakdown?: WaterfallBreakdown[];
+};
+
 type WaterfallPoint = {
   full_nav_total_mnok?: number | null;
   full_nav_per_share_nok?: number | null;
@@ -72,6 +82,49 @@ function reasonLabel(reason?: string) {
   return "Waterfall er ikke klar ennå";
 }
 
+function investorComponents(components: WaterfallComponent[]): DisplayWaterfallComponent[] {
+  const buybackCash = components.find((item) => item.key === "buyback_cash");
+  const shareCount = components.find((item) => item.key === "share_count");
+
+  if (!buybackCash || !shareCount) return components;
+
+  const cashImpact = buybackCash.per_share_nok ?? 0;
+  const shareCountImpact = shareCount.per_share_nok ?? 0;
+  const netImpact = cashImpact + shareCountImpact;
+  const netBuyback: DisplayWaterfallComponent = {
+    key: "buyback_net",
+    label: "Tilbakekjøp – netto effekt",
+    amount_mnok: null,
+    per_share_nok: netImpact,
+    impact_kind: "PER_SHARE_ONLY",
+    note:
+      "Netto effekt på NAV per aksje av tilbakekjøp: kontantbruken trekkes fra, mens færre utestående aksjer gir en positiv nevner-effekt når aksjene kjøpes under NAV.",
+    breakdown: [
+      {
+        label: "Kontantbruk",
+        perShareNok: cashImpact,
+        amountMnok: buybackCash.amount_mnok
+      },
+      {
+        label: "Færre aksjer",
+        perShareNok: shareCountImpact,
+        amountMnok: null
+      }
+    ]
+  };
+
+  const result: DisplayWaterfallComponent[] = [];
+  for (const item of components) {
+    if (item.key === "buyback_cash") {
+      result.push(netBuyback);
+      continue;
+    }
+    if (item.key === "share_count") continue;
+    result.push(item);
+  }
+  return result;
+}
+
 export default function NavWaterfallPanel() {
   const [data, setData] = useState<NavWaterfall | null>(null);
 
@@ -102,7 +155,7 @@ export default function NavWaterfallPanel() {
   const rows = useMemo(() => {
     if (!data?.ready || !data.anchor?.economic_nav_per_share_nok) return [];
     let running = data.anchor.economic_nav_per_share_nok;
-    return (data.components ?? []).map((item) => {
+    return investorComponents(data.components ?? []).map((item) => {
       const impact = item.per_share_nok ?? 0;
       running += impact;
       return { ...item, running };
@@ -167,14 +220,31 @@ export default function NavWaterfallPanel() {
           const positive = impact > 0;
           const negative = impact < 0;
           return (
-            <div className="waterfallRow" key={item.key} title={item.note}>
+            <div
+              className={`waterfallRow ${item.key === "buyback_net" ? "waterfallRowNetBuyback" : ""}`}
+              key={item.key}
+              title={item.note}
+            >
               <div className="waterfallLabel">
                 <strong>{item.label}</strong>
-                <small>
-                  {item.amount_mnok == null
-                    ? "effekt av endret aksjetall"
-                    : `${signed(item.amount_mnok, 1, " mill. kr")}`}
-                </small>
+                {item.breakdown ? (
+                  <div className="waterfallBreakdown">
+                    {item.breakdown.map((detail) => (
+                      <span key={detail.label}>
+                        {detail.label}: {signed(detail.perShareNok, 2, " kr/aksje")}
+                        {detail.amountMnok != null
+                          ? ` · ${signed(detail.amountMnok, 1, " mill. kr")}`
+                          : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <small>
+                    {item.amount_mnok == null
+                      ? "effekt av endret aksjetall"
+                      : `${signed(item.amount_mnok, 1, " mill. kr")}`}
+                  </small>
+                )}
               </div>
               <div className="waterfallBarTrack" aria-label={`${item.label}: ${signed(impact, 2, " kroner per aksje")}`}>
                 <span className="waterfallZero" />

@@ -76,4 +76,14 @@ def test_waterfall_routes_are_exposed() -> None:
     assert '@app.get("/api/dashboard/waterfall")' in worker
     assert 'fetch("/api/dashboard/waterfall")' in frontend
     assert "Tilbakekjøp – kontantbruk" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
-    assert "Færre utestående aksjer" in frontend or "Færre utestående aksjer" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
+    assert "Færre utestående aksjer" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
+
+
+def test_frontend_presents_buybacks_as_net_per_share_effect() -> None:
+    frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
+
+    assert 'label: "Tilbakekjøp – netto effekt"' in frontend
+    assert "const netImpact = cashImpact + shareCountImpact" in frontend
+    assert 'label: "Kontantbruk"' in frontend
+    assert 'label: "Færre aksjer"' in frontend
+    assert 'if (item.key === "share_count") continue' in frontend
