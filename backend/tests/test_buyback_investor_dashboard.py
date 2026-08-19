@@ -13,10 +13,12 @@ from app.db.repository import create_source_document
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE = ROOT / "cloudflare"
-if str(CLOUDFLARE) not in sys.path:
-    sys.path.insert(0, str(CLOUDFLARE))
+CLOUDFLARE_SRC = CLOUDFLARE / "src"
+for path in (CLOUDFLARE, CLOUDFLARE_SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from src.buyback_dashboard import buyback_dashboard as worker_dashboard  # noqa: E402
+from buyback_dashboard import buyback_dashboard as worker_dashboard  # noqa: E402
 
 
 class SQLiteAsyncRepository:
