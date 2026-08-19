@@ -7,6 +7,7 @@ from dashboard_service import dashboard_history, dashboard_summary, enrich_dashb
 from economic_nav import economic_nav_summary
 from fx_backtest import fx_backtest_summary
 from performance_repository import PerformanceD1Repository
+from report_status import report_status_summary
 
 API_VERSION = "0.12.0"
 
@@ -25,6 +26,10 @@ CACHE_POLICIES = {
     "/api/dashboard/summary": (
         "public, max-age=15",
         "public, max-age=60, stale-while-revalidate=120",
+    ),
+    "/api/dashboard/report-status": (
+        "public, max-age=30",
+        "public, max-age=120, stale-while-revalidate=300",
     ),
     "/api/dashboard/economic": (
         "public, max-age=15",
@@ -98,6 +103,11 @@ async def get_dashboard_summary(request: Request) -> dict:
     repository = _repository(request)
     summary = await dashboard_summary(repository)
     return await enrich_dashboard_summary(summary, repository)
+
+
+@app.get("/api/dashboard/report-status")
+async def get_report_status(request: Request) -> dict:
+    return await report_status_summary(_repository(request))
 
 
 @app.get("/api/dashboard/economic")
