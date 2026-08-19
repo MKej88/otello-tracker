@@ -22,13 +22,13 @@ from shareholder_snapshot_ingestion import (  # noqa: E402
 
 
 def _row_html(rank: int) -> str:
-    shares = 10_000_000 - rank * 100_000
+    shares = 4_000_000 - rank * 100_000
     return (
         f"<td>{rank}</td>"
         f"<td>Investor {rank} AS</td>"
         f"<td>NO</td>"
         f"<td>{shares:,}</td>"
-        f"<td>{10 - rank * 0.2:.2f}%</td>"
+        f"<td>{4 - rank * 0.1:.2f}%</td>"
         f"<td>Ordinary</td>"
     )
 
@@ -55,12 +55,12 @@ def test_scrape_payload_parses_exact_top20() -> None:
         "rank": 1,
         "shareholder_name": "Investor 1 AS",
         "country": "NO",
-        "shares": 9_900_000,
-        "ownership_pct": "9.8",
+        "shares": 3_900_000,
+        "ownership_pct": "3.9",
         "account_type": "Ordinary",
     }
     assert rows[-1]["rank"] == 20
-    assert rows[-1]["shares"] == 8_000_000
+    assert rows[-1]["shares"] == 2_000_000
 
 
 def test_rendered_html_fallback_parses_rows() -> None:
