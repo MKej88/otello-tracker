@@ -13,6 +13,11 @@
       "binding": "FULL_REFRESH",
       "class_name": "FullRefreshWorkflow",
       "schedules": ["35 3 * * *"]
+    },
+    {
+      "name": "otello-r2-snapshot-drill",
+      "binding": "R2_SNAPSHOT_DRILL",
+      "class_name": "R2SnapshotDrillWorkflow"
     }
   ],
   "assets": {
