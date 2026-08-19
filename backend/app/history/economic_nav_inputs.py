@@ -82,13 +82,16 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
                     f"Cash FX exposure {item['as_of_date']} does not reconcile: "
                     f"{exposure_total} != {total}"
                 )
-            currencies = [str(row["currency"]) for row in exposures]
+            currencies = [str(row["currency"]).upper() for row in exposures]
             if len(currencies) != len(set(currencies)):
                 raise ValueError(f"Duplicate cash FX exposure currency for {item['as_of_date']}")
-            if any(currency not in {"USD", "BRL", "UNALLOCATED"} for currency in currencies):
+            if any(currency not in {"NOK", "USD", "BRL", "UNALLOCATED"} for currency in currencies):
                 raise ValueError(f"Unsupported cash FX exposure currency for {item['as_of_date']}")
 
             source = documents[item["source_key"]]
+            allocation_quality = (
+                "PARTIAL_SOURCE_BACKED" if "UNALLOCATED" in currencies else "FULL_SOURCE_BACKED"
+            )
             metadata = {
                 "economic_nav_input_version": manifest["version"],
                 "manifest_sha256": manifest_sha,
@@ -99,7 +102,8 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
                 "source_locator": item["source_locator"],
                 "notes": item.get("notes"),
                 "curated": True,
-                "policy": "REVALUE_DOCUMENTED_USD_BRL_ONLY_KEEP_UNALLOCATED_FIXED",
+                "allocation_quality": allocation_quality,
+                "policy": "REVALUE_SOURCE_BACKED_USD_BRL_KEEP_NOK_FIXED_KEEP_UNALLOCATED_FIXED",
             }
             document_id = create_source_document(
                 connection,

@@ -45,8 +45,12 @@ def test_economic_nav_inputs_are_seeded_as_source_backed_documents(tmp_path: Pat
     latest = cash_by_date["2025-12-31"]
     assert latest["total_cash_usd"] == "15881000"
     assert sum(int(item["usd_equivalent"]) for item in latest["exposures"]) == 15_881_000
-    assert {item["currency"] for item in latest["exposures"]} == {"USD", "BRL", "UNALLOCATED"}
-    assert latest["policy"] == "REVALUE_DOCUMENTED_USD_BRL_ONLY_KEEP_UNALLOCATED_FIXED"
+    assert {item["currency"] for item in latest["exposures"]} == {"USD", "BRL", "NOK"}
+    assert latest["allocation_quality"] == "FULL_SOURCE_BACKED"
+    assert latest["policy"] == "REVALUE_SOURCE_BACKED_USD_BRL_KEEP_NOK_FIXED_KEEP_UNALLOCATED_FIXED"
+    nok = next(item for item in latest["exposures"] if item["currency"] == "NOK")
+    assert nok["usd_equivalent"] == "2495000"
+    assert nok["quality"] == "RECONCILED_RESIDUAL_NOK"
 
     outcomes = [
         json.loads(row["metadata_json"])
