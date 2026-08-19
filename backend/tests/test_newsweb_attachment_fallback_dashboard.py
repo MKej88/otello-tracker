@@ -67,6 +67,7 @@ def test_dashboard_surfaces_share_count_and_nav_reconciliation() -> None:
     assert '"share_count": latest_share_count' in backend
     assert '"used_in_nav"' in backend
     assert "Egne aksjer" in frontend
-    assert "Utestående aksjer (NAV)" in frontend
-    assert "Sist bekreftet aksjetall" in frontend
-    assert "Aksjetall mot siste kilde" in frontend
+    assert "Utestående" in frontend
+    assert "summary.shares_outstanding" in frontend
+    assert "shareCount.outstanding_shares" in frontend
+    assert "Siste kilde" in frontend
