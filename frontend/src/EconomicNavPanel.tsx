@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import NavWaterfallPanel from "./NavWaterfallPanel";
 import "./economic-nav.css";
 
 type EconomicNav = {
@@ -118,82 +117,78 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
   const cashFx = data.cash_fx;
 
   return (
-    <>
-      <section className="economicNavHost">
-        <article className="economicNavPanel">
-          <div className="economicHeader">
-            <div>
-              <span className="economicEyebrow">Investorjustert verdsettelse</span>
-              <h2>Økonomisk NAV</h2>
-            </div>
-            <span className="economicBadge">ESTIMERT MELLOM RAPPORTER</span>
+    <section className="economicNavHost">
+      <article className="economicNavPanel">
+        <div className="economicHeader">
+          <div>
+            <span className="economicEyebrow">Investorjustert verdsettelse</span>
+            <h2>Økonomisk NAV</h2>
           </div>
+          <span className="economicBadge">ESTIMERT MELLOM RAPPORTER</span>
+        </div>
 
-          <div className="economicMetrics">
-            <div>
-              <span>Regnskapsmessig FULL NAV</span>
-              <strong>{value(data.accounting_nav_per_share)} kr</strong>
-            </div>
-            <div className="economicPrimary">
-              <span>Økonomisk NAV</span>
-              <strong>{value(data.nav_per_share)} kr</strong>
-              <small>Rabatt {value(data.discount_pct, 1)} %</small>
-            </div>
-            <div>
-              <span>Konservativ NAV</span>
-              <strong>{value(data.conservative_nav_per_share)} kr</strong>
-              <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
-            </div>
-            <div>
-              <span>Økonomisk kontantbeholdning</span>
-              <strong>{value(data.economic_cash_mnok, 1)} mill. kr</strong>
-              <small>etter valutaeffekt og estimert drift</small>
-            </div>
+        <div className="economicMetrics">
+          <div>
+            <span>Regnskapsmessig FULL NAV</span>
+            <strong>{value(data.accounting_nav_per_share)} kr</strong>
           </div>
+          <div className="economicPrimary">
+            <span>Økonomisk NAV</span>
+            <strong>{value(data.nav_per_share)} kr</strong>
+            <small>Rabatt {value(data.discount_pct, 1)} %</small>
+          </div>
+          <div>
+            <span>Konservativ NAV</span>
+            <strong>{value(data.conservative_nav_per_share)} kr</strong>
+            <small>Rabatt {value(data.conservative_discount_pct, 1)} %</small>
+          </div>
+          <div>
+            <span>Økonomisk kontantbeholdning</span>
+            <strong>{value(data.economic_cash_mnok, 1)} mill. kr</strong>
+            <small>etter valutaeffekt og estimert drift</small>
+          </div>
+        </div>
 
-          {variant === "detail" && (
-            <>
-              <div className="economicAdjustments">
-                <div>
-                  <span>Valutaeffekt på cash</span>
-                  <strong>{signedValue(cashFx?.adjustment_mnok)}</strong>
-                  <small>
-                    {cashFx?.coverage_pct != null
-                      ? `${value(cashFx.coverage_pct, 1)} % av rapportankeret valutafordelt`
-                      : "–"}
-                  </small>
-                </div>
-                <div>
-                  <span>Opsjonsforpliktelse – regnskapsført</span>
-                  <strong>{value(option?.accounting_liability_mnok, 1)} mill.</strong>
-                </div>
-                <div>
-                  <span>Opsjon – økonomisk verdi</span>
-                  <strong>{value(option?.economic_value_mnok, 1)} mill.</strong>
-                </div>
-                <div>
-                  <span>Ekstra opsjonsoverheng</span>
-                  <strong>−{value(option?.unrecognized_overhang_mnok, 1)} mill.</strong>
-                </div>
-                <div>
-                  <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
-                  <strong>−{value(costs?.base_mnok, 1)} mill.</strong>
-                </div>
+        {variant === "detail" && (
+          <>
+            <div className="economicAdjustments">
+              <div>
+                <span>Valutaeffekt på cash</span>
+                <strong>{signedValue(cashFx?.adjustment_mnok)}</strong>
+                <small>
+                  {cashFx?.coverage_pct != null
+                    ? `${value(cashFx.coverage_pct, 1)} % av rapportankeret valutafordelt`
+                    : "–"}
+                </small>
               </div>
-
-              <div className="economicFootnote">
-                <span>
-                  Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
-                  {costs?.source_period ? ` (${costs.source_period})` : ""}. Renteinntekter er ikke lagt til.
-                </span>
-                <span>Data {dateLabel(data.as_of_date)}</span>
+              <div>
+                <span>Opsjonsforpliktelse – regnskapsført</span>
+                <strong>{value(option?.accounting_liability_mnok, 1)} mill.</strong>
               </div>
-            </>
-          )}
-        </article>
-      </section>
+              <div>
+                <span>Opsjon – økonomisk verdi</span>
+                <strong>{value(option?.economic_value_mnok, 1)} mill.</strong>
+              </div>
+              <div>
+                <span>Ekstra opsjonsoverheng</span>
+                <strong>−{value(option?.unrecognized_overhang_mnok, 1)} mill.</strong>
+              </div>
+              <div>
+                <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
+                <strong>−{value(costs?.base_mnok, 1)} mill.</strong>
+              </div>
+            </div>
 
-      {variant === "detail" && <NavWaterfallPanel />}
-    </>
+            <div className="economicFootnote">
+              <span>
+                Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
+                {costs?.source_period ? ` (${costs.source_period})` : ""}. Renteinntekter er ikke lagt til.
+              </span>
+              <span>Data {dateLabel(data.as_of_date)}</span>
+            </div>
+          </>
+        )}
+      </article>
+    </section>
   );
 }
