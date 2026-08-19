@@ -149,7 +149,7 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
 
     adjustment = Decimal("0")
     total_usd_equivalent = Decimal("0")
-    explicit_usd_equivalent = Decimal("0")
+    source_backed_usd_equivalent = Decimal("0")
     components: list[dict[str, Any]] = []
     for item in exposures:
         if not isinstance(item, dict):
@@ -159,20 +159,24 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
             usd_equivalent = Decimal(str(item["usd_equivalent"]))
         except (KeyError, TypeError, ValueError):
             return {"ready": False, "reason": "invalid_cash_fx_exposure_amount"}
-        if usd_equivalent < 0 or currency not in {"USD", "BRL", "UNALLOCATED"}:
+        if usd_equivalent < 0 or currency not in {"NOK", "USD", "BRL", "UNALLOCATED"}:
             return {"ready": False, "reason": "invalid_cash_fx_exposure_component"}
 
         anchor_value_nok = usd_equivalent * anchor_usd_nok
         original_amount: Decimal | None = None
         current_value_nok = anchor_value_nok
         if currency == "USD":
-            explicit_usd_equivalent += usd_equivalent
+            source_backed_usd_equivalent += usd_equivalent
             original_amount = usd_equivalent
             current_value_nok = original_amount * current_usd_nok
         elif currency == "BRL":
-            explicit_usd_equivalent += usd_equivalent
+            source_backed_usd_equivalent += usd_equivalent
             original_amount = anchor_value_nok / anchor_brl_nok
             current_value_nok = original_amount * current_brl_nok
+        elif currency == "NOK":
+            source_backed_usd_equivalent += usd_equivalent
+            original_amount = anchor_value_nok
+            current_value_nok = original_amount
 
         component_adjustment = current_value_nok - anchor_value_nok
         adjustment += component_adjustment
@@ -186,6 +190,7 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
                 "current_value_mnok": _float(current_value_nok / Decimal("1000000")),
                 "adjustment_mnok": _float(component_adjustment / Decimal("1000000")),
                 "quality": item.get("quality"),
+                "notes": item.get("notes"),
             }
         )
 
@@ -199,7 +204,7 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
         }
 
     coverage_pct = (
-        explicit_usd_equivalent / total_usd_equivalent * Decimal("100")
+        source_backed_usd_equivalent / total_usd_equivalent * Decimal("100")
         if total_usd_equivalent > 0
         else Decimal("0")
     )
@@ -209,11 +214,12 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
         "details": {
             "quality": (
                 "FULL_EXPOSURE_REVALUATION"
-                if explicit_usd_equivalent == total_usd_equivalent
+                if source_backed_usd_equivalent == total_usd_equivalent
                 else "PARTIAL_EXPOSURE_REVALUATION"
             ),
             "anchor_date": cash_anchor_date,
             "source_document_id": anchor.get("source_document_id"),
+            "allocation_quality": anchor.get("allocation_quality"),
             "coverage_pct": _float(coverage_pct),
             "adjustment_mnok": _float(adjustment / Decimal("1000000")),
             "anchor_usd_nok": _float(anchor_usd_nok),
@@ -225,7 +231,8 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
             "current_brl_nok": _float(current_brl_nok),
             "current_brl_nok_date": current_brl["rate_date"],
             "components": components,
-            "policy": "REVALUE_DOCUMENTED_USD_BRL_ONLY_KEEP_UNALLOCATED_FIXED",
+            "policy": anchor.get("policy")
+            or "REVALUE_SOURCE_BACKED_USD_BRL_KEEP_NOK_FIXED_KEEP_UNALLOCATED_FIXED",
             "note": anchor.get("notes"),
         },
     }
@@ -342,11 +349,11 @@ def build_economic_nav_overlay(
             "interest_income_included": False,
         },
         "note": (
-            "Economic NAV leaves validated accounting FULL NAV unchanged, revalues only "
-            "documented USD/BRL cash exposure, deducts the Black-Scholes option value not "
-            "already recognized, and deducts source-backed post-anchor operating-cost run-rates. "
-            "Unallocated cash currency is deliberately left at anchor value and interest income "
-            "is not accrued."
+            "Economic NAV leaves validated accounting FULL NAV unchanged, revalues source-backed "
+            "USD/BRL cash exposure, keeps source-backed NOK cash fixed in NOK, deducts the Black-Scholes "
+            "option value not already recognized, and deducts source-backed post-anchor operating-cost "
+            "run-rates. Any genuinely unallocated currency exposure remains fixed at anchor NOK value; "
+            "interest income is not accrued."
         ),
     }
 
