@@ -20,6 +20,7 @@ from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
+from app.nav_waterfall import nav_waterfall_summary
 from app.settings import settings
 
 
@@ -142,6 +143,11 @@ def dashboard_summary() -> dict:
 @app.get("/api/dashboard/economic")
 def dashboard_economic_nav() -> dict:
     return economic_nav_summary(settings.database_path)
+
+
+@app.get("/api/dashboard/waterfall")
+def dashboard_nav_waterfall() -> dict:
+    return nav_waterfall_summary(settings.database_path)
 
 
 @app.get("/api/dashboard/fx-backtest")
