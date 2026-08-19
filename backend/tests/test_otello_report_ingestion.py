@@ -134,14 +134,19 @@ def test_worker_wiring_keeps_report_ingestion_zero_touch_and_fail_closed() -> No
     full_refresh = (ROOT / "cloudflare" / "src" / "full_refresh.py").read_text(encoding="utf-8")
     newsweb = (ROOT / "cloudflare" / "src" / "newsweb_ingestion.py").read_text(encoding="utf-8")
     option_model = (ROOT / "cloudflare" / "src" / "option_liability.py").read_text(encoding="utf-8")
+    report_ingestion = (ROOT / "cloudflare" / "src" / "otello_report_ingestion.py").read_text(
+        encoding="utf-8"
+    )
 
     assert 'PHASE = "16.1"' in scheduled
     assert "process_pending_otello_reports" in scheduled
     assert "archive_bucket=bindings.SOURCE_ARCHIVE" in entry
     assert '"ingest Otello financial reports"' in entry
     assert '"otello_reports": "NEWSWEB"' in full_refresh
-    assert "STRICT_VALIDATION_FAIL_CLOSED" in (
-        ROOT / "cloudflare" / "src" / "otello_report_ingestion.py"
-    ).read_text(encoding="utf-8")
+    assert "STRICT_VALIDATION_FAIL_CLOSED" in report_ingestion
+    assert "auto_apply_status" in report_ingestion
     assert "company_news.processing_status IN ('APPLIED','IGNORED','REVIEW_REQUIRED')" in newsweb
+    assert '"first-half report"' in newsweb
+    assert '"second-half report"' in newsweb
     assert "document_type='OTELLO_FINANCIAL_REPORT'" in option_model
+    assert 'metadata.get("auto_apply_status") != "APPLIED"' in option_model
