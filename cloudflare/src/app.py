@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
+from bemobi_consensus import bemobi_consensus
 from bemobi_dashboard import bemobi_dashboard
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
@@ -61,6 +62,10 @@ CACHE_POLICIES = {
     "/api/bemobi/dashboard": (
         "public, max-age=60",
         "public, max-age=300, stale-while-revalidate=600",
+    ),
+    "/api/bemobi/consensus": (
+        "public, max-age=300",
+        "public, max-age=1800, stale-while-revalidate=3600",
     ),
 }
 
@@ -177,3 +182,8 @@ async def get_buyback_dashboard(
 @app.get("/api/bemobi/dashboard")
 async def get_bemobi_dashboard(request: Request) -> dict:
     return await bemobi_dashboard(_repository(request))
+
+
+@app.get("/api/bemobi/consensus")
+async def get_bemobi_consensus(request: Request) -> dict:
+    return await bemobi_consensus(_repository(request))
