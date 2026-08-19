@@ -145,6 +145,8 @@ async def _valuation_anchors(repository) -> list[dict[str, Any]]:
     dynamic: dict[str, dict[str, Any]] = {}
     for row in rows:
         metadata = _metadata(row.get("metadata_json"))
+        if metadata.get("auto_apply_status") != "APPLIED":
+            continue
         validation = metadata.get("validation") or {}
         facts = metadata.get("facts") or {}
         if validation.get("valid") is not True or not isinstance(facts, dict):
