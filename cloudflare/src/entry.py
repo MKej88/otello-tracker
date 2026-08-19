@@ -16,6 +16,7 @@ if _src_package is None:
 sys.modules.setdefault("src.oslo_calendar", oslo_calendar)
 
 from app import app  # noqa: E402
+from snapshot_drill import R2SnapshotDrillWorkflow  # noqa: E402,F401
 
 FULL_REFRESH_LOCK_TTL_SECONDS = 3 * 60 * 60
 
