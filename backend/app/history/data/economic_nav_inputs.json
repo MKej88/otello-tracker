@@ -1,5 +1,5 @@
 {
-  "version": "economic-nav-inputs-2026-08-18.2",
+  "version": "economic-nav-inputs-2026-08-19.3",
   "documents": {
     "otello_ar24": {
       "source_code": "OTELLO_IR",
@@ -95,7 +95,7 @@
       "as_of_date": "2025-12-31",
       "total_cash_usd": "15881000",
       "source_key": "otello_ar25",
-      "source_locator": "Annual Report 2025 Note 15 foreign-currency exposure; bank accounts USD 1.217m and BRL USD-equivalent 12.169m; audited cash USD 15.881m",
+      "source_locator": "Annual Report 2025 currency-risk disclosure and foreign-currency exposure table; Group states cash deposits are held in NOK, USD and BRL; bank accounts disclose USD 1.217m and BRL USD-equivalent 12.169m; audited cash is USD 15.881m",
       "exposures": [
         {
           "currency": "USD",
@@ -108,13 +108,13 @@
           "quality": "REPORTED_CURRENCY_EXPOSURE"
         },
         {
-          "currency": "UNALLOCATED",
+          "currency": "NOK",
           "usd_equivalent": "2495000",
-          "quality": "DERIVED_RESIDUAL",
-          "notes": "Residual between audited total cash and explicitly reported USD/BRL bank-account exposure. It is deliberately not assigned to NOK or another currency in NAV."
+          "quality": "RECONCILED_RESIDUAL_NOK",
+          "notes": "Derived by reconciliation: audited total cash less explicitly reported USD and BRL bank-account exposure. The Annual Report states Group cash deposits are held in NOK, USD and BRL, so the remaining cash exposure is classified as NOK. This is a derived source-backed residual, not a directly reported NOK line item."
         }
       ],
-      "notes": "The economic overlay revalues only explicitly documented USD/BRL cash exposure. The unallocated residual stays fixed at anchor NOK value to avoid guessing currency composition."
+      "notes": "Full source-backed currency allocation for the 2025 cash anchor: USD and BRL are reported directly; NOK is the reconciled residual supported by the disclosed set of cash currencies."
     }
   ],
   "fx_backtest_outcomes": [
