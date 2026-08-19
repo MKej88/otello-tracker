@@ -6,6 +6,7 @@ from typing import Any
 
 REPORT_DOCUMENT_TYPE = "OTELLO_FINANCIAL_REPORT"
 COST_DOCUMENT_TYPE = "ECONOMIC_NAV_COST_ANCHOR"
+AUTO_REPORT_START_DATE = "2026-08-19"
 
 
 def _metadata(raw: Any) -> dict[str, Any]:
@@ -52,9 +53,11 @@ async def _latest_result_news(repository) -> dict[str, Any] | None:
         SELECT headline, published_at, processing_status, summary, notes
         FROM company_news
         WHERE category='RESULTS'
+          AND substr(COALESCE(published_at,''),1,10) >= ?
         ORDER BY COALESCE(published_at, created_at) DESC, id DESC
         LIMIT 1
-        """
+        """,
+        (AUTO_REPORT_START_DATE,),
     )
 
 
@@ -134,12 +137,18 @@ async def report_status_summary(repository) -> dict[str, Any]:
     report = await _latest_report_document(repository)
     latest_news = await _latest_result_news(repository)
     if report is None:
+        status = latest_news.get("processing_status") if latest_news else "WAITING"
+        message = (
+            "Resultatmelding funnet, men rapporten krever kontroll."
+            if str(status).upper() == "REVIEW_REQUIRED"
+            else "Venter på neste Otello-finansrapport."
+        )
         return {
             "ready": False,
-            "status": latest_news.get("processing_status") if latest_news else "WAITING",
+            "status": status,
             "headline": latest_news.get("headline") if latest_news else None,
             "published_at": latest_news.get("published_at") if latest_news else None,
-            "message": "Venter på neste Otello-finansrapport.",
+            "message": message,
             "automation": {
                 "newsweb_watch": True,
                 "pdf_auto_download": True,
