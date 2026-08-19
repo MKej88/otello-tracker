@@ -116,8 +116,11 @@ jobs:
             set -e
             echo "$output"
 
-            if [ "$rc" -eq 0 ] && echo "$output" | grep -Eiq 'Status:[[:space:]]+Completed?'; then
-              if echo "$output" | grep -Eiq 'Success:[[:space:]]+Yes'; then
+            # Wrangler currently prefixes terminal states with symbols such as
+            # "✅ Completed" and "✅ Yes". Match the status line content instead of
+            # assuming whitespace directly after the colon.
+            if [ "$rc" -eq 0 ] && echo "$output" | grep -Eiq '^Status:.*Completed'; then
+              if echo "$output" | grep -Eiq '^Success:.*Yes'; then
                 echo "R2 snapshot drill completed for $TARGET_DATE."
                 echo "$output" | grep -q 'manifest_key' || \
                   echo '::warning::Workflow completed, but manifest_key was not visible in truncated CLI output.'
@@ -127,7 +130,7 @@ jobs:
               exit 1
             fi
 
-            if echo "$output" | grep -Eiq 'Status:[[:space:]]+(Failed|Errored|Terminated)|Success:[[:space:]]+No'; then
+            if echo "$output" | grep -Eiq '^Status:.*(Failed|Errored|Terminated)|^Success:.*No'; then
               echo '::error::Snapshot Workflow failed.'
               exit 1
             fi
