@@ -134,7 +134,7 @@ def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
     assert 'NET_DEBT_2Q26_MBRL = -287.2' in worker_service
     assert 'VALUATION_MULTIPLES = (12.0, 14.0, 16.0)' in worker_service
     assert '"ownership_pct": 38.220' in worker_service
-    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi";' in frontend
+    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
     assert 'fetch("/api/bemobi/dashboard")' in page
