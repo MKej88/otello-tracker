@@ -83,7 +83,18 @@ def test_frontend_presents_buybacks_as_net_per_share_effect() -> None:
     frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
 
     assert 'label: "Tilbakekjøp – netto effekt"' in frontend
-    assert "const netImpact = cashImpact + shareCountImpact" in frontend
+    assert "per_share_nok: cashImpact + shareCountImpact" in frontend
     assert 'label: "Kontantbruk"' in frontend
     assert 'label: "Færre aksjer"' in frontend
-    assert 'if (item.key === "share_count") continue' in frontend
+    assert 'item.key === "share_count" && canGroupBuybacks' in frontend
+
+
+def test_frontend_hides_non_investor_ona_and_small_cash_residuals() -> None:
+    frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
+
+    assert 'if (item.key === "ona_ex_option") continue' in frontend
+    assert 'if (item.key === "other_cash")' in frontend
+    assert "if (!isMaterialUnexplainedCash(item)) continue" in frontend
+    assert 'label: "Uforklart kontantendring"' in frontend
+    assert "UNEXPLAINED_CASH_MNOK_THRESHOLD = 0.5" in frontend
+    assert "UNEXPLAINED_CASH_PER_SHARE_THRESHOLD = 0.01" in frontend

@@ -51,6 +51,8 @@ type NavWaterfall = {
 };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
+const UNEXPLAINED_CASH_MNOK_THRESHOLD = 0.5;
+const UNEXPLAINED_CASH_PER_SHARE_THRESHOLD = 0.01;
 
 function value(input: number | null | undefined, digits = 2) {
   if (input == null || !Number.isFinite(input)) return "–";
@@ -82,44 +84,71 @@ function reasonLabel(reason?: string) {
   return "Waterfall er ikke klar ennå";
 }
 
+function isMaterialUnexplainedCash(item: WaterfallComponent) {
+  return (
+    Math.abs(item.amount_mnok ?? 0) >= UNEXPLAINED_CASH_MNOK_THRESHOLD ||
+    Math.abs(item.per_share_nok ?? 0) >= UNEXPLAINED_CASH_PER_SHARE_THRESHOLD
+  );
+}
+
 function investorComponents(components: WaterfallComponent[]): DisplayWaterfallComponent[] {
   const buybackCash = components.find((item) => item.key === "buyback_cash");
   const shareCount = components.find((item) => item.key === "share_count");
+  const canGroupBuybacks = Boolean(buybackCash && shareCount);
 
-  if (!buybackCash || !shareCount) return components;
-
-  const cashImpact = buybackCash.per_share_nok ?? 0;
-  const shareCountImpact = shareCount.per_share_nok ?? 0;
-  const netImpact = cashImpact + shareCountImpact;
-  const netBuyback: DisplayWaterfallComponent = {
-    key: "buyback_net",
-    label: "Tilbakekjøp – netto effekt",
-    amount_mnok: null,
-    per_share_nok: netImpact,
-    impact_kind: "PER_SHARE_ONLY",
-    note:
-      "Netto effekt på NAV per aksje av tilbakekjøp: kontantbruken trekkes fra, mens færre utestående aksjer gir en positiv nevner-effekt når aksjene kjøpes under NAV.",
-    breakdown: [
-      {
-        label: "Kontantbruk",
-        perShareNok: cashImpact,
-        amountMnok: buybackCash.amount_mnok
-      },
-      {
-        label: "Færre aksjer",
-        perShareNok: shareCountImpact,
-        amountMnok: null
-      }
-    ]
-  };
+  let netBuyback: DisplayWaterfallComponent | null = null;
+  if (buybackCash && shareCount) {
+    const cashImpact = buybackCash.per_share_nok ?? 0;
+    const shareCountImpact = shareCount.per_share_nok ?? 0;
+    netBuyback = {
+      key: "buyback_net",
+      label: "Tilbakekjøp – netto effekt",
+      amount_mnok: null,
+      per_share_nok: cashImpact + shareCountImpact,
+      impact_kind: "PER_SHARE_ONLY",
+      note:
+        "Netto effekt på NAV per aksje av tilbakekjøp: kontantbruken trekkes fra, mens færre utestående aksjer gir en positiv nevner-effekt når aksjene kjøpes under NAV.",
+      breakdown: [
+        {
+          label: "Kontantbruk",
+          perShareNok: cashImpact,
+          amountMnok: buybackCash.amount_mnok
+        },
+        {
+          label: "Færre aksjer",
+          perShareNok: shareCountImpact,
+          amountMnok: null
+        }
+      ]
+    };
+  }
 
   const result: DisplayWaterfallComponent[] = [];
   for (const item of components) {
-    if (item.key === "buyback_cash") {
+    if (item.key === "buyback_cash" && netBuyback) {
       result.push(netBuyback);
       continue;
     }
-    if (item.key === "share_count") continue;
+    if (item.key === "share_count" && canGroupBuybacks) continue;
+
+    // Basis-ONA er et rapportanker, ikke en løpende investordriver. Opsjon og
+    // Bemobi-fordring vises allerede separat og er derfor de relevante ONA-bevegelsene.
+    if (item.key === "ona_ex_option") continue;
+
+    // Kjente kontantstrømmer vises på egne linjer. Residualen er kun en kontrollpost:
+    // skjul normal avrundingsstøy, men eksponer et reelt datagap i stedet for å gjemme det.
+    if (item.key === "other_cash") {
+      if (!isMaterialUnexplainedCash(item)) continue;
+      result.push({
+        ...item,
+        key: "unexplained_cash",
+        label: "Uforklart kontantendring",
+        note:
+          "Kontrollpost for en vesentlig kontantendring som ikke er klassifisert som tilbakekjøp, Bemobi-distribusjon eller annen eksplisitt kontantdriver. Denne bør normalt ikke vises."
+      });
+      continue;
+    }
+
     result.push(item);
   }
   return result;
@@ -154,12 +183,7 @@ export default function NavWaterfallPanel() {
 
   const rows = useMemo(() => {
     if (!data?.ready || !data.anchor?.economic_nav_per_share_nok) return [];
-    let running = data.anchor.economic_nav_per_share_nok;
-    return investorComponents(data.components ?? []).map((item) => {
-      const impact = item.per_share_nok ?? 0;
-      running += impact;
-      return { ...item, running };
-    });
+    return investorComponents(data.components ?? []);
   }, [data]);
 
   if (data == null) return null;
@@ -259,7 +283,6 @@ export default function NavWaterfallPanel() {
                 <strong className={positive ? "positive" : negative ? "negative" : "neutral"}>
                   {signed(impact, 2, " kr")}
                 </strong>
-                <small>→ {value(item.running)} kr</small>
               </div>
             </div>
           );
