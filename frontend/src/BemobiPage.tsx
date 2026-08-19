@@ -7,6 +7,20 @@ type Source = {
   url?: string | null;
 };
 
+type ValuationScenario = {
+  multiple: number;
+  implied_price_brl: number;
+  upside_pct: number;
+};
+
+type ValuationSourceQuarter = {
+  period: string;
+  adjusted_net_income_mbrl: number;
+  adjusted_ebitda_mbrl: number;
+  source: string;
+  source_url?: string | null;
+};
+
 type BemobiDashboard = {
   ready: boolean;
   reason?: string;
@@ -25,6 +39,19 @@ type BemobiDashboard = {
     value_brl_m?: number | null;
     value_nok_m?: number | null;
     value_per_otello_share_nok?: number | null;
+  };
+  valuation?: {
+    period?: string | null;
+    market_cap_mbrl?: number | null;
+    adjusted_net_income_ttm_mbrl?: number | null;
+    adjusted_ebitda_ttm_mbrl?: number | null;
+    adjusted_eps_ttm_brl?: number | null;
+    pe_ttm?: number | null;
+    price_to_ebitda_ttm?: number | null;
+    earnings_yield_pct?: number | null;
+    scenarios?: ValuationScenario[];
+    source_quarters?: ValuationSourceQuarter[];
+    methodology_note?: string | null;
   };
   latest_result?: {
     period?: string;
@@ -84,6 +111,12 @@ function value(input: number | null | undefined, digits = 1) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+}
+
+function signedValue(input: number | null | undefined, digits = 1) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  const prefix = input > 0 ? "+" : "";
+  return `${prefix}${value(input, digits)} %`;
 }
 
 function dateLabel(input?: string | null) {
@@ -168,6 +201,7 @@ export default function BemobiPage() {
 
   const market = data.market;
   const otello = data.otello;
+  const valuation = data.valuation;
   const result = data.latest_result;
   const distribution = data.latest_distribution;
   const nextReport = data.next_report;
@@ -202,8 +236,8 @@ export default function BemobiPage() {
           <span className="label">BEMOBI / BMOB3</span>
           <h2>Otellos største underliggende verdi</h2>
           <p>
-            Løpende markedsverdi av Otellos Bemobi-post, siste rapporterte nøkkeltall og
-            kontantutdelinger samlet i én investorvisning.
+            Løpende markedsverdi av Otellos Bemobi-post, siste rapporterte nøkkeltall,
+            verdsettelse og kontantutdelinger samlet i én investorvisning.
           </p>
         </div>
         <div className="bemobiHeroMeta">
@@ -220,6 +254,81 @@ export default function BemobiPage() {
             <span>{card.sub}</span>
           </article>
         ))}
+      </section>
+
+      <section className="card bemobiValuation">
+        <div className="cardHeader">
+          <div>
+            <span className="label">Verdsettelse nå</span>
+            <h2>Hva betaler markedet for Bemobi?</h2>
+          </div>
+          <span className="pill">{valuation?.period ?? "TTM"}</span>
+        </div>
+
+        <div className="bemobiValuationMetrics">
+          <div>
+            <span>Markedsverdi</span>
+            <strong>R$ {value(valuation?.market_cap_mbrl, 0)}m</strong>
+            <small>Løpende BMOB3-kurs</small>
+          </div>
+          <div>
+            <span>P/E TTM</span>
+            <strong>{value(valuation?.pe_ttm, 1)}x</strong>
+            <small>Justert resultat</small>
+          </div>
+          <div>
+            <span>Markedsverdi / EBITDA</span>
+            <strong>{value(valuation?.price_to_ebitda_ttm, 1)}x</strong>
+            <small>Ikke EV/EBITDA</small>
+          </div>
+          <div>
+            <span>Earnings yield</span>
+            <strong>{value(valuation?.earnings_yield_pct, 1)} %</strong>
+            <small>Justert TTM-resultat</small>
+          </div>
+        </div>
+
+        <div className="bemobiValuationBody">
+          <div className="bemobiSensitivity">
+            <div className="bemobiSectionTitle">
+              <span>Multipelsensitivitet</span>
+              <small>Ikke kursmål</small>
+            </div>
+            <div className="bemobiScenarioGrid">
+              {(valuation?.scenarios ?? []).map((scenario) => (
+                <div key={scenario.multiple}>
+                  <span>{value(scenario.multiple, 0)}x P/E</span>
+                  <strong>R$ {value(scenario.implied_price_brl, 2)}</strong>
+                  <small className={scenario.upside_pct >= 0 ? "positive" : "negative"}>
+                    {signedValue(scenario.upside_pct, 1)} mot dagens kurs
+                  </small>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bemobiValuationBase">
+            <div className="bemobiSectionTitle">
+              <span>TTM-grunnlag</span>
+              <small>3Q25–2Q26</small>
+            </div>
+            <div className="placeholderRows">
+              <div><span>Justert resultat TTM</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Justert EBITDA TTM</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Justert EPS TTM</span><strong>R$ {value(valuation?.adjusted_eps_ttm_brl, 2)}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bemobiQuarterSources">
+          <span>Resultatgrunnlag:</span>
+          {(valuation?.source_quarters ?? []).map((quarter) => (
+            <SourceLink key={quarter.period} url={quarter.source_url}>
+              <span>{quarter.period} · {quarter.source}</span>
+            </SourceLink>
+          ))}
+        </div>
+        {valuation?.methodology_note && <p className="bemobiValuationNote">{valuation.methodology_note}</p>}
       </section>
 
       <section className="bemobiTwoColumn">

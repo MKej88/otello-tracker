@@ -72,6 +72,112 @@
   font-size: 11px;
 }
 
+.bemobiValuation {
+  background:
+    radial-gradient(circle at 82% 10%, rgba(63, 140, 255, .10), transparent 28%),
+    linear-gradient(180deg, rgba(16, 29, 49, .98), rgba(10, 20, 36, .98));
+}
+
+.bemobiValuationMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid #1b2a40;
+  border-radius: 11px;
+  background: #1b2a40;
+}
+
+.bemobiValuationMetrics > div {
+  min-height: 112px;
+  padding: 17px;
+  background: #0c192b;
+}
+
+.bemobiValuationMetrics span,
+.bemobiValuationMetrics small {
+  display: block;
+  color: #71829d;
+  font-size: 10px;
+}
+
+.bemobiValuationMetrics strong {
+  display: block;
+  margin: 9px 0 6px;
+  color: #edf4ff;
+  font-size: 23px;
+  letter-spacing: -.025em;
+}
+
+.bemobiValuationBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.bemobiSensitivity,
+.bemobiValuationBase {
+  border: 1px solid #1b2a40;
+  border-radius: 11px;
+  padding: 15px;
+  background: rgba(9, 21, 38, .62);
+}
+
+.bemobiSectionTitle {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  color: #aab8cc;
+  font-size: 11px;
+  font-weight: 700;
+}
+.bemobiSectionTitle small { color: #657691; font-weight: 600; }
+
+.bemobiScenarioGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.bemobiScenarioGrid > div {
+  border: 1px solid #20334f;
+  border-radius: 10px;
+  padding: 14px;
+  background: #0c192b;
+}
+
+.bemobiScenarioGrid span,
+.bemobiScenarioGrid small { display: block; font-size: 10px; color: #71829d; }
+.bemobiScenarioGrid strong { display: block; margin: 7px 0 6px; color: #edf4ff; font-size: 19px; }
+.bemobiScenarioGrid small.positive { color: #27d3a5; }
+.bemobiScenarioGrid small.negative { color: #ff6c88; }
+
+.bemobiValuationBase .placeholderRows { margin-top: 5px; }
+.bemobiValuationBase .placeholderRows > div { padding: 10px 0; font-size: 12px; }
+
+.bemobiQuarterSources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  margin-top: 14px;
+  color: #657690;
+  font-size: 10px;
+}
+.bemobiQuarterSources a { color: #82b5ff; text-decoration: none; }
+.bemobiQuarterSources a:hover { color: #b5d3ff; }
+
+.bemobiValuationNote {
+  margin: 12px 0 0;
+  color: #667792;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
 .bemobiTwoColumn {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(320px, .8fr);
@@ -176,16 +282,17 @@
 
 @media (max-width: 1180px) {
   .bemobiKpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bemobiTwoColumn { grid-template-columns: 1fr; }
+  .bemobiValuationMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bemobiValuationBody, .bemobiTwoColumn { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
   .bemobiHero { align-items: flex-start; flex-direction: column; }
   .bemobiHeroMeta { align-items: flex-start; }
   .bemobiResultGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bemobiGrowthStrip { grid-template-columns: 1fr; }
+  .bemobiGrowthStrip, .bemobiScenarioGrid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 500px) {
-  .bemobiKpiGrid, .bemobiResultGrid { grid-template-columns: 1fr; }
+  .bemobiKpiGrid, .bemobiResultGrid, .bemobiValuationMetrics { grid-template-columns: 1fr; }
 }
