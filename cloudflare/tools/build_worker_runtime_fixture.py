@@ -19,7 +19,7 @@ from app.dashboard import dashboard_history as reference_dashboard_history  # no
 from app.dashboard import dashboard_summary as reference_dashboard_summary  # noqa: E402
 from app.dashboard_freshness import enrich_dashboard_summary  # noqa: E402
 from app.db.connection import get_connection  # noqa: E402
-from app.economic_nav import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
+from app.economic_nav_investor import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
 
@@ -64,8 +64,10 @@ def _full_components(*, day: str) -> str:
                 "option_liability": {
                     "amount_nok": "2600000",
                     "fair_value_per_option_nok": "5.902439024390244",
+                    "strike_nok": "12.5637",
                     "inputs": {
                         "option_count": 4100000,
+                        "strike_nok": "12.5637",
                         "gross_fair_value_nok": "24200000",
                         "fixture_date": day,
                     },
