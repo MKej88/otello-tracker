@@ -1,0 +1,357 @@
+import { useEffect, useState } from "react";
+import "./bemobi-page.css";
+
+type Source = {
+  label: string;
+  source: string;
+  url?: string | null;
+};
+
+type BemobiDashboard = {
+  ready: boolean;
+  reason?: string;
+  as_of_date?: string | null;
+  market?: {
+    price_brl?: number | null;
+    price_date?: string | null;
+    price_source?: string | null;
+    price_quality?: string | null;
+    brl_nok?: number | null;
+    brl_nok_date?: string | null;
+  };
+  otello?: {
+    shares?: number | null;
+    ownership_pct?: number | null;
+    value_brl_m?: number | null;
+    value_nok_m?: number | null;
+    value_per_otello_share_nok?: number | null;
+  };
+  latest_result?: {
+    period?: string;
+    period_end?: string;
+    published_date?: string;
+    adjusted_net_revenue_mbrl?: number | null;
+    adjusted_net_revenue_yoy_pct?: number | null;
+    adjusted_ebitda_mbrl?: number | null;
+    adjusted_ebitda_yoy_pct?: number | null;
+    adjusted_ebitda_margin_pct?: number | null;
+    adjusted_net_income_mbrl?: number | null;
+    adjusted_net_income_yoy_pct?: number | null;
+    ebitda_less_capex_mbrl?: number | null;
+    cash_conversion_pct?: number | null;
+    cash_mbrl?: number | null;
+    payments_yoy_pct?: number | null;
+    saas_yoy_pct?: number | null;
+    source_code?: string | null;
+    source_url?: string | null;
+    source_title?: string | null;
+  };
+  latest_distribution?: {
+    type?: string | null;
+    announcement_date?: string | null;
+    record_date?: string | null;
+    ex_date?: string | null;
+    payment_date?: string | null;
+    gross_per_share_brl?: number | null;
+    net_per_share_brl?: number | null;
+    gross_total_mbrl?: number | null;
+    net_total_mbrl?: number | null;
+    withholding_rate_pct?: number | null;
+    tax_treatment?: string | null;
+    otello_gross_mbrl?: number | null;
+    otello_net_mbrl?: number | null;
+    source_code?: string | null;
+    source_url?: string | null;
+    source_title?: string | null;
+  } | null;
+  next_report?: {
+    period?: string | null;
+    date?: string | null;
+    date_quality?: string | null;
+    label?: string | null;
+    source_url?: string | null;
+  };
+  sources?: Source[];
+  note?: string;
+};
+
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
+const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
+
+function value(input: number | null | undefined, digits = 1) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return input.toLocaleString("nb-NO", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+
+function dateLabel(input?: string | null) {
+  if (!input) return "–";
+  const [year, month, day] = input.split("-");
+  return year && month && day ? `${day}.${month}.${year}` : input;
+}
+
+function distributionLabel(input?: string | null) {
+  if (input === "JCP") return "JCP";
+  if (input === "DIVIDEND") return "Utbytte";
+  return input || "Utbetaling";
+}
+
+function sourceName(input?: string | null) {
+  const names: Record<string, string> = {
+    CVM: "CVM",
+    B3: "B3",
+    BRAPI: "brapi.dev",
+    BEMOBI_IR: "Bemobi IR"
+  };
+  return input ? names[input] ?? input : "Kilde ikke oppgitt";
+}
+
+function SourceLink({ url, children }: { url?: string | null; children: React.ReactNode }) {
+  if (!url) return <span>{children}</span>;
+  return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
+}
+
+export default function BemobiPage() {
+  const [data, setData] = useState<BemobiDashboard | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      fetch("/api/bemobi/dashboard")
+        .then((response) => {
+          if (!response.ok) throw new Error("Bemobi dashboard API-feil");
+          return response.json() as Promise<BemobiDashboard>;
+        })
+        .then((result) => {
+          if (!active) return;
+          setData(result);
+          setFailed(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setFailed(true);
+        });
+    };
+
+    load();
+    const timer = window.setInterval(load, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  if (data == null && !failed) {
+    return <div className="bemobiNotice">Laster Bemobi-data …</div>;
+  }
+
+  if (failed && data == null) {
+    return (
+      <div className="bemobiNotice">
+        <strong>Kunne ikke hente Bemobi-data.</strong>
+        <span>Investorvisningen er midlertidig utilgjengelig.</span>
+      </div>
+    );
+  }
+
+  if (!data?.ready) {
+    return (
+      <div className="bemobiNotice">
+        <strong>Bemobi-siden mangler et aktivt datagrunnlag.</strong>
+        <span>{data?.reason ?? "Venter på markeds- og NAV-data."}</span>
+      </div>
+    );
+  }
+
+  const market = data.market;
+  const otello = data.otello;
+  const result = data.latest_result;
+  const distribution = data.latest_distribution;
+  const nextReport = data.next_report;
+
+  const topCards = [
+    {
+      label: "BMOB3-kurs",
+      main: market?.price_brl == null ? "–" : `R$ ${value(market.price_brl, 2)}`,
+      sub: `${sourceName(market?.price_source)} · ${dateLabel(market?.price_date)}`
+    },
+    {
+      label: "Otellos eierandel",
+      main: otello?.ownership_pct == null ? "–" : `${value(otello.ownership_pct, 2)} %`,
+      sub: otello?.shares == null ? "–" : `${integer.format(otello.shares)} Bemobi-aksjer`
+    },
+    {
+      label: "Verdi for Otello",
+      main: otello?.value_nok_m == null ? "–" : `${value(otello.value_nok_m, 1)} mill. kr`,
+      sub: otello?.value_brl_m == null ? "–" : `R$ ${value(otello.value_brl_m, 1)} mill.`
+    },
+    {
+      label: "Verdi per OTEC-aksje",
+      main: otello?.value_per_otello_share_nok == null ? "–" : `${value(otello.value_per_otello_share_nok, 2)} kr`,
+      sub: market?.brl_nok == null ? "–" : `BRL/NOK ${value(market.brl_nok, 4)}`
+    }
+  ];
+
+  return (
+    <div className="bemobiPage">
+      <section className="bemobiHero card">
+        <div>
+          <span className="label">BEMOBI / BMOB3</span>
+          <h2>Otellos største underliggende verdi</h2>
+          <p>
+            Løpende markedsverdi av Otellos Bemobi-post, siste rapporterte nøkkeltall og
+            kontantutdelinger samlet i én investorvisning.
+          </p>
+        </div>
+        <div className="bemobiHeroMeta">
+          <span className="pill">BMOB3</span>
+          <span>Markedsdata {dateLabel(market?.price_date)}</span>
+        </div>
+      </section>
+
+      <section className="bemobiKpiGrid">
+        {topCards.map((card) => (
+          <article className="card bemobiKpi" key={card.label}>
+            <span className="label">{card.label}</span>
+            <strong>{card.main}</strong>
+            <span>{card.sub}</span>
+          </article>
+        ))}
+      </section>
+
+      <section className="bemobiTwoColumn">
+        <article className="card bemobiResults">
+          <div className="cardHeader">
+            <div>
+              <span className="label">Siste rapport</span>
+              <h2>{result?.period ?? "–"} · nøkkeltall</h2>
+            </div>
+            <SourceLink url={result?.source_url}>
+              <span className="pill">{sourceName(result?.source_code)}</span>
+            </SourceLink>
+          </div>
+
+          <div className="bemobiResultGrid">
+            <div>
+              <span>Justert nettoomsetning</span>
+              <strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
+              <em>+{value(result?.adjusted_net_revenue_yoy_pct, 1)} % år/år</em>
+            </div>
+            <div>
+              <span>Justert EBITDA</span>
+              <strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
+              <em>+{value(result?.adjusted_ebitda_yoy_pct, 1)} % år/år</em>
+            </div>
+            <div>
+              <span>EBITDA-margin</span>
+              <strong>{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
+              <em>Justert</em>
+            </div>
+            <div>
+              <span>Justert resultat</span>
+              <strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
+              <em>+{value(result?.adjusted_net_income_yoy_pct, 1)} % år/år</em>
+            </div>
+            <div>
+              <span>EBITDA etter capex</span>
+              <strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m</strong>
+              <em>{value(result?.cash_conversion_pct, 1)} % kontantkonvertering</em>
+            </div>
+            <div>
+              <span>Kontantbeholdning</span>
+              <strong>R$ {value(result?.cash_mbrl, 0)}m</strong>
+              <em>Ved kvartalsslutt</em>
+            </div>
+          </div>
+
+          <div className="bemobiGrowthStrip">
+            <div><span>Payments</span><strong>+{value(result?.payments_yoy_pct, 0)} %</strong><small>år/år</small></div>
+            <div><span>SaaS</span><strong>+{value(result?.saas_yoy_pct, 0)} %</strong><small>år/år</small></div>
+            <div><span>Rapportdato</span><strong>{dateLabel(result?.published_date)}</strong><small>{result?.period}</small></div>
+          </div>
+        </article>
+
+        <article className="card bemobiStake">
+          <div className="cardHeader">
+            <div><span className="label">Otellos eksponering</span><h2>Bemobi-posten</h2></div>
+            <span className="pill muted">{value(otello?.ownership_pct, 2)} %</span>
+          </div>
+          <div className="bemobiStakeValue">
+            <strong>{otello?.shares == null ? "–" : integer.format(otello.shares)}</strong>
+            <span>Bemobi-aksjer eid av Otello</span>
+          </div>
+          <div className="placeholderRows">
+            <div><span>Eierandel</span><strong>{value(otello?.ownership_pct, 2)} %</strong></div>
+            <div><span>Markedsverdi i BRL</span><strong>R$ {value(otello?.value_brl_m, 1)} mill.</strong></div>
+            <div><span>Markedsverdi i NOK</span><strong>{value(otello?.value_nok_m, 1)} mill. kr</strong></div>
+            <div><span>Verdi per OTEC-aksje</span><strong>{value(otello?.value_per_otello_share_nok, 2)} kr</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section className="bemobiTwoColumn">
+        <article className="card bemobiDistribution">
+          <div className="cardHeader">
+            <div>
+              <span className="label">Kapitalretur</span>
+              <h2>Siste {distributionLabel(distribution?.type)}</h2>
+            </div>
+            {distribution && (
+              <SourceLink url={distribution.source_url}>
+                <span className="pill">{sourceName(distribution.source_code)}</span>
+              </SourceLink>
+            )}
+          </div>
+          {distribution ? (
+            <div className="placeholderRows">
+              <div><span>Brutto per Bemobi-aksje</span><strong>R$ {value(distribution.gross_per_share_brl, 8)}</strong></div>
+              <div><span>Netto per Bemobi-aksje</span><strong>R$ {value(distribution.net_per_share_brl, 8)}</strong></div>
+              <div><span>Otellos bruttoandel</span><strong>R$ {value(distribution.otello_gross_mbrl, 2)} mill.</strong></div>
+              <div><span>Otellos estimerte nettoandel</span><strong>R$ {value(distribution.otello_net_mbrl, 2)} mill.</strong></div>
+              <div><span>Ex-dato</span><strong>{dateLabel(distribution.ex_date)}</strong></div>
+              <div><span>Betalingsdato</span><strong>{dateLabel(distribution.payment_date)}</strong></div>
+            </div>
+          ) : (
+            <p className="bemobiEmpty">Ingen strukturert Bemobi-utbetaling tilgjengelig.</p>
+          )}
+        </article>
+
+        <article className="card bemobiNextReport">
+          <div className="cardHeader">
+            <div><span className="label">Kommende rapport</span><h2>{nextReport?.period ?? "Neste kvartal"}</h2></div>
+            <span className="pill muted">KALENDER</span>
+          </div>
+          <div className="bemobiCalendarDate">
+            <strong>{nextReport?.date ? dateLabel(nextReport.date) : "Ikke bekreftet"}</strong>
+            <span>{nextReport?.label ?? "Venter på offisiell dato fra Bemobi."}</span>
+          </div>
+          <p>
+            Vi viser ikke en estimert rapportdato som om den var bekreftet. Når Bemobi publiserer
+            datoen i sin offisielle kalender, kan den legges inn i datagrunnlaget.
+          </p>
+          <SourceLink url={nextReport?.source_url}>
+            <span className="bemobiSourceAction">Åpne Bemobis hendelseskalender →</span>
+          </SourceLink>
+        </article>
+      </section>
+
+      <section className="card bemobiSources">
+        <div className="cardHeader"><div><span className="label">Kilder</span><h2>Hva tallene bygger på</h2></div></div>
+        <div className="sourceList">
+          {(data.sources ?? []).map((source) => (
+            <div key={`${source.label}-${source.source}`}>
+              <span>{source.label}</span>
+              <strong>
+                <SourceLink url={source.url}>{source.source}</SourceLink>
+              </strong>
+            </div>
+          ))}
+        </div>
+        {data.note && <p className="bemobiFootnote">{data.note}</p>}
+      </section>
+    </div>
+  );
+}

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
+from app.bemobi.dashboard import bemobi_dashboard
 from app.buybacks import (
     buyback_forecast,
     buyback_status,
@@ -98,6 +99,11 @@ def system_buyback_dashboard(
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
     return buyback_dashboard(settings.database_path, as_of_date=as_of_date)
+
+
+@app.get("/api/bemobi/dashboard")
+def bemobi_investor_dashboard() -> dict:
+    return bemobi_dashboard(settings.database_path)
 
 
 @app.get("/api/bemobi/news")
