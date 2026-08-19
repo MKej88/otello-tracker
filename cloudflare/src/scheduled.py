@@ -18,6 +18,7 @@ try:
         maybe_finalize_otec_eod,
         refresh_otec_with_gap_recovery,
     )
+    from .otello_report_ingestion import process_pending_otello_reports
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
@@ -32,12 +33,13 @@ except ImportError:
         maybe_finalize_otec_eod,
         refresh_otec_with_gap_recovery,
     )
+    from otello_report_ingestion import process_pending_otello_reports
     from performance_repository import PerformanceD1WriteRepository
 
 FAST_REFRESH_CRON = "*/30 * * * *"
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
-PHASE = "15.7.2"
+PHASE = "16.1"
 FAST_LOCK_TTL_SECONDS = 20 * 60
 
 
@@ -145,6 +147,7 @@ async def _otec_refresh_plan(repository, scheduled_at: datetime) -> dict[str, An
 async def run_fast_refresh(
     database: Any,
     *,
+    archive_bucket: Any | None = None,
     scheduled_time_ms: Any | None = None,
 ) -> dict[str, Any]:
     """Run the bounded 30-minute ingestion path with cheap no-change behavior."""
@@ -272,6 +275,36 @@ async def run_fast_refresh(
         steps["newsweb_history"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
         steps["newsweb_buybacks"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
 
+    if archive_bucket is None:
+        report_result = {"status": "skipped", "reason": "missing_archive_bucket_binding"}
+        steps["otello_reports"] = report_result
+        timings_ms["otello_reports"] = 0.0
+    else:
+        report_result = await _safe_async_step(
+            "otello_reports",
+            lambda: process_pending_otello_reports(
+                repository,
+                archive_bucket,
+                target_date=newsweb_date,
+            ),
+            steps=steps,
+            errors=errors,
+            timings_ms=timings_ms,
+        )
+        if isinstance(report_result, dict):
+            records_written += int(report_result.get("applied") or 0)
+            if int(report_result.get("review_required") or 0) > 0:
+                errors.append(
+                    {
+                        "step": "otello_reports",
+                        "error": (
+                            f"{report_result.get('review_required')} Otello-rapportmelding(er) "
+                            "krever kontroll; eksisterende NAV-ankre er beholdt"
+                        ),
+                        "error_type": "OtelloReportReviewRequired",
+                    }
+                )
+
     dirty_nav = await _safe_async_step(
         "dirty_nav",
         lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
@@ -291,8 +324,8 @@ async def run_fast_refresh(
                 }
             )
 
-    attempted_sources = 3
-    source_prefixes = {"otec", "bmob3", "newsweb"}
+    attempted_sources = 4
+    source_prefixes = {"otec", "bmob3", "newsweb", "otello"}
     failed_sources = len(
         {
             item["step"].split("_")[0]
@@ -314,6 +347,7 @@ async def run_fast_refresh(
         "steps": steps,
         "source_errors": errors,
         "dirty_nav_enabled": True,
+        "automatic_report_ingestion": archive_bucket is not None,
         "performance": {
             "total_ms_before_finish_job": total_ms,
             "step_timings_ms": timings_ms,
@@ -357,6 +391,7 @@ async def run_scheduled(
     database: Any,
     *,
     cron: str,
+    archive_bucket: Any | None = None,
     scheduled_time_ms: Any | None = None,
 ) -> dict[str, Any]:
     if cron != FAST_REFRESH_CRON:
@@ -380,6 +415,10 @@ async def run_scheduled(
             "expires_at": lock.get("expires_at"),
         }
     try:
-        return await run_fast_refresh(database, scheduled_time_ms=scheduled_time_ms)
+        return await run_fast_refresh(
+            database,
+            archive_bucket=archive_bucket,
+            scheduled_time_ms=scheduled_time_ms,
+        )
     finally:
         await release_refresh_lock(repository, lock.get("token"))

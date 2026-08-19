@@ -12,7 +12,8 @@ DAYS_PER_YEAR = Decimal("365.25")
 
 # Mirrors backend/app/history/data/otello_option_program_2025.json version 2026-08-17.1.
 # Keep this bounded reference input embedded in the Worker so the 30-minute fast path
-# does not depend on filesystem access in the Python Worker runtime.
+# does not depend on filesystem access in the Python Worker runtime. New validated
+# financial reports can extend the reported liability anchors through D1 source docs.
 OPTION_PROGRAM: dict[str, Any] = {
     "version": "2026-08-17.1",
     "program": {
@@ -28,6 +29,7 @@ OPTION_PROGRAM: dict[str, Any] = {
             "risk_free_rate": "0.037",
             "volatility": "0.222",
             "reported_liability_usd": None,
+            "source": "STATIC_PROGRAM",
         },
         {
             "as_of_date": "2025-12-31",
@@ -35,6 +37,7 @@ OPTION_PROGRAM: dict[str, Any] = {
             "risk_free_rate": "0.039",
             "volatility": "0.234",
             "reported_liability_usd": "314000",
+            "source": "AUDITED_ANNUAL_REPORT_2025",
         },
     ],
 }
@@ -47,6 +50,14 @@ def decimal_text(value: Decimal | str | int | float) -> str:
 def _hash(payload: dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _metadata(raw: Any) -> dict[str, Any]:
+    try:
+        value = json.loads(str(raw or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _normal_cdf(value: float) -> float:
@@ -120,27 +131,85 @@ async def _nearest_usd_nok(repository, as_of_date: str) -> dict[str, Any] | None
     )
 
 
+async def _valuation_anchors(repository) -> list[dict[str, Any]]:
+    anchors = [dict(item) for item in OPTION_PROGRAM["valuation_anchors"]]
+    last_static = anchors[-1]
+    rows = await repository.all(
+        """
+        SELECT id, published_at, metadata_json
+        FROM source_documents
+        WHERE document_type='OTELLO_FINANCIAL_REPORT'
+        ORDER BY published_at, id
+        """
+    )
+    dynamic: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        metadata = _metadata(row.get("metadata_json"))
+        if metadata.get("auto_apply_status") != "APPLIED":
+            continue
+        validation = metadata.get("validation") or {}
+        facts = metadata.get("facts") or {}
+        if validation.get("valid") is not True or not isinstance(facts, dict):
+            continue
+        report_date = str(facts.get("report_date") or "")[:10]
+        liability = facts.get("option_liability_usd")
+        if not report_date or liability in {None, ""}:
+            continue
+        try:
+            if Decimal(str(liability)) < 0:
+                continue
+        except Exception:
+            continue
+        dynamic[report_date] = {
+            "as_of_date": report_date,
+            "spot_price_nok": facts.get("option_spot_nok"),
+            "risk_free_rate": facts.get("option_risk_free_rate") or last_static["risk_free_rate"],
+            "volatility": facts.get("option_volatility") or last_static["volatility"],
+            "reported_liability_usd": str(liability),
+            "source": "AUTO_FINANCIAL_REPORT",
+            "source_document_id": int(row["id"]),
+            "parameter_quality": (
+                "REPORT_INPUTS"
+                if facts.get("option_risk_free_rate") is not None
+                and facts.get("option_volatility") is not None
+                else "PRIOR_REPORTED_VALUATION_INPUTS"
+            ),
+        }
+    by_date = {str(item["as_of_date"]): item for item in anchors}
+    by_date.update(dynamic)
+    return [by_date[key] for key in sorted(by_date)]
+
+
 def _interpolate(start: Decimal, end: Decimal, fraction: Decimal) -> Decimal:
     return start + (end - start) * fraction
 
 
-def _parameter_pair(current: date) -> tuple[Decimal, Decimal]:
-    anchors = OPTION_PROGRAM["valuation_anchors"]
+async def _parameter_pair(repository, current: date) -> tuple[Decimal, Decimal, dict[str, Any]]:
+    anchors = await _valuation_anchors(repository)
     first = anchors[0]
-    last = anchors[-1]
-    first_day = date.fromisoformat(first["as_of_date"])
-    last_day = date.fromisoformat(last["as_of_date"])
+    eligible = [item for item in anchors if date.fromisoformat(str(item["as_of_date"])) <= current]
+    active = eligible[-1] if eligible else first
 
-    if current <= first_day:
-        return Decimal(first["risk_free_rate"]), Decimal(first["volatility"])
-    if current >= last_day:
-        return Decimal(last["risk_free_rate"]), Decimal(last["volatility"])
-
-    fraction = Decimal((current - first_day).days) / Decimal((last_day - first_day).days)
-    return (
-        _interpolate(Decimal(first["risk_free_rate"]), Decimal(last["risk_free_rate"]), fraction),
-        _interpolate(Decimal(first["volatility"]), Decimal(last["volatility"]), fraction),
-    )
+    static_first = OPTION_PROGRAM["valuation_anchors"][0]
+    static_last = OPTION_PROGRAM["valuation_anchors"][-1]
+    first_day = date.fromisoformat(static_first["as_of_date"])
+    last_day = date.fromisoformat(static_last["as_of_date"])
+    if first_day < current < last_day:
+        fraction = Decimal((current - first_day).days) / Decimal((last_day - first_day).days)
+        return (
+            _interpolate(
+                Decimal(static_first["risk_free_rate"]),
+                Decimal(static_last["risk_free_rate"]),
+                fraction,
+            ),
+            _interpolate(
+                Decimal(static_first["volatility"]),
+                Decimal(static_last["volatility"]),
+                fraction,
+            ),
+            {"as_of_date": current.isoformat(), "source": "INTERPOLATED_STATIC_PARAMETERS"},
+        )
+    return Decimal(str(active["risk_free_rate"])), Decimal(str(active["volatility"])), active
 
 
 async def _adjusted_strike(
@@ -187,19 +256,28 @@ def _years_to_expected_settlement(current: date) -> Decimal:
     return remaining if remaining > 0 else Decimal("0")
 
 
-async def _anchor_recognition_fraction(repository) -> Decimal | None:
-    anchor = OPTION_PROGRAM["valuation_anchors"][-1]
+async def _anchor_recognition_fraction(repository, anchor: dict[str, Any]) -> Decimal | None:
     reported_usd_raw = anchor.get("reported_liability_usd")
     if reported_usd_raw is None:
         return None
-    fx = await _nearest_usd_nok(repository, anchor["as_of_date"])
+    anchor_date = str(anchor["as_of_date"])
+    fx = await _nearest_usd_nok(repository, anchor_date)
     if fx is None:
         return None
-    current = date.fromisoformat(anchor["as_of_date"])
-    risk_free, volatility = _parameter_pair(current)
-    strike, _ = await _adjusted_strike(repository, anchor["as_of_date"])
+    current = date.fromisoformat(anchor_date)
+    risk_free = Decimal(str(anchor["risk_free_rate"]))
+    volatility = Decimal(str(anchor["volatility"]))
+    strike, _ = await _adjusted_strike(repository, anchor_date)
+    spot_raw = anchor.get("spot_price_nok")
+    if spot_raw is None:
+        price = await _preferred_otec_price(repository, anchor_date)
+        if price is None:
+            return None
+        spot = Decimal(str(price["price"]))
+    else:
+        spot = Decimal(str(spot_raw))
     fair_value = black_scholes_call(
-        Decimal(anchor["spot_price_nok"]),
+        spot,
         strike,
         _years_to_expected_settlement(current),
         risk_free,
@@ -207,24 +285,45 @@ async def _anchor_recognition_fraction(repository) -> Decimal | None:
     )
     gross = fair_value * Decimal(OPTION_PROGRAM["program"]["option_count"])
     if gross <= 0:
-        return None
-    reported_nok = Decimal(reported_usd_raw) * Decimal(str(fx["rate"]))
+        return Decimal("0") if Decimal(str(reported_usd_raw)) == 0 else None
+    reported_nok = Decimal(str(reported_usd_raw)) * Decimal(str(fx["rate"]))
     return reported_nok / gross
 
 
-async def _recognition_fraction(repository, current: date) -> Decimal | None:
+async def _reported_anchors(repository) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in await _valuation_anchors(repository)
+        if item.get("reported_liability_usd") is not None
+    ]
+
+
+async def _recognition_fraction(
+    repository,
+    current: date,
+) -> tuple[Decimal | None, dict[str, Any] | None]:
     grant = date.fromisoformat(OPTION_PROGRAM["program"]["grant_date"])
-    report_anchor = date.fromisoformat(OPTION_PROGRAM["valuation_anchors"][-1]["as_of_date"])
-    anchor_fraction = await _anchor_recognition_fraction(repository)
-    if anchor_fraction is None:
-        return None
+    anchors = await _reported_anchors(repository)
+    if not anchors:
+        return None, None
+
+    eligible = [item for item in anchors if date.fromisoformat(str(item["as_of_date"])) <= current]
+    if eligible:
+        active = eligible[-1]
+        return await _anchor_recognition_fraction(repository, active), active
+
+    first = anchors[0]
+    first_day = date.fromisoformat(str(first["as_of_date"]))
+    fraction = await _anchor_recognition_fraction(repository, first)
+    if fraction is None:
+        return None, first
     if current <= grant:
-        return Decimal("0")
-    if current >= report_anchor:
-        return anchor_fraction
+        return Decimal("0"), first
     elapsed = Decimal((current - grant).days)
-    span = Decimal((report_anchor - grant).days)
-    return anchor_fraction * elapsed / span
+    span = Decimal((first_day - grant).days)
+    if span <= 0:
+        return fraction, first
+    return fraction * elapsed / span, first
 
 
 async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any] | None:
@@ -244,23 +343,25 @@ async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any
 
     price = await _preferred_otec_price(repository, as_of_date)
     usd_nok = await _nearest_usd_nok(repository, as_of_date)
-    recognition = await _recognition_fraction(repository, current)
-    if price is None or usd_nok is None or recognition is None:
+    recognition, report_anchor = await _recognition_fraction(repository, current)
+    if price is None or usd_nok is None or recognition is None or report_anchor is None:
         return None
 
     strike, strike_adjustments = await _adjusted_strike(repository, as_of_date)
-    risk_free, volatility = _parameter_pair(current)
+    risk_free, volatility, parameter_anchor = await _parameter_pair(repository, current)
     years = _years_to_expected_settlement(current)
     spot = Decimal(str(price["price"]))
     fair_value = black_scholes_call(spot, strike, years, risk_free, volatility)
     gross_fair_value = fair_value * Decimal(OPTION_PROGRAM["program"]["option_count"])
     liability_nok = gross_fair_value * recognition
 
-    report_anchor = OPTION_PROGRAM["valuation_anchors"][-1]
-    if as_of_date == report_anchor["as_of_date"] and report_anchor.get("reported_liability_usd") is not None:
-        liability_nok = Decimal(report_anchor["reported_liability_usd"]) * Decimal(str(usd_nok["rate"]))
+    report_anchor_date = str(report_anchor["as_of_date"])
+    if as_of_date == report_anchor_date and report_anchor.get("reported_liability_usd") is not None:
+        liability_nok = Decimal(str(report_anchor["reported_liability_usd"])) * Decimal(
+            str(usd_nok["rate"])
+        )
         quality = "REPORTED_CALIBRATED"
-    elif current < date.fromisoformat(report_anchor["as_of_date"]):
+    elif current < date.fromisoformat(report_anchor_date):
         quality = "INTERPOLATED_TO_REPORTED"
     else:
         quality = "FORECAST_MARK_TO_MARKET"
@@ -291,6 +392,20 @@ async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any
         "usd_nok": usd_nok["rate"],
         "quality": quality,
     }
+    if report_anchor.get("source_document_id") is not None:
+        inputs["reported_liability_anchor"] = {
+            "as_of_date": report_anchor_date,
+            "reported_liability_usd": report_anchor.get("reported_liability_usd"),
+            "source": report_anchor.get("source"),
+            "source_document_id": report_anchor.get("source_document_id"),
+        }
+    if parameter_anchor.get("source_document_id") is not None:
+        inputs["parameter_anchor"] = {
+            "as_of_date": parameter_anchor.get("as_of_date"),
+            "source": parameter_anchor.get("source"),
+            "source_document_id": parameter_anchor.get("source_document_id"),
+            "quality": parameter_anchor.get("parameter_quality"),
+        }
     inputs["inputs_hash"] = _hash(inputs)
     return {
         "liability_nok": liability_nok,

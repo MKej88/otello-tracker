@@ -14,13 +14,14 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
-PHASE = "15.7.2"
+PHASE = "16.1"
 _SOURCE_CODE_BY_STEP = {
     "ecb": "ECB",
     "b3": "B3",
     "cvm": "CVM",
     "newsweb": "NEWSWEB",
     "newsweb_attachments": "NEWSWEB",
+    "otello_reports": "NEWSWEB",
     "otec_recovery": "EURONEXT",
 }
 
@@ -86,7 +87,7 @@ def _source_health_status(result: dict[str, Any]) -> str:
     status = str(result.get("status") or "").lower()
     if status in {"ok", "skipped", "success"}:
         return "OK"
-    if status in {"partial", "not_available", "no_trade"}:
+    if status in {"partial", "not_available", "no_trade", "review_required"}:
         return "DEGRADED"
     return "DOWN"
 
@@ -103,6 +104,7 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     total += int((newsweb.get("buybacks") or {}).get("ingested") or 0)
     attachments = results.get("newsweb_attachments") or {}
     total += int(attachments.get("daily_rows_written") or 0)
+    total += int((results.get("otello_reports") or {}).get("applied") or 0)
     otec = results.get("otec_recovery") or {}
     if otec.get("recovery_used") and otec.get("status") == "ok":
         total += 1
@@ -132,6 +134,11 @@ async def finish_full_refresh(
             continue
         health = _source_health_status(result)
         detail = str(result.get("error") or "")[:1000] or None
+        if step_name == "otello_reports" and int(result.get("review_required") or 0) > 0:
+            detail = (
+                f"{result.get('review_required')} report message(s) require review; "
+                "existing production anchors were retained"
+            )
         source_id = await repository.source_id(source_code)
         await repository.run(
             """

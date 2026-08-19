@@ -30,6 +30,16 @@ def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
             "interim report",
             "half-year report",
             "half year report",
+            "first-half report",
+            "first half report",
+            "second-half report",
+            "second half report",
+            "half-year results",
+            "half year results",
+            "first-half results",
+            "first half results",
+            "second-half results",
+            "second half results",
             "financial report",
             "financial results",
             "1q",
@@ -215,9 +225,21 @@ async def archive_message(
             published_at=excluded.published_at,
             category=excluded.category,
             nav_impact=excluded.nav_impact,
-            processing_status=excluded.processing_status,
-            summary=NULL,
-            notes=excluded.notes,
+            processing_status=CASE
+                WHEN company_news.processing_status IN ('APPLIED','IGNORED','REVIEW_REQUIRED')
+                THEN company_news.processing_status
+                ELSE excluded.processing_status
+            END,
+            summary=CASE
+                WHEN company_news.processing_status IN ('APPLIED','IGNORED','REVIEW_REQUIRED')
+                THEN company_news.summary
+                ELSE NULL
+            END,
+            notes=CASE
+                WHEN company_news.processing_status IN ('APPLIED','IGNORED','REVIEW_REQUIRED')
+                THEN company_news.notes
+                ELSE excluded.notes
+            END,
             updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         """,
         (
