@@ -38,36 +38,19 @@ type BuybackForecast = {
     from: string;
     to: string;
     expected_trading_days: number;
-    trading_dates?: string[];
   };
   volume_model?: {
     adv20_shares: number;
-    safe_harbour_share: number;
-    week_start_capacity_estimate_shares: number;
-    volume_through: string;
-    volume_source_quality: string;
-    note: string;
   };
   price_model?: {
-    latest_close_nok: number | null;
     program_cap_nok: number | null;
-    headroom_pct: number | null;
-    state: string;
   };
   estimate?: {
     base_case_shares: number;
     low_shares: number;
     high_shares: number;
-    utilization_factor: number;
     confidence: string;
     warning: string | null;
-  };
-  active_program_backtest?: {
-    weeks: number;
-    median_ape_pct?: number | null;
-    wmape_pct?: number | null;
-    within_10_pct?: number | null;
-    within_20_pct?: number | null;
   };
 };
 
@@ -103,7 +86,6 @@ type Summary = {
   otec_price_source?: string | null;
   bmob3_price_quality?: string | null;
   bmob3_price_source?: string | null;
-  quality_notes?: string | null;
   market_timestamps?: MarketTimestamps;
   changes?: ChangeSet;
   latest_buyback?: Buyback | null;
@@ -123,28 +105,27 @@ type HistoryPoint = {
 type History = {
   ready: boolean;
   data_status: string;
-  model_scope?: string;
-  from?: string | null;
-  to?: string | null;
   average_discount_pct?: number | null;
   points: HistoryPoint[];
 };
+
+type View = "Oversikt" | "NAV";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
 const initialHistory: History = { ready: false, data_status: "loading", points: [] };
 const initialForecast: BuybackForecast = { ready: false, status: "loading" };
 
-const menu = [
-  "Oversikt",
-  "NAV",
-  "Historikk",
-  "Tilbakekjøp",
-  "Bemobi",
-  "Konsensus",
-  "Aksjonærer",
-  "Nyheter",
-  "Innstillinger"
+const menu: Array<{ label: string; enabled: boolean }> = [
+  { label: "Oversikt", enabled: true },
+  { label: "NAV", enabled: true },
+  { label: "Historikk", enabled: false },
+  { label: "Tilbakekjøp", enabled: false },
+  { label: "Bemobi", enabled: false },
+  { label: "Konsensus", enabled: false },
+  { label: "Aksjonærer", enabled: false },
+  { label: "Nyheter", enabled: false },
+  { label: "Innstillinger", enabled: false }
 ];
 
 const statusTranslations: Record<string, string> = {
@@ -162,10 +143,6 @@ const statusTranslations: Record<string, string> = {
   FORECAST_PARTIAL: "DELVIS PROGNOSE",
   REPORTED: "RAPPORTERT",
   RECONCILED: "AVSTEMT",
-  DIRECT: "DIREKTE",
-  PARTIAL: "DELVIS",
-  HIGH_RESIDUAL: "HØYT RESTAVVIK",
-  POTENTIALLY_STALE: "KAN VÆRE UTDATERT",
   CURRENT: "OPPDATERT",
   STALE: "UTDATERT",
   LOADING: "LASTER",
@@ -177,9 +154,6 @@ const statusTranslations: Record<string, string> = {
   NO_TRADING_DAYS: "INGEN HANDELSDAGER",
   INSUFFICIENT_VOLUME_HISTORY: "FOR LITE VOLUMHISTORIKK",
   PRICE_CAP_BLOCKED: "BLOKKERT AV PRISGRENSE",
-  ABOVE_CAP: "OVER PRISGRENSE",
-  TIGHT: "LITEN MARGIN",
-  OPEN: "ÅPEN",
   API_ERROR: "API-FEIL",
   OK: "OK"
 };
@@ -194,24 +168,25 @@ const warningTranslations: Record<string, string> = {
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
 
-function value(value: number | null | undefined, digits = 2) {
-  if (value == null || !Number.isFinite(value)) return "–";
-  return value.toLocaleString("nb-NO", {
+function value(input: number | null | undefined, digits = 2) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return input.toLocaleString("nb-NO", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
 }
 
-function dateLabel(value?: string | null) {
-  if (!value) return "–";
-  const [year, month, day] = value.split("-");
+function dateLabel(input?: string | null) {
+  if (!input) return "–";
+  const [year, month, day] = input.split("-");
+  if (!year || !month || !day) return input;
   return `${day}.${month}.${year}`;
 }
 
-function shortDate(value?: string | null) {
-  if (!value) return "–";
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) return value;
+function shortDate(input?: string | null) {
+  if (!input) return "–";
+  const [year, month, day] = input.split("-");
+  if (!year || !month || !day) return input;
   return `${day}.${month}`;
 }
 
@@ -290,7 +265,10 @@ function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: 
   if (points.length < 2) return <div className="chartEmpty">Venter på historisk rabattdata</div>;
   const discounts = points.map((item) => item.discount_pct);
   const valid = discounts.filter(Number.isFinite);
-  const domain = { min: Math.min(...valid, average ?? Infinity), max: Math.max(...valid, average ?? -Infinity) };
+  const domain = {
+    min: Math.min(...valid, average ?? Infinity),
+    max: Math.max(...valid, average ?? -Infinity)
+  };
   const avgY = average == null || domain.max === domain.min
     ? null
     : 37 - ((average - domain.min) / (domain.max - domain.min)) * 32;
@@ -301,7 +279,10 @@ function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: 
         {avgY != null && <line className="averageSeries" x1="3" x2="97" y1={avgY} y2={avgY} />}
         <polyline className="chartLine discountSeries" points={polyline(discounts, domain)} />
       </svg>
-      <div className="legend"><span className="discountLegend">NAV-rabatt</span><span className="averageLegend">Snitt {average == null ? "–" : `${value(average, 1)} %`}</span></div>
+      <div className="legend">
+        <span className="discountLegend">NAV-rabatt</span>
+        <span className="averageLegend">Snitt {average == null ? "–" : `${value(average, 1)} %`}</span>
+      </div>
       <div className="chartDates"><span>{dateLabel(points[0].date)}</span><span>{dateLabel(points.at(-1)?.date)}</span></div>
     </div>
   );
@@ -311,6 +292,7 @@ export default function App() {
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [history, setHistory] = useState<History>(initialHistory);
   const [forecast, setForecast] = useState<BuybackForecast>(initialForecast);
+  const [activeView, setActiveView] = useState<View>("Oversikt");
   const [apiOk, setApiOk] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastSuccessfulFetchAt, setLastSuccessfulFetchAt] = useState<string | null>(null);
@@ -351,7 +333,7 @@ export default function App() {
           setRefreshFailed(true);
           setSummary((current) => current.ready
             ? current
-            : { ready: false, data_status: "error", message: "Kunne ikke hente data til oversikten." });
+            : { ready: false, data_status: "error", message: "Kunne ikke hente investordata." });
         });
     };
 
@@ -364,13 +346,20 @@ export default function App() {
   }, []);
 
   const changes = summary.changes;
-  const cards = useMemo(() => [
-    { label: "NAV/aksje", value: summary.ready ? `${value(summary.nav_per_share)} kr` : "–", change: changes?.nav_pct, unit: "%" },
+  const overviewCards = useMemo(() => [
     { label: "OTEC-kurs", value: summary.ready ? `${value(summary.otec_price)} kr` : "–", change: changes?.otec_pct, unit: "%" },
+    { label: "FULL NAV/aksje", value: summary.ready ? `${value(summary.nav_per_share)} kr` : "–", change: changes?.nav_pct, unit: "%" },
     { label: "Rabatt til NAV", value: summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–", change: changes?.discount_pp, unit: "pp", invert: true },
-    { label: "BMOB3", value: summary.ready ? `R$ ${value(summary.bmob3_price)}` : "–", change: changes?.bmob3_pct, unit: "%" },
-    { label: "BRL/NOK", value: summary.ready ? value(summary.brl_nok, 3) : "–", change: changes?.brl_nok_pct, unit: "%" },
-    { label: "Estimert kontantbeholdning", value: summary.ready ? `${value(summary.estimated_cash_mnok, 1)} mill.` : "–", change: changes?.cash_pct, unit: "%" }
+    { label: "Bemobi-verdi", value: summary.ready ? `${value(summary.bemobi_value_mnok, 1)} mill.` : "–", change: changes?.bmob3_pct, unit: "%" }
+  ], [summary, changes]);
+
+  const navCards = useMemo(() => [
+    { label: "FULL NAV/aksje", value: summary.ready ? `${value(summary.nav_per_share)} kr` : "–", change: changes?.nav_pct, unit: "%" },
+    { label: "OTEC-kurs", value: summary.ready ? `${value(summary.otec_price)} kr` : "–", change: changes?.otec_pct, unit: "%" },
+    { label: "Rabatt/premie", value: summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–", change: changes?.discount_pp, unit: "pp", invert: true },
+    { label: "Bemobi-verdi", value: summary.ready ? `${value(summary.bemobi_value_mnok, 1)} mill.` : "–" },
+    { label: "Kontantbeholdning", value: summary.ready ? `${value(summary.estimated_cash_mnok, 1)} mill.` : "–", change: changes?.cash_pct, unit: "%" },
+    { label: "ONA", value: summary.ready ? `${value(summary.other_net_assets_mnok, 1)} mill.` : "–" }
   ], [summary, changes]);
 
   const degraded = summary.data_status === "DEGRADED" || summary.cash_quality === "FORECAST_PARTIAL";
@@ -380,14 +369,12 @@ export default function App() {
   const shareCount = summary.share_count;
   const ownership = summary.bemobi_ownership_pct;
   const ownershipChart = ownership ?? 0;
-  const scope = summary.model_scope ?? "CORE";
-  const scopeDisplay = modelScopeLabel(scope);
-  const navStatusLabel = degraded ? "REDUSERT" : estimated ? "ESTIMERT" : summary.ready ? "KLAR" : "VENTER";
+  const scopeDisplay = modelScopeLabel(summary.model_scope ?? "CORE");
   const forecastEstimate = forecast.estimate;
   const forecastWeek = forecast.forecast_week;
-  const forecastConfidence = forecastEstimate?.confidence ?? "VENTER";
   const timestamps = summary.market_timestamps;
   const timestampStatus = timestamps?.status ?? "UNKNOWN";
+  const pageTitle = activeView === "NAV" ? "NAV og verdsettelse" : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -397,16 +384,20 @@ export default function App() {
           <div><strong>Otello</strong><small>Investorverktøy</small></div>
         </div>
         <nav>
-          {menu.map((item, index) => (
-            <button
-              className={index === 0 ? "navItem active" : "navItem"}
-              key={item}
-              disabled={index !== 0}
-              title={index === 0 ? undefined : "Denne visningen er ikke aktiv ennå"}
-            >
-              <span className="navDot" />{item}
-            </button>
-          ))}
+          {menu.map((item) => {
+            const active = item.label === activeView;
+            return (
+              <button
+                className={active ? "navItem active" : "navItem"}
+                key={item.label}
+                disabled={!item.enabled}
+                onClick={() => item.enabled && setActiveView(item.label as View)}
+                title={item.enabled ? undefined : "Denne visningen er ikke aktiv ennå"}
+              >
+                <span className="navDot" />{item.label}
+              </button>
+            );
+          })}
         </nav>
         <div className="sidebarFooter">
           <span className={apiOk ? "statusDot ok" : "statusDot"} />
@@ -416,7 +407,7 @@ export default function App() {
 
       <main className="main">
         <header>
-          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>Otello NAV-oversikt</h1></div>
+          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>{pageTitle}</h1></div>
           <div className="updated">
             <span className={apiOk && summary.ready ? "statusDot ok" : "statusDot"} />
             {summary.ready
@@ -429,8 +420,7 @@ export default function App() {
           <div className="modelWarning neutralWarning" role="status">
             <strong>Viser sist vellykket hentede data.</strong>
             <span>
-              Ny oppdatering fra API-et for oversikten feilet. Tallene beholdes for kontinuitet,
-              men skal behandles som potensielt utdaterte.
+              Ny oppdatering feilet. Tallene beholdes for kontinuitet, men kan være utdaterte.
               {lastSuccessfulFetchAt ? ` Sist hentet kl. ${lastSuccessfulFetchAt}.` : ""}
             </span>
           </div>
@@ -440,96 +430,128 @@ export default function App() {
             <strong>{degraded ? "NAV har redusert datakvalitet." : "NAV inneholder estimerte komponenter."}</strong>
             <span>
               {degraded
-                ? "Minst ett viktig datagrunnlag er ufullstendig, gammelt eller bygger på en usikker modell. Se modellstatus før NAV brukes som beslutningsgrunnlag."
-                : "Mellom rapportdatoer brukes forankrede estimater for blant annet kontantbeholdning og øvrige nettoeiendeler. Rapporterte ankere beholdes separat."}
+                ? "Minst ett viktig datagrunnlag er ufullstendig eller gammelt."
+                : "Mellom rapportdatoer brukes forankrede estimater. Rapporterte ankere beholdes separat."}
             </span>
           </div>
         )}
         {!summary.ready && summary.message && <div className="modelWarning neutralWarning">{summary.message}</div>}
 
-        <EconomicNavPanel />
+        {activeView === "Oversikt" ? (
+          <>
+            <EconomicNavPanel variant="summary" />
 
-        <section className="kpiGrid">
-          {cards.map((card) => (
-            <article className="card kpi" key={card.label}>
-              <span className="label">{card.label}</span>
-              <strong>{card.value}</strong>
-              <span className={`change ${changeTone(card.change, card.invert)}`}>
-                {changeLabel(card.change, card.unit)}
-              </span>
-            </article>
-          ))}
-        </section>
+            <section className="kpiGrid overviewKpiGrid">
+              {overviewCards.map((card) => (
+                <article className="card kpi" key={card.label}>
+                  <span className="label">{card.label}</span>
+                  <strong>{card.value}</strong>
+                  <span className={`change ${changeTone(card.change, card.invert)}`}>
+                    {changeLabel(card.change, card.unit)}
+                  </span>
+                </article>
+              ))}
+            </section>
 
-        <section className="chartGrid">
-          <article className="card chart">
-            <div className="cardHeader">
-              <div><span className="label">Markeds-NAV</span><h2>{scopeDisplay} mot OTEC</h2></div>
-              <span className="pill">1 ÅR</span>
-            </div>
-            <NavPriceChart points={history.points} />
-          </article>
+            <section className="overviewGrid">
+              <article className="card">
+                <div className="cardHeader">
+                  <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
+                  <span className="pill muted">{forecast.ready ? statusLabel(forecastEstimate?.confidence) : statusLabel(forecast.status)}</span>
+                </div>
+                <div className="placeholderRows">
+                  <div><span>Siste rapporterte kjøp</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
+                  <div>
+                    <span>{forecastWeek ? `Neste uke ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
+                    <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
+                  </div>
+                  <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
+                  {forecastEstimate?.warning && <div><span>Varsel</span><strong>{warningLabel(forecastEstimate.warning)}</strong></div>}
+                </div>
+              </article>
 
-          <article className="card chart">
-            <div className="cardHeader">
-              <div><span className="label">Verdsettelse</span><h2>Historisk NAV-rabatt</h2></div>
-              <span className="pill">{summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–"}</span>
-            </div>
-            <DiscountChart points={history.points} average={history.average_discount_pct} />
-          </article>
-        </section>
-
-        <section className="lowerGrid">
-          <article className="card">
-            <div className="cardHeader">
-              <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
-              <span className="pill muted">{forecast.ready ? statusLabel(forecastConfidence) : latestBuyback ? dateLabel(latestBuyback.trade_date) : "Ingen data"}</span>
-            </div>
-            <div className="placeholderRows">
-              <div><span>Siste uke</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
-              <div><span>Egne aksjer</span><strong>{shareCount ? integer.format(shareCount.treasury_shares) : latestBuyback?.treasury_shares_after != null ? integer.format(latestBuyback.treasury_shares_after) : "–"}</strong></div>
-              <div><span>Utestående aksjer (NAV)</span><strong>{summary.shares_outstanding != null ? integer.format(summary.shares_outstanding) : "–"}</strong></div>
-              <div><span>Sist bekreftet aksjetall</span><strong>{shareCount ? `${dateLabel(shareCount.effective_from)} · ${shareSourceLabel(shareCount.source_code)}` : "–"}</strong></div>
+              <article className="card">
+                <div className="cardHeader"><div><span className="label">Underliggende verdi</span><h2>Bemobi</h2></div></div>
+                <div className="exposure">
+                  <div className="donut" style={{ background: `conic-gradient(#3f8cff 0 ${Math.max(0, Math.min(100, ownershipChart))}%, #182b45 ${Math.max(0, Math.min(100, ownershipChart))}% 100%)` }}>
+                    <span>{summary.ready && ownership != null ? `${value(ownership, 1)}%` : "–"}</span>
+                  </div>
+                  <div className="placeholderRows grow">
+                    <div><span>BMOB3-kurs</span><strong>{summary.bmob3_price != null ? `R$ ${value(summary.bmob3_price)}` : "–"}</strong></div>
+                    <div><span>Otellos eierandel</span><strong>{ownership != null ? `${value(ownership, 1)} %` : "–"}</strong></div>
+                    <div><span>Verdi for Otello</span><strong>{summary.bemobi_value_mnok != null ? `${number.format(summary.bemobi_value_mnok)} mill. kr` : "–"}</strong></div>
+                  </div>
+                </div>
+              </article>
+            </section>
+          </>
+        ) : (
+          <>
+            <div className="pageIntro">
               <div>
-                <span>{forecastWeek ? `Estimert ${dateLabel(forecastWeek.from)}–${dateLabel(forecastWeek.to)}` : "Neste uke"}</span>
-                <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
+                <span className="eyebrow">FASE 16.5</span>
+                <h2>Fra rapportert balanse til dagens investor-NAV</h2>
               </div>
-              <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
-              <div><span>20-dagers snittvolum</span><strong>{forecast.volume_model ? integer.format(forecast.volume_model.adv20_shares) : "–"}</strong></div>
-              <div><span>Programgrense</span><strong>{forecast.price_model?.program_cap_nok != null ? `${value(forecast.price_model.program_cap_nok)} kr` : "–"}</strong></div>
-              {forecastEstimate?.warning && <div><span>Varsel</span><strong>{warningLabel(forecastEstimate.warning)}</strong></div>}
+              <p>Her samles verdsettelsen. Modellkontroller og teknisk diagnostikk holdes utenfor investorvisningen.</p>
             </div>
-          </article>
 
-          <article className="card">
-            <div className="cardHeader"><div><span className="label">Underliggende verdi</span><h2>Bemobi-eksponering</h2></div></div>
-            <div className="exposure">
-              <div className="donut" style={{ background: `conic-gradient(#3f8cff 0 ${Math.max(0, Math.min(100, ownershipChart))}%, #182b45 ${Math.max(0, Math.min(100, ownershipChart))}% 100%)` }}>
-                <span>{summary.ready && ownership != null ? `${value(ownership, 1)}%` : "–"}</span>
-              </div>
-              <div className="placeholderRows grow">
-                <div><span>BMOB3-aksjer</span><strong>{summary.bemobi_shares != null ? integer.format(summary.bemobi_shares) : "–"}</strong></div>
-                <div><span>BMOB3-kurs</span><strong>{summary.bmob3_price != null ? `R$ ${value(summary.bmob3_price)}` : "–"}</strong></div>
-                <div><span>Markedsverdi</span><strong>{summary.bemobi_value_mnok != null ? `${number.format(summary.bemobi_value_mnok)} mill. kr` : "–"}</strong></div>
-              </div>
-            </div>
-          </article>
+            <EconomicNavPanel variant="detail" />
 
-          <article className="card">
-            <div className="cardHeader"><div><span className="label">System</span><h2>Modellstatus</h2></div></div>
-            <div className="sourceList">
-              <div><span>{scopeDisplay}</span><span className={qualityWarning ? "sourceWarn" : summary.ready ? "sourceOk" : "sourceWait"}>{navStatusLabel}</span></div>
-              {scope === "FULL" && <div><span>Øvrige nettoeiendeler</span><span className="sourceOk">{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)} mill.` : "–"}</span></div>}
-              <div><span>Kontantbeholdning</span><span className={qualityWarning ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_quality)}</span></div>
-              {summary.cash_calibration_quality && <div><span>Kontantavstemming</span><span className={summary.cash_calibration_quality === "HIGH_RESIDUAL" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.cash_calibration_quality)}</span></div>}
-              {summary.share_count_quality && <div><span>Aksjetall</span><span className={summary.share_count_quality === "POTENTIALLY_STALE" ? "sourceWarn" : "sourceOk"}>{statusLabel(summary.share_count_quality)}</span></div>}
-              {shareCount && <div><span>Aksjetall mot siste kilde</span><span className={shareCount.used_in_nav ? "sourceOk" : "sourceWarn"}>{shareCount.used_in_nav ? "AVSTEMT" : "AVVIK"}</span></div>}
-              <div><span>OTEC</span><span className="sourceOk">{summary.otec_price_source ?? "–"}</span></div>
-              <div><span>BMOB3</span><span className="sourceOk">{summary.bmob3_price_source ?? "–"}</span></div>
-              <div><span>Tilbakekjøpsprognose</span><span className={forecast.ready ? "sourceOk" : "sourceWait"}>{forecast.ready ? statusLabel(forecastConfidence) : statusLabel(forecast.status)}</span></div>
-            </div>
-          </article>
-        </section>
+            <section className="kpiGrid navKpiGrid">
+              {navCards.map((card) => (
+                <article className="card kpi" key={card.label}>
+                  <span className="label">{card.label}</span>
+                  <strong>{card.value}</strong>
+                  {"change" in card && (
+                    <span className={`change ${changeTone(card.change, card.invert)}`}>
+                      {changeLabel(card.change, card.unit)}
+                    </span>
+                  )}
+                </article>
+              ))}
+            </section>
+
+            <section className="navCompositionGrid">
+              <article className="card">
+                <div className="cardHeader"><div><span className="label">NAV-komponenter</span><h2>Verdigrunnlag</h2></div></div>
+                <div className="placeholderRows">
+                  <div><span>Bemobi-verdi</span><strong>{summary.bemobi_value_mnok != null ? `${value(summary.bemobi_value_mnok, 1)} mill. kr` : "–"}</strong></div>
+                  <div><span>Kontantbeholdning</span><strong>{summary.estimated_cash_mnok != null ? `${value(summary.estimated_cash_mnok, 1)} mill. kr` : "–"}</strong></div>
+                  <div><span>Øvrige nettoeiendeler / ONA</span><strong>{summary.other_net_assets_mnok != null ? `${value(summary.other_net_assets_mnok, 1)} mill. kr` : "–"}</strong></div>
+                  <div><span>Utestående aksjer</span><strong>{summary.shares_outstanding != null ? integer.format(summary.shares_outstanding) : "–"}</strong></div>
+                </div>
+              </article>
+
+              <article className="card">
+                <div className="cardHeader"><div><span className="label">Aksjegrunnlag</span><h2>Egne og utestående aksjer</h2></div></div>
+                <div className="placeholderRows">
+                  <div><span>Totalt antall aksjer</span><strong>{shareCount ? integer.format(shareCount.total_shares) : "–"}</strong></div>
+                  <div><span>Egne aksjer</span><strong>{shareCount ? integer.format(shareCount.treasury_shares) : "–"}</strong></div>
+                  <div><span>Utestående</span><strong>{shareCount ? integer.format(shareCount.outstanding_shares) : summary.shares_outstanding != null ? integer.format(summary.shares_outstanding) : "–"}</strong></div>
+                  <div><span>Siste kilde</span><strong>{shareCount ? `${dateLabel(shareCount.effective_from)} · ${shareSourceLabel(shareCount.source_code)}` : "–"}</strong></div>
+                </div>
+              </article>
+            </section>
+
+            <section className="chartGrid">
+              <article className="card chart">
+                <div className="cardHeader">
+                  <div><span className="label">Markeds-NAV</span><h2>{scopeDisplay} mot OTEC</h2></div>
+                  <span className="pill">1 ÅR</span>
+                </div>
+                <NavPriceChart points={history.points} />
+              </article>
+
+              <article className="card chart">
+                <div className="cardHeader">
+                  <div><span className="label">Verdsettelse</span><h2>Historisk NAV-rabatt</h2></div>
+                  <span className="pill">{summary.ready ? `${value(summary.nav_discount_pct, 1)} %` : "–"}</span>
+                </div>
+                <DiscountChart points={history.points} average={history.average_discount_pct} />
+              </article>
+            </section>
+          </>
+        )}
       </main>
 
       <div className={`freshnessBadge freshness-${timestampStatus.toLowerCase()}`} title="Datoene på markedsdataene som inngår i siste NAV">
