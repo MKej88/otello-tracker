@@ -24,6 +24,7 @@ type EconomicNav = {
   economic_cash_mnok?: number | null;
   cash_fx?: {
     quality?: string;
+    allocation_quality?: string;
     adjustment_mnok?: number | null;
     coverage_pct?: number | null;
     anchor_date?: string;
@@ -164,10 +165,12 @@ function cashCurrencyEstimate(data: EconomicNav): CashCurrencyEstimate[] | null 
 
   const usd = components.find((item) => item.currency === "USD");
   const brl = components.find((item) => item.currency === "BRL");
-  const residual = components.find((item) => item.currency === "UNALLOCATED");
-  if (!usd || !brl || !residual) return null;
+  const nok = components.find((item) => item.currency === "NOK");
+  const legacyResidual = components.find((item) => item.currency === "UNALLOCATED");
+  const nokComponent = nok ?? legacyResidual;
+  if (!usd || !brl || !nokComponent) return null;
 
-  const rawNok = residual.current_value_mnok ?? residual.anchor_value_mnok ?? 0;
+  const rawNok = nokComponent.current_value_mnok ?? nokComponent.anchor_value_mnok ?? 0;
   const rawUsd = usd.current_value_mnok ?? usd.anchor_value_mnok ?? 0;
   const rawBrl = brl.current_value_mnok ?? brl.anchor_value_mnok ?? 0;
   const rawTotal = rawNok + rawUsd + rawBrl;
@@ -181,8 +184,10 @@ function cashCurrencyEstimate(data: EconomicNav): CashCurrencyEstimate[] | null 
       currency: "NOK",
       share_pct: share(rawNok),
       value_mnok: rawNok * scale,
-      local_millions: rawNok * scale,
-      basis: "Estimert residual"
+      local_millions: nokComponent.original_currency_amount != null
+        ? nokComponent.original_currency_amount * scale / 1_000_000
+        : rawNok * scale,
+      basis: nok ? "Avstemt NOK-residual" : "Estimert residual"
     },
     {
       currency: "USD",
@@ -275,6 +280,7 @@ export default function EconomicNavPanel() {
   const currencyEstimate = cashCurrencyEstimate(data);
   const currencyConfidence = confidenceLabel(cashFx?.anchor_date, data.as_of_date);
   const readyBacktestPeriods = backtest?.periods?.filter((period) => period.ready) ?? [];
+  const fullCashFxCoverage = cashFx?.quality === "FULL_EXPOSURE_REVALUATION";
 
   return (
     <section className="economicNavHost">
@@ -316,7 +322,9 @@ export default function EconomicNavPanel() {
                 <span className="economicEyebrow">Valutaestimat</span>
                 <h3>Estimert kontantbeholdning per valuta</h3>
               </div>
-              <span className="cashConfidence">SIKKERHET {currencyConfidence}</span>
+              <span className="cashConfidence">
+                {fullCashFxCoverage ? "ANKER 100 % KILDEBASERT" : `SIKKERHET ${currencyConfidence}`}
+              </span>
             </div>
             <div className="cashCurrencyGrid">
               {currencyEstimate.map((item) => (
@@ -330,12 +338,14 @@ export default function EconomicNavPanel() {
             </div>
             <div className="cashCurrencyNote">
               <span>
-                Startpunktet er siste rapporterte USD-/BRL-eksponering. Resten av rapportert kontantbeholdning
-                behandles som estimert NOK. Senere netto kontantendringer fordeles proporsjonalt på valutaene,
-                fordi faktiske valutavekslinger ikke er offentlig kjent.
+                På rapportankeret er USD- og BRL-eksponeringen rapportert direkte. NOK er avstemt som residual
+                mellom total rapportert kontantbeholdning og USD/BRL, støttet av selskapets opplysning om at
+                konsernets kontantinnskudd holdes i NOK, USD og BRL. NOK-residualen er derfor avledet og
+                kildebasert, ikke et direkte rapportert NOK-tall.
               </span>
               <span>
-                Anker {dateLabel(cashFx?.anchor_date)} · Modellen brukes kun som estimat og endrer ikke NAV-beregningen.
+                Etter ankerdatoen er faktisk valutaveksling ikke offentlig kjent. Fordelingen av senere netto
+                kontantendringer er derfor fortsatt et estimat. Anker {dateLabel(cashFx?.anchor_date)}.
               </span>
             </div>
           </div>
@@ -408,9 +418,9 @@ export default function EconomicNavPanel() {
 
         <div className="economicAdjustments">
           <div>
-            <span>Kontanter – dokumentert valutaeffekt</span>
+            <span>Kontanter – kildebasert valutaeffekt</span>
             <strong>{signedValue(cashFx?.adjustment_mnok)}</strong>
-            <small>{cashFx?.coverage_pct != null ? `${value(cashFx.coverage_pct, 1)} % av kontantbeholdningen valutafordelt` : "–"}</small>
+            <small>{cashFx?.coverage_pct != null ? `${value(cashFx.coverage_pct, 1)} % av rapportankeret valutafordelt` : "–"}</small>
           </div>
           <div>
             <span>Opsjon – regnskapsført</span>
@@ -434,7 +444,7 @@ export default function EconomicNavPanel() {
           <span>
             Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
             {costs?.source_period ? ` (${costs.source_period})` : ""}.
-            Kun dokumenterte USD-/BRL-kontanter revalueres i NAV; valutaestimat og backtest er separate kontrollag. Renteinntekter er ikke lagt til.
+            USD-/BRL-kontanter revalueres løpende; kildebasert NOK holdes i NOK. Renteinntekter er ikke lagt til.
           </span>
           <span>Data {dateLabel(data.as_of_date)}</span>
         </div>
