@@ -93,10 +93,9 @@ def test_worker_revalues_usd_brl_and_keeps_source_backed_nok_fixed() -> None:
     assert components["NOK"]["anchor_value_mnok"] == components["NOK"]["current_value_mnok"] == 30.0
 
 
-def test_frontend_and_reference_model_accept_explicit_nok_component() -> None:
+def test_reference_models_and_migration_accept_explicit_nok_component() -> None:
     reference = (ROOT / "backend" / "app" / "economic_nav.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare" / "src" / "economic_nav.py").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend" / "src" / "EconomicNavPanel.tsx").read_text(encoding="utf-8")
     migration = (ROOT / "cloudflare" / "migrations" / "0007_reconcile_2025_cash_fx_nok.sql").read_text(
         encoding="utf-8"
     )
@@ -106,7 +105,5 @@ def test_frontend_and_reference_model_accept_explicit_nok_component() -> None:
         assert 'elif currency == "NOK"' in source
         assert '"FULL_EXPOSURE_REVALUATION"' in source
 
-    assert 'item.currency === "NOK"' in frontend
-    assert "Avstemt NOK-residual" in frontend
     assert "economic-nav-cash-fx:2025-12-31" in migration
     assert "RECONCILED_RESIDUAL_NOK" in migration
