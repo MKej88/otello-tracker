@@ -17,7 +17,7 @@ except ImportError:
     from newsweb_client import attachment_url, fetch_attachment, fetch_message
     from r2_archive import archive_bytes, archive_json
 
-REPORT_PARSER_VERSION = "otello-financial-report-v1"
+REPORT_PARSER_VERSION = "otello-financial-report-v2"
 AUTO_REPORT_START_DATE = "2026-08-19"
 MAX_REPORT_CANDIDATES = 8
 MAX_NAV_BACKFILL_DATES = 90
@@ -75,21 +75,24 @@ def _row_current_value(
     start: int = 0,
     end: int | None = None,
 ) -> Decimal | None:
+    """Return the current-period value, which is the first numeric data column.
+
+    Otello's real reports vary between two, three and four comparison columns. The
+    current period is consistently the left-most numeric data value for the rows used
+    by this parser. Parsing the second-to-last value therefore silently selected a
+    comparison/YTD column in some historical reports.
+    """
     limit = len(lines) if end is None else min(end, len(lines))
     regexes = [re.compile(pattern, re.I) for pattern in patterns]
     for index in range(start, limit):
         line = lines[index]
         if not any(regex.search(line) for regex in regexes):
             continue
-        # Current and comparison period are normally the final two numeric columns.
-        # A note number may precede them, so the current value is the second-to-last.
-        candidate = line
-        values = [_parse_number(token) for token in _NUMBER_RE.findall(candidate)]
-        if len(values) < 2 and index + 1 < limit:
-            candidate += " " + lines[index + 1]
-            values = [_parse_number(token) for token in _NUMBER_RE.findall(candidate)]
-        if len(values) >= 2:
-            return values[-2]
+        values = [_parse_number(token) for token in _NUMBER_RE.findall(line)]
+        if not values and index + 1 < limit:
+            values = [_parse_number(token) for token in _NUMBER_RE.findall(lines[index + 1])]
+        if values:
+            return values[0]
     return None
 
 
@@ -881,8 +884,6 @@ async def _apply_report(
         await _cleanup_report_anchors(repository, report_doc_id)
         raise
 
-    # Critical report anchors are now consistent. Activating the report source here lets
-    # the option model use its reported liability while the affected NAV dates rebuild.
     await _set_report_document_apply_status(repository, report_doc_id, "APPLIED")
 
     warnings: list[dict[str, str]] = []
