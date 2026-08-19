@@ -12,6 +12,7 @@ from fx_backtest import fx_backtest_summary
 from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from report_status import report_status_summary
+from shareholders import shareholders_dashboard
 
 API_VERSION = "0.12.0"
 
@@ -22,9 +23,6 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
-# Browser TTL stays short where the dashboard should feel live. The dedicated Cloudflare
-# CDN TTL is longer so repeated visits and multiple tabs normally avoid Python/D1 work.
-# Workers Caching is enabled by the rendered production Wrangler config.
 CACHE_POLICIES = {
     "/api/health": ("no-store", "no-store"),
     "/api/dashboard/summary": (
@@ -64,6 +62,10 @@ CACHE_POLICIES = {
         "public, max-age=300, stale-while-revalidate=600",
     ),
     "/api/bemobi/consensus": (
+        "public, max-age=300",
+        "public, max-age=1800, stale-while-revalidate=3600",
+    ),
+    "/api/shareholders/dashboard": (
         "public, max-age=300",
         "public, max-age=1800, stale-while-revalidate=3600",
     ),
@@ -187,3 +189,8 @@ async def get_bemobi_dashboard(request: Request) -> dict:
 @app.get("/api/bemobi/consensus")
 async def get_bemobi_consensus(request: Request) -> dict:
     return await bemobi_consensus(_repository(request))
+
+
+@app.get("/api/shareholders/dashboard")
+async def get_shareholders_dashboard(request: Request) -> dict:
+    return await shareholders_dashboard(_repository(request))

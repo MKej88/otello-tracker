@@ -23,6 +23,7 @@ from app.db.connection import get_connection  # noqa: E402
 from app.economic_nav_investor import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
+from app.shareholders import shareholders_dashboard as reference_shareholders_dashboard  # noqa: E402
 
 
 def _components(*, day: str, otec: str, bmob3: str, brl: str, cash: str, status: str) -> str:
@@ -154,14 +155,10 @@ def _insert_nav_pair(
 def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict:
     result = build_fixture(database_path)
 
-    # The generic bootstrap fixture has one synthetic activity row. Replace it with the
-    # validated OTEC activity history so the HTTP forecast exercises the full model path.
     with get_connection(database_path) as connection:
         connection.execute("DELETE FROM market_activity")
         connection.execute("DELETE FROM nav_snapshots")
         source_id = int(connection.execute("SELECT id FROM sources WHERE code='ECB'").fetchone()["id"])
-        # Economic cash FX revaluation needs both the report-date cross rates and current
-        # cross rates. These are synthetic CI rates; the parity assertion is the purpose.
         connection.executemany(
             """
             INSERT INTO fx_rates(base_currency, quote_currency, observed_at, rate, source_id)
@@ -209,6 +206,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
         "consensus": reference_bemobi_consensus(database_path),
+        "shareholders": reference_shareholders_dashboard(database_path),
     }
     for name, payload in expected.items():
         (expected_dir / f"{name}.json").write_text(
@@ -223,6 +221,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "summary_ready": bool(expected["summary"].get("ready")),
         "economic_ready": bool(expected["economic"].get("ready")),
         "consensus_ready": bool(expected["consensus"].get("ready")),
+        "shareholders_ready": bool(expected["shareholders"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
     }
 
