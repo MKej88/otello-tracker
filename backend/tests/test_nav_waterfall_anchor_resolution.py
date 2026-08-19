@@ -126,5 +126,5 @@ def test_waterfall_is_rendered_once_and_routes_use_resilient_service() -> None:
 
     assert "NavWaterfallPanel" not in economic
     assert app.count("<NavWaterfallPanel />") == 1
-    assert "from app.nav_waterfall_live import nav_waterfall_summary" in backend
-    assert "from nav_waterfall_live import nav_waterfall_summary" in worker
+    assert "from app.nav_waterfall_investor import nav_waterfall_summary" in backend
+    assert "from nav_waterfall_investor import nav_waterfall_summary" in worker
