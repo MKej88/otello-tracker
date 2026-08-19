@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT = ROOT / "cloudflare" / "src" / "entry.py"
 DRILL = ROOT / "cloudflare" / "src" / "snapshot_drill.py"
 WRANGLER = ROOT / "cloudflare" / "wrangler.jsonc"
+ACTION = ROOT / ".github" / "workflows" / "r2-snapshot-drill.yml"
 
 
 def test_snapshot_drill_is_exported_and_registered_without_schedule() -> None:
@@ -38,3 +39,17 @@ def test_snapshot_drill_forces_existing_archive_path_and_only_reads_d1() -> None
     assert "start_job(" not in source
     assert "finish_job(" not in source
     assert "acquire_refresh_lock(" not in source
+
+
+def test_snapshot_drill_action_accepts_wranger_terminal_status_symbols() -> None:
+    source = ACTION.read_text(encoding="utf-8")
+
+    # Wrangler 4.123 emits terminal lines such as:
+    # Status:  ✅ Completed
+    # Success: ✅ Yes
+    # Do not require whitespace-only text between the colon and terminal value.
+    assert "grep -Eiq '^Status:.*Completed'" in source
+    assert "grep -Eiq '^Success:.*Yes'" in source
+    assert "grep -Eiq '^Status:.*(Failed|Errored|Terminated)|^Success:.*No'" in source
+    assert "Status:[[:space:]]+Completed" not in source
+    assert "Success:[[:space:]]+Yes" not in source
