@@ -135,20 +135,57 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             SELECT trade_date, shares, avg_price_nok, amount_nok,
                    treasury_shares_after, cumulative_program_shares,
                    cumulative_program_amount_nok
-            FROM buybacks ORDER BY trade_date DESC, id DESC LIMIT 1
-            """
+            FROM buybacks
+            WHERE trade_date <= ?
+            ORDER BY trade_date DESC, id DESC LIMIT 1
+            """,
+            (as_of_date,),
         ).fetchone()
+        latest_share_count_row = connection.execute(
+            """
+            SELECT sc.effective_from, sc.total_shares, sc.treasury_shares,
+                   sc.outstanding_shares, sc.source_document_id,
+                   s.code AS source_code, sd.url AS source_url
+            FROM otello_share_counts sc
+            LEFT JOIN source_documents sd ON sd.id=sc.source_document_id
+            LEFT JOIN sources s ON s.id=sd.source_id
+            WHERE sc.effective_from <= ?
+            ORDER BY sc.effective_from DESC, sc.id DESC LIMIT 1
+            """,
+            (as_of_date,),
+        ).fetchone()
+        latest_share_count = None
+        if latest_share_count_row is not None:
+            nav_outstanding = int(latest["shares_outstanding"])
+            latest_share_count = {
+                "effective_from": latest_share_count_row["effective_from"],
+                "total_shares": int(latest_share_count_row["total_shares"]),
+                "treasury_shares": int(latest_share_count_row["treasury_shares"]),
+                "outstanding_shares": int(latest_share_count_row["outstanding_shares"]),
+                "source_document_id": latest_share_count_row["source_document_id"],
+                "source_code": latest_share_count_row["source_code"],
+                "source_url": latest_share_count_row["source_url"],
+                "used_in_nav": int(latest_share_count_row["outstanding_shares"]) == nav_outstanding,
+            }
 
-        nav_change = _pct_change(latest["nav_per_share_nok"], previous["nav_per_share_nok"] if previous else None)
-        otec_change = _pct_change(latest["otec_price_nok"], previous["otec_price_nok"] if previous else None)
+        nav_change = _pct_change(
+            latest["nav_per_share_nok"], previous["nav_per_share_nok"] if previous else None
+        )
+        otec_change = _pct_change(
+            latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
+        )
         discount_change = (
             float(Decimal(str(latest["discount_pct"])) - Decimal(str(previous["discount_pct"])))
-            if previous is not None and latest["discount_pct"] is not None and previous["discount_pct"] is not None
+            if previous is not None
+            and latest["discount_pct"] is not None
+            and previous["discount_pct"] is not None
             else None
         )
         bmob3_change = _pct_change(bmob3.get("price_brl"), previous_bmob3.get("price_brl"))
         brl_change = _pct_change(bmob3.get("brl_nok"), previous_bmob3.get("brl_nok"))
-        cash_change = _pct_change(latest["cash_estimate_nok"], previous["cash_estimate_nok"] if previous else None)
+        cash_change = _pct_change(
+            latest["cash_estimate_nok"], previous["cash_estimate_nok"] if previous else None
+        )
 
         return {
             "ready": True,
@@ -161,12 +198,22 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "nav_discount_pct": _float(latest["discount_pct"]),
             "bmob3_price": _float(bmob3.get("price_brl")),
             "brl_nok": _float(bmob3.get("brl_nok")),
-            "estimated_cash_mnok": _float(latest["cash_estimate_nok"]) / 1_000_000 if latest["cash_estimate_nok"] is not None else None,
-            "other_net_assets_mnok": _float(latest["other_net_assets_nok"]) / 1_000_000 if latest["other_net_assets_nok"] is not None else None,
-            "bemobi_value_mnok": _float(latest["bemobi_value_nok"]) / 1_000_000 if latest["bemobi_value_nok"] is not None else None,
+            "estimated_cash_mnok": (
+                _float(latest["cash_estimate_nok"]) / 1_000_000
+                if latest["cash_estimate_nok"] is not None else None
+            ),
+            "other_net_assets_mnok": (
+                _float(latest["other_net_assets_nok"]) / 1_000_000
+                if latest["other_net_assets_nok"] is not None else None
+            ),
+            "bemobi_value_mnok": (
+                _float(latest["bemobi_value_nok"]) / 1_000_000
+                if latest["bemobi_value_nok"] is not None else None
+            ),
             "bemobi_shares": int(holding["shares"]) if holding is not None else None,
             "bemobi_ownership_pct": _float(holding["ownership_pct"]) if holding is not None else None,
             "shares_outstanding": int(latest["shares_outstanding"]),
+            "share_count": latest_share_count,
             "cash_quality": cash.get("quality"),
             "cash_calibration_quality": cash.get("calibration_quality"),
             "share_count_quality": otec.get("share_count_quality"),
@@ -253,7 +300,9 @@ def dashboard_history(
         points = raw
 
     discounts = [Decimal(str(item["discount_pct"])) for item in raw if item["discount_pct"] is not None]
-    average_discount = float(sum(discounts, Decimal("0")) / Decimal(len(discounts))) if discounts else None
+    average_discount = (
+        float(sum(discounts, Decimal("0")) / Decimal(len(discounts))) if discounts else None
+    )
 
     return {
         "ready": bool(points),
