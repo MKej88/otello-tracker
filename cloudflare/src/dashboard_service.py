@@ -147,9 +147,38 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         SELECT trade_date, shares, avg_price_nok, amount_nok,
                treasury_shares_after, cumulative_program_shares,
                cumulative_program_amount_nok
-        FROM buybacks ORDER BY trade_date DESC, id DESC LIMIT 1
-        """
+        FROM buybacks
+        WHERE trade_date <= ?
+        ORDER BY trade_date DESC, id DESC LIMIT 1
+        """,
+        (as_of_date,),
     )
+    latest_share_count_row = await repository.first(
+        """
+        SELECT sc.effective_from, sc.total_shares, sc.treasury_shares,
+               sc.outstanding_shares, sc.source_document_id,
+               s.code AS source_code, sd.url AS source_url
+        FROM otello_share_counts sc
+        LEFT JOIN source_documents sd ON sd.id=sc.source_document_id
+        LEFT JOIN sources s ON s.id=sd.source_id
+        WHERE sc.effective_from <= ?
+        ORDER BY sc.effective_from DESC, sc.id DESC LIMIT 1
+        """,
+        (as_of_date,),
+    )
+    latest_share_count = None
+    if latest_share_count_row is not None:
+        nav_outstanding = int(latest["shares_outstanding"])
+        latest_share_count = {
+            "effective_from": latest_share_count_row["effective_from"],
+            "total_shares": int(latest_share_count_row["total_shares"]),
+            "treasury_shares": int(latest_share_count_row["treasury_shares"]),
+            "outstanding_shares": int(latest_share_count_row["outstanding_shares"]),
+            "source_document_id": latest_share_count_row.get("source_document_id"),
+            "source_code": latest_share_count_row.get("source_code"),
+            "source_url": latest_share_count_row.get("source_url"),
+            "used_in_nav": int(latest_share_count_row["outstanding_shares"]) == nav_outstanding,
+        }
 
     nav_change = _pct_change(
         latest["nav_per_share_nok"],
@@ -200,6 +229,7 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "bemobi_shares": int(holding["shares"]) if holding is not None else None,
         "bemobi_ownership_pct": _float(holding["ownership_pct"]) if holding is not None else None,
         "shares_outstanding": int(latest["shares_outstanding"]),
+        "share_count": latest_share_count,
         "cash_quality": cash.get("quality"),
         "cash_calibration_quality": cash.get("calibration_quality"),
         "share_count_quality": otec.get("share_count_quality"),
