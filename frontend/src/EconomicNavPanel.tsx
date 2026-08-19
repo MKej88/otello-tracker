@@ -22,7 +22,16 @@ type EconomicNav = {
   option?: {
     accounting_liability_mnok?: number | null;
     economic_value_mnok?: number | null;
-    unrecognized_overhang_mnok?: number | null;
+    black_scholes_gross_mnok?: number | null;
+    settlement_mnok?: number | null;
+    conservative_settlement_mnok?: number | null;
+    settlement_per_option_nok?: number | null;
+    option_count?: number | null;
+    strike_nok?: number | null;
+    nav_before_option_per_share_nok?: number | null;
+    nav_after_option_per_share_nok?: number | null;
+    method?: string;
+    full_realisation_scenario?: boolean;
   };
   operating_costs?: {
     anchor_date?: string;
@@ -50,6 +59,11 @@ function value(input: number | null | undefined, digits = 2) {
   });
 }
 
+function integer(input: number | null | undefined) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return Math.round(input).toLocaleString("nb-NO");
+}
+
 function signedValue(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
   const prefix = input > 0 ? "+" : "";
@@ -65,6 +79,7 @@ function dateLabel(input?: string | null) {
 
 function reasonLabel(reason?: string) {
   if (reason === "api_error") return "API-feil";
+  if (reason === "missing_option_settlement_inputs") return "Mangler grunnlag for opsjonsoppgjør";
   return "Ikke klart";
 }
 
@@ -145,7 +160,7 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
           <div>
             <span>Økonomisk kontantbeholdning</span>
             <strong>{value(data.economic_cash_mnok, 1)} mill. kr</strong>
-            <small>etter valutaeffekt og estimert drift</small>
+            <small>etter valuta og drift, før hypotetisk opsjonsoppgjør</small>
           </div>
         </div>
 
@@ -162,16 +177,11 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
                 </small>
               </div>
               <div>
-                <span>Opsjonsforpliktelse – regnskapsført</span>
-                <strong>{value(option?.accounting_liability_mnok, 1)} mill.</strong>
-              </div>
-              <div>
-                <span>Opsjon – økonomisk verdi</span>
-                <strong>{value(option?.economic_value_mnok, 1)} mill.</strong>
-              </div>
-              <div>
-                <span>Ekstra opsjonsoverheng</span>
-                <strong>−{value(option?.unrecognized_overhang_mnok, 1)} mill.</strong>
+                <span>Opsjoner – kontantoppgjør ved NAV</span>
+                <strong>−{value(option?.settlement_mnok, 1)} mill.</strong>
+                <small>
+                  {integer(option?.option_count)} opsjoner · strike {value(option?.strike_nok, 2)} kr · NAV før opsjon {value(option?.nav_before_option_per_share_nok, 2)} kr
+                </small>
               </div>
               <div>
                 <span>Estimert drift siden {dateLabel(costs?.anchor_date)}</span>
@@ -181,10 +191,12 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
 
             <div className="economicFootnote">
               <span>
-                Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
-                {costs?.source_period ? ` (${costs.source_period})` : ""}. Renteinntekter er ikke lagt til.
+                Opsjonslinjen er et scenario ved full Bemobi-realisering: OTEC-kurs ved exercise settes lik NAV etter kontantoppgjøret. Regnskapsført Black–Scholes-verdi beholdes kun som kontrollgrunnlag i modellen.
               </span>
-              <span>Data {dateLabel(data.as_of_date)}</span>
+              <span>
+                Årlig driftskostnadsnivå: ca. USD {value(costs?.base_annualized_usd_m, 2)} mill.
+                {costs?.source_period ? ` (${costs.source_period})` : ""}. Renteinntekter er ikke lagt til. Data {dateLabel(data.as_of_date)}.
+              </span>
             </div>
           </>
         )}

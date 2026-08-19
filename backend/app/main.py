@@ -15,13 +15,13 @@ from app.dashboard import dashboard_history as get_dashboard_history
 from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.dashboard_freshness import enrich_dashboard_summary
 from app.db.migration_runner import database_status, init_database
-from app.economic_nav import economic_nav_summary
+from app.economic_nav_investor import economic_nav_summary
 from app.fx_backtest import fx_backtest_summary
 from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
-from app.nav_waterfall_investor import nav_waterfall_summary
+from app.nav_waterfall_settlement import nav_waterfall_summary
 from app.settings import settings
 
 

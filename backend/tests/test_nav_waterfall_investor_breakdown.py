@@ -52,16 +52,13 @@ def _cash_connection() -> sqlite3.Connection:
         """
     )
     rows = [
-        # Weekly row that straddles the report anchor: excluded when daily detail is absent.
         (1, "2026-01-02", "OTELLO_BUYBACK", "-6000000", "Otello buyback during 2025-12-29–2026-01-02", None, 1),
-        # Exact daily rows after the anchor must be included. This is the production bug regression.
         (2, "2026-01-02", "OTELLO_BUYBACK_DAILY", "-2000000", "NewsWeb daily buyback", None, 1),
         (3, "2026-02-06", "OTELLO_BUYBACK", "-3000000", "Otello buyback during 2026-02-02–2026-02-06", None, 2),
         (4, "2026-02-10", "OTELLO_BUYBACK_DAILY", "-4000000", "NewsWeb daily buyback", None, 3),
         (5, "2026-05-27", "BEMOBI_JCP", "5000000", "Bemobi JCP", None, None),
         (6, "2026-05-27", "TAX", "-1000000", "Bemobi JCP withholding adjustment", "bemobi-withholding:test", None),
         (7, "2026-06-01", "BEMOBI_DIVIDEND", "10000000", "Bemobi dividend", None, None),
-        # Unrelated tax must remain outside the Bemobi distribution bucket.
         (8, "2026-06-02", "TAX", "-500000", "Other tax", "other-tax", None),
     ]
     connection.executemany(
@@ -176,13 +173,11 @@ def test_investor_breakdown_preserves_totals_and_exposes_bemobi() -> None:
     assert components["bemobi_receivable"]["amount_mnok"] == 12.0
     assert components["ona_ex_option"]["amount_mnok"] == 8.0
 
-    # Cash split still equals the exact -50m cash change.
     assert (
         components["buyback_cash"]["amount_mnok"]
         + components["bemobi_cash_received"]["amount_mnok"]
         + components["other_cash"]["amount_mnok"]
     ) == -50.0
-    # ONA split still equals the original +20m ONA-ex-option movement.
     assert (
         components["bemobi_receivable"]["amount_mnok"]
         + components["ona_ex_option"]["amount_mnok"]
@@ -191,8 +186,8 @@ def test_investor_breakdown_preserves_totals_and_exposes_bemobi() -> None:
     assert reference["bemobi_distributions"]["current_receivable_mnok"] == 12.0
 
 
-def test_routes_use_investor_waterfall_service() -> None:
+def test_routes_use_settlement_waterfall_service() -> None:
     backend = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
-    assert "from app.nav_waterfall_investor import nav_waterfall_summary" in backend
-    assert "from nav_waterfall_investor import nav_waterfall_summary" in worker
+    assert "from app.nav_waterfall_settlement import nav_waterfall_summary" in backend
+    assert "from nav_waterfall_settlement import nav_waterfall_summary" in worker
