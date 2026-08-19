@@ -1,0 +1,139 @@
+name: R2 logical snapshot drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Snapshotdato (YYYY-MM-DD). Tom = dagens UTC-dato."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  snapshot-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+      CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
+      CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+      CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Validate production bindings
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_D1_DATABASE_ID"
+          test -n "$CLOUDFLARE_WORKER_NAME"
+          test -n "$CLOUDFLARE_D1_DATABASE_NAME"
+          test -n "$CLOUDFLARE_R2_BUCKET_NAME"
+          test -n "$CLOUDFLARE_CUSTOM_DOMAIN"
+
+      - name: Install pinned Wrangler
+        working-directory: cloudflare
+        run: npm install --no-save wrangler@4.123.0
+
+      - name: Render production Wrangler config
+        run: python cloudflare/tools/render_production_config.py
+
+      - name: Resolve drill date and instance ID
+        id: drill
+        shell: bash
+        env:
+          REQUESTED_TARGET_DATE: ${{ inputs.target_date }}
+        run: |
+          target_date="$REQUESTED_TARGET_DATE"
+          if [ -z "$target_date" ]; then
+            target_date="$(date -u +%F)"
+          fi
+          python - "$target_date" <<'PY'
+          import sys
+          from datetime import date
+          date.fromisoformat(sys.argv[1])
+          PY
+          instance_id="r2-snapshot-drill-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "target_date=$target_date" >> "$GITHUB_OUTPUT"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm snapshot Workflow is deployed
+        working-directory: cloudflare
+        run: >-
+          npx wrangler workflows describe otello-r2-snapshot-drill
+          --config wrangler.production.jsonc
+
+      - name: Trigger forced read-only D1 snapshot
+        working-directory: cloudflare
+        shell: bash
+        env:
+          TARGET_DATE: ${{ steps.drill.outputs.target_date }}
+          INSTANCE_ID: ${{ steps.drill.outputs.instance_id }}
+        run: |
+          params="$(python - "$TARGET_DATE" <<'PY'
+          import json
+          import sys
+          print(json.dumps({"target_date": sys.argv[1]}, separators=(",", ":")))
+          PY
+          )"
+          npx wrangler workflows trigger otello-r2-snapshot-drill "$params" \
+            --id "$INSTANCE_ID" \
+            --config wrangler.production.jsonc
+
+      - name: Wait for snapshot drill completion
+        working-directory: cloudflare
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ steps.drill.outputs.instance_id }}
+          TARGET_DATE: ${{ steps.drill.outputs.target_date }}
+        run: |
+          for attempt in $(seq 1 60); do
+            set +e
+            output="$(npx wrangler workflows instances describe \
+              otello-r2-snapshot-drill "$INSTANCE_ID" \
+              --truncate-output-limit 12000 \
+              --config wrangler.production.jsonc 2>&1)"
+            rc=$?
+            set -e
+            echo "$output"
+
+            if [ "$rc" -eq 0 ] && echo "$output" | grep -Eiq 'Status:[[:space:]]+Completed?'; then
+              if echo "$output" | grep -Eiq 'Success:[[:space:]]+Yes'; then
+                echo "R2 snapshot drill completed for $TARGET_DATE."
+                echo "$output" | grep -q 'manifest_key' || \
+                  echo '::warning::Workflow completed, but manifest_key was not visible in truncated CLI output.'
+                exit 0
+              fi
+              echo '::error::Snapshot Workflow completed without Success: Yes.'
+              exit 1
+            fi
+
+            if echo "$output" | grep -Eiq 'Status:[[:space:]]+(Failed|Errored|Terminated)|Success:[[:space:]]+No'; then
+              echo '::error::Snapshot Workflow failed.'
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo '::error::Timed out waiting for the R2 snapshot drill.'
+          exit 1
