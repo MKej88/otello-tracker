@@ -21,12 +21,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     assert init_database(database_path) == [
         "0001", "0002", "0003", "0004", "0005", "0006", "0007",
         "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
-        "0016", "0017", "0018",
+        "0016", "0017",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0018"
+    assert status["latest_migration"] == "0017"
     assert status["table_counts"]["sources"] == 12
     assert status["table_counts"]["instruments"] == 2
     assert status["table_counts"]["company_news"] == 0
@@ -34,8 +34,6 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     assert status["table_counts"]["other_net_assets_daily_estimates"] == 0
     assert status["table_counts"]["buyback_daily_transactions"] == 0
     assert status["table_counts"]["market_activity"] == 0
-    assert status["table_counts"]["shareholder_snapshots"] == 0
-    assert status["table_counts"]["shareholder_snapshot_rows"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -112,8 +110,6 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cash_daily_estimates'").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cash_period_calibrations'").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='runtime_state'").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='shareholder_snapshots'").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='shareholder_snapshot_rows'").fetchone()[0] == 1
 
         connection.execute(
             """
@@ -212,12 +208,10 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0018"
+            assert payload["latest_migration"] == "0017"
             assert payload["table_counts"]["sources"] == 12
             assert payload["table_counts"]["company_news"] == 0
             assert payload["table_counts"]["buyback_daily_transactions"] == 0
-            assert payload["table_counts"]["shareholder_snapshots"] == 0
-            assert payload["table_counts"]["shareholder_snapshot_rows"] == 0
             assert payload["table_counts"]["market_activity"] > 500
     finally:
         settings.database_path = previous_path
