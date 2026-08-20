@@ -14,8 +14,11 @@ for path in (BACKEND, TOOLS):
 
 from build_d1_bootstrap_fixture import build_fixture  # noqa: E402
 from app.bemobi.consensus import bemobi_consensus as reference_bemobi_consensus  # noqa: E402
+from app.bemobi.dashboard import bemobi_dashboard as reference_bemobi_dashboard  # noqa: E402
+from app.bemobi.source_status import bemobi_source_status as reference_bemobi_source_status  # noqa: E402
 from app.buybacks import buyback_forecast as reference_buyback_forecast  # noqa: E402
 from app.buybacks.activity import seed_otec_activity_history  # noqa: E402
+from app.buybacks.dashboard import buyback_dashboard as reference_buyback_dashboard  # noqa: E402
 from app.dashboard import dashboard_history as reference_dashboard_history  # noqa: E402
 from app.dashboard import dashboard_summary as reference_dashboard_summary  # noqa: E402
 from app.dashboard_freshness import enrich_dashboard_summary  # noqa: E402
@@ -24,6 +27,7 @@ from app.economic_nav_investor import economic_nav_summary as reference_economic
 from app.marketdata.quote_details import market_quote_details as reference_market_quote_details  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
+from app.nav_waterfall_settlement import nav_waterfall_summary as reference_nav_waterfall_summary  # noqa: E402
 
 
 def _components(*, day: str, otec: str, bmob3: str, brl: str, cash: str, status: str) -> str:
@@ -158,7 +162,9 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
     with get_connection(database_path) as connection:
         connection.execute("DELETE FROM market_activity")
         connection.execute("DELETE FROM nav_snapshots")
-        source_id = int(connection.execute("SELECT id FROM sources WHERE code='ECB'").fetchone()["id"])
+        source_id = int(
+            connection.execute("SELECT id FROM sources WHERE code='NORGES_BANK'").fetchone()["id"]
+        )
         connection.executemany(
             """
             INSERT INTO fx_rates(base_currency, quote_currency, observed_at, rate, source_id)
@@ -203,9 +209,13 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
     expected = {
         "summary": enrich_dashboard_summary(reference_dashboard_summary(database_path), database_path),
         "economic": reference_economic_nav_summary(database_path),
+        "waterfall": reference_nav_waterfall_summary(database_path),
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
-        "consensus": reference_bemobi_consensus(database_path),
+        "buyback_dashboard": reference_buyback_dashboard(database_path, as_of_date="2026-08-17"),
+        "bemobi_dashboard": reference_bemobi_dashboard(database_path),
+        "bemobi_consensus": reference_bemobi_consensus(database_path),
+        "bemobi_source_status": reference_bemobi_source_status(database_path),
         "quotes": reference_market_quote_details(database_path),
     }
     for name, payload in expected.items():
@@ -220,7 +230,10 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "forecast_ready": bool(expected["forecast"].get("ready")),
         "summary_ready": bool(expected["summary"].get("ready")),
         "economic_ready": bool(expected["economic"].get("ready")),
-        "consensus_ready": bool(expected["consensus"].get("ready")),
+        "waterfall_ready": bool(expected["waterfall"].get("ready")),
+        "buyback_dashboard_ready": bool(expected["buyback_dashboard"].get("ready")),
+        "bemobi_dashboard_ready": bool(expected["bemobi_dashboard"].get("ready")),
+        "consensus_ready": bool(expected["bemobi_consensus"].get("ready")),
         "quotes_ready": bool(expected["quotes"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
     }
