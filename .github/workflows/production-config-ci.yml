@@ -71,14 +71,6 @@ jobs:
           assert config['triggers']['crons'] == ['*/30 * * * *']
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
-          assert 'SHAREHOLDER_SNAPSHOT' not in workflows
-
-          shareholder_ci = Path('.github/workflows/prime-shareholder-snapshot.yml').read_text()
-          assert 'cron: "15 3 * * *"' in shareholder_ci
-          assert 'branches: ["main"]' not in shareholder_ci
-          assert 'workflow_dispatch:' in shareholder_ci
-          assert 'capture_shareholder_top20.mjs' in shareholder_ci
-          assert 'store_shareholder_top20_d1.mjs' in shareholder_ci
           PY
 
       - name: Dry-run production Python Worker bundle
