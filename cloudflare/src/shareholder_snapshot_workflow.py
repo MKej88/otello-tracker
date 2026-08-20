@@ -35,7 +35,7 @@ def _target_date(event) -> str:
 
 
 class ShareholderSnapshotWorkflow(WorkflowEntrypoint):
-    """Capture one validated Euronext OMS Top 20 snapshot per weekly run."""
+    """Capture one validated Euronext OMS Top 20 snapshot per daily run."""
 
     async def run(self, event, step):
         from performance_repository import PerformanceD1WriteRepository
