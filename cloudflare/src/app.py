@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from bemobi_consensus_investor import bemobi_consensus
 from bemobi_dashboard import bemobi_dashboard
+from bemobi_source_status import bemobi_source_status
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
@@ -35,6 +36,7 @@ CACHE_POLICIES = {
     "/api/buybacks/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
+    "/api/bemobi/source-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
     "/api/market/quotes": ("public, max-age=30", "public, max-age=60, stale-while-revalidate=120"),
 }
 
@@ -153,3 +155,8 @@ async def get_bemobi_dashboard(request: Request) -> dict:
 @app.get("/api/bemobi/consensus")
 async def get_bemobi_consensus(request: Request) -> dict:
     return await bemobi_consensus(_repository(request))
+
+
+@app.get("/api/bemobi/source-status")
+async def get_bemobi_source_status(request: Request) -> dict:
+    return await bemobi_source_status(_repository(request))
