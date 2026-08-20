@@ -29,11 +29,20 @@ def _nearest_fx(connection, base: str, day: str):
     floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
     return connection.execute(
         """
-        SELECT substr(observed_at,1,10) AS rate_date, rate
-        FROM fx_rates
-        WHERE base_currency=? AND quote_currency='NOK'
-          AND substr(observed_at,1,10) <= ? AND substr(observed_at,1,10) >= ?
-        ORDER BY observed_at DESC, id DESC LIMIT 1
+        SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate, s.code AS source_code
+        FROM fx_rates fr
+        JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency=? AND fr.quote_currency='NOK'
+          AND substr(fr.observed_at,1,10) <= ? AND substr(fr.observed_at,1,10) >= ?
+        ORDER BY substr(fr.observed_at,1,10) DESC,
+                 CASE s.code
+                   WHEN 'NORGES_BANK' THEN 0
+                   WHEN 'ECB' THEN 1
+                   ELSE 5
+                 END,
+                 fr.observed_at DESC,
+                 fr.id DESC
+        LIMIT 1
         """,
         (base, day, floor_date),
     ).fetchone()
@@ -250,8 +259,8 @@ def fx_backtest_summary(database_path: str | None = None) -> dict[str, Any]:
         "method_note": (
             "Backtesten starter med kildebasert kontantfordeling. Rapportert USD/BRL brukes direkte, "
             "eksplisitt NOK eller eldre ufordelt residual holdes i NOK, og kjente kontantstrømmer legges "
-            "til i opprinnelig valuta. Valutaeffekten isoleres mellom strømdatoene med historiske "
-            "ECB-krysskurser. Resultatført netto valutaresultat brukes ikke som fasit fordi det også "
-            "påvirkes av andre monetære poster enn kontanter."
+            "til i opprinnelig valuta. Valutaeffekten isoleres mellom strømdatoene med direkte "
+            "Norges Bank-kurser mot NOK; ECB beholdes kun som historisk fallback. Resultatført netto "
+            "valutaresultat brukes ikke som fasit fordi det også påvirkes av andre monetære poster enn kontanter."
         ),
     }
