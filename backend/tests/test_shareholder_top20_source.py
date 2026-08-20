@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -11,9 +12,13 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 
 from shareholder_top20_source import (  # noqa: E402
     EXPECTED_ROWS,
+    _candidate_resource_urls,
+    _extract_probe_payload,
     fetch_top20,
     parse_accessibility_tree,
+    parse_json_payload,
     parse_markdown,
+    parse_network_body,
 )
 
 
@@ -60,6 +65,68 @@ def test_markdown_table_parses_top20_rows() -> None:
     assert len(rows) == 20
     assert rows[1]["shareholder_name"] == "Investor 2 AS"
     assert rows[1]["shares"] == 3_900_000
+
+
+def test_json_payload_finds_nested_top20_records() -> None:
+    payload = {
+        "data": {
+            "shareholders": [
+                {
+                    "position": rank,
+                    "shareholderName": f"Investor {rank} AS",
+                    "numberOfShares": 4_100_000 - rank * 100_000,
+                    "ownershipPct": 4.25,
+                    "countryCode": "NOR",
+                    "accountType": "Comp.",
+                }
+                for rank in range(1, 21)
+            ]
+        }
+    }
+    rows = parse_json_payload(payload)
+    assert len(rows) == 20
+    assert rows[0]["rank"] == 1
+    assert rows[0]["shareholder_name"] == "Investor 1 AS"
+    assert rows[0]["shares"] == 4_000_000
+    assert rows[0]["ownership_pct"] == "4.25"
+    assert rows[0]["country"] == "NOR"
+
+
+def test_network_body_accepts_json_top20() -> None:
+    payload = {
+        "results": [
+            {"name": f"Investor {rank} AS", "shares": 4_100_000 - rank * 100_000, "pct": 4.25}
+            for rank in range(1, 21)
+        ]
+    }
+    rows = parse_network_body(json.dumps(payload))
+    assert len(rows) == 20
+    assert rows[-1]["rank"] == 20
+
+
+def test_network_probe_payload_and_candidate_priority() -> None:
+    probe = {
+        "resources": [
+            {"url": "https://ir.oms.no/static/js/main.abc.js", "type": "script"},
+            {"url": "https://ir.oms.no/api/shareholders?token=opera", "type": "fetch"},
+            {"url": "https://data.example.test/graphql", "type": "xmlhttprequest"},
+            {"url": "https://ir.oms.no/logo.svg", "type": "img"},
+        ],
+        "scripts": ["https://ir.oms.no/static/js/main.abc.js"],
+        "responses": [],
+    }
+    html = (
+        "<html><head><script id=\"otello-network-dump\" type=\"application/json\">"
+        + json.dumps(probe)
+        + "</script></head></html>"
+    )
+    parsed = _extract_probe_payload(html)
+    assert parsed["scripts"] == probe["scripts"]
+    candidates = _candidate_resource_urls(parsed)
+    assert candidates == [
+        "https://ir.oms.no/api/shareholders?token=opera",
+        "https://data.example.test/graphql",
+    ]
 
 
 def test_legacy_static_html_wins_without_browser_run() -> None:
