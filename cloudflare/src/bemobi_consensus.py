@@ -4,96 +4,7 @@ from typing import Any
 
 from bemobi_consensus_history import build_consensus_history
 from bemobi_dashboard import bemobi_dashboard
-
-
-ANALYST_COVERAGE = [
-    {
-        "institution": "BTG Pactual",
-        "analyst": "Osni Carfi",
-        "rating": "BUY",
-        "target_price_brl": 35.00,
-        "last_update": "2025-11-11",
-    },
-    {
-        "institution": "Itaú BBA",
-        "analyst": "Maria Clara Infantozzi",
-        "rating": "BUY",
-        "target_price_brl": 33.80,
-        "last_update": "2026-04-15",
-    },
-    {
-        "institution": "Morgan Stanley",
-        "analyst": "Cesar Medina",
-        "rating": "HOLD",
-        "target_price_brl": 24.00,
-        "last_update": "2026-06-11",
-    },
-    {
-        "institution": "XP",
-        "analyst": "Bernardo Guttmann",
-        "rating": "BUY",
-        "target_price_brl": 31.00,
-        "last_update": "2026-03-30",
-    },
-]
-
-FORWARD_CONSENSUS = [
-    {
-        "year": 2026,
-        "revenue_mbrl": 814.0,
-        "ebitda_mbrl": 288.2,
-        "ebit_mbrl": 205.4,
-        "net_income_mbrl": 174.3,
-        "eps_brl": 2.07,
-        "net_debt_mbrl": -226.0,
-    },
-    {
-        "year": 2027,
-        "revenue_mbrl": 1002.0,
-        "ebitda_mbrl": 342.5,
-        "ebit_mbrl": 257.1,
-        "net_income_mbrl": 191.6,
-        "eps_brl": 2.16,
-        "net_debt_mbrl": -208.0,
-    },
-]
-
-BEAT_MISS_HISTORY = [
-    {
-        "period": "3Q25",
-        "broker": "XP",
-        "published_date": "2025-10-29",
-        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-outro-trimestre-forte/",
-        "metrics": [
-            {"metric": "adjusted_ebitda_mbrl", "label": "Justert EBITDA", "estimate": 61.0, "actual": 62.7},
-            {"metric": "adjusted_net_income_mbrl", "label": "Justert resultat", "estimate": 39.0, "actual": 41.0},
-        ],
-    },
-    {
-        "period": "4Q25",
-        "broker": "XP",
-        "published_date": "2026-02-01",
-        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/brasil-tech-previa-4t25/",
-        "metrics": [
-            {"metric": "adjusted_ebitda_mbrl", "label": "Justert EBITDA", "estimate": 65.0, "actual": 66.0},
-            {"metric": "adjusted_net_income_mbrl", "label": "Justert resultat ex-swap", "estimate": 52.0, "actual": 61.0},
-        ],
-    },
-    {
-        "period": "2Q26",
-        "broker": "XP",
-        "published_date": "2026-07-16",
-        "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/tmt-previa-do-2t26-lwsa3-e-bmob3/",
-        "metrics": [
-            {"metric": "adjusted_ebitda_mbrl", "label": "Justert EBITDA", "estimate": 77.0, "actual": 79.4},
-            {"metric": "adjusted_net_income_mbrl", "label": "Justert resultat", "estimate": 32.0, "actual": 45.2},
-        ],
-    },
-]
-
-ANALYST_COVERAGE_URL = "https://ri.bemobi.com.br/nossas-acoes/cobertura-de-analistas-2/"
-FORWARD_CONSENSUS_URL = "https://www.marketscreener.com/quote/stock/BEMOBI-MOBILE-TECH-S-A-119084218/finances/"
-XP_MODEL_URL = "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-atualizacao-do-modelo-e-comentarios-do-nosso-ndr-com-o-cfo-e-ri-da-bemobi/"
+from bemobi_facts import latest_bemobi_fact, load_bemobi_facts, public_fact
 
 
 def _number(value: Any) -> float | None:
@@ -105,44 +16,70 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def _target_payload(price_brl: float | None) -> dict[str, Any]:
-    targets = [float(item["target_price_brl"]) for item in ANALYST_COVERAGE]
+def _target_payload(price_brl: float | None, analysts: list[dict[str, Any]]) -> dict[str, Any]:
+    targets = [
+        float(item["target_price_brl"])
+        for item in analysts
+        if _number(item.get("target_price_brl")) is not None
+    ]
+    if not targets:
+        return {
+            "analyst_count": 0,
+            "buy_count": 0,
+            "hold_count": 0,
+            "sell_count": 0,
+            "buy_pct": 0.0,
+            "average_target_brl": None,
+            "high_target_brl": None,
+            "low_target_brl": None,
+            "upside_to_average_pct": None,
+            "source": None,
+            "source_url": None,
+            "checked_date": None,
+        }
+
     average = sum(targets) / len(targets)
     high = max(targets)
     low = min(targets)
-    buy_count = sum(1 for item in ANALYST_COVERAGE if item["rating"] == "BUY")
-    hold_count = sum(1 for item in ANALYST_COVERAGE if item["rating"] == "HOLD")
-    sell_count = sum(1 for item in ANALYST_COVERAGE if item["rating"] == "SELL")
+    buy_count = sum(1 for item in analysts if str(item.get("rating") or "").upper() == "BUY")
+    hold_count = sum(1 for item in analysts if str(item.get("rating") or "").upper() == "HOLD")
+    sell_count = sum(1 for item in analysts if str(item.get("rating") or "").upper() == "SELL")
     upside = None if price_brl is None or price_brl <= 0 else (average / price_brl - 1) * 100
+    checked_dates = [str(item.get("checked_date")) for item in analysts if item.get("checked_date")]
     return {
-        "analyst_count": len(ANALYST_COVERAGE),
+        "analyst_count": len(analysts),
         "buy_count": buy_count,
         "hold_count": hold_count,
         "sell_count": sell_count,
-        "buy_pct": buy_count / len(ANALYST_COVERAGE) * 100,
+        "buy_pct": buy_count / len(analysts) * 100,
         "average_target_brl": average,
         "high_target_brl": high,
         "low_target_brl": low,
         "upside_to_average_pct": upside,
-        "source": "Bemobi IR",
-        "source_url": ANALYST_COVERAGE_URL,
-        "checked_date": "2026-08-19",
+        "source": analysts[0].get("_source_name"),
+        "source_url": analysts[0].get("_source_url"),
+        "checked_date": max(checked_dates) if checked_dates else None,
     }
 
 
-def _forward_payload(price_brl: float | None, total_shares: int | None) -> list[dict[str, Any]]:
+def _forward_payload(
+    price_brl: float | None,
+    total_shares: int | None,
+    forward_consensus: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     market_cap = None
     if price_brl is not None and price_brl > 0 and total_shares is not None and total_shares > 0:
         market_cap = price_brl * total_shares / 1_000_000
 
     payload: list[dict[str, Any]] = []
-    for item in FORWARD_CONSENSUS:
-        row = dict(item)
+    for fact in forward_consensus:
+        item = public_fact(fact) or {}
         net_debt = float(item["net_debt_mbrl"])
         ebitda = float(item["ebitda_mbrl"])
         ebit = float(item["ebit_mbrl"])
         net_income = float(item["net_income_mbrl"])
         enterprise_value = None if market_cap is None else market_cap + net_debt
+        row = dict(item)
         row.update(
             {
                 "market_cap_mbrl": market_cap,
@@ -157,11 +94,12 @@ def _forward_payload(price_brl: float | None, total_shares: int | None) -> list[
     return payload
 
 
-def _beat_miss_payload() -> list[dict[str, Any]]:
+def _beat_miss_payload(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for item in BEAT_MISS_HISTORY:
+    for fact in facts:
+        item = public_fact(fact) or {}
         metrics = []
-        for metric in item["metrics"]:
+        for metric in item.get("metrics") or []:
             estimate = float(metric["estimate"])
             actual = float(metric["actual"])
             metrics.append(
@@ -170,7 +108,13 @@ def _beat_miss_payload() -> list[dict[str, Any]]:
                     "beat_miss_pct": None if estimate == 0 else (actual / estimate - 1) * 100,
                 }
             )
-        rows.append({**item, "metrics": metrics})
+        rows.append(
+            {
+                **item,
+                "source_url": item.get("source_url") or fact.get("_source_url"),
+                "metrics": metrics,
+            }
+        )
     return rows
 
 
@@ -182,12 +126,31 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
             "reason": "bemobi_dashboard_not_ready",
         }
 
+    analyst_facts = await load_bemobi_facts(repository, "ANALYST")
+    forward_facts = await load_bemobi_facts(repository, "FORWARD_CONSENSUS")
+    beat_miss_facts = await load_bemobi_facts(repository, "BEAT_MISS")
+    next_quarter_fact = await latest_bemobi_fact(repository, "NEXT_QUARTER")
+    reference_model_fact = await latest_bemobi_fact(repository, "REFERENCE_MODEL")
+
+    if not analyst_facts or not forward_facts or next_quarter_fact is None or reference_model_fact is None:
+        return {
+            "ready": False,
+            "reason": "bemobi_consensus_facts_not_ready",
+        }
+
     market = bemobi.get("market") or {}
     otello = bemobi.get("otello") or {}
     price_brl = _number(market.get("price_brl"))
     total_shares = int(otello.get("bemobi_total_shares") or 0) or None
-    forward_years = _forward_payload(price_brl, total_shares)
-    beat_miss = _beat_miss_payload()
+    forward_years = _forward_payload(price_brl, total_shares, forward_facts)
+    beat_miss = _beat_miss_payload(beat_miss_facts)
+    analysts = [public_fact(item) or {} for item in analyst_facts]
+    coverage = _target_payload(price_brl, analyst_facts)
+
+    forward_source = forward_facts[0]
+    next_quarter = public_fact(next_quarter_fact) or {}
+    reference_model = public_fact(reference_model_fact) or {}
+    reference_model["source_url"] = reference_model.get("source_url") or reference_model_fact.get("_source_url")
 
     return {
         "ready": True,
@@ -197,52 +160,40 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
             "price_date": market.get("price_date"),
             "price_source": market.get("price_source"),
         },
-        "coverage": _target_payload(price_brl),
-        "analysts": ANALYST_COVERAGE,
+        "coverage": coverage,
+        "analysts": analysts,
         "forward_consensus": {
-            "source": "MarketScreener",
-            "source_url": FORWARD_CONSENSUS_URL,
-            "checked_date": "2026-08-19",
-            "quality": "PUBLIC_AGGREGATE",
+            "source": forward_source.get("_source_name"),
+            "source_url": forward_source.get("_source_url"),
+            "checked_date": forward_source.get("_as_of_date"),
+            "quality": forward_source.get("_quality"),
             "analyst_count": None,
             "years": forward_years,
-            "note": (
-                "Offentlig aggregert årsprognose. Kilden viser ikke et komplett hus-for-hus "
-                "estimatsett, så antall bidragsytere per linje vises ikke."
-            ),
+            "note": forward_source.get("_notes"),
         },
-        "next_quarter": {
-            "period": "3Q26",
-            "status": "WAITING_FOR_PUBLIC_ESTIMATES",
-            "estimates": [],
-            "tracked_metrics": [
-                "Nettoomsetning",
-                "Justert EBITDA",
-                "EBITDA-margin",
-                "Justert resultat",
-                "EPS",
-            ],
-            "note": "Ingen verifiserte offentlige 3Q26-estimater funnet per 19.08.2026.",
-        },
+        "next_quarter": next_quarter,
         "beat_miss": beat_miss,
         "history_link": await build_consensus_history(
             beat_miss,
             repository,
             current_forward=forward_years,
         ),
-        "reference_model": {
-            "broker": "XP",
-            "rating": "BUY",
-            "target_price_brl": 31.0,
-            "published_date": "2026-03-30",
-            "pe_2026_reported": 11.2,
-            "ev_ebitda_2026_reported": 6.6,
-            "source_url": XP_MODEL_URL,
-            "note": "Historisk XP-modell ved publiseringsdato; ikke løpende rekalkulert.",
-        },
+        "reference_model": reference_model,
         "sources": [
-            {"label": "Analytikerdekning og kursmål", "source": "Bemobi IR", "url": ANALYST_COVERAGE_URL},
-            {"label": "Årsestimater 2026–2027", "source": "MarketScreener", "url": FORWARD_CONSENSUS_URL},
-            {"label": "XP modelloppdatering", "source": "XP", "url": XP_MODEL_URL},
+            {
+                "label": "Analytikerdekning og kursmål",
+                "source": analyst_facts[0].get("_source_name"),
+                "url": analyst_facts[0].get("_source_url"),
+            },
+            {
+                "label": "Årsestimater 2026–2027",
+                "source": forward_source.get("_source_name"),
+                "url": forward_source.get("_source_url"),
+            },
+            {
+                "label": "XP modelloppdatering",
+                "source": reference_model_fact.get("_source_name"),
+                "url": reference_model_fact.get("_source_url"),
+            },
         ],
     }
