@@ -77,8 +77,8 @@ def test_history_links_2q26_beat_miss_to_bmob3_market_reaction(tmp_path) -> None
     assert reaction["pre"]["date"] == "2026-08-11"
     assert reaction["day1"]["date"] == "2026-08-12"
     assert reaction["day5"]["date"] == "2026-08-18"
-    assert reaction["reaction_1d_pct"] == 10.0
-    assert reaction["reaction_5d_pct"] == 25.0
+    assert abs(reaction["reaction_1d_pct"] - 10.0) < 1e-12
+    assert abs(reaction["reaction_5d_pct"] - 25.0) < 1e-12
 
     revision = event["model_revision"]
     assert revision["status"] == "WAITING_FOR_PUBLIC_POST_REPORT_MODEL"
