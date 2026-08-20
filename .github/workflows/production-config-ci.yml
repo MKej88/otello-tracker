@@ -73,7 +73,7 @@ jobs:
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
           assert workflows['SHAREHOLDER_SNAPSHOT']['class_name'] == 'ShareholderSnapshotWorkflow'
-          assert workflows['SHAREHOLDER_SNAPSHOT']['schedules'] == ['15 7 * * 6']
+          assert workflows['SHAREHOLDER_SNAPSHOT']['schedules'] == ['15 3 * * *']
           PY
 
       - name: Dry-run production Python Worker bundle
