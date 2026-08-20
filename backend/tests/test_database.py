@@ -21,13 +21,13 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     assert init_database(database_path) == [
         "0001", "0002", "0003", "0004", "0005", "0006", "0007",
         "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
-        "0016", "0017", "0019",
+        "0016", "0017", "0019", "0020",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0019"
-    assert status["table_counts"]["sources"] == 12
+    assert status["latest_migration"] == "0020"
+    assert status["table_counts"]["sources"] == 14
     assert status["table_counts"]["instruments"] == 2
     assert status["table_counts"]["bemobi_investor_facts"] == 18
     assert status["table_counts"]["company_news"] == 0
@@ -102,12 +102,14 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         }
         assert {
             "fact_type", "fact_key", "as_of_date", "published_date", "payload_json",
-            "source_name", "source_url", "quality", "notes",
+            "source_name", "source_url", "quality", "notes", "source_document_id",
         } <= bemobi_fact_columns
 
         market_columns = {row["name"] for row in connection.execute("PRAGMA table_info(market_prices)")}
         assert {"quality", "metadata_json"} <= market_columns
         assert connection.execute("SELECT COUNT(*) FROM sources WHERE code = 'INVESTING'").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM sources WHERE code = 'MARKETSCREENER'").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM sources WHERE code = 'XP'").fetchone()[0] == 1
         mfn = connection.execute("SELECT is_official, source_type FROM sources WHERE code = 'MFN'").fetchone()
         assert mfn["is_official"] == 0
         assert mfn["source_type"] == "OTHER"
@@ -217,8 +219,8 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0019"
-            assert payload["table_counts"]["sources"] == 12
+            assert payload["latest_migration"] == "0020"
+            assert payload["table_counts"]["sources"] == 14
             assert payload["table_counts"]["bemobi_investor_facts"] == 18
             assert payload["table_counts"]["company_news"] == 0
             assert payload["table_counts"]["buyback_daily_transactions"] == 0

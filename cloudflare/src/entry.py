@@ -80,6 +80,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
     async def run(self, event, step):
         from b3_full_refresh import refresh_bmob3_close
+        from bemobi_web_refresh import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
         from ecb_full_refresh import refresh_ecb_fx
         from full_refresh import (
@@ -190,6 +191,24 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["cvm"] = await cvm_step()
             except Exception as exc:
                 source_results["cvm"] = error_result(exc)
+
+            @step.do(
+                "refresh Bemobi investor web facts",
+                config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
+            )
+            async def bemobi_web_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await refresh_bemobi_web(
+                    repository,
+                    target_date=target_date,
+                    archive_bucket=self.env.SOURCE_ARCHIVE,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["bemobi_web"] = await bemobi_web_step()
+            except Exception as exc:
+                source_results["bemobi_web"] = error_result(exc)
 
             @step.do(
                 "reconcile NewsWeb",

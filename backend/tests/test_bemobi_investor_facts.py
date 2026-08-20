@@ -15,13 +15,13 @@ def test_bemobi_investor_facts_are_seeded_with_provenance(tmp_path: Path) -> Non
     database = str(tmp_path / "bemobi-facts.db")
     applied = init_database(database)
 
-    assert applied[-1] == "0019"
+    assert applied[-1] == "0020"
 
     with get_connection(database) as connection:
         rows = connection.execute(
             """
             SELECT fact_type, fact_key, as_of_date, published_date, payload_json,
-                   source_name, source_url, quality
+                   source_name, source_url, quality, source_document_id
             FROM bemobi_investor_facts
             ORDER BY id
             """
@@ -47,6 +47,7 @@ def test_bemobi_investor_facts_are_seeded_with_provenance(tmp_path: Path) -> Non
         assert row["source_name"]
         assert str(row["source_url"]).startswith("https://")
         assert row["quality"]
+        assert row["source_document_id"] is None  # seed; future automatic refreshes attach web snapshots
 
     result = next(row for row in rows if row["fact_type"] == "RESULT")
     result_payload = json.loads(result["payload_json"])

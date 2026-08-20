@@ -6,15 +6,19 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0019_bemobi_investor_facts.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0020_bemobi_web_provenance.sql`.
 
-`0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
+- `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
+- `0020` kobler automatiske Bemobi-fakta til `source_documents` og registrerer de eksplisitte sekundærkildene MarketScreener og XP.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0009_bemobi_investor_facts.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0010_bemobi_web_provenance.sql`.
 
-`0009` oppretter og seeder samme referansefakta i D1. SQLite- og D1-seedene skal være logisk identiske og inngår i den deterministiske paritetskontrollen.
+- `0009` oppretter og seeder Bemobi-faktalaget i D1.
+- `0010` legger til samme webproveniens og kilderegistrering som SQLite `0020`.
+
+SQLite og D1 skal fortsatt være strukturelt og logisk kompatible og inngår i den deterministiske paritetskontrollen.
 
 ## Reserverte, retirerte numre
 
@@ -25,10 +29,10 @@ Aksjonær-/Top 20-funksjonen ble fjernet i PR #95. I forbindelse med denne funks
 
 Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk brukt og skal ikke tas i bruk til noe annet.
 
-**Neste nye migrering etter Bemobi-faktalaget skal derfor minst være:**
+**Neste nye migrering etter automatisk Bemobi-webinnhenting skal minst være:**
 
-- SQLite: `0020_...`
-- Cloudflare D1: `0010_...`
+- SQLite: `0021_...`
+- Cloudflare D1: `0011_...`
 
 ## Regel for nye migreringer
 
