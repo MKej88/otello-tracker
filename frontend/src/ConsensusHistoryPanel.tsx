@@ -55,8 +55,18 @@ export type ConsensusHistoryLink = {
   forward_revision_tracker?: {
     source?: string | null;
     baseline_date?: string | null;
+    latest_date?: string | null;
     comparison_ready?: boolean;
     same_source_snapshots?: number | null;
+    latest_changes?: Array<{
+      year: number;
+      metric: string;
+      label: string;
+      before: number;
+      after: number;
+      change?: number | null;
+      change_pct?: number | null;
+    }>;
     note?: string | null;
   };
   method_note?: string | null;
@@ -90,6 +100,7 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
   if (!history) return null;
   const events = history.events ?? [];
   const tracker = history.forward_revision_tracker;
+  const snapshotChanges = tracker?.latest_changes ?? [];
 
   return (
     <section className="card consensusHistoryCard">
@@ -153,7 +164,9 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
                     {waitingRevision ? (
                       <>
                         <strong>Venter på offentlig modell</strong>
-                        <p>Siste verifiserte XP-kursmål før rapport: <b>R$ {value(revision?.target_before_brl, 2)}</b></p>
+                        {revision?.target_before_brl != null && (
+                          <p>Siste verifiserte XP-kursmål før rapport: <b>R$ {value(revision.target_before_brl, 2)}</b></p>
+                        )}
                       </>
                     ) : (
                       <>
@@ -228,9 +241,29 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
           <span>Første snapshot</span><b>{dateLabel(tracker?.baseline_date)}</b>
         </div>
         <div>
+          <span>Siste snapshot</span><b>{dateLabel(tracker?.latest_date)}</b>
+        </div>
+        <div>
           <span>Samme-kilde snapshots</span><b>{tracker?.same_source_snapshots ?? 0}</b>
         </div>
       </div>
+
+      {tracker?.comparison_ready && (
+        <div className="consensusSnapshotChanges">
+          <div className="consensusSnapshotChangesHeader">
+            <span className="label">Siste MarketScreener-revisjon</span>
+            <strong>{snapshotChanges.length ? `${snapshotChanges.length} endringer` : "Ingen tallendring"}</strong>
+          </div>
+          {snapshotChanges.map((item) => (
+            <div className="consensusSnapshotChange" key={`${item.year}-${item.metric}`}>
+              <span>{item.year}E · {item.label}</span>
+              <b>{value(item.before, item.metric === "eps_brl" ? 2 : 1)} → {value(item.after, item.metric === "eps_brl" ? 2 : 1)}</b>
+              <strong className={(item.change_pct ?? 0) >= 0 ? "positive" : "negative"}>{signedPct(item.change_pct)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tracker?.note && <p className="consensusNote">{tracker.note}</p>}
       {history.method_note && <p className="consensusNote">{history.method_note}</p>}
     </section>
