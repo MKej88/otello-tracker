@@ -57,9 +57,9 @@ INSERT INTO bemobi_investor_facts(
     ),
     (
         4, 'TTM_QUARTER', '4Q25', '2025-12-31', '2026-02-01',
-        '{"period":"4Q25","adjusted_net_income_mbrl":61.0,"adjusted_ebitda_mbrl":66.0,"adjusted_cash_generation_mbrl":52.5,"source":"XP / CVM","source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/"}',
+        '{"period":"4Q25","adjusted_net_income_mbrl":61.0,"adjusted_ebitda_mbrl":66.0,"adjusted_cash_generation_mbrl":52.5,"source":"XP / CVM","source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-gerasjon-de-caixa/"}',
         'XP / CVM',
-        'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistentemente-e-forte-geracao-de-caixa/',
+        'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/',
         'CURATED_PUBLIC_RESULT',
         'Kvartalstall brukt i TTM-verdsettelsen.'
     ),
@@ -88,36 +88,36 @@ INSERT INTO bemobi_investor_facts(
         'Standardisert EBIT TTM og omtrentlig netto kontantanker for EV-beregning.'
     ),
     (
-        8, 'ANALYST', 'BTG Pactual', '2025-11-11', '2025-11-11',
+        8, 'ANALYST', 'BTG Pactual', '2026-08-19', '2025-11-11',
         '{"institution":"BTG Pactual","analyst":"Osni Carfi","rating":"BUY","target_price_brl":35.0,"last_update":"2025-11-11"}',
         'Bemobi IR',
         'https://ri.bemobi.com.br/nossas-acoes/cobertura-de-analistas-2/',
         'OFFICIAL_IR_CURRENT',
-        'Analytikerdekning publisert av Bemobi IR.'
+        'Analytikerdekning kontrollert mot Bemobi IR 19.08.2026.'
     ),
     (
-        9, 'ANALYST', 'Itaú BBA', '2026-04-15', '2026-04-15',
+        9, 'ANALYST', 'Itaú BBA', '2026-08-19', '2026-04-15',
         '{"institution":"Itaú BBA","analyst":"Maria Clara Infantozzi","rating":"BUY","target_price_brl":33.8,"last_update":"2026-04-15"}',
         'Bemobi IR',
         'https://ri.bemobi.com.br/nossas-acoes/cobertura-de-analistas-2/',
         'OFFICIAL_IR_CURRENT',
-        'Analytikerdekning publisert av Bemobi IR.'
+        'Analytikerdekning kontrollert mot Bemobi IR 19.08.2026.'
     ),
     (
-        10, 'ANALYST', 'Morgan Stanley', '2026-06-11', '2026-06-11',
+        10, 'ANALYST', 'Morgan Stanley', '2026-08-19', '2026-06-11',
         '{"institution":"Morgan Stanley","analyst":"Cesar Medina","rating":"HOLD","target_price_brl":24.0,"last_update":"2026-06-11"}',
         'Bemobi IR',
         'https://ri.bemobi.com.br/nossas-acoes/cobertura-de-analistas-2/',
         'OFFICIAL_IR_CURRENT',
-        'Analytikerdekning publisert av Bemobi IR.'
+        'Analytikerdekning kontrollert mot Bemobi IR 19.08.2026.'
     ),
     (
-        11, 'ANALYST', 'XP', '2026-03-30', '2026-03-30',
+        11, 'ANALYST', 'XP', '2026-08-19', '2026-03-30',
         '{"institution":"XP","analyst":"Bernardo Guttmann","rating":"BUY","target_price_brl":31.0,"last_update":"2026-03-30"}',
         'Bemobi IR',
         'https://ri.bemobi.com.br/nossas-acoes/cobertura-de-analistas-2/',
         'OFFICIAL_IR_CURRENT',
-        'Analytikerdekning publisert av Bemobi IR.'
+        'Analytikerdekning kontrollert mot Bemobi IR 19.08.2026.'
     ),
     (
         12, 'FORWARD_CONSENSUS', '2026', '2026-08-19', NULL,
@@ -125,7 +125,7 @@ INSERT INTO bemobi_investor_facts(
         'MarketScreener',
         'https://www.marketscreener.com/quote/stock/BEMOBI-MOBILE-TECH-S-A-119084218/finances/',
         'PUBLIC_AGGREGATE',
-        'Offentlig aggregert årsprognose; komplett hus-for-hus bidragsliste er ikke tilgjengelig.'
+        'Offentlig aggregert årsprognose. Kilden viser ikke et komplett hus-for-hus estimatsett, så antall bidragsytere per linje vises ikke.'
     ),
     (
         13, 'FORWARD_CONSENSUS', '2027', '2026-08-19', NULL,
@@ -133,7 +133,7 @@ INSERT INTO bemobi_investor_facts(
         'MarketScreener',
         'https://www.marketscreener.com/quote/stock/BEMOBI-MOBILE-TECH-S-A-119084218/finances/',
         'PUBLIC_AGGREGATE',
-        'Offentlig aggregert årsprognose; komplett hus-for-hus bidragsliste er ikke tilgjengelig.'
+        'Offentlig aggregert årsprognose. Kilden viser ikke et komplett hus-for-hus estimatsett, så antall bidragsytere per linje vises ikke.'
     ),
     (
         14, 'BEAT_MISS', '3Q25', '2025-09-30', '2025-10-29',
@@ -161,7 +161,7 @@ INSERT INTO bemobi_investor_facts(
     ),
     (
         17, 'REFERENCE_MODEL', 'XP-2026-03-30', '2026-03-30', '2026-03-30',
-        '{"broker":"XP","rating":"BUY","target_price_brl":31.0,"published_date":"2026-03-30","pe_2026_reported":11.2,"ev_ebitda_2026_reported":6.6,"note":"Historisk XP-modell ved publiseringsdato; ikke løpende rekalkulert."}',
+        '{"broker":"XP","rating":"BUY","target_price_brl":31.0,"published_date":"2026-03-30","pe_2026_reported":11.2,"ev_ebitda_2026_reported":6.6,"source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-atualizacao-do-modelo-e-comentarios-do-nosso-ndr-com-o-cfo-e-ri-da-bemobi/","note":"Historisk XP-modell ved publiseringsdato; ikke løpende rekalkulert."}',
         'XP',
         'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-atualizacao-do-modelo-e-comentarios-do-nosso-ndr-com-o-cfo-e-ri-da-bemobi/',
         'PUBLIC_BROKER_MODEL',
