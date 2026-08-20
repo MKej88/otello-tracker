@@ -44,11 +44,15 @@ type BemobiDashboard = {
   };
   valuation?: {
     period?: string | null;
+    ttm_end_period?: string | null;
     market_cap_mbrl?: number | null;
     enterprise_value_mbrl?: number | null;
     net_debt_mbrl?: number | null;
     net_cash_mbrl?: number | null;
     ev_anchor_period?: string | null;
+    ev_anchor_status?: string | null;
+    ev_anchor_is_current?: boolean;
+    ev_metrics_ready?: boolean;
     ev_anchor_quality?: string | null;
     ev_anchor_source?: string | null;
     ev_anchor_source_url?: string | null;
@@ -130,6 +134,10 @@ function signedValue(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
   const prefix = input > 0 ? "+" : "";
   return `${prefix}${value(input, digits)} %`;
+}
+
+function growthValue(input: number | null | undefined, digits = 1) {
+  return input == null || !Number.isFinite(input) ? "–" : signedValue(input, digits);
 }
 
 function dateLabel(input?: string | null) {
@@ -218,6 +226,9 @@ export default function BemobiPage() {
   const result = data.latest_result;
   const distribution = data.latest_distribution;
   const nextReport = data.next_report;
+  const ttmRange = valuation?.period?.replace(/^TTM\s+/, "") ?? "TTM";
+  const evAnchorPeriod = valuation?.ev_anchor_period ?? "ukjent periode";
+  const evAnchorStale = valuation?.ev_anchor_is_current === false;
 
   const topCards = [
     {
@@ -278,6 +289,13 @@ export default function BemobiPage() {
           <span className="pill">{valuation?.period ?? "TTM"}</span>
         </div>
 
+        {evAnchorStale && (
+          <p className="bemobiValuationNote">
+            <strong>EV-ankeret er eldre enn TTM-grunnlaget.</strong> TTM slutter i {valuation?.ttm_end_period ?? "ukjent periode"},
+            mens EBIT/netto kontant er kildebelagt til {evAnchorPeriod}. Enterprise value og EV/EBIT skjules til et nytt anker er tilgjengelig.
+          </p>
+        )}
+
         <div className="bemobiValuationMetrics">
           <div>
             <span>Markedsverdi</span>
@@ -292,7 +310,7 @@ export default function BemobiPage() {
           <div>
             <span>EV / EBIT TTM</span>
             <strong>{value(valuation?.ev_ebit_ttm, 1)}x</strong>
-            <small>Etter netto kontant</small>
+            <small>{evAnchorStale ? `Skjult · anker ${evAnchorPeriod}` : "Etter netto kontant"}</small>
           </div>
           <div>
             <span>FCF yield (just.)</span>
@@ -333,14 +351,14 @@ export default function BemobiPage() {
           <div className="bemobiValuationBase">
             <div className="bemobiSectionTitle">
               <span>TTM-grunnlag</span>
-              <small>3Q25–2Q26</small>
+              <small>{ttmRange}</small>
             </div>
             <div className="placeholderRows">
               <div><span>Justert resultat TTM</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert EBITDA TTM</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert FCF-proxy TTM</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
-              <div><span>EBIT TTM</span><strong>R$ {value(valuation?.ebit_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Netto kontant 2Q26</span><strong>R$ {value(valuation?.net_cash_mbrl, 1)}m</strong></div>
+              <div><span>EBIT TTM · anker {evAnchorPeriod}</span><strong>R$ {value(valuation?.ebit_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Netto kontant · anker {evAnchorPeriod}</span><strong>R$ {value(valuation?.net_cash_mbrl, 1)}m</strong></div>
               <div><span>Enterprise value</span><strong>R$ {value(valuation?.enterprise_value_mbrl, 0)}m</strong></div>
               <div><span>Justert EPS TTM</span><strong>R$ {value(valuation?.adjusted_eps_ttm_brl, 2)}</strong></div>
             </div>
@@ -355,7 +373,7 @@ export default function BemobiPage() {
             </SourceLink>
           ))}
           <SourceLink url={valuation?.ev_anchor_source_url}>
-            <span>EV-anker · {valuation?.ev_anchor_source ?? "CVM"}</span>
+            <span>EV-anker {evAnchorPeriod} · {valuation?.ev_anchor_source ?? "CVM"}</span>
           </SourceLink>
         </div>
         {valuation?.methodology_note && <p className="bemobiValuationNote">{valuation.methodology_note}</p>}
@@ -377,12 +395,12 @@ export default function BemobiPage() {
             <div>
               <span>Justert nettoomsetning</span>
               <strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
-              <em>+{value(result?.adjusted_net_revenue_yoy_pct, 1)} % år/år</em>
+              <em>{growthValue(result?.adjusted_net_revenue_yoy_pct, 1)} år/år</em>
             </div>
             <div>
               <span>Justert EBITDA</span>
               <strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
-              <em>+{value(result?.adjusted_ebitda_yoy_pct, 1)} % år/år</em>
+              <em>{growthValue(result?.adjusted_ebitda_yoy_pct, 1)} år/år</em>
             </div>
             <div>
               <span>EBITDA-margin</span>
@@ -392,7 +410,7 @@ export default function BemobiPage() {
             <div>
               <span>Justert resultat</span>
               <strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
-              <em>+{value(result?.adjusted_net_income_yoy_pct, 1)} % år/år</em>
+              <em>{growthValue(result?.adjusted_net_income_yoy_pct, 1)} år/år</em>
             </div>
             <div>
               <span>EBITDA etter capex</span>
@@ -407,8 +425,8 @@ export default function BemobiPage() {
           </div>
 
           <div className="bemobiGrowthStrip">
-            <div><span>Payments</span><strong>+{value(result?.payments_yoy_pct, 0)} %</strong><small>år/år</small></div>
-            <div><span>SaaS</span><strong>+{value(result?.saas_yoy_pct, 0)} %</strong><small>år/år</small></div>
+            <div><span>Payments</span><strong>{growthValue(result?.payments_yoy_pct, 0)}</strong><small>år/år</small></div>
+            <div><span>SaaS</span><strong>{growthValue(result?.saas_yoy_pct, 0)}</strong><small>år/år</small></div>
             <div><span>Rapportdato</span><strong>{dateLabel(result?.published_date)}</strong><small>{result?.period}</small></div>
           </div>
         </article>
