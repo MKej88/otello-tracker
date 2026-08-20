@@ -146,6 +146,63 @@ jobs:
         working-directory: cloudflare
         run: pywrangler deploy --config wrangler.production.jsonc
 
+      - name: Ensure today's Top 20 snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_date="$(TZ=Europe/Oslo date +%F)"
+          base="${CLOUDFLARE_PUBLIC_URL%/}"
+
+          snapshot_ready() {
+            local suffix="$1"
+            if ! curl --fail --show-error --silent \
+              "$base/api/shareholders/dashboard?deploy_prime=${suffix}-$(date +%s)" \
+              -o /tmp/otello-shareholders-prime.json; then
+              return 1
+            fi
+            TARGET_DATE="$target_date" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/otello-shareholders-prime.json').read_text())
+          history = payload.get('history') or {}
+          snapshots = history.get('snapshots') or []
+          latest_rows = history.get('latest_rows') or []
+          latest_date = str((snapshots[0] if snapshots else {}).get('snapshot_date') or '')[:10]
+          raise SystemExit(0 if latest_date == os.environ['TARGET_DATE'] and len(latest_rows) == 20 else 1)
+          PY
+          }
+
+          if snapshot_ready before; then
+            echo "Top 20 snapshot already complete for ${target_date}."
+            exit 0
+          fi
+
+          cd cloudflare
+          npx wrangler workflows trigger otello-shareholder-snapshot \
+            "{\"target_date\":\"${target_date}\"}" \
+            --config wrangler.production.jsonc
+          cd ..
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            sleep 5
+            if snapshot_ready "$attempt"; then
+              ready=1
+              break
+            fi
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo '::error::Top 20 snapshot was not ready after 300 seconds.'
+            test -f /tmp/otello-shareholders-prime.json && cat /tmp/otello-shareholders-prime.json
+            cd cloudflare
+            npx wrangler workflows instances describe otello-shareholder-snapshot latest \
+              --config wrangler.production.jsonc || true
+            exit 1
+          fi
+          echo "Top 20 snapshot ready for ${target_date}."
+
       - name: Production HTTP acceptance
         shell: bash
         run: |
@@ -166,10 +223,13 @@ jobs:
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/dashboard" -o /tmp/otello-buyback-dashboard.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/shareholders/dashboard?acceptance=$(date +%s)" -o /tmp/otello-shareholders.json
           python - <<'PY'
           import json
           from datetime import UTC, date, datetime
           from pathlib import Path
+          from zoneinfo import ZoneInfo
 
           index = Path('/tmp/otello-index.html').read_text()
           index_headers = Path('/tmp/otello-index.headers').read_text().lower()
@@ -180,6 +240,7 @@ jobs:
           fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
+          shareholders = json.loads(Path('/tmp/otello-shareholders.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
@@ -212,6 +273,21 @@ jobs:
           assert int(buyback_shares.get('treasury_shares') or 0) > 0, buyback_dashboard
           assert int(buyback_shares.get('outstanding_shares') or 0) > 0, buyback_dashboard
           assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
+
+          shareholder_history = shareholders.get('history') or {}
+          shareholder_snapshots = shareholder_history.get('snapshots') or []
+          latest_rows = shareholder_history.get('latest_rows') or []
+          expected_shareholder_date = datetime.now(ZoneInfo('Europe/Oslo')).date().isoformat()
+          latest_shareholder_date = str(
+              (shareholder_snapshots[0] if shareholder_snapshots else {}).get('snapshot_date') or ''
+          )[:10]
+          assert len(latest_rows) == 20, shareholders
+          assert latest_shareholder_date == expected_shareholder_date, {
+              'expected': expected_shareholder_date,
+              'actual': latest_shareholder_date,
+              'shareholders': shareholders,
+          }
+
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
           age = (today - as_of).days
@@ -225,6 +301,7 @@ jobs:
               f"fx_backtest_periods={fx_summary.get('periods_ready')}",
               f"buyback_status={forecast.get('status')}",
               f"buyback_latest={buyback_latest.get('shares')}",
+              f"shareholders={len(latest_rows)}@{latest_shareholder_date}",
               f'age_days={age}',
           )
           PY
