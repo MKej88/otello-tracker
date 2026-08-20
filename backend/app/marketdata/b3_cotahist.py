@@ -40,6 +40,10 @@ def _implied_two_decimals(raw: str) -> Decimal:
     return Decimal(raw) / Decimal("100")
 
 
+def _integer(raw: str) -> int:
+    return int(raw.strip() or "0")
+
+
 def parse_cotahist_line(line: str) -> B3DailyClose | None:
     """Parse one official B3 COTAHIST register-01 line.
 
@@ -57,7 +61,7 @@ def parse_cotahist_line(line: str) -> B3DailyClose | None:
     if bdi_code != "02" or market_type != "010":
         return None
 
-    quotation_factor = int(line[210:217] or "0")
+    quotation_factor = _integer(line[210:217])
     if quotation_factor != 1:
         raise ValueError(f"Uventet B3 quotation factor: {quotation_factor}")
 
@@ -74,8 +78,8 @@ def parse_cotahist_line(line: str) -> B3DailyClose | None:
         close=_implied_two_decimals(line[108:121]),
         currency=line[52:56].strip() or "R$",
         isin=line[230:242].strip(),
-        trades=int(line[147:152] or "0"),
-        quantity=int(line[152:170] or "0"),
+        trades=_integer(line[147:152]),
+        quantity=_integer(line[152:170]),
         volume=_implied_two_decimals(line[170:188]),
         quotation_factor=quotation_factor,
     )
