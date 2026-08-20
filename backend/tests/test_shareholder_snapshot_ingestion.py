@@ -152,11 +152,9 @@ def test_shareholder_capture_uses_github_browser_and_d1_api() -> None:
         encoding="utf-8"
     )
 
-    shareholder_workflow = next(
-        item for item in config["workflows"] if item["binding"] == "SHAREHOLDER_SNAPSHOT"
-    )
-    assert shareholder_workflow["class_name"] == "ShareholderSnapshotWorkflow"
-    assert "schedules" not in shareholder_workflow
+    workflow_bindings = {item["binding"] for item in config["workflows"]}
+    assert "SHAREHOLDER_SNAPSHOT" not in workflow_bindings
+    assert "browser" not in config
 
     assert 'cron: "15 3 * * *"' in github_workflow
     assert 'branches: ["main"]' in github_workflow
