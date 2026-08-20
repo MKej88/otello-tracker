@@ -81,6 +81,7 @@ type ConsensusPayload = {
     checked_date?: string | null;
     quality?: string | null;
     analyst_count?: number | null;
+    year_range?: string | null;
     years?: ForwardYear[];
     note?: string | null;
   };
@@ -177,6 +178,14 @@ export default function ConsensusPage() {
   const coverage = data.coverage;
   const market = data.market;
   const forward = data.forward_consensus;
+  const forwardYears = forward?.years ?? [];
+  const forwardRange = forward?.year_range ?? (
+    forwardYears.length === 0
+      ? "Forward"
+      : forwardYears.length === 1
+        ? `${forwardYears[0].year}E`
+        : `${forwardYears[0].year}E–${forwardYears[forwardYears.length - 1].year}E`
+  );
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
   const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && nextQuarterEstimates.length > 0;
@@ -255,7 +264,7 @@ export default function ConsensusPage() {
         <div className="cardHeader">
           <div>
             <span className="label">Forward konsensus</span>
-            <h2>2026E–2027E</h2>
+            <h2>{forwardRange}</h2>
           </div>
           <SourceLink url={forward?.source_url}><span className="pill">{forward?.source ?? "Kilde"}</span></SourceLink>
         </div>
@@ -268,7 +277,7 @@ export default function ConsensusPage() {
               </tr>
             </thead>
             <tbody>
-              {(forward?.years ?? []).map((year) => (
+              {forwardYears.map((year) => (
                 <tr key={year.year}>
                   <td><strong>{year.year}E</strong></td>
                   <td>R$ {value(year.revenue_mbrl, 0)}m</td>
