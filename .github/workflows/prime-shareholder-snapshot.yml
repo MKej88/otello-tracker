@@ -1,49 +1,34 @@
-name: Prime shareholder snapshot
+name: Daily shareholder snapshot
 
 on:
-  push:
-    branches: ["main"]
-  workflow_run:
-    workflows: ["Deploy Cloudflare production"]
-    types: [completed]
+  schedule:
+    - cron: "15 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: prime-shareholder-snapshot
+  group: shareholder-top20-production
   cancel-in-progress: false
 
 jobs:
-  prime:
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+  capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     environment: production
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
-      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
-      CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
-      CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
-      CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
       CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+      TOP20_OUTPUT: /tmp/otec-top20.json
+      TOP20_DEBUG_DIR: /tmp/otec-top20-debug
     steps:
       - name: Check out main
         uses: actions/checkout@v7
         with:
           ref: main
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
 
       - uses: actions/setup-node@v7
         with:
@@ -55,90 +40,59 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_D1_DATABASE_ID"
-          test -n "$CLOUDFLARE_WORKER_NAME"
-          test -n "$CLOUDFLARE_D1_DATABASE_NAME"
-          test -n "$CLOUDFLARE_R2_BUCKET_NAME"
           test -n "$CLOUDFLARE_PUBLIC_URL"
+          command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null || command -v chromium >/dev/null
 
-      - name: Install pinned Wrangler
-        run: npm install --no-save wrangler@4.123.0
+      - name: Install pinned Playwright client
+        run: npm install --no-save --ignore-scripts --prefix cloudflare/tools playwright-core@1.58.2
 
-      - name: Render production Wrangler config
-        run: python cloudflare/tools/render_production_config.py
+      - name: Capture Euronext Top 20 in regular Chrome
+        run: node cloudflare/tools/capture_shareholder_top20.mjs
 
-      - name: Check whether today's Top 20 snapshot already exists
-        id: snapshot
+      - name: Store validated Top 20 in production D1
+        run: node cloudflare/tools/store_shareholder_top20_d1.mjs
+
+      - name: Verify public Top 20 API
         shell: bash
         run: |
+          set -euo pipefail
           target_date="$(TZ=Europe/Oslo date +%F)"
           base="${CLOUDFLARE_PUBLIC_URL%/}"
-          curl --fail --show-error --silent \
-            "$base/api/shareholders/dashboard?prime_check=$(date +%s)" \
-            -o /tmp/otello-shareholders-before.json || echo '{}' > /tmp/otello-shareholders-before.json
-          TARGET_DATE="$target_date" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(Path('/tmp/otello-shareholders-before.json').read_text())
-          history = payload.get('history') or {}
-          snapshots = history.get('snapshots') or []
-          latest_rows = history.get('latest_rows') or []
-          latest_date = str((snapshots[0] if snapshots else {}).get('snapshot_date') or '')[:10]
-          target = os.environ['TARGET_DATE']
-          ready = latest_date == target and len(latest_rows) == 20
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f"target_date={target}\n")
-              output.write(f"needs_prime={'false' if ready else 'true'}\n")
-          print({'target_date': target, 'latest_date': latest_date, 'rows': len(latest_rows), 'needs_prime': not ready})
-          PY
-
-      - name: Trigger today's shareholder workflow
-        if: steps.snapshot.outputs.needs_prime == 'true'
-        working-directory: cloudflare
-        shell: bash
-        run: |
-          target_date="${{ steps.snapshot.outputs.target_date }}"
-          npx wrangler workflows trigger otello-shareholder-snapshot \
-            "{\"target_date\":\"${target_date}\"}" \
-            --config wrangler.production.jsonc
-
-      - name: Wait for complete Top 20 snapshot
-        if: steps.snapshot.outputs.needs_prime == 'true'
-        shell: bash
-        run: |
-          target_date="${{ steps.snapshot.outputs.target_date }}"
-          base="${CLOUDFLARE_PUBLIC_URL%/}"
           ready=0
-          for attempt in $(seq 1 60); do
-            sleep 5
-            if curl --fail --show-error --silent \
-              "$base/api/shareholders/dashboard?prime_wait=${attempt}-$(date +%s)" \
-              -o /tmp/otello-shareholders-after.json; then
-              if TARGET_DATE="$target_date" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(Path('/tmp/otello-shareholders-after.json').read_text())
-          history = payload.get('history') or {}
-          snapshots = history.get('snapshots') or []
-          latest_rows = history.get('latest_rows') or []
-          latest_date = str((snapshots[0] if snapshots else {}).get('snapshot_date') or '')[:10]
-          raise SystemExit(0 if latest_date == os.environ['TARGET_DATE'] and len(latest_rows) == 20 else 1)
-          PY
-              then
-                ready=1
-                break
-              fi
+          for attempt in $(seq 1 6); do
+            sleep 2
+            curl --fail --show-error --silent \
+              "$base/api/shareholders/dashboard?github_capture=${attempt}-$(date +%s)" \
+              -o /tmp/otello-shareholders-after.json
+            if TARGET_DATE="$target_date" node - <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/otello-shareholders-after.json', 'utf8'));
+          const history = payload.history || {};
+          const snapshots = history.snapshots || [];
+          const rows = history.latest_rows || [];
+          const latestDate = String((snapshots[0] || {}).snapshot_date || '').slice(0, 10);
+          process.exit(latestDate === process.env.TARGET_DATE && rows.length === 20 ? 0 : 1);
+          NODE
+            then
+              ready=1
+              break
             fi
           done
           if [ "$ready" -ne 1 ]; then
-            echo '::error::Top 20 snapshot was not ready after 300 seconds.'
-            test -f /tmp/otello-shareholders-after.json && cat /tmp/otello-shareholders-after.json
-            cd cloudflare
-            npx wrangler workflows instances describe otello-shareholder-snapshot latest \
-              --config wrangler.production.jsonc || true
+            echo '::error::D1 was written, but the public dashboard did not expose today’s 20 rows.'
+            cat /tmp/otello-shareholders-after.json || true
             exit 1
           fi
           echo "Top 20 snapshot ready for ${target_date}."
+
+      - name: Upload Top 20 diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: top20-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/otec-top20-debug
+            /tmp/otec-top20.json
+            /tmp/otello-shareholders-after.json
+          if-no-files-found: ignore
+          retention-days: 7
