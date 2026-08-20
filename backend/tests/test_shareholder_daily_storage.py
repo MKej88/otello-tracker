@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
-
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,7 +87,13 @@ class _Repository:
     async def all(self, sql: str, params=()):
         compact = " ".join(sql.split())
         if "FROM shareholder_snapshot_rows" in compact:
-            return [dict(row) for row in sorted(self.rows.get(int(params[0]), []), key=lambda row: row["rank"])]
+            return [
+                dict(row)
+                for row in sorted(
+                    self.rows.get(int(params[0]), []),
+                    key=lambda row: row["rank"],
+                )
+            ]
         raise AssertionError(f"Unhandled all SQL: {compact}")
 
     async def run(self, sql: str, params=()):
@@ -132,8 +137,7 @@ def _rows() -> list[dict]:
     ]
 
 
-@pytest.mark.asyncio
-async def test_identical_top20_is_stored_on_a_new_day_but_retry_is_idempotent() -> None:
+async def _exercise_daily_storage() -> None:
     repository = _Repository()
     browser_metadata = {"method": "scrape", "browser_calls": 1, "browser_ms": 123}
 
@@ -169,3 +173,7 @@ async def test_identical_top20_is_stored_on_a_new_day_but_retry_is_idempotent() 
     assert len(repository.snapshots) == 2
     assert [item["snapshot_date"] for item in repository.snapshots] == ["2026-08-19", "2026-08-20"]
     assert all(len(repository.rows[item["id"]]) == 20 for item in repository.snapshots)
+
+
+def test_identical_top20_is_stored_on_a_new_day_but_retry_is_idempotent() -> None:
+    asyncio.run(_exercise_daily_storage())
