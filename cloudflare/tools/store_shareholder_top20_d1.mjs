@@ -39,12 +39,21 @@ function canonicalRows(rows) {
   }));
 }
 
+function positionKey(row) {
+  return [
+    clean(row.shareholder_name).toLocaleLowerCase("en"),
+    Number(row.shares),
+    clean(row.country).toLocaleUpperCase("en"),
+    clean(row.account_type).toLocaleUpperCase("en"),
+  ].join("|");
+}
+
 function validateRows(rows) {
   if (!Array.isArray(rows) || rows.length !== EXPECTED_ROWS) {
     throw new Error(`Forventet ${EXPECTED_ROWS} rader, fant ${Array.isArray(rows) ? rows.length : 0}`);
   }
-  const names = rows.map((row) => row.shareholder_name.toLocaleLowerCase("en"));
-  if (new Set(names).size !== EXPECTED_ROWS) throw new Error("Dupliserte aksjonærnavn");
+  const positions = rows.map(positionKey);
+  if (new Set(positions).size !== EXPECTED_ROWS) throw new Error("Dupliserte Top 20-posisjoner");
   if (rows.some((row, index) => row.rank !== index + 1 || !Number.isInteger(row.shares) || row.shares <= 0)) {
     throw new Error("Ugyldig rangering eller aksjetall");
   }
