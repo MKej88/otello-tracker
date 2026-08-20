@@ -21,6 +21,7 @@ D1_SCHEMA = ROOT / "cloudflare" / "migrations" / "0001_initial_schema.sql"
 D1_REFERENCE_DATA = ROOT / "cloudflare" / "migrations" / "0002_reference_data.sql"
 D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liability.sql"
 D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_facts.sql"
+D1_BEMOBI_WEB_PROVENANCE = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web_provenance.sql"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
 
@@ -45,6 +46,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_REFERENCE_DATA.read_text(encoding="utf-8"))
         connection.executescript(D1_OPTION_LIABILITY.read_text(encoding="utf-8"))
         connection.executescript(D1_BEMOBI_FACTS.read_text(encoding="utf-8"))
+        connection.executescript(D1_BEMOBI_WEB_PROVENANCE.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
