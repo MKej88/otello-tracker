@@ -229,7 +229,15 @@ jobs:
           }
           assert health['status'] == 'ok'
           assert health['environment'] == 'cloudflare'
-          assert actual == expected
+          for name, expected_payload in expected.items():
+              actual_payload = actual[name]
+              if actual_payload != expected_payload:
+                  print(f'PARITY MISMATCH: {name}')
+                  print('ACTUAL:')
+                  print(json.dumps(actual_payload, ensure_ascii=False, indent=2, sort_keys=True))
+                  print('EXPECTED:')
+                  print(json.dumps(expected_payload, ensure_ascii=False, indent=2, sort_keys=True))
+                  raise AssertionError(f'Worker/SQLite parity mismatch: {name}')
           assert actual['summary']['ready'] is True
           assert actual['economic']['ready'] is True
           assert actual['economic']['as_of_date'] == actual['summary']['as_of_date']
