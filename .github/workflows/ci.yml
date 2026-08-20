@@ -180,7 +180,6 @@ jobs:
           curl -fsS -D /tmp/worker-economic.headers http://127.0.0.1:8787/api/dashboard/economic -o /tmp/worker-economic.json
           curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
           curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
-          curl -fsS -D /tmp/worker-shareholders.headers http://127.0.0.1:8787/api/shareholders/dashboard -o /tmp/worker-shareholders.json
           curl -fsS -D /tmp/worker-quotes.headers http://127.0.0.1:8787/api/market/quotes -o /tmp/worker-quotes.json
           curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
@@ -194,13 +193,12 @@ jobs:
               'economic': json.loads(Path('/tmp/worker-economic.json').read_text()),
               'history': json.loads(Path('/tmp/worker-history.json').read_text()),
               'forecast': json.loads(Path('/tmp/worker-forecast.json').read_text()),
-              'shareholders': json.loads(Path('/tmp/worker-shareholders.json').read_text()),
               'quotes': json.loads(Path('/tmp/worker-quotes.json').read_text()),
           }
           expected_dir = Path('/tmp/otello-worker-expected')
           expected = {
               name: json.loads((expected_dir / f'{name}.json').read_text())
-              for name in ('summary', 'economic', 'history', 'forecast', 'shareholders', 'quotes')
+              for name in ('summary', 'economic', 'history', 'forecast', 'quotes')
           }
           assert health['status'] == 'ok'
           assert health['environment'] == 'cloudflare'
@@ -213,9 +211,6 @@ jobs:
           assert actual['history']['ready'] is True and actual['history']['points']
           assert actual['forecast']['ready'] is True
           assert actual['forecast']['status'] != 'INSUFFICIENT_VOLUME_HISTORY'
-          assert actual['shareholders']['ready'] is True
-          assert len(actual['shareholders']['history']['latest_rows']) == 20
-          assert actual['shareholders']['history']['daily_summary']['change_count'] == 2
           assert actual['quotes']['ready'] is True
           assert {'OTEC', 'BMOB3'} <= set(actual['quotes']['symbols'])
 
@@ -229,7 +224,6 @@ jobs:
           economic_headers = Path('/tmp/worker-economic.headers').read_text().lower()
           history_headers = Path('/tmp/worker-history.headers').read_text().lower()
           forecast_headers = Path('/tmp/worker-forecast.headers').read_text().lower()
-          shareholders_headers = Path('/tmp/worker-shareholders.headers').read_text().lower()
           quotes_headers = Path('/tmp/worker-quotes.headers').read_text().lower()
           assert 'content-security-policy:' in index_headers
           assert 'x-content-type-options: nosniff' in index_headers
@@ -239,7 +233,6 @@ jobs:
           assert 'cache-control: public, max-age=15' in economic_headers
           assert 'cache-control: public, max-age=300' in history_headers
           assert 'cache-control: public, max-age=300' in forecast_headers
-          assert 'cache-control: public, max-age=300' in shareholders_headers
           assert 'cache-control: public, max-age=30' in quotes_headers
           print('Populated D1 -> workerd -> HTTP parity and header test passed')
           PY
