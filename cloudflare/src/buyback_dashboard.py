@@ -94,6 +94,15 @@ def _enrich_history(
     return result
 
 
+def _normalize_latest_numeric_fields(payload: dict[str, Any] | None) -> None:
+    """Keep SQLite/D1 JSON stable despite sub-cent binary-float representation noise."""
+    if payload is None:
+        return
+    average_price = payload.get("avg_price_nok")
+    if average_price is not None:
+        payload["avg_price_nok"] = round(float(average_price), 13)
+
+
 async def buyback_dashboard(
     repository,
     *,
@@ -148,6 +157,7 @@ async def buyback_dashboard(
     history = _enrich_history(raw_history, volumes)
 
     latest_payload = dict(latest) if latest is not None else None
+    _normalize_latest_numeric_fields(latest_payload)
     if latest_payload is not None:
         matching = next(
             (
