@@ -10,6 +10,10 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _lease_expiry(now: datetime, ttl_seconds: int) -> str:
+    return _iso(now + timedelta(seconds=max(60, int(ttl_seconds))))
+
+
 async def acquire_refresh_lock(
     repository,
     *,
@@ -27,9 +31,8 @@ async def acquire_refresh_lock(
     if not clean_owner:
         raise ValueError("refresh lock owner cannot be empty")
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    expires = current + timedelta(seconds=max(60, int(ttl_seconds)))
+    expires_iso = _lease_expiry(current, ttl_seconds)
     now_iso = _iso(current)
-    expires_iso = _iso(expires)
     token = f"{clean_owner}|{expires_iso}"
 
     await repository.run(
@@ -59,6 +62,60 @@ async def acquire_refresh_lock(
         "token": token if acquired else None,
         "expires_at": expires_iso if acquired else held_until,
         "held_by": clean_owner if acquired else held_by,
+        "lock_key": LOCK_KEY,
+    }
+
+
+async def renew_refresh_lock(
+    repository,
+    token: str | None,
+    *,
+    ttl_seconds: int,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Extend a writer lease only when the caller still owns the exact current token.
+
+    Renewal is compare-and-swap: if another writer acquired the lock after expiry, the old
+    token cannot overwrite the new owner. Callers must replace their local token with the
+    returned token after every successful renewal.
+    """
+    if not token or "|" not in token:
+        return {
+            "renewed": False,
+            "token": None,
+            "owner": None,
+            "expires_at": None,
+            "reason": "missing_or_invalid_token",
+            "lock_key": LOCK_KEY,
+        }
+
+    owner, _ = token.split("|", 1)
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    expires_iso = _lease_expiry(current, ttl_seconds)
+    renewed_token = f"{owner}|{expires_iso}"
+    await repository.run(
+        """
+        UPDATE runtime_state
+        SET value=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE key=? AND value=?
+        """,
+        (renewed_token, LOCK_KEY, token),
+    )
+    row = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
+        (LOCK_KEY,),
+    )
+    actual = str(row.get("value") or "") if row else ""
+    renewed = actual == renewed_token
+    held_by = actual.split("|", 1)[0] if actual else None
+    held_until = actual.split("|", 1)[1] if "|" in actual else None
+    return {
+        "renewed": renewed,
+        "owner": owner,
+        "token": renewed_token if renewed else None,
+        "expires_at": expires_iso if renewed else held_until,
+        "held_by": owner if renewed else held_by,
+        "reason": None if renewed else "lease_lost",
         "lock_key": LOCK_KEY,
     }
 
