@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
 from app.bemobi.consensus_investor import bemobi_consensus
 from app.bemobi.dashboard import bemobi_dashboard
+from app.bemobi.source_status import bemobi_source_status
 from app.buybacks import (
     buyback_forecast,
     buyback_status,
@@ -119,6 +120,11 @@ def bemobi_investor_dashboard() -> dict:
 @app.get("/api/bemobi/consensus")
 def bemobi_consensus_dashboard() -> dict:
     return bemobi_consensus(settings.database_path)
+
+
+@app.get("/api/bemobi/source-status")
+def bemobi_source_status_dashboard() -> dict:
+    return bemobi_source_status(settings.database_path)
 
 
 @app.get("/api/bemobi/news")

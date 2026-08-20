@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
 import "./bemobi-page.css";
 
 type Source = {
@@ -475,6 +476,8 @@ export default function BemobiPage() {
           </SourceLink>
         </article>
       </section>
+
+      <BemobiSourceStatusPanel />
 
       <section className="card bemobiSources">
         <div className="cardHeader"><div><span className="label">Kilder</span><h2>Hva tallene bygger på</h2></div></div>
