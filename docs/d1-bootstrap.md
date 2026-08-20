@@ -24,6 +24,8 @@ Manifestet brukes til å kontrollere blant annet:
 
 Hashene er logiske og skal ikke avhenge av SQLite page-layout, WAL eller andre fysiske filattributter.
 
+`bemobi_investor_facts` inngår nå i manifestet som referansedata sammen med `sources` og `instruments`. Tabellen seeder kildebelagte Bemobi-resultater, eierandel, verdsettelsesankre og konsensusfakta gjennom SQLite `0019` / D1 `0009`. Bootstrapen re-inserter ikke disse referanseradene; den kontrollerer at de er identiske og synkroniserer kun migreringsgenererte tidsstempler for eksakt logisk paritet.
+
 ## Lokal eksport
 
 Eksempel fra repo-roten:
@@ -39,7 +41,7 @@ Genererte bootstrapfiler skal ikke committes. De kan inneholde komplette histori
 
 ## Lokal D1-verifisering
 
-CI bruker verktøyet til å bygge en deterministisk referansefixture, importere den i lokal Wrangler D1 og verifisere eksakt logisk paritet.
+CI bruker verktøyet til å bygge en deterministisk referansefixture, importere den i lokal Wrangler D1 og verifisere eksakt logisk paritet. Kildedatabasen må stå på siste aktive SQLite-migrering, som per 20.08.2026 er `0019`.
 
 Manuell kontroll kan gjøres med:
 

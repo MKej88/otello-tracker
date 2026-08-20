@@ -15,6 +15,7 @@ CORE_TABLES = (
     "market_activity",
     "fx_rates",
     "bemobi_holdings",
+    "bemobi_investor_facts",
     "otello_share_counts",
     "cash_anchors",
     "cash_movements",

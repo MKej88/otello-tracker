@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 D1_SCHEMA = ROOT / "cloudflare" / "migrations" / "0001_initial_schema.sql"
 D1_REFERENCE_DATA = ROOT / "cloudflare" / "migrations" / "0002_reference_data.sql"
 D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liability.sql"
+D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_facts.sql"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
 
@@ -43,6 +44,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_SCHEMA.read_text(encoding="utf-8"))
         connection.executescript(D1_REFERENCE_DATA.read_text(encoding="utf-8"))
         connection.executescript(D1_OPTION_LIABILITY.read_text(encoding="utf-8"))
+        connection.executescript(D1_BEMOBI_FACTS.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -98,8 +100,10 @@ def test_bootstrap_sql_uses_reference_seed_instead_of_reinserting_identities(tmp
 
     assert 'INSERT INTO "sources"' not in sql
     assert 'INSERT INTO "instruments"' not in sql
+    assert 'INSERT INTO "bemobi_investor_facts"' not in sql
     assert 'UPDATE "sources"' in sql
     assert 'UPDATE "instruments"' in sql
+    assert 'UPDATE "bemobi_investor_facts"' in sql
     for table in DATA_TABLES:
         expected_rows = manifest["tables"][table]["row_count"]
         actual_inserts = sql.count(f'INSERT INTO "{table}"')

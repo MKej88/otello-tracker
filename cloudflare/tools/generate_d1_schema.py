@@ -12,7 +12,7 @@ MIGRATIONS = ROOT / "cloudflare" / "migrations"
 TARGET = MIGRATIONS / "0001_initial_schema.sql"
 ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0004_option_liability.sql",
-    MIGRATIONS / "0008_shareholder_snapshots.sql",
+    MIGRATIONS / "0009_bemobi_investor_facts.sql",
 )
 
 sys.path.insert(0, str(BACKEND))

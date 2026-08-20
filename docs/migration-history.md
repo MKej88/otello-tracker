@@ -6,13 +6,17 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0017_option_liability.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0019_bemobi_investor_facts.sql`.
+
+`0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0007_reconcile_2025_cash_fx_nok.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0009_bemobi_investor_facts.sql`.
 
-## Reserverte, retirer­te numre
+`0009` oppretter og seeder samme referansefakta i D1. SQLite- og D1-seedene skal være logisk identiske og inngår i den deterministiske paritetskontrollen.
+
+## Reserverte, retirerte numre
 
 Aksjonær-/Top 20-funksjonen ble fjernet i PR #95. I forbindelse med denne funksjonen hadde følgende migreringer vært opprettet:
 
@@ -21,10 +25,10 @@ Aksjonær-/Top 20-funksjonen ble fjernet i PR #95. I forbindelse med denne funks
 
 Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk brukt og skal ikke tas i bruk til noe annet.
 
-**Neste nye migrering skal derfor minst være:**
+**Neste nye migrering etter Bemobi-faktalaget skal derfor minst være:**
 
-- SQLite: `0019_...`
-- Cloudflare D1: `0009_...`
+- SQLite: `0020_...`
+- Cloudflare D1: `0010_...`
 
 ## Regel for nye migreringer
 

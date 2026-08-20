@@ -4,7 +4,7 @@ D1 er autoritativ produksjonsdatabase. SQLite-backenden beholdes som determinist
 
 ## Schema-paritet
 
-`cloudflare/tools/generate_d1_schema.py` bygger et konsolidert D1-basisschema fra backendens migrerte SQLite-schema. CI kjører generatoren med `--check` og feiler ved schema-drift.
+`cloudflare/tools/generate_d1_schema.py` validerer det frosne D1-basisschemaet sammen med additive migreringer mot backendens migrerte SQLite-schema. CI kjører generatoren med `--check` og feiler ved schema-drift.
 
 Det betyr at endringer i databasestrukturen skal gjøres kontrollert og testes mot både SQLite-referansen og lokal Wrangler D1.
 
@@ -24,7 +24,21 @@ Regler:
 4. Worker-rollback ruller ikke tilbake D1-migreringer;
 5. D1 Time Travel er recovery-mekanismen ved behov for full database-restore.
 
-Se `docs/migration-history.md` for reserverte numre. Etter at aksjonær-/Top 20-funksjonen ble fjernet er Cloudflare `0008` og SQLite `0018` historisk brukt/reservert. Neste nye migrering skal derfor minst være Cloudflare `0009_...` og SQLite `0019_...`.
+Aksjonær-/Top 20-migreringene `0008`/`0018` er historisk brukt og permanent reservert. Bemobi-faktalaget bruker nå Cloudflare `0009_bemobi_investor_facts.sql` og SQLite `0019_bemobi_investor_facts.sql`. Neste nye migrering skal derfor minst være Cloudflare `0010_...` og SQLite `0020_...`.
+
+## Bemobi-fakta som databaseinnhold
+
+`bemobi_investor_facts` er et kildebelagt referanselag for investorinformasjon som tidligere lå som Python-konstanter. Det omfatter blant annet:
+
+- rapporterte Bemobi-nøkkeltall;
+- Otellos Bemobi-eierandel;
+- TTM-kvartaler og verdsettelsesankre;
+- analytikerdekning og kursmål;
+- offentlig forward-konsensus;
+- historisk beat/miss;
+- referansemodell og status for neste kvartal.
+
+SQLite- og D1-migreringen seeder samme logiske fakta. Runtime-koden i både referansebackend og Cloudflare Worker leser deretter dataene fra databasen. Modellparametre som multipelsensitiviteten 12x/14x/16x er fortsatt eksplisitt kode og skal ikke forveksles med eksterne finansielle fakta.
 
 ## Lokal validering
 

@@ -119,21 +119,28 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     assert result["next_report"]["date_quality"] == "NOT_CONFIRMED"
 
 
-def test_bemobi_page_is_exposed_in_reference_worker_and_frontend() -> None:
+def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> None:
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_dashboard.py").read_text(encoding="utf-8")
+    d1_migration = (ROOT / "cloudflare/migrations/0009_bemobi_investor_facts.sql").read_text(
+        encoding="utf-8"
+    )
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/BemobiPage.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/bemobi/dashboard")' in backend_app
     assert '@app.get("/api/bemobi/dashboard")' in worker_app
-    assert 'CURRENT_OWNERSHIP' in worker_service
-    assert 'TTM_QUARTERS' in worker_service
-    assert 'TTM_EBIT_MBRL = 175.08' in worker_service
-    assert 'NET_DEBT_2Q26_MBRL = -287.2' in worker_service
+    assert "latest_bemobi_fact" in worker_service
+    assert "load_bemobi_facts" in worker_service
+    assert "CURRENT_OWNERSHIP" not in worker_service
+    assert "TTM_QUARTERS" not in worker_service
+    assert "TTM_EBIT_MBRL" not in worker_service
+    assert "NET_DEBT_2Q26_MBRL" not in worker_service
     assert 'VALUATION_MULTIPLES = (12.0, 14.0, 16.0)' in worker_service
-    assert '"ownership_pct": 38.220' in worker_service
+    assert "CREATE TABLE bemobi_investor_facts" in d1_migration
+    assert "'RESULT', '2Q26'" in d1_migration
+    assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
     assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend

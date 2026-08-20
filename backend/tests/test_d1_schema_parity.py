@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 D1_SCHEMA = ROOT / "cloudflare" / "migrations" / "0001_initial_schema.sql"
 D1_REFERENCE_DATA = ROOT / "cloudflare" / "migrations" / "0002_reference_data.sql"
 D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liability.sql"
+D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_facts.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -28,6 +29,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(D1_SCHEMA.read_text(encoding="utf-8"))
     connection.executescript(D1_OPTION_LIABILITY.read_text(encoding="utf-8"))
+    connection.executescript(D1_BEMOBI_FACTS.read_text(encoding="utf-8"))
     return connection
 
 
@@ -148,7 +150,7 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
 def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
     combined = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (D1_SCHEMA, D1_REFERENCE_DATA, D1_OPTION_LIABILITY)
+        for path in (D1_SCHEMA, D1_REFERENCE_DATA, D1_OPTION_LIABILITY, D1_BEMOBI_FACTS)
     ).upper()
 
     assert "SCHEMA_MIGRATIONS" not in combined
