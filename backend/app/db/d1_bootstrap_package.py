@@ -71,6 +71,23 @@ def _reference_metadata_sql(database_path: str | Path) -> str:
                 f"\"updated_at\" = {_sql_literal(row['updated_at'])} "
                 f"WHERE \"id\" = {_sql_literal(row['id'])};"
             )
+        for row in connection.execute(
+            "SELECT id, created_at FROM bemobi_forward_consensus_snapshots ORDER BY id"
+        ):
+            lines.append(
+                "UPDATE \"bemobi_forward_consensus_snapshots\" "
+                f"SET \"created_at\" = {_sql_literal(row['created_at'])} "
+                f"WHERE \"id\" = {_sql_literal(row['id'])};"
+            )
+        for row in connection.execute(
+            "SELECT id, created_at, updated_at FROM bemobi_consensus_events ORDER BY id"
+        ):
+            lines.append(
+                "UPDATE \"bemobi_consensus_events\" "
+                f"SET \"created_at\" = {_sql_literal(row['created_at'])}, "
+                f"\"updated_at\" = {_sql_literal(row['updated_at'])} "
+                f"WHERE \"id\" = {_sql_literal(row['id'])};"
+            )
         return "\n".join(lines) + "\n"
     finally:
         connection.close()
