@@ -109,3 +109,7 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert 'fetch("/api/bemobi/consensus")' in page
     assert "Forward konsensus" in page
     assert "Beat / miss" in page
+    assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
+    assert "nextQuarterEstimates.map" in page
+    assert "ratingLabel(data.reference_model?.rating)" in page
+    assert '<span className="pill">KJØP</span>' not in page

@@ -73,3 +73,24 @@ def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) 
     assert len(result["items"]) == 4
     assert all(item["status"] == "UNKNOWN" for item in result["items"])
     assert any(item["last_good_at"] is not None for item in result["items"])
+
+
+def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        source_id = connection.execute(
+            "SELECT id FROM sources WHERE code='BEMOBI_IR'"
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO source_health(source_id, checked_at, status, metadata_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (source_id, "2026-08-20T18:00:00Z", "OK", json.dumps({"result": {}})),
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+
+    assert result["overall_status"] == "UNKNOWN"
+    assert all(item["status"] == "UNKNOWN" for item in result["items"])

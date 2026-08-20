@@ -117,7 +117,7 @@ async def bemobi_source_status(repository) -> dict[str, Any]:
         overall = "ERROR"
     elif any(item["status"] in {"ERROR", "DEGRADED"} for item in items):
         overall = "PARTIAL"
-    elif health is None:
+    elif health is None or any(item["status"] == "UNKNOWN" for item in items):
         overall = "UNKNOWN"
     else:
         overall = "OK"

@@ -26,6 +26,15 @@ type ForwardYear = {
   ev_ebit?: number | null;
 };
 
+type NextQuarterEstimate = {
+  metric: string;
+  label: string;
+  value_mbrl: number;
+  broker?: string | null;
+  source_url?: string | null;
+  published_date?: string | null;
+};
+
 type BeatMissMetric = {
   metric: string;
   label: string;
@@ -78,7 +87,7 @@ type ConsensusPayload = {
   next_quarter?: {
     period?: string | null;
     status?: string | null;
-    estimates?: unknown[];
+    estimates?: NextQuarterEstimate[];
     tracked_metrics?: string[];
     note?: string | null;
   };
@@ -169,6 +178,10 @@ export default function ConsensusPage() {
   const market = data.market;
   const forward = data.forward_consensus;
   const nextQuarter = data.next_quarter;
+  const nextQuarterEstimates = nextQuarter?.estimates ?? [];
+  const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && nextQuarterEstimates.length > 0;
+  const previewSourceUrl = nextQuarterEstimates.find((estimate) => estimate.source_url)?.source_url;
+  const previewPublishedDate = nextQuarterEstimates.find((estimate) => estimate.published_date)?.published_date;
   const analysts = data.analysts ?? [];
   const beatMiss = data.beat_miss ?? [];
 
@@ -211,7 +224,7 @@ export default function ConsensusPage() {
         <article className="card">
           <span className="label">Neste kvartal</span>
           <strong>{nextQuarter?.period ?? "–"}</strong>
-          <small>Venter på verifiserte estimater</small>
+          <small>{hasPublicPreview ? `${nextQuarterEstimates.length} verifiserte XP-estimater` : "Venter på verifiserte estimater"}</small>
         </article>
       </section>
 
@@ -277,16 +290,43 @@ export default function ConsensusPage() {
 
       <section className="consensusTwoColumn">
         <article className="card nextQuarterCard">
-          <div className="cardHeader"><div><span className="label">Neste rapport</span><h2>{nextQuarter?.period}</h2></div><span className="pill muted">VENTER</span></div>
-          <p>{nextQuarter?.note}</p>
-          <div className="trackedMetrics">
-            {(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}
+          <div className="cardHeader">
+            <div><span className="label">Neste rapport</span><h2>{nextQuarter?.period}</h2></div>
+            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? "XP-PREVIEW" : "VENTER"}</span>
           </div>
-          <small>Estimatene fylles inn når de kan verifiseres fra meglerhus eller offentlig aggregat.</small>
+          <p>{nextQuarter?.note}</p>
+          {hasPublicPreview ? (
+            <>
+              <div className="referenceGrid">
+                {nextQuarterEstimates.map((estimate) => (
+                  <div key={estimate.metric}>
+                    <span>{estimate.label}</span>
+                    <strong>R$ {value(estimate.value_mbrl, 1)}m</strong>
+                  </div>
+                ))}
+              </div>
+              <SourceLink url={previewSourceUrl}>
+                <span className="consensusSourceAction">
+                  Offentlig XP-preview{previewPublishedDate ? ` · ${dateLabel(previewPublishedDate)}` : ""} →
+                </span>
+              </SourceLink>
+              <small>Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus.</small>
+            </>
+          ) : (
+            <>
+              <div className="trackedMetrics">
+                {(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}
+              </div>
+              <small>Estimatene fylles inn når de kan verifiseres fra meglerhus eller offentlig aggregat.</small>
+            </>
+          )}
         </article>
 
         <article className="card xpReference">
-          <div className="cardHeader"><div><span className="label">Referansemodell</span><h2>XP</h2></div><span className="pill">KJØP</span></div>
+          <div className="cardHeader">
+            <div><span className="label">Referansemodell</span><h2>{data.reference_model?.broker ?? "XP"}</h2></div>
+            <span className="pill">{ratingLabel(data.reference_model?.rating).toUpperCase()}</span>
+          </div>
           <div className="referenceGrid">
             <div><span>Kursmål</span><strong>R$ {value(data.reference_model?.target_price_brl, 2)}</strong></div>
             <div><span>P/E 2026 ved rapportdato</span><strong>{value(data.reference_model?.pe_2026_reported, 1)}x</strong></div>
