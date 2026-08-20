@@ -123,198 +123,6 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         lock_result = await lock_step()
 
         @step.do(
-            "start full refresh",
-            config={"retries": {"limit": 2, "delay": "5 seconds"}, "timeout": "2 minutes"},
-        )
-        async def start_step():
-            return await start_full_refresh(self.env.DB, target_date=target_date, trigger=trigger)
-
-        job_id = await start_step()
-
-        @step.do(
-            "refresh ECB FX",
-            config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "3 minutes"},
-        )
-        async def ecb_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_ecb_fx(
-                repository,
-                target_date=target_date,
-                archive_bucket=self.env.SOURCE_ARCHIVE,
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["ecb"] = await ecb_step()
-        except Exception as exc:
-            source_results["ecb"] = error_result(exc)
-
-        @step.do(
-            "refresh B3 COTAHIST",
-            config={"retries": {"limit": 4, "delay": "1 minute"}, "timeout": "5 minutes"},
-        )
-        async def b3_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_bmob3_close(
-                repository,
-                target_date=target_date,
-                archive_bucket=self.env.SOURCE_ARCHIVE,
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["b3"] = await b3_step()
-        except Exception as exc:
-            source_results["b3"] = error_result(exc)
-
-        @step.do(
-            "refresh Bemobi CVM",
-            config={"retries": {"limit": 2, "delay": "2 minutes"}, "timeout": "15 minutes"},
-        )
-        async def cvm_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_bemobi_cvm(repository, target_date=target_date)
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["cvm"] = await cvm_step()
-        except Exception as exc:
-            source_results["cvm"] = error_result(exc)
-
-        @step.do(
-            "reconcile NewsWeb",
-            config={"retries": {"limit": 3, "delay": "1 minute"}, "timeout": "15 minutes"},
-        )
-        async def newsweb_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await reconcile_newsweb(repository, target_date=target_date)
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["newsweb"] = await newsweb_step()
-        except Exception as exc:
-            source_results["newsweb"] = error_result(exc)
-
-        @step.do(
-            "archive NewsWeb buyback PDFs",
-            config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
-        )
-        async def newsweb_pdf_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await enrich_newsweb_buybacks_if_due(
-                repository,
-                self.env.SOURCE_ARCHIVE,
-                target_date=target_date,
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["newsweb_attachments"] = await newsweb_pdf_step()
-        except Exception as exc:
-            source_results["newsweb_attachments"] = error_result(exc)
-
-        @step.do(
-            "ingest Otello financial reports",
-            config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
-        )
-        async def report_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await process_pending_otello_reports(
-                repository,
-                self.env.SOURCE_ARCHIVE,
-                target_date=target_date,
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["otello_reports"] = await report_step()
-        except Exception as exc:
-            source_results["otello_reports"] = error_result(exc)
-
-        @step.do(
-            "ensure OTEC EOD",
-            config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "10 minutes"},
-        )
-        async def otec_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await ensure_otec_eod(
-                repository,
-                self.env.SOURCE_ARCHIVE,
-                target_date=target_date,
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            source_results["otec_recovery"] = await otec_step()
-        except Exception as exc:
-            source_results["otec_recovery"] = error_result(exc)
-
-        @step.do(
-            "refresh dirty NAV",
-            config={"retries": {"limit": 2, "delay": "30 seconds"}, "timeout": "5 minutes"},
-        )
-        async def nav_step():
-            return await refresh_nav(self.env.DB, target_date=target_date)
-
-        try:
-            nav_result = await nav_step()
-        except Exception as exc:
-            nav_result = error_result(exc)
-
-        @step.do(
-            "D1 data health preflight",
-            config={"retries": {"limit": 1, "delay": "15 seconds"}, "timeout": "3 minutes"},
-        )
-        async def preflight_step():
-            return await preflight(self.env.DB, target_date=target_date)
-
-        try:
-            preflight_result = await preflight_step()
-        except Exception as exc:
-            preflight_result = {
-                **error_result(exc),
-                "ready": False,
-                "blockers": [{"name": "preflight_execution", "status": "FAIL"}],
-                "warnings": [],
-            }
-
-        @step.do(
-            "archive D1 logical snapshot",
-            config={"retries": {"limit": 2, "delay": "30 seconds"}, "timeout": "10 minutes"},
-        )
-        async def snapshot_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await archive_d1_snapshot(
-                repository,
-                self.env.SOURCE_ARCHIVE,
-                target_date=target_date,
-                preflight_status=preflight_result.get("status"),
-            )
-            return {**result, "repository": repository.performance_metrics()}
-
-        try:
-            archive_result = await snapshot_step()
-        except Exception as exc:
-            archive_result = error_result(exc)
-
-        @step.do(
-            "finish full refresh",
-            config={"retries": {"limit": 3, "delay": "10 seconds"}, "timeout": "3 minutes"},
-        )
-        async def finish_step():
-            return await finish_full_refresh(
-                self.env.DB,
-                job_id=job_id,
-                target_date=target_date,
-                source_results=source_results,
-                nav_result=nav_result,
-                preflight_result=preflight_result,
-                archive_result=archive_result,
-            )
-
-        result = await finish_step()
-
-        @step.do(
             "release full refresh writer lock",
             config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
         )
@@ -323,5 +131,197 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             released = await release_refresh_lock(repository, lock_result.get("token"))
             return {"released": released, "owner": lock_owner}
 
-        await release_step()
-        return result
+        try:
+            @step.do(
+                "start full refresh",
+                config={"retries": {"limit": 2, "delay": "5 seconds"}, "timeout": "2 minutes"},
+            )
+            async def start_step():
+                return await start_full_refresh(self.env.DB, target_date=target_date, trigger=trigger)
+
+            job_id = await start_step()
+
+            @step.do(
+                "refresh ECB FX",
+                config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "3 minutes"},
+            )
+            async def ecb_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await refresh_ecb_fx(
+                    repository,
+                    target_date=target_date,
+                    archive_bucket=self.env.SOURCE_ARCHIVE,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["ecb"] = await ecb_step()
+            except Exception as exc:
+                source_results["ecb"] = error_result(exc)
+
+            @step.do(
+                "refresh B3 COTAHIST",
+                config={"retries": {"limit": 4, "delay": "1 minute"}, "timeout": "5 minutes"},
+            )
+            async def b3_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await refresh_bmob3_close(
+                    repository,
+                    target_date=target_date,
+                    archive_bucket=self.env.SOURCE_ARCHIVE,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["b3"] = await b3_step()
+            except Exception as exc:
+                source_results["b3"] = error_result(exc)
+
+            @step.do(
+                "refresh Bemobi CVM",
+                config={"retries": {"limit": 2, "delay": "2 minutes"}, "timeout": "15 minutes"},
+            )
+            async def cvm_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await refresh_bemobi_cvm(repository, target_date=target_date)
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["cvm"] = await cvm_step()
+            except Exception as exc:
+                source_results["cvm"] = error_result(exc)
+
+            @step.do(
+                "reconcile NewsWeb",
+                config={"retries": {"limit": 3, "delay": "1 minute"}, "timeout": "15 minutes"},
+            )
+            async def newsweb_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await reconcile_newsweb(repository, target_date=target_date)
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["newsweb"] = await newsweb_step()
+            except Exception as exc:
+                source_results["newsweb"] = error_result(exc)
+
+            @step.do(
+                "archive NewsWeb buyback PDFs",
+                config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
+            )
+            async def newsweb_pdf_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await enrich_newsweb_buybacks_if_due(
+                    repository,
+                    self.env.SOURCE_ARCHIVE,
+                    target_date=target_date,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["newsweb_attachments"] = await newsweb_pdf_step()
+            except Exception as exc:
+                source_results["newsweb_attachments"] = error_result(exc)
+
+            @step.do(
+                "ingest Otello financial reports",
+                config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "20 minutes"},
+            )
+            async def report_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await process_pending_otello_reports(
+                    repository,
+                    self.env.SOURCE_ARCHIVE,
+                    target_date=target_date,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["otello_reports"] = await report_step()
+            except Exception as exc:
+                source_results["otello_reports"] = error_result(exc)
+
+            @step.do(
+                "ensure OTEC EOD",
+                config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "10 minutes"},
+            )
+            async def otec_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await ensure_otec_eod(
+                    repository,
+                    self.env.SOURCE_ARCHIVE,
+                    target_date=target_date,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["otec_recovery"] = await otec_step()
+            except Exception as exc:
+                source_results["otec_recovery"] = error_result(exc)
+
+            @step.do(
+                "refresh dirty NAV",
+                config={"retries": {"limit": 2, "delay": "30 seconds"}, "timeout": "5 minutes"},
+            )
+            async def nav_step():
+                return await refresh_nav(self.env.DB, target_date=target_date)
+
+            try:
+                nav_result = await nav_step()
+            except Exception as exc:
+                nav_result = error_result(exc)
+
+            @step.do(
+                "D1 data health preflight",
+                config={"retries": {"limit": 1, "delay": "15 seconds"}, "timeout": "3 minutes"},
+            )
+            async def preflight_step():
+                return await preflight(self.env.DB, target_date=target_date)
+
+            try:
+                preflight_result = await preflight_step()
+            except Exception as exc:
+                preflight_result = {
+                    **error_result(exc),
+                    "ready": False,
+                    "blockers": [{"name": "preflight_execution", "status": "FAIL"}],
+                    "warnings": [],
+                }
+
+            @step.do(
+                "archive D1 logical snapshot",
+                config={"retries": {"limit": 2, "delay": "30 seconds"}, "timeout": "10 minutes"},
+            )
+            async def snapshot_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await archive_d1_snapshot(
+                    repository,
+                    self.env.SOURCE_ARCHIVE,
+                    target_date=target_date,
+                    preflight_status=preflight_result.get("status"),
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                archive_result = await snapshot_step()
+            except Exception as exc:
+                archive_result = error_result(exc)
+
+            @step.do(
+                "finish full refresh",
+                config={"retries": {"limit": 3, "delay": "10 seconds"}, "timeout": "3 minutes"},
+            )
+            async def finish_step():
+                return await finish_full_refresh(
+                    self.env.DB,
+                    job_id=job_id,
+                    target_date=target_date,
+                    source_results=source_results,
+                    nav_result=nav_result,
+                    preflight_result=preflight_result,
+                    archive_result=archive_result,
+                )
+
+            return await finish_step()
+        finally:
+            await release_step()
