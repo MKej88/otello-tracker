@@ -17,7 +17,18 @@ except ImportError:
 NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.BRL+USD.NOK.SP"
 FX_BASE_CURRENCIES = ("BRL", "USD")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-FX_BACKTEST_HISTORY_START = "2023-12-20"
+NORGES_BANK_HISTORY_YEARS = 10
+HISTORY_EDGE_TOLERANCE_DAYS = 7
+MIN_HISTORY_ROWS_PER_CURRENCY = 2000
+
+
+def norges_bank_history_start(target_date: str) -> str:
+    """Return the rolling ten-year history boundary, handling leap day safely."""
+    target = date.fromisoformat(target_date)
+    try:
+        return target.replace(year=target.year - NORGES_BANK_HISTORY_YEARS).isoformat()
+    except ValueError:
+        return target.replace(year=target.year - NORGES_BANK_HISTORY_YEARS, day=28).isoformat()
 
 
 def build_norges_bank_url(start_date: str, end_date: str) -> str:
@@ -177,7 +188,11 @@ async def _download_norges_bank(
     return await read_response_bytes(response, max_bytes=MAX_RESPONSE_BYTES, label="Norges Bank EXR JSON")
 
 
-async def _norges_bank_coverage(repository) -> tuple[bool, dict[str, Any]]:
+async def _norges_bank_coverage(
+    repository,
+    *,
+    target_date: str,
+) -> tuple[bool, dict[str, Any], str]:
     rows = await repository.all(
         """
         SELECT fr.base_currency, COUNT(*) AS n,
@@ -193,13 +208,21 @@ async def _norges_bank_coverage(repository) -> tuple[bool, dict[str, Any]]:
         """
     )
     coverage = {str(row["base_currency"]): row for row in rows}
+    required_start = norges_bank_history_start(target_date)
+    first_date_deadline = (
+        date.fromisoformat(required_start) + timedelta(days=HISTORY_EDGE_TOLERANCE_DAYS)
+    ).isoformat()
+    recent_floor = (
+        date.fromisoformat(target_date) - timedelta(days=HISTORY_EDGE_TOLERANCE_DAYS)
+    ).isoformat()
     complete = all(
         currency in coverage
-        and str(coverage[currency].get("min_date") or "9999-12-31") <= FX_BACKTEST_HISTORY_START
-        and int(coverage[currency].get("n") or 0) >= 450
+        and str(coverage[currency].get("min_date") or "9999-12-31") <= first_date_deadline
+        and str(coverage[currency].get("max_date") or "0001-01-01") >= recent_floor
+        and int(coverage[currency].get("n") or 0) >= MIN_HISTORY_ROWS_PER_CURRENCY
         for currency in FX_BASE_CURRENCIES
     )
-    return complete, coverage
+    return complete, coverage, required_start
 
 
 async def refresh_norges_bank_fx(
@@ -211,13 +234,17 @@ async def refresh_norges_bank_fx(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     target = date.fromisoformat(target_date)
-    auto_backtest_history = False
+    history_backfill = False
+    required_history_start = norges_bank_history_start(target_date)
     if lookback_days == 21:
-        complete, _ = await _norges_bank_coverage(repository)
+        complete, _, required_history_start = await _norges_bank_coverage(
+            repository,
+            target_date=target_date,
+        )
         if not complete:
-            history_start = date.fromisoformat(FX_BACKTEST_HISTORY_START)
+            history_start = date.fromisoformat(required_history_start)
             lookback_days = max(lookback_days, (target - history_start).days)
-            auto_backtest_history = True
+            history_backfill = True
 
     start = (target - timedelta(days=max(7, lookback_days))).isoformat()
     url = build_norges_bank_url(start, target_date)
@@ -253,7 +280,10 @@ async def refresh_norges_bank_fx(
             "workflow": "cloudflare_full_refresh",
             "r2_key": archived.get("r2_key") if archived else None,
             "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
-            "auto_fx_backtest_history": auto_backtest_history,
+            "history_years": NORGES_BANK_HISTORY_YEARS,
+            "history_start_required": required_history_start,
+            "history_backfill": history_backfill,
+            "auto_fx_backtest_history": history_backfill,
         },
     )
     source_id = await repository.source_id("NORGES_BANK")
@@ -284,28 +314,35 @@ async def refresh_norges_bank_fx(
         "source_document_id": document_id,
         "content_sha256": digest,
         "r2_archive": archived,
-        "auto_fx_backtest_history": auto_backtest_history,
+        "history_years": NORGES_BANK_HISTORY_YEARS,
+        "history_start_required": required_history_start,
+        "history_backfill": history_backfill,
+        "auto_fx_backtest_history": history_backfill,
     }
 
 
-async def ensure_fx_backtest_history(
+async def ensure_norges_bank_history(
     repository,
     *,
     target_date: str,
     archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    complete, coverage = await _norges_bank_coverage(repository)
+    complete, coverage, required_start = await _norges_bank_coverage(
+        repository,
+        target_date=target_date,
+    )
     if complete:
         return {
             "status": "ok",
             "skipped": True,
-            "reason": "norges_bank_fx_history_already_present",
+            "reason": "norges_bank_10y_history_already_present",
             "coverage": coverage,
+            "history_start_required": required_start,
         }
 
     target = date.fromisoformat(target_date)
-    start = date.fromisoformat(FX_BACKTEST_HISTORY_START)
+    start = date.fromisoformat(required_start)
     lookback_days = max(7, (target - start).days)
     result = await refresh_norges_bank_fx(
         repository,
@@ -316,3 +353,19 @@ async def ensure_fx_backtest_history(
     )
     result["history_backfill"] = True
     return result
+
+
+async def ensure_fx_backtest_history(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket: Any | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible wrapper; the maintained history policy is now ten years."""
+    return await ensure_norges_bank_history(
+        repository,
+        target_date=target_date,
+        archive_bucket=archive_bucket,
+        fetcher=fetcher,
+    )
