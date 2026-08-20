@@ -140,33 +140,40 @@ def test_canonical_rows_are_stable_and_semantic() -> None:
     assert decoded[0]["shareholder_name"] == "Investor 1 AS"
 
 
-def test_worker_config_has_daily_browser_run_workflow() -> None:
+def test_shareholder_capture_uses_github_browser_and_d1_api() -> None:
     config = json.loads((ROOT / "cloudflare/wrangler.jsonc").read_text(encoding="utf-8"))
-    worker = (ROOT / "cloudflare/src/worker.py").read_text(encoding="utf-8")
-    workflow = (ROOT / "cloudflare/src/shareholder_snapshot_workflow.py").read_text(encoding="utf-8")
-    browser = (ROOT / "cloudflare/src/shareholder_top20_browser.py").read_text(encoding="utf-8")
-    source = (ROOT / "cloudflare/src/shareholder_top20_source.py").read_text(encoding="utf-8")
-    ingestion = (ROOT / "cloudflare/src/shareholder_snapshot_ingestion.py").read_text(encoding="utf-8")
+    github_workflow = (ROOT / ".github/workflows/prime-shareholder-snapshot.yml").read_text(
+        encoding="utf-8"
+    )
+    capture = (ROOT / "cloudflare/tools/capture_shareholder_top20.mjs").read_text(
+        encoding="utf-8"
+    )
+    store = (ROOT / "cloudflare/tools/store_shareholder_top20_d1.mjs").read_text(
+        encoding="utf-8"
+    )
 
-    assert config["main"] == "src/worker.py"
-    assert config["browser"]["binding"] == "BROWSER"
-    assert config["browser"]["remote"] is True
     shareholder_workflow = next(
         item for item in config["workflows"] if item["binding"] == "SHAREHOLDER_SNAPSHOT"
     )
     assert shareholder_workflow["class_name"] == "ShareholderSnapshotWorkflow"
-    assert shareholder_workflow["schedules"] == ["15 3 * * *"]
-    assert "ShareholderSnapshotWorkflow" in worker
-    assert "store_snapshot" in workflow
-    assert "fetch_top20" in workflow
-    assert '"delay": "20 seconds"' in workflow
-    assert "LEGACY_OMS_URLS" in source
-    assert 'quickAction(\n        "snapshot"' in source
-    assert '"accessibilityTree"' in source
-    assert "EXPECTED_ROWS = 20" in browser
-    assert f"MAX_BROWSER_CALLS = {MAX_BROWSER_CALLS}" in browser
-    assert "permission_basis" in ingestion
-    assert "repository.database.batch" in ingestion
-    assert "snapshot_date < ?" in ingestion
-    assert '"unchanged_same_day"' in ingestion
-    assert '"content_changed"' in ingestion
+    assert "schedules" not in shareholder_workflow
+
+    assert 'cron: "15 3 * * *"' in github_workflow
+    assert 'branches: ["main"]' in github_workflow
+    assert "playwright-core@1.58.2" in github_workflow
+    assert "capture_shareholder_top20.mjs" in github_workflow
+    assert "store_shareholder_top20_d1.mjs" in github_workflow
+    assert "top20-diagnostics" in github_workflow
+
+    assert "chromium.launch" in capture
+    assert "page.on(\"response\"" in capture
+    assert "LEGACY_URLS" in capture
+    assert "EXPECTED_ROWS = 20" in capture
+    assert "candidateRowsFromJson" in capture
+    assert "/tmp/otec-top20-debug" in capture
+
+    assert "/d1/database/${databaseId}/query" in store
+    assert 'SOURCE_KIND = "EURONEXT_OMS"' in store
+    assert "DELETE FROM shareholder_snapshots" in store
+    assert "INSERT INTO shareholder_snapshot_rows" in store
+    assert "permission_basis" in store
