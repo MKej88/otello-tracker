@@ -22,6 +22,7 @@ def _line(ticker: str, factor: int, close_cents: int = 2271) -> str:
     _put(chars, 52, 56, "R$")
     _put(chars, 108, 121, f"{close_cents:013d}")
     _put(chars, 147, 152, "00010")
+    _put(chars, 152, 170, f"{12345:018d}")
     _put(chars, 170, 188, f"{100000:018d}")
     _put(chars, 210, 217, f"{factor:07d}")
     _put(chars, 230, 242, "BRBMOBACNOR1" if ticker == "BMOB3" else "BRTESTACNOR1")
@@ -45,6 +46,7 @@ def test_b3_zip_filters_ticker_before_validating_other_instruments() -> None:
     assert len(prices) == 1
     assert prices[0].ticker == "BMOB3"
     assert str(prices[0].close) == "22.71"
+    assert prices[0].quantity == 12345
     assert prices[0].quotation_factor == 1
 
 
