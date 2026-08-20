@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.db.connection import get_connection
+
 
 def _sub_result(metadata: dict[str, Any], key: str) -> dict[str, Any]:
     result = metadata.get("result")
@@ -58,7 +60,7 @@ def _latest_fact(connection, fact_types: tuple[str, ...], *, source_name: str | 
     return None if row is None else dict(row)
 
 
-def bemobi_source_status(connection) -> dict[str, Any]:
+def _status_for_connection(connection) -> dict[str, Any]:
     row = connection.execute(
         """
         SELECT sh.checked_at, sh.status, sh.error_message, sh.metadata_json
@@ -76,7 +78,7 @@ def bemobi_source_status(connection) -> dict[str, Any]:
             parsed = json.loads(str(health.get("metadata_json") or "{}"))
             if isinstance(parsed, dict):
                 metadata = parsed
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             metadata = {}
 
     fact_map = {
@@ -131,3 +133,8 @@ def bemobi_source_status(connection) -> dict[str, Any]:
         "items": items,
         "policy": "official-first-last-good-preserved",
     }
+
+
+def bemobi_source_status(database_path: str | None = None) -> dict[str, Any]:
+    with get_connection(database_path) as connection:
+        return _status_for_connection(connection)
