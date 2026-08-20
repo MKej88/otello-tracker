@@ -135,6 +135,21 @@ def _number(value: str, *, million_scale: bool = False) -> float:
     return result
 
 
+def _percentage(value: str) -> float:
+    raw = _clean(value).replace("%", "").replace(" ", "")
+    raw = re.sub(r"[^0-9,.-]", "", raw)
+    if not raw or raw in {"-", ".", ","}:
+        raise ValueError(f"Ugyldig prosent: {value!r}")
+    if "," in raw and "." in raw:
+        if raw.rfind(",") > raw.rfind("."):
+            raw = raw.replace(".", "").replace(",", ".")
+        else:
+            raw = raw.replace(",", "")
+    elif "," in raw:
+        raw = raw.replace(",", ".")
+    return float(raw)
+
+
 def _integer(value: str) -> int:
     digits = re.sub(r"\D", "", value)
     if not digits:
@@ -182,7 +197,7 @@ def parse_ownership_html(html: str, *, checked_date: str) -> dict[str, Any]:
     if otello is None or total is None or len(otello) < 3 or len(total) < 2:
         raise ValueError("Bemobi IR eiertabell har ukjent struktur")
     shares = _integer(otello[1])
-    ownership_pct = _number(otello[2])
+    ownership_pct = _percentage(otello[2])
     total_shares = _integer(total[1])
     implied = shares / total_shares * 100
     if not (10_000_000 <= shares <= total_shares <= 250_000_000):
