@@ -355,6 +355,62 @@ def _extract_metric(text: str, labels: tuple[str, ...], *, percent: bool = False
     return None
 
 
+def _extract_yoy_percentage(text: str, labels: tuple[str, ...]) -> float | None:
+    number = r"-?\d{1,4}(?:[\.,]\d{1,2})?"
+    for label in labels:
+        match = re.search(
+            label + rf".{{0,45}}?{number}.{{0,30}}?{number}.{{0,30}}?({number})\s*%",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            try:
+                value = _percentage(match.group(1))
+            except ValueError:
+                continue
+            if -500 <= value <= 1000:
+                return value
+    return None
+
+
+def _extract_percentage_after_label(text: str, labels: tuple[str, ...]) -> float | None:
+    for label in labels:
+        match = re.search(
+            label + r".{0,100}?(-?\d{1,4}(?:[\.,]\d{1,2})?)\s*%",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            try:
+                value = _percentage(match.group(1))
+            except ValueError:
+                continue
+            if -500 <= value <= 1000:
+                return value
+    return None
+
+
+def _valuation_anchor_from_result(
+    result: dict[str, Any],
+    *,
+    source_name: str,
+    source_url: str,
+) -> dict[str, Any] | None:
+    ttm_ebit = result.get("ttm_ebit_mbrl")
+    net_debt = result.get("net_debt_mbrl")
+    if ttm_ebit is None or net_debt is None:
+        return None
+    return {
+        "period": result["period"],
+        "ttm_ebit_mbrl": float(ttm_ebit),
+        "net_debt_mbrl": float(net_debt),
+        "cash_position_mbrl": result.get("cash_mbrl"),
+        "quality": "OFFICIAL_RESULT_AUTO",
+        "source": source_name,
+        "source_url": source_url,
+    }
+
+
 def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any]:
     normalized = _clean(text)
     if "bemobi" not in normalized.lower():
@@ -363,9 +419,12 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     if period is None:
         raise ValueError("Fant ikke kvartalsperiode i Bemobi-resultat")
 
-    revenue = _extract_metric(normalized, (r"Receita L[ií]quida(?: Ajustada)?", r"Net Revenue"))
-    ebitda = _extract_metric(normalized, (r"EBITDA Ajustad[oa]", r"Adjusted EBITDA"))
-    net_income = _extract_metric(normalized, (r"Lucro L[ií]quido Ajustad[oa]", r"Adjusted Net Income"))
+    revenue_labels = (r"Receita L[ií]quida(?: Ajustada)?", r"Net Revenue")
+    ebitda_labels = (r"EBITDA Ajustad[oa]", r"Adjusted EBITDA")
+    net_income_labels = (r"Lucro L[ií]quido Ajustad[oa]", r"Adjusted Net Income")
+    revenue = _extract_metric(normalized, revenue_labels)
+    ebitda = _extract_metric(normalized, ebitda_labels)
+    net_income = _extract_metric(normalized, net_income_labels)
     cash_generation = _extract_metric(
         normalized,
         (r"EBITDA Ajustad[oa]\s*[-–]\s*Capex", r"Adjusted EBITDA\s*[-–]\s*Capex"),
@@ -379,17 +438,46 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     margin = _extract_metric(normalized, (r"Margem EBITDA Ajustad[oa]", r"Adjusted EBITDA Margin"), percent=True)
     cash_conversion = _extract_metric(normalized, (r"Cash Conversion", r"Convers[aã]o de Caixa"), percent=True)
     cash = _extract_metric(normalized, (r"Posi[cç][aã]o de Caixa", r"Caixa e Equivalentes", r"Cash Position"))
+    revenue_yoy = _extract_yoy_percentage(normalized, revenue_labels)
+    ebitda_yoy = _extract_yoy_percentage(normalized, ebitda_labels)
+    net_income_yoy = _extract_yoy_percentage(normalized, net_income_labels)
+    payments_yoy = _extract_percentage_after_label(normalized, (r"Payments", r"Pagamentos"))
+    saas_yoy = _extract_percentage_after_label(normalized, (r"SaaS",))
+    ttm_ebit = _extract_metric(
+        normalized,
+        (
+            r"EBIT\s*(?:TTM|LTM|12M|12\s*Meses|[UÚ]ltimos\s*12\s*Meses)",
+            r"TTM\s*EBIT",
+        ),
+    )
+    net_debt = _extract_metric(normalized, (r"D[ií]vida L[ií]quida", r"Net Debt"))
+    if net_debt is None:
+        net_cash = _extract_metric(normalized, (r"Caixa L[ií]quido", r"Net Cash"))
+        if net_cash is not None:
+            net_debt = -net_cash
+    if ttm_ebit is not None and not (-1_000 < ttm_ebit < 5_000):
+        ttm_ebit = None
+    if net_debt is not None and not (-5_000 < net_debt < 5_000):
+        net_debt = None
+
     return {
         "period": period,
         "period_end": _period_end(period),
         "published_date": published_date,
         "adjusted_net_revenue_mbrl": round(revenue, 4),
+        "adjusted_net_revenue_yoy_pct": None if revenue_yoy is None else round(revenue_yoy, 4),
         "adjusted_ebitda_mbrl": round(ebitda, 4),
+        "adjusted_ebitda_yoy_pct": None if ebitda_yoy is None else round(ebitda_yoy, 4),
         "adjusted_net_income_mbrl": round(net_income, 4),
+        "adjusted_net_income_yoy_pct": None if net_income_yoy is None else round(net_income_yoy, 4),
         "ebitda_less_capex_mbrl": round(cash_generation, 4),
         "adjusted_ebitda_margin_pct": None if margin is None else round(margin, 4),
         "cash_conversion_pct": None if cash_conversion is None else round(cash_conversion, 4),
         "cash_mbrl": None if cash is None else round(cash, 4),
+        "payments_yoy_pct": None if payments_yoy is None else round(payments_yoy, 4),
+        "saas_yoy_pct": None if saas_yoy is None else round(saas_yoy, 4),
+        "ttm_ebit_mbrl": None if ttm_ebit is None else round(ttm_ebit, 4),
+        "net_debt_mbrl": None if net_debt is None else round(net_debt, 4),
         "quality": "OFFICIAL_RESULT_AUTO",
     }
 
@@ -913,9 +1001,10 @@ async def sync_latest_result_release(
                 (digest, candidate["id"]),
             )
         source_url = resolved_url
+        source_name = str(candidate.get("source_code") or "CVM")
         await _upsert_fact(
             repository, fact_type="RESULT", fact_key=period, as_of_date=result["period_end"],
-            published_date=published_date, payload=result, source_name=str(candidate.get("source_code") or "CVM"),
+            published_date=published_date, payload=result, source_name=source_name,
             source_url=source_url, source_document_id=int(candidate["id"]),
             quality="OFFICIAL_RESULT_AUTO", notes="Automatisk parsede nøkkeltall fra offentlig Bemobi-resultatdokument.",
         )
@@ -924,15 +1013,40 @@ async def sync_latest_result_release(
             "adjusted_net_income_mbrl": result["adjusted_net_income_mbrl"],
             "adjusted_ebitda_mbrl": result["adjusted_ebitda_mbrl"],
             "adjusted_cash_generation_mbrl": result["ebitda_less_capex_mbrl"],
-            "source": str(candidate.get("source_code") or "CVM"),
+            "source": source_name,
             "source_url": source_url,
         }
         await _upsert_fact(
             repository, fact_type="TTM_QUARTER", fact_key=period, as_of_date=result["period_end"],
-            published_date=published_date, payload=ttm, source_name=str(candidate.get("source_code") or "CVM"),
+            published_date=published_date, payload=ttm, source_name=source_name,
             source_url=source_url, source_document_id=int(candidate["id"]),
             quality="OFFICIAL_RESULT_AUTO", notes="Automatisk oppdatert TTM-kvartal fra offentlig resultatdokument.",
         )
+
+        valuation_anchor = _valuation_anchor_from_result(
+            result,
+            source_name=source_name,
+            source_url=source_url,
+        )
+        anchor_rows = 0
+        if valuation_anchor is not None:
+            await _upsert_fact(
+                repository,
+                fact_type="VALUATION_ANCHOR",
+                fact_key=period,
+                as_of_date=result["period_end"],
+                published_date=published_date,
+                payload=valuation_anchor,
+                source_name=source_name,
+                source_url=source_url,
+                source_document_id=int(candidate["id"]),
+                quality="OFFICIAL_RESULT_AUTO",
+                notes=(
+                    "Automatisk oppdatert EV-anker fordi resultatdokumentet eksplisitt oppga "
+                    "både EBIT TTM og netto gjeld/netto kontant."
+                ),
+            )
+            anchor_rows = 1
 
         previous = await repository.first(
             """
@@ -989,7 +1103,8 @@ async def sync_latest_result_release(
             "status": "ok",
             "period": period,
             "next_period": next_period,
-            "rows_written": 3 + beat_rows,
+            "rows_written": 3 + beat_rows + anchor_rows,
+            "valuation_anchor_updated": bool(anchor_rows),
             "resolved_from_html": resolved_from_html,
             "resolved_url": source_url,
             "resolved_source_document_id": resolved_document_id,

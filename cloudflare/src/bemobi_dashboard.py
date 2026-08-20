@@ -98,9 +98,15 @@ def _valuation_payload(
     ttm_net_income = sum(float(item["adjusted_net_income_mbrl"]) for item in ttm_quarters)
     ttm_ebitda = sum(float(item["adjusted_ebitda_mbrl"]) for item in ttm_quarters)
     ttm_adjusted_fcf = sum(float(item["adjusted_cash_generation_mbrl"]) for item in ttm_quarters)
-    ttm_ebit = float(ev_anchor["ttm_ebit_mbrl"])
-    net_debt = float(ev_anchor["net_debt_mbrl"])
+    anchor_ebit = float(ev_anchor["ttm_ebit_mbrl"])
+    anchor_net_debt = float(ev_anchor["net_debt_mbrl"])
     adjusted_eps = None if total_shares <= 0 else ttm_net_income * 1_000_000 / total_shares
+
+    first_period = str(ttm_quarters[0].get("period") or "")
+    last_period = str(ttm_quarters[-1].get("period") or "")
+    period = f"TTM {first_period}–{last_period}" if first_period and last_period else "TTM"
+    ev_anchor_period = str(ev_anchor.get("period") or "")
+    ev_anchor_is_current = bool(last_period and ev_anchor_period == last_period)
 
     market_cap_mbrl = None
     enterprise_value_mbrl = None
@@ -113,12 +119,13 @@ def _valuation_payload(
 
     if price_brl is not None and price_brl > 0 and total_shares > 0:
         market_cap_mbrl = price_brl * total_shares / 1_000_000
-        enterprise_value_mbrl = market_cap_mbrl + net_debt
         pe_ttm = market_cap_mbrl / ttm_net_income
         price_to_ebitda_ttm = market_cap_mbrl / ttm_ebitda
         earnings_yield_pct = ttm_net_income / market_cap_mbrl * 100
         adjusted_fcf_yield_pct = ttm_adjusted_fcf / market_cap_mbrl * 100
-        ev_ebit_ttm = enterprise_value_mbrl / ttm_ebit if enterprise_value_mbrl > 0 else None
+        if ev_anchor_is_current:
+            enterprise_value_mbrl = market_cap_mbrl + anchor_net_debt
+            ev_ebit_ttm = enterprise_value_mbrl / anchor_ebit if enterprise_value_mbrl > 0 else None
         if adjusted_eps is not None:
             scenarios = [
                 {
@@ -129,24 +136,35 @@ def _valuation_payload(
                 for multiple in VALUATION_MULTIPLES
             ]
 
-    first_period = str(ttm_quarters[0].get("period") or "")
-    last_period = str(ttm_quarters[-1].get("period") or "")
-    period = f"TTM {first_period}–{last_period}" if first_period and last_period else "TTM"
+    ev_note = (
+        "EV/EBIT bruker standardisert EBIT TTM og netto kontant fra samme kvartalsanker som "
+        "TTM-seriens sluttperiode."
+        if ev_anchor_is_current
+        else (
+            f"EV-ankeret er {ev_anchor_period or 'uten periode'}, mens TTM-serien slutter i "
+            f"{last_period or 'ukjent periode'}. Enterprise value og EV/EBIT skjules derfor "
+            "til et nytt kildebelagt anker er tilgjengelig."
+        )
+    )
 
     return {
         "period": period,
+        "ttm_end_period": last_period or None,
         "market_cap_mbrl": market_cap_mbrl,
         "enterprise_value_mbrl": enterprise_value_mbrl,
-        "net_debt_mbrl": net_debt,
-        "net_cash_mbrl": -net_debt,
-        "ev_anchor_period": ev_anchor.get("period"),
+        "net_debt_mbrl": anchor_net_debt,
+        "net_cash_mbrl": -anchor_net_debt,
+        "ev_anchor_period": ev_anchor_period or None,
+        "ev_anchor_status": "CURRENT" if ev_anchor_is_current else "STALE",
+        "ev_anchor_is_current": ev_anchor_is_current,
+        "ev_metrics_ready": ev_anchor_is_current,
         "ev_anchor_quality": ev_anchor.get("quality") or ev_anchor.get("_quality"),
         "ev_anchor_source": ev_anchor.get("source") or ev_anchor.get("_source_name"),
         "ev_anchor_source_url": ev_anchor.get("source_url") or ev_anchor.get("_source_url"),
         "adjusted_net_income_ttm_mbrl": ttm_net_income,
         "adjusted_ebitda_ttm_mbrl": ttm_ebitda,
         "adjusted_fcf_ttm_mbrl": ttm_adjusted_fcf,
-        "ebit_ttm_mbrl": ttm_ebit,
+        "ebit_ttm_mbrl": anchor_ebit,
         "adjusted_eps_ttm_brl": adjusted_eps,
         "pe_ttm": pe_ttm,
         "price_to_ebitda_ttm": price_to_ebitda_ttm,
@@ -159,8 +177,8 @@ def _valuation_payload(
             "FCF yield (just.) bruker Bemobis egen justerte kontantgenerering, definert som "
             "justert EBITDA minus investeringer i materielle og immaterielle eiendeler (uten "
             "bruksrett-CAPEX). Det er en operasjonell FCF-proxy, ikke IFRS-kontantstrøm. "
-            "EV/EBIT bruker standardisert EBIT TTM og siste kuraterte netto kontantanker. "
-            "12x/14x/16x er kun multipelsensitivitet, ikke kursmål."
+            + ev_note
+            + " 12x/14x/16x er kun multipelsensitivitet, ikke kursmål."
         ),
     }
 
