@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./bemobi-source-status.css";
 
 
 type SourceStatusItem = {
@@ -89,7 +90,7 @@ export default function BemobiSourceStatusPanel() {
 
   if (data == null && !failed) {
     return (
-      <section className="card bemobiSources">
+      <section className="card bemobiSources bemobiSourceStatus">
         <div className="cardHeader">
           <div><span className="label">Datakilder</span><h2>Kontrollerer automatiske kilder …</h2></div>
         </div>
@@ -99,7 +100,7 @@ export default function BemobiSourceStatusPanel() {
 
   if (data == null) {
     return (
-      <section className="card bemobiSources">
+      <section className="card bemobiSources bemobiSourceStatus">
         <div className="cardHeader">
           <div><span className="label">Datakilder</span><h2>Kunne ikke hente kildestatus</h2></div>
           <span className="pill muted">API-FEIL</span>
@@ -109,7 +110,7 @@ export default function BemobiSourceStatusPanel() {
   }
 
   return (
-    <section className="card bemobiSources">
+    <section className="card bemobiSources bemobiSourceStatus">
       <div className="cardHeader">
         <div>
           <span className="label">Datakilder</span>
@@ -136,7 +137,7 @@ export default function BemobiSourceStatusPanel() {
               ) : (
                 <>{item.source} · {statusLabel(item.status)}</>
               )}
-              {item.uses_last_good && <small> · bruker siste gode verdi</small>}
+              {item.uses_last_good && <small>bruker siste gode verdi</small>}
             </strong>
           </div>
         ))}
