@@ -147,6 +147,75 @@ async def _store_forward_snapshot(
     return 1
 
 
+async def _ensure_consensus_event(
+    repository,
+    *,
+    result_refresh: dict[str, Any],
+    target_date: str,
+) -> int:
+    """Create a data-backed history shell for a newly ingested result, without inventing broker data."""
+    if result_refresh.get("status") != "ok" or not result_refresh.get("period"):
+        return 0
+    period = str(result_refresh["period"])
+    existing = await repository.first(
+        "SELECT id FROM bemobi_consensus_events WHERE period=? LIMIT 1",
+        (period,),
+    )
+    if existing is not None:
+        return 0
+
+    fact = await repository.first(
+        """
+        SELECT published_date, source_name, source_url, source_document_id
+        FROM bemobi_investor_facts
+        WHERE fact_type='RESULT' AND fact_key=?
+        LIMIT 1
+        """,
+        (period,),
+    )
+    if fact is None or not fact.get("published_date"):
+        return 0
+
+    model_revision = {
+        "status": "WAITING_FOR_PUBLIC_POST_REPORT_MODEL",
+        "broker": "XP",
+        "before_date": None,
+        "after_date": None,
+        "target_before_brl": None,
+        "target_after_brl": None,
+        "source_url": fact.get("source_url"),
+        "checked_date": target_date,
+        "note": (
+            "Ny rapport er registrert. Trackeren venter på en kildeverifisert offentlig "
+            "etterrapport-modell før kursmål eller estimatrevisjon fylles inn."
+        ),
+        "estimate_revisions": [],
+    }
+    await repository.run(
+        """
+        INSERT INTO bemobi_consensus_events(
+            period, result_date, result_source, result_source_url,
+            model_revision_json, quality, notes, source_document_id
+        ) VALUES (?, ?, ?, ?, ?, 'AUTO_RESULT_HISTORY', ?, ?)
+        """,
+        (
+            period,
+            str(fact["published_date"])[:10],
+            str(fact.get("source_name") or "Bemobi/CVM"),
+            fact.get("source_url"),
+            json.dumps(
+                model_revision,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "Opprettet automatisk fra kildebelagt RESULT-faktum; brokerrevisjon fylles ikke uten kilde.",
+            fact.get("source_document_id"),
+        ),
+    )
+    return 1
+
+
 async def sync_marketscreener_consensus(
     repository,
     *,
@@ -241,6 +310,13 @@ async def refresh_bemobi_web(
         archive_bucket=archive_bucket,
         fetcher=fetcher,
     )
+    event_rows = await _ensure_consensus_event(
+        repository,
+        result_refresh=result,
+        target_date=target_date,
+    )
+    if event_rows:
+        result = {**result, "consensus_event_rows_written": event_rows}
     consensus = await sync_marketscreener_consensus(
         repository,
         target_date=target_date,
@@ -255,7 +331,7 @@ async def refresh_bemobi_web(
     )
     secondary = [result, consensus, xp]
     degraded = any(item.get("status") == "not_available" for item in secondary)
-    rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary])
+    rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
     return {
         "status": "partial" if degraded else "ok",
         "rows_written": rows_written,
