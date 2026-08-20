@@ -174,6 +174,8 @@ jobs:
             "$base/api/bemobi/dashboard" -o /tmp/otello-bemobi-dashboard.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/bemobi/consensus" -o /tmp/otello-bemobi-consensus.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/bemobi/source-status" -o /tmp/otello-bemobi-source-status.json
           python - <<'PY'
           import json
           from datetime import date, datetime
@@ -193,6 +195,7 @@ jobs:
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
           bemobi_dashboard = json.loads(Path('/tmp/otello-bemobi-dashboard.json').read_text())
           bemobi_consensus = json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
+          bemobi_source_status = json.loads(Path('/tmp/otello-bemobi-source-status.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
@@ -231,6 +234,8 @@ jobs:
           assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
           assert bemobi_dashboard.get('ready') is True, bemobi_dashboard
           assert bemobi_consensus.get('ready') is True, bemobi_consensus
+          assert bemobi_source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, bemobi_source_status
+          assert len(bemobi_source_status.get('items') or []) == 4, bemobi_source_status
 
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(ZoneInfo('Europe/Oslo')).date()
@@ -249,6 +254,7 @@ jobs:
               f"buyback_latest={buyback_latest.get('shares')}",
               f"bemobi_ready={bemobi_dashboard.get('ready')}",
               f"consensus_ready={bemobi_consensus.get('ready')}",
+              f"source_status={bemobi_source_status.get('overall_status')}",
               f'age_days={age}',
           )
           PY
