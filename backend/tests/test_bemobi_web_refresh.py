@@ -317,7 +317,7 @@ def test_xp_preview_parser_is_best_effort_and_requires_preview_context() -> None
 def test_production_workflow_contains_bemobi_web_refresh_step() -> None:
     entry = (ROOT / "cloudflare/src/entry.py").read_text(encoding="utf-8")
     full_refresh = (ROOT / "cloudflare/src/full_refresh.py").read_text(encoding="utf-8")
-    assert "from bemobi_web_refresh import refresh_bemobi_web" in entry
+    assert "from bemobi_web_refresh_v2 import refresh_bemobi_web" in entry
     assert '"refresh Bemobi investor web facts"' in entry
     assert 'source_results["bemobi_web"]' in entry
     assert '"bemobi_web": "BEMOBI_IR"' in full_refresh
