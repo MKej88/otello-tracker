@@ -96,9 +96,10 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/bemobi/consensus")' in worker_app
     assert "load_bemobi_facts" in worker_service
     assert "latest_bemobi_fact" in worker_service
-    assert "ANALYST_COVERAGE" not in worker_service
-    assert "FORWARD_CONSENSUS" not in worker_service
-    assert "BEAT_MISS_HISTORY" not in worker_service
+    assert "ANALYST_COVERAGE =" not in worker_service
+    assert "FORWARD_CONSENSUS =" not in worker_service
+    assert "BEAT_MISS_HISTORY =" not in worker_service
+    assert 'load_bemobi_facts(repository, "FORWARD_CONSENSUS")' in worker_service
     assert "'ANALYST', 'BTG Pactual'" in migration
     assert "'FORWARD_CONSENSUS', '2027'" in migration
     assert "'BEAT_MISS', '2Q26'" in migration
