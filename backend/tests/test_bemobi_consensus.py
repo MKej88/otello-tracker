@@ -89,7 +89,7 @@ def test_consensus_is_exposed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/bemobi/consensus")' in worker_app
     assert 'ANALYST_COVERAGE' in worker_service
     assert 'FORWARD_CONSENSUS' in worker_service
-    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus" | "Aksjonærer";' in frontend
+    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
