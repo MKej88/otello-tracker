@@ -92,7 +92,16 @@ def _forward_payload(
             }
         )
         payload.append(row)
+    payload.sort(key=lambda item: int(item.get("year") or 0))
     return payload
+
+
+def _forward_year_range(years: list[dict[str, Any]]) -> str | None:
+    values = [int(item["year"]) for item in years if item.get("year") is not None]
+    if not values:
+        return None
+    first, last = min(values), max(values)
+    return f"{first}E" if first == last else f"{first}E–{last}E"
 
 
 def _beat_miss_payload(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -145,11 +154,15 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
     price_brl = _number(market.get("price_brl"))
     total_shares = int(otello.get("bemobi_total_shares") or 0) or None
     forward_years = _forward_payload(price_brl, total_shares, forward_facts)
+    forward_range = _forward_year_range(forward_years)
     beat_miss = _beat_miss_payload(beat_miss_facts)
     analysts = [public_fact(item) or {} for item in analyst_facts]
     coverage = _target_payload(price_brl, analyst_facts)
 
-    forward_source = forward_facts[0]
+    forward_source = max(
+        forward_facts,
+        key=lambda item: str(item.get("_as_of_date") or item.get("_published_date") or ""),
+    )
     next_quarter = public_fact(next_quarter_fact) or {}
     reference_model = public_fact(reference_model_fact) or {}
     reference_model["source_url"] = reference_model.get("source_url") or reference_model_fact.get("_source_url")
@@ -170,6 +183,7 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
             "checked_date": forward_source.get("_as_of_date"),
             "quality": forward_source.get("_quality"),
             "analyst_count": None,
+            "year_range": forward_range,
             "years": forward_years,
             "note": forward_source.get("_notes"),
         },
@@ -188,7 +202,7 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
                 "url": analyst_facts[0].get("_source_url"),
             },
             {
-                "label": "Årsestimater 2026–2027",
+                "label": f"Årsestimater {forward_range or 'forward'}",
                 "source": forward_source.get("_source_name"),
                 "url": forward_source.get("_source_url"),
             },
