@@ -1,0 +1,39 @@
+.bemobiSourceStatus .sourceList > div {
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.bemobiSourceStatus .sourceList > div > span {
+  display: grid;
+  gap: 4px;
+}
+
+.bemobiSourceStatus .sourceList small {
+  color: #657690;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.bemobiSourceStatus .sourceList strong {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+}
+
+.bemobiSourceStatus .sourceList strong small {
+  color: #d5a85d;
+}
+
+@media (max-width: 760px) {
+  .bemobiSourceStatus .sourceList > div {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bemobiSourceStatus .sourceList strong {
+    justify-items: start;
+    text-align: left;
+  }
+}
