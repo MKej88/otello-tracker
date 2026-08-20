@@ -57,7 +57,7 @@ INSERT INTO bemobi_investor_facts(
     ),
     (
         4, 'TTM_QUARTER', '4Q25', '2025-12-31', '2026-02-01',
-        '{"period":"4Q25","adjusted_net_income_mbrl":61.0,"adjusted_ebitda_mbrl":66.0,"adjusted_cash_generation_mbrl":52.5,"source":"XP / CVM","source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-gerasjon-de-caixa/"}',
+        '{"period":"4Q25","adjusted_net_income_mbrl":61.0,"adjusted_ebitda_mbrl":66.0,"adjusted_cash_generation_mbrl":52.5,"source":"XP / CVM","source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/"}',
         'XP / CVM',
         'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-execucao-segue-solida-sustentando-crescimento-consistente-e-forte-geracao-de-caixa/',
         'CURATED_PUBLIC_RESULT',
