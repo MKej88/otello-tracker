@@ -4,7 +4,6 @@ import BuybackPage from "./BuybackPage";
 import ConsensusPage from "./ConsensusPage";
 import EconomicNavPanel from "./EconomicNavPanel";
 import NavWaterfallPanel from "./NavWaterfallPanel";
-import ShareholdersPage from "./ShareholdersPage";
 
 type ChangeSet = {
   nav_pct: number | null;
@@ -114,7 +113,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus" | "Aksjonærer";
+type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -128,7 +127,6 @@ const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "Tilbakekjøp", enabled: true },
   { label: "Bemobi", enabled: true },
   { label: "Konsensus", enabled: true },
-  { label: "Aksjonærer", enabled: true },
   { label: "Nyheter", enabled: false },
   { label: "Innstillinger", enabled: false }
 ];
@@ -387,9 +385,7 @@ export default function App() {
         ? "Bemobi"
         : activeView === "Konsensus"
           ? "Konsensus"
-          : activeView === "Aksjonærer"
-            ? "Aksjonærer"
-            : "Otello investoroversikt";
+          : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -506,8 +502,6 @@ export default function App() {
           <BemobiPage />
         ) : activeView === "Konsensus" ? (
           <ConsensusPage />
-        ) : activeView === "Aksjonærer" ? (
-          <ShareholdersPage />
         ) : (
           <>
             <div className="pageIntro">
