@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MarketQuotePanel from "./MarketQuotePanel";
 import "./economic-nav.css";
 
 type EconomicNav = {
@@ -111,7 +112,7 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
     };
   }, []);
 
-  if (data == null) return null;
+  if (data == null) return variant === "summary" ? <MarketQuotePanel /> : null;
 
   if (!data.ready) {
     return (
@@ -123,6 +124,7 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
           </div>
           <span>{reasonLabel(data.reason)}</span>
         </div>
+        {variant === "summary" && <MarketQuotePanel />}
       </section>
     );
   }
@@ -201,6 +203,7 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
           </>
         )}
       </article>
+      {variant === "summary" && <MarketQuotePanel />}
     </section>
   );
 }

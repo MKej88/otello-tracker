@@ -11,6 +11,7 @@ from economic_nav_investor import economic_nav_summary
 from fx_backtest import fx_backtest_summary
 from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
+from quote_details import market_quote_details
 from report_status import report_status_summary
 from shareholders import shareholders_dashboard
 
@@ -25,50 +26,18 @@ SECURITY_HEADERS = {
 
 CACHE_POLICIES = {
     "/api/health": ("no-store", "no-store"),
-    "/api/dashboard/summary": (
-        "public, max-age=15",
-        "public, max-age=60, stale-while-revalidate=120",
-    ),
-    "/api/dashboard/report-status": (
-        "public, max-age=30",
-        "public, max-age=120, stale-while-revalidate=300",
-    ),
-    "/api/dashboard/economic": (
-        "public, max-age=15",
-        "public, max-age=60, stale-while-revalidate=120",
-    ),
-    "/api/dashboard/waterfall": (
-        "public, max-age=15",
-        "public, max-age=60, stale-while-revalidate=120",
-    ),
-    "/api/dashboard/fx-backtest": (
-        "public, max-age=1800",
-        "public, max-age=21600, stale-while-revalidate=43200",
-    ),
-    "/api/dashboard/history": (
-        "public, max-age=300",
-        "public, max-age=1800, stale-while-revalidate=3600",
-    ),
-    "/api/buybacks/forecast": (
-        "public, max-age=300",
-        "public, max-age=900, stale-while-revalidate=1800",
-    ),
-    "/api/buybacks/dashboard": (
-        "public, max-age=60",
-        "public, max-age=300, stale-while-revalidate=600",
-    ),
-    "/api/bemobi/dashboard": (
-        "public, max-age=60",
-        "public, max-age=300, stale-while-revalidate=600",
-    ),
-    "/api/bemobi/consensus": (
-        "public, max-age=300",
-        "public, max-age=1800, stale-while-revalidate=3600",
-    ),
-    "/api/shareholders/dashboard": (
-        "public, max-age=300",
-        "public, max-age=1800, stale-while-revalidate=3600",
-    ),
+    "/api/dashboard/summary": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/dashboard/report-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
+    "/api/dashboard/economic": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
+    "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
+    "/api/buybacks/forecast": ("public, max-age=300", "public, max-age=900, stale-while-revalidate=1800"),
+    "/api/buybacks/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
+    "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
+    "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
+    "/api/market/quotes": ("public, max-age=30", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/shareholders/dashboard": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
 }
 
 app = FastAPI(
@@ -86,10 +55,7 @@ async def add_response_hardening(request: Request, call_next):
     response = await call_next(request)
     for header, value in SECURITY_HEADERS.items():
         response.headers[header] = value
-    browser_policy, edge_policy = CACHE_POLICIES.get(
-        request.url.path,
-        ("no-store", "no-store"),
-    )
+    browser_policy, edge_policy = CACHE_POLICIES.get(request.url.path, ("no-store", "no-store"))
     response.headers["Cache-Control"] = browser_policy
     response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
     return response
@@ -112,12 +78,7 @@ async def health(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=503, detail="D1 unavailable") from exc
     if row is None or int(row.get("ok", 0)) != 1:
         raise HTTPException(status_code=503, detail="D1 unavailable")
-    return {
-        "status": "ok",
-        "service": "otello-api",
-        "environment": "cloudflare",
-        "version": API_VERSION,
-    }
+    return {"status": "ok", "service": "otello-api", "environment": "cloudflare", "version": API_VERSION}
 
 
 @app.get("/api/dashboard/summary")
@@ -155,6 +116,11 @@ async def get_dashboard_history(
 ) -> dict:
     repository = _repository(request)
     return await dashboard_history(repository, days=days, max_points=max_points)
+
+
+@app.get("/api/market/quotes")
+async def get_market_quotes(request: Request) -> dict:
+    return await market_quote_details(_repository(request))
 
 
 @app.get("/api/buybacks/forecast")

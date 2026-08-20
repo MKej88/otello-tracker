@@ -24,14 +24,23 @@ MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
 @dataclass(frozen=True)
 class B3DailyClose:
     trading_date: str
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    average: Decimal
     close: Decimal
     isin: str
     trades: int
+    quantity: int
     volume: Decimal
 
 
 def _implied_two_decimals(raw: str) -> Decimal:
     return Decimal(raw.strip() or "0") / Decimal("100")
+
+
+def _integer(raw: str) -> int:
+    return int(raw.strip() or "0")
 
 
 def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
@@ -54,7 +63,7 @@ def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
                     continue
                 if line[10:12] != "02" or line[24:27] != "010":
                     continue
-                factor = int(line[210:217] or "0")
+                factor = _integer(line[210:217])
                 if factor != 1:
                     raise ValueError(f"Uventet B3 quotation factor: {factor}")
                 raw_date = line[2:10]
@@ -63,9 +72,14 @@ def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
                 rows.append(
                     B3DailyClose(
                         trading_date=trading_date,
+                        open=_implied_two_decimals(line[56:69]),
+                        high=_implied_two_decimals(line[69:82]),
+                        low=_implied_two_decimals(line[82:95]),
+                        average=_implied_two_decimals(line[95:108]),
                         close=_implied_two_decimals(line[108:121]),
                         isin=line[230:242].strip(),
-                        trades=int(line[147:152] or "0"),
+                        trades=_integer(line[147:152]),
+                        quantity=_integer(line[152:170]),
                         volume=_implied_two_decimals(line[170:188]),
                     )
                 )
@@ -138,6 +152,18 @@ async def refresh_bmob3_close(
             if archive_bucket is not None
             else None
         )
+        market_metadata = {
+            "source": "B3_COTAHIST_DAILY",
+            "open": format(latest.open, "f"),
+            "high": format(latest.high, "f"),
+            "low": format(latest.low, "f"),
+            "average": format(latest.average, "f"),
+            "trades": latest.trades,
+            "volume_shares": latest.quantity,
+            "volume_brl": format(latest.volume, "f"),
+            "quotation_factor": 1,
+            "r2_key": archived.get("r2_key") if archived else None,
+        }
         document_id = await repository.create_source_document(
             source_code="B3",
             external_id=f"cotahist-daily:{candidate.isoformat()}",
@@ -150,12 +176,10 @@ async def refresh_bmob3_close(
                 "ticker": "BMOB3",
                 "format": "COTAHIST",
                 "scope": "DAILY",
-                "trades": latest.trades,
-                "volume_brl": format(latest.volume, "f"),
                 "isin": latest.isin,
                 "workflow": "cloudflare_full_refresh",
-                "r2_key": archived.get("r2_key") if archived else None,
                 "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
+                **market_metadata,
             },
         )
         price_id = await repository.upsert_market_price(
@@ -168,18 +192,16 @@ async def refresh_bmob3_close(
             source_code="B3",
             source_document_id=document_id,
             quality="DIRECT",
-            metadata={
-                "source": "B3_COTAHIST_DAILY",
-                "trades": latest.trades,
-                "volume_brl": format(latest.volume, "f"),
-                "quotation_factor": 1,
-                "r2_key": archived.get("r2_key") if archived else None,
-            },
+            metadata=market_metadata,
         )
         return {
             "status": "ok",
             "trading_date": latest.trading_date,
             "price_brl": format(latest.close, "f"),
+            "open_brl": format(latest.open, "f"),
+            "high_brl": format(latest.high, "f"),
+            "low_brl": format(latest.low, "f"),
+            "volume_shares": latest.quantity,
             "price_id": price_id,
             "source_document_id": document_id,
             "attempted_dates": attempted,

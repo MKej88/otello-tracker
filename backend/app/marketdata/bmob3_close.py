@@ -50,7 +50,12 @@ def import_bmob3_daily_close_payload(
         "ticker": BMOB3_SYMBOL,
         "format": "COTAHIST_DAILY",
         "trading_date": trading_day.isoformat(),
+        "open": str(item.open),
+        "high": str(item.high),
+        "low": str(item.low),
+        "average": str(item.average),
         "trades": item.trades,
+        "volume_shares": item.quantity,
         "volume_brl": str(item.volume),
         "isin": item.isin,
         "price_semantics": "OFFICIAL_DAILY_CLOSE",
@@ -88,6 +93,10 @@ def import_bmob3_daily_close_payload(
         "price_type": "CLOSE",
         "quality": "DIRECT",
         "price_brl": str(item.close),
+        "open_brl": str(item.open),
+        "high_brl": str(item.high),
+        "low_brl": str(item.low),
+        "volume_shares": item.quantity,
         "price_id": price_id,
         "source_url": url,
         "zip_bytes": len(payload),
@@ -99,12 +108,6 @@ def refresh_bmob3_official_close(
     *,
     target_date: str | None = None,
 ) -> dict[str, Any]:
-    """Import the newest published official BMOB3 daily CLOSE without the annual ZIP.
-
-    On a live trading day B3's file for today is normally unavailable until the session
-    has been processed, so the current date is tried first and the previous B3 trading
-    day is the safe fallback. Existing B3 CLOSE rows are not downloaded again.
-    """
     target_day = date.fromisoformat(target_date) if target_date else date.today()
     candidates: list[date]
     if is_b3_trading_day(target_day):
@@ -123,19 +126,10 @@ def refresh_bmob3_official_close(
                 "attempted": attempted,
             }
         payload = download_cotahist_day(candidate)
-        attempted.append(
-            {
-                "trading_date": candidate_iso,
-                "available": payload is not None,
-            }
-        )
+        attempted.append({"trading_date": candidate_iso, "available": payload is not None})
         if payload is None:
             continue
-        result = import_bmob3_daily_close_payload(
-            payload,
-            trading_day=candidate,
-            database_path=database_path,
-        )
+        result = import_bmob3_daily_close_payload(payload, trading_day=candidate, database_path=database_path)
         result["attempted"] = attempted
         return result
 
