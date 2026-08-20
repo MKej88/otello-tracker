@@ -157,7 +157,8 @@ def test_shareholder_capture_uses_github_browser_and_d1_api() -> None:
     assert "browser" not in config
 
     assert 'cron: "15 3 * * *"' in github_workflow
-    assert 'branches: ["main"]' in github_workflow
+    assert 'branches: ["main"]' not in github_workflow
+    assert "workflow_dispatch:" in github_workflow
     assert "playwright-core@1.58.2" in github_workflow
     assert "capture_shareholder_top20.mjs" in github_workflow
     assert "store_shareholder_top20_d1.mjs" in github_workflow
