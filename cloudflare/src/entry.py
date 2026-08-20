@@ -82,7 +82,6 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from b3_full_refresh import refresh_bmob3_close
         from bemobi_web_refresh import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
-        from ecb_full_refresh import refresh_ecb_fx
         from full_refresh import (
             error_result,
             finish_full_refresh,
@@ -93,6 +92,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from job_lock import acquire_refresh_lock, release_refresh_lock
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
+        from norges_bank_full_refresh import refresh_norges_bank_fx
         from otec_workflow_recovery import ensure_otec_eod
         from otello_report_ingestion import process_pending_otello_reports
         from performance_repository import PerformanceD1WriteRepository
@@ -143,12 +143,12 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             job_id = await start_step()
 
             @step.do(
-                "refresh ECB FX",
+                "refresh Norges Bank FX",
                 config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "3 minutes"},
             )
-            async def ecb_step():
+            async def norges_bank_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
-                result = await refresh_ecb_fx(
+                result = await refresh_norges_bank_fx(
                     repository,
                     target_date=target_date,
                     archive_bucket=self.env.SOURCE_ARCHIVE,
@@ -156,9 +156,9 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 return {**result, "repository": repository.performance_metrics()}
 
             try:
-                source_results["ecb"] = await ecb_step()
+                source_results["norges_bank"] = await norges_bank_step()
             except Exception as exc:
-                source_results["ecb"] = error_result(exc)
+                source_results["norges_bank"] = error_result(exc)
 
             @step.do(
                 "refresh B3 COTAHIST",

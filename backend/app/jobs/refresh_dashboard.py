@@ -15,13 +15,13 @@ from app.history.newsweb_2021_events import seed_2021_newsweb_events
 from app.marketdata.b3_cotahist import download_cotahist_year
 from app.marketdata.backfill import (
     import_b3_bmob3_zip,
-    import_ecb_fx_csv,
     import_euronext_otec_csv,
     import_investing_otec_csv,
+    import_norges_bank_fx_json,
     market_data_status,
 )
-from app.marketdata.ecb_fx import fetch_ecb_csv
 from app.marketdata.euronext_delayed import refresh_otec_delayed_price
+from app.marketdata.norges_bank_fx import fetch_norges_bank_json
 from app.nav import (
     daily_cash_status,
     daily_nav_status,
@@ -66,7 +66,8 @@ def run_refresh(
     target_date: str | None = None,
     fx_lookback_days: int = 14,
     b3_year: int | None = None,
-    fetch_ecb: bool = True,
+    fetch_norges_bank: bool = True,
+    fetch_ecb: bool | None = None,
     fetch_b3: bool = True,
     fetch_otec_delayed: bool = True,
     fetch_buybacks: bool = True,
@@ -80,6 +81,10 @@ def run_refresh(
     later model layers, so a temporary upstream outage degrades the result rather than
     destroying the dashboard. FULL NAV remains a separate snapshot series and never
     overwrites CORE.
+
+    Daily BRL/NOK and USD/NOK are fetched directly from Norges Bank. ``fetch_ecb`` is
+    retained only as a temporary keyword compatibility alias for reference tests/scripts;
+    it controls the Norges Bank step and does not contact ECB.
 
     OTEC current pricing uses Euronext's official public delayed Oslo EQUITIES trade file.
     It is stored as LAST, never mislabeled as CLOSE. Explicit historical target dates skip
@@ -97,6 +102,9 @@ def run_refresh(
     Metadata classification never creates or changes a financial fact without a separate
     validated step.
     """
+    if fetch_ecb is not None:
+        fetch_norges_bank = fetch_ecb
+
     end = target_date or date.today().isoformat()
     end_day = date.fromisoformat(end)
     today = date.today()
@@ -111,17 +119,21 @@ def run_refresh(
         "history_manifest": history.get("manifest_version"),
     }
 
-    if fetch_ecb:
-        def update_ecb() -> dict[str, Any]:
-            url, text = fetch_ecb_csv(fx_start, end)
+    if fetch_norges_bank:
+        def update_norges_bank() -> dict[str, Any]:
+            url, text = fetch_norges_bank_json(fx_start, end)
             return {
-                "rows_written": import_ecb_fx_csv(text, source_url=url, database_path=database_path),
+                "rows_written": import_norges_bank_fx_json(
+                    text,
+                    source_url=url,
+                    database_path=database_path,
+                ),
                 "from": fx_start,
                 "to": end,
             }
-        steps["ecb"] = _safe_step("ecb", update_ecb, errors)
+        steps["norges_bank"] = _safe_step("norges_bank", update_norges_bank, errors)
     else:
-        steps["ecb"] = {"skipped": True}
+        steps["norges_bank"] = {"skipped": True}
 
     if fetch_b3:
         def update_b3() -> dict[str, Any]:
@@ -229,9 +241,6 @@ def run_refresh(
     steps["core_anchors"] = _safe_step(
         "core_anchors", lambda: rebuild_core_nav_anchors(database_path), errors
     )
-    # Daily maintenance intentionally performs one deterministic complete cash rebuild,
-    # but routes it through the dirty-state wrapper so subsequent 30-minute cycles know
-    # that the just-rebuilt inputs/horizon are current and do not repeat the full rewrite.
     steps["daily_cash"] = _safe_step(
         "daily_cash",
         lambda: rebuild_daily_cash_if_changed(database_path, end_date=end, force=True),
@@ -283,7 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", default=None, help="Target date, defaults to today")
     parser.add_argument("--fx-lookback-days", type=int, default=14)
     parser.add_argument("--b3-year", type=int, default=None, help="Defaults to target-date year")
-    parser.add_argument("--skip-ecb", action="store_true")
+    parser.add_argument("--skip-norges-bank", action="store_true")
     parser.add_argument("--skip-b3", action="store_true")
     parser.add_argument("--skip-otec-delayed", action="store_true")
     parser.add_argument("--skip-buybacks", action="store_true")
@@ -301,7 +310,7 @@ def main() -> None:
         target_date=args.date,
         fx_lookback_days=args.fx_lookback_days,
         b3_year=args.b3_year,
-        fetch_ecb=not args.skip_ecb,
+        fetch_norges_bank=not args.skip_norges_bank,
         fetch_b3=not args.skip_b3,
         fetch_otec_delayed=not args.skip_otec_delayed,
         fetch_buybacks=not args.skip_buybacks,

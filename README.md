@@ -76,6 +76,7 @@ GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
+GET /api/bemobi/source-status
 ```
 
 Aktive frontend-API-er inngår i Worker-smoke og produksjonsakseptanse.
@@ -125,13 +126,16 @@ Se `docs/economic-nav.md` og `docs/option-liability.md`.
 ### Bemobi
 
 - B3 COTAHIST for offisiell BMOB3-sluttkurs;
-- CVM for regulatoriske metadata og dokumentstatus.
+- CVM for regulatoriske metadata og dokumentstatus;
+- Bemobi IR for eierandel og offentlig analytikerdekning;
+- offentlige MarketScreener-/XP-data der de kan verifiseres og spores.
 
 CVM-metadata alene skal ikke opprette eller endre finansielle fakta.
 
 ### Valuta
 
-- ECB for BRL/NOK og USD/NOK via krysskurser.
+- Norges Bank er primærkilde for **direkte BRL/NOK og USD/NOK**. Det brukes ikke lenger EUR-kryss i den løpende produksjonsoppdateringen.
+- Historiske ECB-rader beholdes kun som kildeproveniens/fallback; nye valutadata hentes ikke fra ECB.
 
 ## Oppdateringsjobber
 
@@ -149,7 +153,7 @@ Den raske banen håndterer lette og inkrementelle oppdateringer som OTEC/BMOB3, 
 35 3 * * * UTC
 ```
 
-Full Workflow håndterer tyngre kilder og avstemming, blant annet ECB, B3, CVM, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
+Full Workflow håndterer tyngre kilder og avstemming, blant annet Norges Bank, B3, CVM, Bemobi-webkilder, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
 
 Begge write-paths bruker samme writer-lock. Cleanup skal frigjøre låsen også ved feil; expiry er siste sikkerhetsnett.
 

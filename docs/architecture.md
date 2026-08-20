@@ -54,6 +54,7 @@ GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
+GET /api/bemobi/source-status
 ```
 
 Referansebackend og Cloudflare Worker skal beholde samme finansielle semantikk. Produksjons- og Worker-smoketester dekker de aktive frontend-visningene.
@@ -82,10 +83,14 @@ Se `docs/economic-nav.md` og `docs/option-liability.md` for modellbeskrivelse.
 
 - B3 COTAHIST for offisiell BMOB3-sluttkurs
 - CVM for regulatoriske metadata og dokumentstatus
+- Bemobi IR for eierandel og analytikerdekning
+- offentlige MarketScreener-/XP-data når de kan verifiseres og spores
 
 ### Valuta
 
-- ECB-krysskurser for BRL/NOK og USD/NOK
+- Norges Banks åpne EXR-API er primærkilde for direkte BRL/NOK og USD/NOK.
+- Daglige referansekurser arkiveres i R2 og lagres med `NORGES_BANK`-proveniens i D1.
+- Historiske ECB-krysskurser beholdes som eldre provenance/fallback, men oppdateres ikke lenger i produksjon.
 
 Kildedata skal ha provenance der de påvirker finansielle beregninger. CVM-metadata alene skal ikke skape finansielle fakta.
 
@@ -97,7 +102,7 @@ Cloudflare Cron kjører hvert 30. minutt. Banen er bounded og håndterer lette, 
 
 ### Full oppdatering
 
-Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
+Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
 
 Rask og full bane bruker samme D1-baserte writer-lock. Låsen skal alltid frigjøres også ved feil, og har i tillegg expiry som siste sikkerhetsnett.
 

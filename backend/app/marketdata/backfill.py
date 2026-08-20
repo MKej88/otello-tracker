@@ -14,6 +14,7 @@ from app.marketdata.investing_csv import (
     parse_investing_historical_csv,
     reconstruct_otec_2022_distribution,
 )
+from app.marketdata.norges_bank_fx import parse_norges_bank_sdmx_json
 
 OTEC_EURONEXT_HISTORY_URL = (
     "https://live.euronext.com/en/popout-page/getHistoricalPrice/NO0010040611-XOSL"
@@ -63,12 +64,49 @@ def import_b3_bmob3_file(path: str | Path, *, year: int, database_path: str | No
     return import_b3_bmob3_zip(Path(path).read_bytes(), year=year, database_path=database_path)
 
 
+def import_norges_bank_fx_json(
+    text: str,
+    *,
+    source_url: str,
+    database_path: str | None = None,
+) -> int:
+    payload = text.encode("utf-8")
+    rows = parse_norges_bank_sdmx_json(text)
+    digest = _sha256(payload)
+    written = 0
+    with get_connection(database_path) as connection:
+        document_id = create_source_document(
+            connection,
+            source_code="NORGES_BANK",
+            external_id=f"exr-direct-{digest[:20]}",
+            document_type="API_RESPONSE",
+            title="Norges Bank daily reference rates for BRL/NOK and USD/NOK",
+            url=source_url,
+            content_sha256=digest,
+            metadata={"pairs": ["BRL/NOK", "USD/NOK"], "method": "direct NOK quote"},
+        )
+        for item in rows:
+            upsert_fx_rate(
+                connection,
+                base_currency=item.base_currency,
+                quote_currency=item.quote_currency,
+                observed_at=f"{item.trading_date}T00:00:00Z",
+                rate=item.rate,
+                source_code="NORGES_BANK",
+                source_document_id=document_id,
+            )
+            written += 1
+        connection.commit()
+    return written
+
+
 def import_ecb_fx_csv(
     text: str,
     *,
     source_url: str,
     database_path: str | None = None,
 ) -> int:
+    """Legacy historical import retained for already archived ECB source files."""
     payload = text.encode("utf-8")
     rows = derive_nok_cross_rates(parse_ecb_csv(text))
     digest = _sha256(payload)
@@ -79,10 +117,10 @@ def import_ecb_fx_csv(
             source_code="ECB",
             external_id=f"exr-cross-{digest[:20]}",
             document_type="API_RESPONSE",
-            title="ECB daily reference rates used for BRL/NOK and USD/NOK",
+            title="ECB daily reference rates used for historical BRL/NOK and USD/NOK",
             url=source_url,
             content_sha256=digest,
-            metadata={"derived_pairs": ["BRL/NOK", "USD/NOK"], "method": "EUR cross"},
+            metadata={"derived_pairs": ["BRL/NOK", "USD/NOK"], "method": "EUR cross", "legacy": True},
         )
         for item in rows:
             upsert_fx_rate(

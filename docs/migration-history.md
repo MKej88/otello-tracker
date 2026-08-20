@@ -6,17 +6,19 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0020_bemobi_web_provenance.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0021_norges_bank_fx_source.sql`.
 
 - `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
 - `0020` kobler automatiske Bemobi-fakta til `source_documents` og registrerer de eksplisitte sekundærkildene MarketScreener og XP.
+- `0021` registrerer Norges Bank som ny autoritativ valutakilde for direkte BRL/NOK- og USD/NOK-kurser. Historiske ECB-rader beholdes som provenance/fallback og slettes ikke.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0010_bemobi_web_provenance.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0011_norges_bank_fx_source.sql`.
 
 - `0009` oppretter og seeder Bemobi-faktalaget i D1.
 - `0010` legger til samme webproveniens og kilderegistrering som SQLite `0020`.
+- `0011` registrerer Norges Bank som samme nye FX-kilde som SQLite `0021`.
 
 SQLite og D1 skal fortsatt være strukturelt og logisk kompatible og inngår i den deterministiske paritetskontrollen.
 
@@ -29,10 +31,10 @@ Aksjonær-/Top 20-funksjonen ble fjernet i PR #95. I forbindelse med denne funks
 
 Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk brukt og skal ikke tas i bruk til noe annet.
 
-**Neste nye migrering etter automatisk Bemobi-webinnhenting skal minst være:**
+**Neste nye migrering skal minst være:**
 
-- SQLite: `0021_...`
-- Cloudflare D1: `0011_...`
+- SQLite: `0022_...`
+- Cloudflare D1: `0012_...`
 
 ## Regel for nye migreringer
 
