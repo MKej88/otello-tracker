@@ -143,7 +143,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             start_full_refresh,
         )
         from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
-        from job_lock import acquire_refresh_lock, release_refresh_lock
+        from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
         from norges_bank_full_refresh import refresh_norges_bank_fx
@@ -176,6 +176,33 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             return result
 
         lock_result = await lock_step()
+        lock_token = lock_result.get("token")
+
+        async def renew_lock(checkpoint: str):
+            nonlocal lock_token
+
+            @step.do(
+                f"renew full refresh writer lock {checkpoint}",
+                config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
+            )
+            async def renew_step(current_token=lock_token):
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await renew_refresh_lock(
+                    repository,
+                    current_token,
+                    ttl_seconds=FULL_REFRESH_LOCK_TTL_SECONDS,
+                )
+                if not result.get("renewed"):
+                    raise RuntimeError(
+                        "refresh writer lease lost at "
+                        f"{checkpoint}; held_by={result.get('held_by')} "
+                        f"expires_at={result.get('expires_at')}"
+                    )
+                return result
+
+            result = await renew_step()
+            lock_token = result.get("token")
+            return result
 
         @step.do(
             "release full refresh writer lock",
@@ -183,7 +210,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         async def release_step():
             repository = PerformanceD1WriteRepository(self.env.DB)
-            released = await release_refresh_lock(repository, lock_result.get("token"))
+            released = await release_refresh_lock(repository, lock_token)
             return {"released": released, "owner": lock_owner}
 
         try:
@@ -195,6 +222,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 return await start_full_refresh(self.env.DB, target_date=target_date, trigger=trigger)
 
             job_id = await start_step()
+            await renew_lock("after start")
 
             @step.do(
                 "refresh Norges Bank FX",
@@ -213,6 +241,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["norges_bank"] = await norges_bank_step()
             except Exception as exc:
                 source_results["norges_bank"] = error_result(exc)
+            await renew_lock("after Norges Bank")
 
             if source_results["norges_bank"].get("history_backfill"):
                 history_start = str(source_results["norges_bank"]["history_start_required"])
@@ -247,6 +276,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                                 "to": chunk_end,
                             }
                         )
+                    await renew_lock(f"after Norges Bank history {chunk_year}")
 
                 history_nav = _aggregate_history_rebuild(history_chunks)
                 source_results["norges_bank"]["history_nav_rebuild"] = history_nav
@@ -270,6 +300,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["b3"] = await b3_step()
             except Exception as exc:
                 source_results["b3"] = error_result(exc)
+            await renew_lock("after B3")
 
             @step.do(
                 "refresh Bemobi CVM",
@@ -284,6 +315,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["cvm"] = await cvm_step()
             except Exception as exc:
                 source_results["cvm"] = error_result(exc)
+            await renew_lock("after CVM")
 
             @step.do(
                 "refresh Bemobi investor web facts",
@@ -302,6 +334,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["bemobi_web"] = await bemobi_web_step()
             except Exception as exc:
                 source_results["bemobi_web"] = error_result(exc)
+            await renew_lock("after Bemobi web")
 
             @step.do(
                 "reconcile NewsWeb",
@@ -316,6 +349,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["newsweb"] = await newsweb_step()
             except Exception as exc:
                 source_results["newsweb"] = error_result(exc)
+            await renew_lock("after NewsWeb")
 
             @step.do(
                 "archive NewsWeb buyback PDFs",
@@ -334,6 +368,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["newsweb_attachments"] = await newsweb_pdf_step()
             except Exception as exc:
                 source_results["newsweb_attachments"] = error_result(exc)
+            await renew_lock("after NewsWeb attachments")
 
             @step.do(
                 "ingest Otello financial reports",
@@ -352,6 +387,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["otello_reports"] = await report_step()
             except Exception as exc:
                 source_results["otello_reports"] = error_result(exc)
+            await renew_lock("after Otello reports")
 
             @step.do(
                 "ensure OTEC EOD",
@@ -370,6 +406,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["otec_recovery"] = await otec_step()
             except Exception as exc:
                 source_results["otec_recovery"] = error_result(exc)
+            await renew_lock("after OTEC")
 
             @step.do(
                 "refresh dirty NAV",
@@ -382,6 +419,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 nav_result = await nav_step()
             except Exception as exc:
                 nav_result = error_result(exc)
+            await renew_lock("after NAV")
 
             @step.do(
                 "D1 data health preflight",
@@ -399,6 +437,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     "blockers": [{"name": "preflight_execution", "status": "FAIL"}],
                     "warnings": [],
                 }
+            await renew_lock("after preflight")
 
             @step.do(
                 "archive D1 logical snapshot",
@@ -418,6 +457,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 archive_result = await snapshot_step()
             except Exception as exc:
                 archive_result = error_result(exc)
+            await renew_lock("after snapshot")
 
             @step.do(
                 "finish full refresh",
