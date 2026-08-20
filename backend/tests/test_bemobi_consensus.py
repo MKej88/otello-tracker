@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.bemobi import consensus as consensus_module
+from app.db.migration_runner import init_database
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,10 +24,12 @@ def _bemobi_dashboard() -> dict:
     }
 
 
-def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(monkeypatch) -> None:
+def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "bemobi-consensus.db")
+    init_database(database)
     monkeypatch.setattr(consensus_module, "bemobi_dashboard", lambda _path=None: _bemobi_dashboard())
 
-    result = consensus_module.bemobi_consensus("ignored.db")
+    result = consensus_module.bemobi_consensus(database)
 
     assert result["ready"] is True
     assert result["as_of_date"] == "2026-08-18"
@@ -40,6 +43,7 @@ def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(monkeyp
     assert coverage["average_target_brl"] == 30.95
     assert coverage["high_target_brl"] == 35.0
     assert coverage["low_target_brl"] == 24.0
+    assert coverage["checked_date"] == "2026-08-19"
     assert abs(coverage["upside_to_average_pct"] - 35.74561403508772) < 1e-12
 
     analysts = result["analysts"]
@@ -78,17 +82,26 @@ def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(monkeyp
     assert abs(history[2]["metrics"][1]["beat_miss_pct"] - 41.25) < 1e-12
 
 
-def test_consensus_is_exposed_in_backend_worker_and_frontend() -> None:
+def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
+    migration = (ROOT / "cloudflare/migrations/0009_bemobi_investor_facts.sql").read_text(
+        encoding="utf-8"
+    )
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/bemobi/consensus")' in backend_app
     assert '@app.get("/api/bemobi/consensus")' in worker_app
-    assert 'ANALYST_COVERAGE' in worker_service
-    assert 'FORWARD_CONSENSUS' in worker_service
+    assert "load_bemobi_facts" in worker_service
+    assert "latest_bemobi_fact" in worker_service
+    assert "ANALYST_COVERAGE" not in worker_service
+    assert "FORWARD_CONSENSUS" not in worker_service
+    assert "BEAT_MISS_HISTORY" not in worker_service
+    assert "'ANALYST', 'BTG Pactual'" in migration
+    assert "'FORWARD_CONSENSUS', '2027'" in migration
+    assert "'BEAT_MISS', '2Q26'" in migration
     assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
