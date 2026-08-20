@@ -42,6 +42,7 @@ jobs:
           CLOUDFLARE_WORKER_NAME: otello-tracker
           CLOUDFLARE_D1_DATABASE_NAME: otello-nav
           CLOUDFLARE_R2_BUCKET_NAME: otello-source-archive
+          CLOUDFLARE_CUSTOM_DOMAIN: nav.example.com
         run: python cloudflare/tools/render_production_config.py
 
       - name: Validate rendered fields and cost guards
@@ -53,7 +54,8 @@ jobs:
           config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
           assert config['name'] == 'otello-tracker'
           assert config['main'] == 'src/worker.py'
-          assert config['workers_dev'] is True
+          assert config['workers_dev'] is False
+          assert config['routes'] == [{'pattern': 'nav.example.com', 'custom_domain': True}]
           assert config['compatibility_date'] == '2026-08-18'
           assert config['d1_databases'][0]['database_id'] == '11111111-2222-3333-4444-555555555555'
           assert config['r2_buckets'][0]['bucket_name'] == 'otello-source-archive'

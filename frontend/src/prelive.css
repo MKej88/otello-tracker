@@ -22,19 +22,6 @@
 .freshness-mixed .freshnessDot { background: #e4b95c; box-shadow: 0 0 0 3px rgba(228, 185, 92, .12); }
 .freshness-stale .freshnessDot { background: #ff6c88; box-shadow: 0 0 0 3px rgba(255, 108, 136, .12); }
 
-/* The historical ownership percentage in the curated holding row is not a current
-   Bemobi denominator. Keep the verified Otello share holding visible, but do not present
-   that old percentage as today's ownership. */
-.donut { display: none; }
-.exposure { flex-wrap: wrap; }
-.exposure::after {
-  content: "Eierandel vises når oppdatert BMOB3 utestående aksjetall er verifisert.";
-  width: 100%;
-  color: #667893;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
 @media (max-width: 850px) {
   .freshnessBadge {
     left: 12px;

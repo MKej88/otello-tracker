@@ -159,7 +159,7 @@ jobs:
         run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
       - name: Validate scheduled Workflow production config
         run: pywrangler deploy --dry-run --config wrangler.jsonc --outdir /tmp/otello-workflow-dist
-      - name: End-to-end Worker HTTP parity, static assets and headers
+      - name: End-to-end Worker HTTP parity, active-view smoke tests, static assets and headers
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
           worker_pid=$!
@@ -178,8 +178,13 @@ jobs:
           fi
           curl -fsS -D /tmp/worker-summary.headers http://127.0.0.1:8787/api/dashboard/summary -o /tmp/worker-summary.json
           curl -fsS -D /tmp/worker-economic.headers http://127.0.0.1:8787/api/dashboard/economic -o /tmp/worker-economic.json
+          curl -fsS http://127.0.0.1:8787/api/dashboard/waterfall -o /tmp/worker-waterfall.json
+          curl -fsS http://127.0.0.1:8787/api/dashboard/report-status -o /tmp/worker-report-status.json
           curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
           curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
+          curl -fsS http://127.0.0.1:8787/api/buybacks/dashboard -o /tmp/worker-buyback-dashboard.json
+          curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
+          curl -fsS http://127.0.0.1:8787/api/bemobi/consensus -o /tmp/worker-bemobi-consensus.json
           curl -fsS -D /tmp/worker-quotes.headers http://127.0.0.1:8787/api/market/quotes -o /tmp/worker-quotes.json
           curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
@@ -194,6 +199,13 @@ jobs:
               'history': json.loads(Path('/tmp/worker-history.json').read_text()),
               'forecast': json.loads(Path('/tmp/worker-forecast.json').read_text()),
               'quotes': json.loads(Path('/tmp/worker-quotes.json').read_text()),
+          }
+          active_views = {
+              'waterfall': json.loads(Path('/tmp/worker-waterfall.json').read_text()),
+              'report_status': json.loads(Path('/tmp/worker-report-status.json').read_text()),
+              'buyback_dashboard': json.loads(Path('/tmp/worker-buyback-dashboard.json').read_text()),
+              'bemobi_dashboard': json.loads(Path('/tmp/worker-bemobi-dashboard.json').read_text()),
+              'bemobi_consensus': json.loads(Path('/tmp/worker-bemobi-consensus.json').read_text()),
           }
           expected_dir = Path('/tmp/otello-worker-expected')
           expected = {
@@ -213,6 +225,18 @@ jobs:
           assert actual['forecast']['status'] != 'INSUFFICIENT_VOLUME_HISTORY'
           assert actual['quotes']['ready'] is True
           assert {'OTEC', 'BMOB3'} <= set(actual['quotes']['symbols'])
+
+          waterfall = active_views['waterfall']
+          assert isinstance(waterfall.get('ready'), bool), waterfall
+          if waterfall.get('ready'):
+              assert isinstance(waterfall.get('components'), list), waterfall
+          else:
+              assert waterfall.get('reason'), waterfall
+          assert isinstance(active_views['report_status'].get('ready'), bool), active_views['report_status']
+          assert active_views['report_status'].get('status'), active_views['report_status']
+          assert active_views['buyback_dashboard'].get('ready') is True, active_views['buyback_dashboard']
+          assert active_views['bemobi_dashboard'].get('ready') is True, active_views['bemobi_dashboard']
+          assert active_views['bemobi_consensus'].get('ready') is True, active_views['bemobi_consensus']
 
           index = Path('/tmp/worker-index.html').read_text()
           fallback = Path('/tmp/worker-spa-fallback.html').read_text()
@@ -234,7 +258,7 @@ jobs:
           assert 'cache-control: public, max-age=300' in history_headers
           assert 'cache-control: public, max-age=300' in forecast_headers
           assert 'cache-control: public, max-age=30' in quotes_headers
-          print('Populated D1 -> workerd -> HTTP parity and header test passed')
+          print('Populated D1 -> workerd -> HTTP parity, active-view smoke and header test passed')
           PY
 
   docker-reference:

@@ -161,15 +161,24 @@ jobs:
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/economic" -o /tmp/otello-economic.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/waterfall" -o /tmp/otello-waterfall.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/report-status" -o /tmp/otello-report-status.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/fx-backtest" -o /tmp/otello-fx-backtest.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/dashboard" -o /tmp/otello-buyback-dashboard.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/bemobi/dashboard" -o /tmp/otello-bemobi-dashboard.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/bemobi/consensus" -o /tmp/otello-bemobi-consensus.json
           python - <<'PY'
           import json
-          from datetime import UTC, date, datetime
+          from datetime import date, datetime
           from pathlib import Path
+          from zoneinfo import ZoneInfo
 
           index = Path('/tmp/otello-index.html').read_text()
           index_headers = Path('/tmp/otello-index.headers').read_text().lower()
@@ -177,9 +186,13 @@ jobs:
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
           history = json.loads(Path('/tmp/otello-history.json').read_text())
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
+          waterfall = json.loads(Path('/tmp/otello-waterfall.json').read_text())
+          report_status = json.loads(Path('/tmp/otello-report-status.json').read_text())
           fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
+          bemobi_dashboard = json.loads(Path('/tmp/otello-bemobi-dashboard.json').read_text())
+          bemobi_consensus = json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
@@ -198,6 +211,10 @@ jobs:
           assert economic.get('conservative_nav_per_share') is not None, economic
           assert economic['conservative_nav_per_share'] <= economic['nav_per_share'], economic
           assert isinstance(economic.get('cash_fx'), dict), economic
+          assert waterfall.get('ready') is True, waterfall
+          assert isinstance(waterfall.get('components'), list), waterfall
+          assert isinstance(report_status.get('ready'), bool), report_status
+          assert report_status.get('status'), report_status
           assert fx_backtest.get('ready') is True, fx_backtest
           fx_summary = fx_backtest.get('summary') or {}
           assert int(fx_summary.get('periods_ready') or 0) >= 2, fx_backtest
@@ -212,9 +229,11 @@ jobs:
           assert int(buyback_shares.get('treasury_shares') or 0) > 0, buyback_dashboard
           assert int(buyback_shares.get('outstanding_shares') or 0) > 0, buyback_dashboard
           assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
+          assert bemobi_dashboard.get('ready') is True, bemobi_dashboard
+          assert bemobi_consensus.get('ready') is True, bemobi_consensus
 
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
-          today = datetime.now(UTC).date()
+          today = datetime.now(ZoneInfo('Europe/Oslo')).date()
           age = (today - as_of).days
           assert 0 <= age <= 7, {'age_days': age, 'summary': summary}
           print(
@@ -223,9 +242,13 @@ jobs:
               summary.get('data_status'),
               f"history_points={len(history.get('points') or [])}",
               f"economic_nav={economic.get('nav_per_share')}",
+              f"waterfall_components={len(waterfall.get('components') or [])}",
+              f"report_status={report_status.get('status')}",
               f"fx_backtest_periods={fx_summary.get('periods_ready')}",
               f"buyback_status={forecast.get('status')}",
               f"buyback_latest={buyback_latest.get('shares')}",
+              f"bemobi_ready={bemobi_dashboard.get('ready')}",
+              f"consensus_ready={bemobi_consensus.get('ready')}",
               f'age_days={age}',
           )
           PY
