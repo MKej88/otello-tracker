@@ -39,21 +39,24 @@ class ShareholderSnapshotWorkflow(WorkflowEntrypoint):
 
     async def run(self, event, step):
         from performance_repository import PerformanceD1WriteRepository
-        from shareholder_snapshot_ingestion import refresh_shareholder_snapshot
+        from shareholder_snapshot_ingestion import store_snapshot
+        from shareholder_top20_source import fetch_top20
 
         target_date = _target_date(event)
 
         @step.do(
             "capture Euronext Top 20 shareholders",
-            config={"retries": {"limit": 1, "delay": "5 minutes"}, "timeout": "2 minutes"},
+            config={"retries": {"limit": 1, "delay": "20 seconds"}, "timeout": "1 minute"},
         )
         async def capture_step():
             repository = PerformanceD1WriteRepository(self.env.DB)
-            result = await refresh_shareholder_snapshot(
+            rows, source_metadata = await fetch_top20(self.env.BROWSER)
+            result = await store_snapshot(
                 repository,
-                self.env.BROWSER,
-                target_date=target_date,
+                rows,
+                snapshot_date=target_date,
                 archive_bucket=self.env.SOURCE_ARCHIVE,
+                browser_metadata=source_metadata,
             )
             return {**result, "repository": repository.performance_metrics()}
 

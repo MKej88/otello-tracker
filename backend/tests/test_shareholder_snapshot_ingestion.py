@@ -145,6 +145,7 @@ def test_worker_config_has_daily_browser_run_workflow() -> None:
     worker = (ROOT / "cloudflare/src/worker.py").read_text(encoding="utf-8")
     workflow = (ROOT / "cloudflare/src/shareholder_snapshot_workflow.py").read_text(encoding="utf-8")
     browser = (ROOT / "cloudflare/src/shareholder_top20_browser.py").read_text(encoding="utf-8")
+    source = (ROOT / "cloudflare/src/shareholder_top20_source.py").read_text(encoding="utf-8")
     ingestion = (ROOT / "cloudflare/src/shareholder_snapshot_ingestion.py").read_text(encoding="utf-8")
 
     assert config["main"] == "src/worker.py"
@@ -156,8 +157,12 @@ def test_worker_config_has_daily_browser_run_workflow() -> None:
     assert shareholder_workflow["class_name"] == "ShareholderSnapshotWorkflow"
     assert shareholder_workflow["schedules"] == ["15 3 * * *"]
     assert "ShareholderSnapshotWorkflow" in worker
-    assert "refresh_shareholder_snapshot" in workflow
-    assert 'quickAction(\n        "scrape"' in browser
+    assert "store_snapshot" in workflow
+    assert "fetch_top20" in workflow
+    assert '"delay": "20 seconds"' in workflow
+    assert "LEGACY_OMS_URLS" in source
+    assert 'quickAction(\n        "snapshot"' in source
+    assert '"accessibilityTree"' in source
     assert "EXPECTED_ROWS = 20" in browser
     assert f"MAX_BROWSER_CALLS = {MAX_BROWSER_CALLS}" in browser
     assert "permission_basis" in ingestion
