@@ -35,7 +35,7 @@ def test_refresh_without_network_is_safe_on_fresh_database(tmp_path):
     result = run_refresh(
         db,
         target_date="2026-08-14",
-        fetch_ecb=False,
+        fetch_norges_bank=False,
         fetch_b3=False,
         fetch_buybacks=False,
         fetch_bemobi_news=False,
@@ -43,7 +43,7 @@ def test_refresh_without_network_is_safe_on_fresh_database(tmp_path):
 
     assert result["status"] == "not_ready"
     assert result["target_date"] == "2026-08-14"
-    assert result["steps"]["ecb"] == {"skipped": True}
+    assert result["steps"]["norges_bank"] == {"skipped": True}
     assert result["steps"]["b3"] == {"skipped": True}
     assert result["steps"]["otec_delayed"] == {
         "skipped": True,
@@ -80,7 +80,7 @@ def test_refresh_runs_delayed_otec_only_for_live_target(tmp_path, monkeypatch):
     result = run_refresh(
         db,
         target_date="2026-08-17",
-        fetch_ecb=False,
+        fetch_norges_bank=False,
         fetch_b3=False,
         fetch_buybacks=False,
         fetch_bemobi_news=False,
@@ -112,7 +112,7 @@ def test_refresh_delayed_otec_failure_is_fail_soft(tmp_path, monkeypatch):
     result = run_refresh(
         db,
         target_date="2026-08-17",
-        fetch_ecb=False,
+        fetch_norges_bank=False,
         fetch_b3=False,
         fetch_buybacks=False,
         fetch_bemobi_news=False,
@@ -153,7 +153,7 @@ def test_refresh_runs_verified_2021_events_and_incremental_buybacks(tmp_path, mo
     result = run_refresh(
         db,
         target_date="2026-08-14",
-        fetch_ecb=False,
+        fetch_norges_bank=False,
         fetch_b3=False,
         fetch_buybacks=True,
         fetch_bemobi_news=False,
@@ -183,7 +183,7 @@ def test_refresh_runs_incremental_bemobi_cvm_news_as_non_financial_step(tmp_path
     result = run_refresh(
         db,
         target_date="2026-08-14",
-        fetch_ecb=False,
+        fetch_norges_bank=False,
         fetch_b3=False,
         fetch_buybacks=False,
         fetch_bemobi_news=True,
