@@ -185,6 +185,7 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/buybacks/dashboard -o /tmp/worker-buyback-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/consensus -o /tmp/worker-bemobi-consensus.json
+          curl -fsS http://127.0.0.1:8787/api/bemobi/source-status -o /tmp/worker-bemobi-source-status.json
           curl -fsS -D /tmp/worker-quotes.headers http://127.0.0.1:8787/api/market/quotes -o /tmp/worker-quotes.json
           curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
@@ -206,6 +207,7 @@ jobs:
               'buyback_dashboard': json.loads(Path('/tmp/worker-buyback-dashboard.json').read_text()),
               'bemobi_dashboard': json.loads(Path('/tmp/worker-bemobi-dashboard.json').read_text()),
               'bemobi_consensus': json.loads(Path('/tmp/worker-bemobi-consensus.json').read_text()),
+              'bemobi_source_status': json.loads(Path('/tmp/worker-bemobi-source-status.json').read_text()),
           }
           expected_dir = Path('/tmp/otello-worker-expected')
           expected = {
@@ -237,6 +239,9 @@ jobs:
           assert active_views['buyback_dashboard'].get('ready') is True, active_views['buyback_dashboard']
           assert active_views['bemobi_dashboard'].get('ready') is True, active_views['bemobi_dashboard']
           assert active_views['bemobi_consensus'].get('ready') is True, active_views['bemobi_consensus']
+          source_status = active_views['bemobi_source_status']
+          assert source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, source_status
+          assert len(source_status.get('items') or []) == 4, source_status
 
           index = Path('/tmp/worker-index.html').read_text()
           fallback = Path('/tmp/worker-spa-fallback.html').read_text()
