@@ -89,6 +89,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_nav,
             start_full_refresh,
         )
+        from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
         from job_lock import acquire_refresh_lock, release_refresh_lock
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
@@ -144,7 +145,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
             @step.do(
                 "refresh Norges Bank FX",
-                config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "3 minutes"},
+                config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "10 minutes"},
             )
             async def norges_bank_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
@@ -159,6 +160,28 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["norges_bank"] = await norges_bank_step()
             except Exception as exc:
                 source_results["norges_bank"] = error_result(exc)
+
+            if source_results["norges_bank"].get("history_backfill"):
+                @step.do(
+                    "rebuild historical NAV with Norges Bank FX",
+                    config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "30 minutes"},
+                )
+                async def norges_bank_history_nav_step():
+                    repository = PerformanceD1WriteRepository(self.env.DB)
+                    result = await rebuild_existing_nav_with_norges_bank(
+                        repository,
+                        start_date=str(source_results["norges_bank"]["history_start_required"]),
+                        end_date=target_date,
+                    )
+                    return {**result, "repository": repository.performance_metrics()}
+
+                try:
+                    history_nav = await norges_bank_history_nav_step()
+                except Exception as exc:
+                    history_nav = error_result(exc)
+                source_results["norges_bank"]["history_nav_rebuild"] = history_nav
+                if history_nav.get("status") != "ok":
+                    source_results["norges_bank"]["status"] = "partial"
 
             @step.do(
                 "refresh B3 COTAHIST",
