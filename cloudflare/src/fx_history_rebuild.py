@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -26,6 +27,7 @@ MAX_FX_LOOKBACK_DAYS = 7
 
 
 async def _norges_bank_rate(repository, base: str, day: str) -> dict[str, Any] | None:
+    floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
     return await repository.first(
         """
         SELECT fr.id, substr(fr.observed_at,1,10) AS rate_date, fr.rate
@@ -34,11 +36,11 @@ async def _norges_bank_rate(repository, base: str, day: str) -> dict[str, Any] |
         WHERE fr.base_currency=? AND fr.quote_currency='NOK'
           AND s.code='NORGES_BANK'
           AND substr(fr.observed_at,1,10) <= ?
-          AND substr(fr.observed_at,1,10) >= date(?, '-' || ? || ' days')
+          AND substr(fr.observed_at,1,10) >= ?
         ORDER BY fr.observed_at DESC, fr.id DESC
         LIMIT 1
         """,
-        (base, day, day, MAX_FX_LOOKBACK_DAYS),
+        (base, day, floor_date),
     )
 
 
@@ -62,7 +64,11 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
     )
     anchor_updates = 0
     for anchor in anchors:
-        fx = await _norges_bank_rate(repository, str(anchor["reported_currency"]), str(anchor["as_of_date"]))
+        fx = await _norges_bank_rate(
+            repository,
+            str(anchor["reported_currency"]),
+            str(anchor["as_of_date"]),
+        )
         if fx is None:
             continue
         amount_nok = Decimal(str(anchor["reported_amount"])) * Decimal(str(fx["rate"]))
@@ -89,7 +95,11 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
     )
     movement_updates = 0
     for movement in movements:
-        fx = await _norges_bank_rate(repository, str(movement["currency"]), str(movement["movement_date"]))
+        fx = await _norges_bank_rate(
+            repository,
+            str(movement["currency"]),
+            str(movement["movement_date"]),
+        )
         if fx is None:
             continue
         amount_nok = Decimal(str(movement["amount_original"])) * Decimal(str(fx["rate"]))
@@ -112,13 +122,20 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
 async def _existing_core_dates(repository, *, start_date: str, end_date: str) -> list[dict[str, Any]]:
     return await repository.all(
         """
-        SELECT substr(as_of_at,1,10) AS nav_date, nav_per_share_nok
-        FROM nav_snapshots
-        WHERE calculation_version=? AND nav_scope='CORE'
-          AND substr(as_of_at,1,10) >= ? AND substr(as_of_at,1,10) <= ?
-        ORDER BY as_of_at
+        SELECT substr(c.as_of_at,1,10) AS nav_date,
+               c.nav_per_share_nok,
+               EXISTS(
+                 SELECT 1 FROM nav_snapshots f
+                 WHERE f.as_of_at=c.as_of_at
+                   AND f.calculation_version=?
+                   AND f.nav_scope='FULL'
+               ) AS had_full
+        FROM nav_snapshots c
+        WHERE c.calculation_version=? AND c.nav_scope='CORE'
+          AND substr(c.as_of_at,1,10) >= ? AND substr(c.as_of_at,1,10) <= ?
+        ORDER BY c.as_of_at
         """,
-        (CORE_CALCULATION_VERSION, start_date, end_date),
+        (FULL_CALCULATION_VERSION, CORE_CALCULATION_VERSION, start_date, end_date),
     )
 
 
@@ -130,9 +147,8 @@ async def rebuild_existing_nav_with_norges_bank(
 ) -> dict[str, Any]:
     """Rebuild existing derived NAV history after the direct Norges Bank backfill.
 
-    This does not manufacture older NAV dates. It only revisits dates that already have
-    a CORE snapshot, so the historical coverage stays identical while FX provenance and
-    NOK-valued derived amounts are refreshed deterministically.
+    Existing CORE dates are rebuilt. ONA/FULL are rebuilt only where a FULL snapshot
+    already existed, so the job never manufactures additional historical model coverage.
     """
     normalized = await _normalize_fx_derived_cash(
         repository,
@@ -143,20 +159,29 @@ async def rebuild_existing_nav_with_norges_bank(
     failures: list[dict[str, Any]] = []
     changed = 0
     unchanged = 0
+    full_dates_seen = 0
     largest_changes: list[dict[str, Any]] = []
 
     for row in dates:
         nav_date = str(row["nav_date"])
         before = Decimal(str(row["nav_per_share_nok"]))
-        steps = {
+        had_full = bool(row.get("had_full"))
+
+        steps: dict[str, dict[str, Any]] = {
             "daily_cash": await refresh_daily_cash_if_dirty(repository, nav_date),
-            "daily_other_net_assets": await refresh_other_net_assets_if_dirty(repository, nav_date),
-            "daily_core_nav": await refresh_core_nav_if_dirty(repository, nav_date),
-            "daily_full_nav": await refresh_full_nav_if_dirty(repository, nav_date),
         }
+        if had_full:
+            full_dates_seen += 1
+            steps["daily_other_net_assets"] = await refresh_other_net_assets_if_dirty(
+                repository, nav_date
+            )
+        steps["daily_core_nav"] = await refresh_core_nav_if_dirty(repository, nav_date)
+        if had_full:
+            steps["daily_full_nav"] = await refresh_full_nav_if_dirty(repository, nav_date)
+
         not_ready = [name for name, result in steps.items() if result.get("status") != "ok"]
         if not_ready:
-            failures.append({"date": nav_date, "not_ready_layers": not_ready})
+            failures.append({"date": nav_date, "not_ready_layers": not_ready, "had_full": had_full})
             continue
 
         after_row = await repository.first(
@@ -169,7 +194,9 @@ async def rebuild_existing_nav_with_norges_bank(
             (f"{nav_date}T23:59:59Z", CORE_CALCULATION_VERSION),
         )
         if after_row is None:
-            failures.append({"date": nav_date, "not_ready_layers": ["daily_core_nav_readback"]})
+            failures.append(
+                {"date": nav_date, "not_ready_layers": ["daily_core_nav_readback"], "had_full": had_full}
+            )
             continue
         after = Decimal(str(after_row["nav_per_share_nok"]))
         delta = after - before
@@ -193,6 +220,7 @@ async def rebuild_existing_nav_with_norges_bank(
         "from": start_date,
         "to": end_date,
         "dates_seen": len(dates),
+        "full_dates_seen": full_dates_seen,
         "dates_changed": changed,
         "dates_unchanged": unchanged,
         "dates_not_ready": len(failures),
