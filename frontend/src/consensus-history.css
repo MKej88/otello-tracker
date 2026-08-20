@@ -24,11 +24,19 @@
 .consensusEventStep em { display: inline-block; margin-top: 9px; color: #82b5ff; font-size: 9px; font-style: normal; font-weight: 700; }
 .consensusEventNote { display: grid; gap: 4px; padding: 10px 16px 12px; border-top: 1px solid #17263b; color: #647792; font-size: 9px; line-height: 1.5; }
 
-.consensusRevisionBaseline { display: grid; grid-template-columns: 1.6fr repeat(3, 1fr); gap: 9px; margin-top: 14px; }
+.consensusRevisionBaseline { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 9px; margin-top: 14px; }
 .consensusRevisionBaseline > div { padding: 12px; border: 1px solid #1c2d46; border-radius: 10px; background: rgba(9, 22, 39, .72); }
 .consensusRevisionBaseline span { display: block; color: #6f8099; font-size: 9px; }
 .consensusRevisionBaseline strong,
 .consensusRevisionBaseline b { display: block; margin-top: 6px; color: #e9f2ff; font-size: 13px; }
+
+.consensusSnapshotChanges { display: grid; gap: 7px; margin-top: 10px; padding: 12px; border: 1px solid #1c2d46; border-radius: 10px; background: rgba(9, 22, 39, .62); }
+.consensusSnapshotChangesHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid #17263b; }
+.consensusSnapshotChangesHeader strong { color: #dce8f8; font-size: 11px; }
+.consensusSnapshotChange { display: grid; grid-template-columns: 1.3fr 1fr .65fr; align-items: center; gap: 12px; padding: 5px 0; }
+.consensusSnapshotChange span { color: #8091aa; font-size: 9px; }
+.consensusSnapshotChange b { color: #d0dcee; font-size: 10px; font-weight: 700; }
+.consensusSnapshotChange strong { text-align: right; font-size: 10px; }
 
 @media (max-width: 1180px) {
   .consensusEventSteps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -43,4 +51,7 @@
   .consensusEventStep { border-right: 0; border-bottom: 1px solid #17263b; }
   .consensusEventStep:last-child { border-bottom: 0; }
   .consensusRevisionBaseline { grid-template-columns: 1fr; }
+  .consensusSnapshotChangesHeader { align-items: flex-start; flex-direction: column; }
+  .consensusSnapshotChange { grid-template-columns: 1fr; gap: 4px; }
+  .consensusSnapshotChange strong { text-align: left; }
 }

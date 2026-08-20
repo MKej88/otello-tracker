@@ -14,6 +14,7 @@ ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0004_option_liability.sql",
     MIGRATIONS / "0009_bemobi_investor_facts.sql",
     MIGRATIONS / "0010_bemobi_web_provenance.sql",
+    MIGRATIONS / "0012_bemobi_consensus_history.sql",
 )
 
 sys.path.insert(0, str(BACKEND))

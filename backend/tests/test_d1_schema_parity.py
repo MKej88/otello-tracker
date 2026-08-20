@@ -14,6 +14,7 @@ D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liabilit
 D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_facts.sql"
 D1_BEMOBI_WEB = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web_provenance.sql"
 D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_source.sql"
+D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -34,6 +35,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_BEMOBI_FACTS.read_text(encoding="utf-8"))
     connection.executescript(D1_BEMOBI_WEB.read_text(encoding="utf-8"))
     connection.executescript(D1_NORGES_BANK.read_text(encoding="utf-8"))
+    connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
     return connection
 
 
@@ -161,6 +163,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_BEMOBI_FACTS,
             D1_BEMOBI_WEB,
             D1_NORGES_BANK,
+            D1_BEMOBI_CONSENSUS,
         )
     ).upper()
 

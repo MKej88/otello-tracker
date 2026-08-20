@@ -23,6 +23,7 @@ D1_OPTION_LIABILITY = ROOT / "cloudflare" / "migrations" / "0004_option_liabilit
 D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_facts.sql"
 D1_BEMOBI_WEB_PROVENANCE = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web_provenance.sql"
 D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_source.sql"
+D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
 
@@ -49,6 +50,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_BEMOBI_FACTS.read_text(encoding="utf-8"))
         connection.executescript(D1_BEMOBI_WEB_PROVENANCE.read_text(encoding="utf-8"))
         connection.executescript(D1_NORGES_BANK.read_text(encoding="utf-8"))
+        connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
