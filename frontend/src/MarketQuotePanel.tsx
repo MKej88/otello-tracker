@@ -20,6 +20,7 @@ type Quote = {
     price?: number | null;
     date?: string | null;
     source?: string | null;
+    basis?: string | null;
   };
   volume?: {
     latest?: number | null;
@@ -44,6 +45,7 @@ type Payload = {
     average_volume?: string;
     range_52w?: string;
     otec_session?: string;
+    otec_close?: string;
   };
 };
 
@@ -139,6 +141,9 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
 
       <div className="marketQuoteFootnote">
         <span>{sessionBasisLabel(quote)}</span>
+        {quote.symbol === "OTEC" && quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
+          <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
+        )}
         {quote.symbol === "BMOB3" && (quote.volume?.average_sessions ?? 0) < 20 && (
           <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
         )}
