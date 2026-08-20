@@ -1,0 +1,138 @@
+name: Prime shareholder snapshot
+
+on:
+  workflow_run:
+    workflows: ["Deploy Cloudflare production"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prime-shareholder-snapshot
+  cancel-in-progress: false
+
+jobs:
+  prime:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+      CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
+      CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+      CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
+      CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Validate production settings
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_D1_DATABASE_ID"
+          test -n "$CLOUDFLARE_WORKER_NAME"
+          test -n "$CLOUDFLARE_D1_DATABASE_NAME"
+          test -n "$CLOUDFLARE_R2_BUCKET_NAME"
+          test -n "$CLOUDFLARE_PUBLIC_URL"
+
+      - name: Install pinned Wrangler
+        run: npm install --no-save wrangler@4.123.0
+
+      - name: Render production Wrangler config
+        run: python cloudflare/tools/render_production_config.py
+
+      - name: Check whether today's Top 20 snapshot already exists
+        id: snapshot
+        shell: bash
+        run: |
+          target_date="$(date -u +%F)"
+          base="${CLOUDFLARE_PUBLIC_URL%/}"
+          curl --fail --show-error --silent \
+            "$base/api/shareholders/dashboard?prime_check=$(date +%s)" \
+            -o /tmp/otello-shareholders-before.json || echo '{}' > /tmp/otello-shareholders-before.json
+          TARGET_DATE="$target_date" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/otello-shareholders-before.json').read_text())
+          history = payload.get('history') or {}
+          snapshots = history.get('snapshots') or []
+          latest_rows = history.get('latest_rows') or []
+          latest_date = str((snapshots[0] if snapshots else {}).get('snapshot_date') or '')[:10]
+          target = os.environ['TARGET_DATE']
+          ready = latest_date == target and len(latest_rows) == 20
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f"target_date={target}\n")
+              output.write(f"needs_prime={'false' if ready else 'true'}\n")
+          print({'target_date': target, 'latest_date': latest_date, 'rows': len(latest_rows), 'needs_prime': not ready})
+          PY
+
+      - name: Trigger today's shareholder workflow
+        if: steps.snapshot.outputs.needs_prime == 'true'
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          target_date="${{ steps.snapshot.outputs.target_date }}"
+          npx wrangler workflows trigger otello-shareholder-snapshot \
+            "{\"target_date\":\"${target_date}\"}" \
+            --config wrangler.production.jsonc
+
+      - name: Wait for complete Top 20 snapshot
+        if: steps.snapshot.outputs.needs_prime == 'true'
+        shell: bash
+        run: |
+          target_date="${{ steps.snapshot.outputs.target_date }}"
+          base="${CLOUDFLARE_PUBLIC_URL%/}"
+          ready=0
+          for attempt in $(seq 1 30); do
+            sleep 5
+            if curl --fail --show-error --silent \
+              "$base/api/shareholders/dashboard?prime_wait=${attempt}-$(date +%s)" \
+              -o /tmp/otello-shareholders-after.json; then
+              if TARGET_DATE="$target_date" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/otello-shareholders-after.json').read_text())
+          history = payload.get('history') or {}
+          snapshots = history.get('snapshots') or []
+          latest_rows = history.get('latest_rows') or []
+          latest_date = str((snapshots[0] if snapshots else {}).get('snapshot_date') or '')[:10]
+          raise SystemExit(0 if latest_date == os.environ['TARGET_DATE'] and len(latest_rows) == 20 else 1)
+          PY
+              then
+                ready=1
+                break
+              fi
+            fi
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo '::error::Top 20 snapshot was not ready after 150 seconds.'
+            test -f /tmp/otello-shareholders-after.json && cat /tmp/otello-shareholders-after.json
+            exit 1
+          fi
+          echo "Top 20 snapshot ready for ${target_date}."
