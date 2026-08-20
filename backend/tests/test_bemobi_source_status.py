@@ -49,6 +49,7 @@ def test_source_status_exposes_nested_full_refresh_results(tmp_path: Path) -> No
             """,
             (source_id, "2026-08-20T17:00:00Z", "DEGRADED", json.dumps(metadata)),
         )
+        connection.commit()
 
     result = bemobi_source_status(database)
     by_key = {item["key"]: item for item in result["items"]}
