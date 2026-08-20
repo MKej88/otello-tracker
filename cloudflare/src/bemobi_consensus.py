@@ -45,7 +45,7 @@ def _target_payload(price_brl: float | None, analysts: list[dict[str, Any]]) -> 
     hold_count = sum(1 for item in analysts if str(item.get("rating") or "").upper() == "HOLD")
     sell_count = sum(1 for item in analysts if str(item.get("rating") or "").upper() == "SELL")
     upside = None if price_brl is None or price_brl <= 0 else (average / price_brl - 1) * 100
-    checked_dates = [str(item.get("checked_date")) for item in analysts if item.get("checked_date")]
+    checked_dates = [str(item.get("_as_of_date")) for item in analysts if item.get("_as_of_date")]
     return {
         "analyst_count": len(analysts),
         "buy_count": buy_count,
