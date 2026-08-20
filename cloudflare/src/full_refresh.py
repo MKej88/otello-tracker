@@ -14,11 +14,12 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
-PHASE = "16.1"
+PHASE = "16.2"
 _SOURCE_CODE_BY_STEP = {
     "ecb": "ECB",
     "b3": "B3",
     "cvm": "CVM",
+    "bemobi_web": "BEMOBI_IR",
     "newsweb": "NEWSWEB",
     "newsweb_attachments": "NEWSWEB",
     "otello_reports": "NEWSWEB",
@@ -55,6 +56,10 @@ def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
             "finalization",
             "coverage_result",
             "cash_sync",
+            "ir",
+            "result_release",
+            "consensus",
+            "xp_preview",
         } and isinstance(value, dict):
             compact[key] = _compact_source_result(value)
             continue
@@ -99,6 +104,7 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     if (results.get("b3") or {}).get("status") == "ok":
         total += 1
     total += int((results.get("cvm") or {}).get("archived") or 0)
+    total += int((results.get("bemobi_web") or {}).get("rows_written") or 0)
     newsweb = results.get("newsweb") or {}
     total += int((newsweb.get("history") or {}).get("archived") or 0)
     total += int((newsweb.get("buybacks") or {}).get("ingested") or 0)
@@ -139,6 +145,8 @@ async def finish_full_refresh(
                 f"{result.get('review_required')} report message(s) require review; "
                 "existing production anchors were retained"
             )
+        if step_name == "bemobi_web" and health == "DEGRADED":
+            detail = "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
         source_id = await repository.source_id(source_code)
         await repository.run(
             """
