@@ -168,7 +168,7 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
 
 
 def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, Any]]:
-    start = (date.fromisoformat(as_of_date) - timedelta(days=370)).isoformat()
+    start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
     rows = [
         dict(row)
         for row in connection.execute(
