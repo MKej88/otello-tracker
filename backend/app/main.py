@@ -26,7 +26,6 @@ from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_
 from app.nav.core_nav import core_nav_status
 from app.nav_waterfall_settlement import nav_waterfall_summary
 from app.settings import settings
-from app.shareholders import shareholders_dashboard
 
 
 @asynccontextmanager
@@ -117,11 +116,6 @@ def bemobi_investor_dashboard() -> dict:
 @app.get("/api/bemobi/consensus")
 def bemobi_consensus_dashboard() -> dict:
     return bemobi_consensus(settings.database_path)
-
-
-@app.get("/api/shareholders/dashboard")
-def otello_shareholders_dashboard() -> dict:
-    return shareholders_dashboard(settings.database_path)
 
 
 @app.get("/api/bemobi/news")

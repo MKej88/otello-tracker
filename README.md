@@ -61,7 +61,6 @@ Sidebaren viser planlagte områder for:
 - Tilbakekjøp
 - Bemobi
 - Konsensus
-- Aksjonærer
 - Nyheter
 - Innstillinger
 

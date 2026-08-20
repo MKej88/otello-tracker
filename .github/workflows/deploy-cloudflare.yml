@@ -166,8 +166,6 @@ jobs:
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/dashboard" -o /tmp/otello-buyback-dashboard.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/shareholders/dashboard?acceptance=$(date +%s)" -o /tmp/otello-shareholders.json
           python - <<'PY'
           import json
           from datetime import UTC, date, datetime
@@ -182,7 +180,6 @@ jobs:
           fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
-          shareholders = json.loads(Path('/tmp/otello-shareholders.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
@@ -216,19 +213,6 @@ jobs:
           assert int(buyback_shares.get('outstanding_shares') or 0) > 0, buyback_dashboard
           assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
 
-          # Top 20 is maintained by the separate GitHub/Chrome workflow. Deployment only
-          # verifies that the shareholder endpoint itself is healthy and structurally valid;
-          # a missing or stale external snapshot must not roll back the NAV application.
-          assert shareholders.get('ready') is True, shareholders
-          shareholder_history = shareholders.get('history') or {}
-          shareholder_snapshots = shareholder_history.get('snapshots') or []
-          latest_rows = shareholder_history.get('latest_rows') or []
-          assert isinstance(shareholder_snapshots, list), shareholders
-          assert isinstance(latest_rows, list), shareholders
-          latest_shareholder_date = str(
-              (shareholder_snapshots[0] if shareholder_snapshots else {}).get('snapshot_date') or ''
-          )[:10]
-
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(UTC).date()
           age = (today - as_of).days
@@ -242,7 +226,6 @@ jobs:
               f"fx_backtest_periods={fx_summary.get('periods_ready')}",
               f"buyback_status={forecast.get('status')}",
               f"buyback_latest={buyback_latest.get('shares')}",
-              f"shareholders={len(latest_rows)}@{latest_shareholder_date or 'none'}",
               f'age_days={age}',
           )
           PY

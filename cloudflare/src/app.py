@@ -13,7 +13,6 @@ from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from quote_details import market_quote_details
 from report_status import report_status_summary
-from shareholders import shareholders_dashboard
 
 API_VERSION = "0.12.0"
 
@@ -37,7 +36,6 @@ CACHE_POLICIES = {
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/market/quotes": ("public, max-age=30", "public, max-age=60, stale-while-revalidate=120"),
-    "/api/shareholders/dashboard": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
 }
 
 app = FastAPI(
@@ -155,8 +153,3 @@ async def get_bemobi_dashboard(request: Request) -> dict:
 @app.get("/api/bemobi/consensus")
 async def get_bemobi_consensus(request: Request) -> dict:
     return await bemobi_consensus(_repository(request))
-
-
-@app.get("/api/shareholders/dashboard")
-async def get_shareholders_dashboard(request: Request) -> dict:
-    return await shareholders_dashboard(_repository(request))

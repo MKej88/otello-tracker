@@ -24,7 +24,6 @@ from app.economic_nav_investor import economic_nav_summary as reference_economic
 from app.marketdata.quote_details import market_quote_details as reference_market_quote_details  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
-from app.shareholders import shareholders_dashboard as reference_shareholders_dashboard  # noqa: E402
 
 
 def _components(*, day: str, otec: str, bmob3: str, brl: str, cash: str, status: str) -> str:
@@ -153,47 +152,12 @@ def _insert_nav_pair(
     )
 
 
-def _insert_shareholder_snapshot(connection, *, day: str, changed: bool) -> None:
-    connection.execute(
-        """
-        INSERT INTO shareholder_snapshots(
-            snapshot_date, source_url, source_kind, total_issued_shares,
-            treasury_shares, outstanding_shares
-        ) VALUES (?, 'https://ir.oms.no/component/shareholders?lang=en&token=opera',
-                  'EURONEXT_OMS', 73790829, 3000000, 70790829)
-        """,
-        (day,),
-    )
-    snapshot_id = int(connection.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
-    rows = []
-    for rank in range(1, 21):
-        shares = 2_000_000 - rank * 10_000
-        if changed and rank == 1:
-            shares += 25_000
-        if changed and rank == 20:
-            shares -= 25_000
-        ownership = f"{shares / 73_790_829 * 100:.4f}"
-        rows.append(
-            (snapshot_id, rank, f"Investor {rank} AS", "NO", shares, ownership, "Comp.")
-        )
-    connection.executemany(
-        """
-        INSERT INTO shareholder_snapshot_rows(
-            snapshot_id, rank, shareholder_name, country, shares, ownership_pct, account_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-
-
 def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict:
     result = build_fixture(database_path)
 
     with get_connection(database_path) as connection:
         connection.execute("DELETE FROM market_activity")
         connection.execute("DELETE FROM nav_snapshots")
-        connection.execute("DELETE FROM shareholder_snapshot_rows")
-        connection.execute("DELETE FROM shareholder_snapshots")
         source_id = int(connection.execute("SELECT id FROM sources WHERE code='ECB'").fetchone()["id"])
         connection.executemany(
             """
@@ -233,8 +197,6 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
             brl="1.91",
             status="ESTIMATED",
         )
-        _insert_shareholder_snapshot(connection, day="2026-08-13", changed=False)
-        _insert_shareholder_snapshot(connection, day="2026-08-14", changed=True)
         connection.commit()
 
     expected_dir.mkdir(parents=True, exist_ok=True)
@@ -244,7 +206,6 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
         "consensus": reference_bemobi_consensus(database_path),
-        "shareholders": reference_shareholders_dashboard(database_path),
         "quotes": reference_market_quote_details(database_path),
     }
     for name, payload in expected.items():
@@ -260,10 +221,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "summary_ready": bool(expected["summary"].get("ready")),
         "economic_ready": bool(expected["economic"].get("ready")),
         "consensus_ready": bool(expected["consensus"].get("ready")),
-        "shareholders_ready": bool(expected["shareholders"].get("ready")),
         "quotes_ready": bool(expected["quotes"].get("ready")),
-        "shareholder_rows": len(expected["shareholders"].get("history", {}).get("latest_rows", [])),
-        "shareholder_changes": expected["shareholders"].get("history", {}).get("daily_summary", {}).get("change_count", 0),
         "history_points": len(expected["history"].get("points", [])),
     }
 
