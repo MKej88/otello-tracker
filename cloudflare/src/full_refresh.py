@@ -14,9 +14,9 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
-PHASE = "16.2"
+PHASE = "16.3"
 _SOURCE_CODE_BY_STEP = {
-    "ecb": "ECB",
+    "norges_bank": "NORGES_BANK",
     "b3": "B3",
     "cvm": "CVM",
     "bemobi_web": "BEMOBI_IR",
@@ -99,8 +99,8 @@ def _source_health_status(result: dict[str, Any]) -> str:
 
 def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     total = 0
-    ecb = results.get("ecb") or {}
-    total += int(ecb.get("rows_written") or 0)
+    norges_bank = results.get("norges_bank") or {}
+    total += int(norges_bank.get("rows_written") or 0)
     if (results.get("b3") or {}).get("status") == "ok":
         total += 1
     total += int((results.get("cvm") or {}).get("archived") or 0)
