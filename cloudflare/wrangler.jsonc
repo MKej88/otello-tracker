@@ -7,21 +7,12 @@
   "triggers": {
     "crons": ["*/30 * * * *"]
   },
-  "browser": {
-    "binding": "BROWSER",
-    "remote": true
-  },
   "workflows": [
     {
       "name": "otello-full-refresh",
       "binding": "FULL_REFRESH",
       "class_name": "FullRefreshWorkflow",
       "schedules": ["35 3 * * *"]
-    },
-    {
-      "name": "otello-shareholder-snapshot",
-      "binding": "SHAREHOLDER_SNAPSHOT",
-      "class_name": "ShareholderSnapshotWorkflow"
     },
     {
       "name": "otello-r2-snapshot-drill",
