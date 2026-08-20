@@ -154,7 +154,7 @@ async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, An
 
 
 async def _daily_history(repository, symbol: str, as_of_date: str) -> list[dict[str, Any]]:
-    start = (date.fromisoformat(as_of_date) - timedelta(days=370)).isoformat()
+    start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
     rows = await repository.all(
         """
         SELECT mp.id, mp.trading_date, mp.price, mp.quality, mp.metadata_json,
