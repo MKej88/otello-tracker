@@ -18,11 +18,19 @@ import newsweb_reconciliation as nw_reconcile  # noqa: E402
 from b3_full_refresh import parse_bmob3_daily_zip  # noqa: E402
 from cvm_full_refresh import classify_cvm_record, parse_cvm_ipe_archive  # noqa: E402
 from d1_preflight import run_d1_preflight  # noqa: E402
-from norges_bank_full_refresh import parse_norges_bank_sdmx_json  # noqa: E402
+from norges_bank_full_refresh import (  # noqa: E402
+    norges_bank_history_start,
+    parse_norges_bank_sdmx_json,
+)
 from otec_workflow_recovery import recover_otec_to_r2  # noqa: E402
 
 from app.db.migration_runner import init_database  # noqa: E402
 from app.history import seed_curated_history  # noqa: E402
+
+
+def test_norges_bank_history_policy_is_rolling_ten_years() -> None:
+    assert norges_bank_history_start("2026-08-20") == "2016-08-20"
+    assert norges_bank_history_start("2024-02-29") == "2014-02-28"
 
 
 def test_norges_bank_direct_rates_match_reference_values() -> None:
@@ -313,4 +321,13 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
     assert "class FullRefreshWorkflow(WorkflowEntrypoint)" in entry
     assert "scheduled_day - timedelta(days=1)" in entry
     assert '"refresh Norges Bank FX"' in entry
+    assert '"rebuild historical NAV with Norges Bank FX"' in entry
     assert '"D1 data health preflight"' in entry
+
+
+def test_cloudflare_nav_fx_lookup_prefers_norges_bank_same_day() -> None:
+    nav_source = (ROOT / "cloudflare" / "src" / "nav_refresh.py").read_text(encoding="utf-8")
+    backtest_source = (ROOT / "cloudflare" / "src" / "fx_backtest.py").read_text(encoding="utf-8")
+    for source in (nav_source, backtest_source):
+        assert "WHEN 'NORGES_BANK' THEN 0" in source
+        assert "WHEN 'ECB' THEN 1" in source
