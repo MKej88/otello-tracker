@@ -13,6 +13,7 @@ TARGET = MIGRATIONS / "0001_initial_schema.sql"
 ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0004_option_liability.sql",
     MIGRATIONS / "0009_bemobi_investor_facts.sql",
+    MIGRATIONS / "0010_bemobi_web_provenance.sql",
 )
 
 sys.path.insert(0, str(BACKEND))
