@@ -39,6 +39,10 @@ def _implied_two_decimals(raw: str) -> Decimal:
     return Decimal(raw.strip() or "0") / Decimal("100")
 
 
+def _integer(raw: str) -> int:
+    return int(raw.strip() or "0")
+
+
 def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
@@ -59,7 +63,7 @@ def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
                     continue
                 if line[10:12] != "02" or line[24:27] != "010":
                     continue
-                factor = int(line[210:217] or "0")
+                factor = _integer(line[210:217])
                 if factor != 1:
                     raise ValueError(f"Uventet B3 quotation factor: {factor}")
                 raw_date = line[2:10]
@@ -74,8 +78,8 @@ def parse_bmob3_daily_zip(payload: bytes) -> list[B3DailyClose]:
                         average=_implied_two_decimals(line[95:108]),
                         close=_implied_two_decimals(line[108:121]),
                         isin=line[230:242].strip(),
-                        trades=int(line[147:152] or "0"),
-                        quantity=int(line[152:170] or "0"),
+                        trades=_integer(line[147:152]),
+                        quantity=_integer(line[152:170]),
                         volume=_implied_two_decimals(line[170:188]),
                     )
                 )
