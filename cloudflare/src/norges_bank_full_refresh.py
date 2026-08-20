@@ -20,6 +20,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 NORGES_BANK_HISTORY_YEARS = 10
 HISTORY_EDGE_TOLERANCE_DAYS = 7
 MIN_HISTORY_ROWS_PER_CURRENCY = 2000
+FX_WRITE_BATCH_ROWS = 15
 
 
 def norges_bank_history_start(target_date: str) -> str:
@@ -225,6 +226,46 @@ async def _norges_bank_coverage(
     return complete, coverage, required_start
 
 
+async def _write_fx_rows(
+    repository,
+    rows: list[tuple[str, str, Decimal]],
+    *,
+    source_id: int,
+    document_id: int,
+) -> int:
+    """Write FX observations in bounded multi-row statements to keep D1 operations low."""
+    written = 0
+    for offset in range(0, len(rows), FX_WRITE_BATCH_ROWS):
+        chunk = rows[offset : offset + FX_WRITE_BATCH_ROWS]
+        value_sql = ",".join("(?, 'NOK', ?, ?, ?, ?)" for _ in chunk)
+        parameters: list[Any] = []
+        for trading_date, base, rate in chunk:
+            parameters.extend(
+                (
+                    base,
+                    f"{trading_date}T00:00:00Z",
+                    format(rate, "f"),
+                    source_id,
+                    document_id,
+                )
+            )
+        await repository.run(
+            f"""
+            INSERT INTO fx_rates(
+                base_currency, quote_currency, observed_at, rate,
+                source_id, source_document_id
+            ) VALUES {value_sql}
+            ON CONFLICT(base_currency, quote_currency, observed_at, source_id)
+            DO UPDATE SET rate=excluded.rate,
+                source_document_id=excluded.source_document_id,
+                fetched_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            """,
+            tuple(parameters),
+        )
+        written += len(chunk)
+    return written
+
+
 async def refresh_norges_bank_fx(
     repository,
     *,
@@ -287,23 +328,12 @@ async def refresh_norges_bank_fx(
         },
     )
     source_id = await repository.source_id("NORGES_BANK")
-    written = 0
-    for trading_date, base, rate in rows:
-        observed_at = f"{trading_date}T00:00:00Z"
-        await repository.run(
-            """
-            INSERT INTO fx_rates(
-                base_currency, quote_currency, observed_at, rate,
-                source_id, source_document_id
-            ) VALUES (?, 'NOK', ?, ?, ?, ?)
-            ON CONFLICT(base_currency, quote_currency, observed_at, source_id)
-            DO UPDATE SET rate=excluded.rate,
-                source_document_id=excluded.source_document_id,
-                fetched_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-            """,
-            (base, observed_at, format(rate, "f"), source_id, document_id),
-        )
-        written += 1
+    written = await _write_fx_rows(
+        repository,
+        rows,
+        source_id=source_id,
+        document_id=document_id,
+    )
 
     return {
         "status": "ok",
@@ -311,6 +341,7 @@ async def refresh_norges_bank_fx(
         "from": start,
         "to": target_date,
         "rows_written": written,
+        "write_batches": (written + FX_WRITE_BATCH_ROWS - 1) // FX_WRITE_BATCH_ROWS,
         "source_document_id": document_id,
         "content_sha256": digest,
         "r2_archive": archived,
