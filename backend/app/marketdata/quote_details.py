@@ -48,6 +48,7 @@ def _preferred_daily_rows(rows: list[dict[str, Any]], symbol: str) -> list[dict[
         day = str(row["trading_date"])
         current = by_date.get(day)
         priority = (
+            int(row.get("series_priority") or 0),
             0 if row.get("source_code") == preferred_source else 1,
             0 if row.get("quality") in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"} else 1,
             -int(row.get("id") or 0),
@@ -76,23 +77,7 @@ def _latest_price(connection, symbol: str) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
-def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
-    if symbol == "OTEC":
-        row = connection.execute(
-            """
-            SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
-                   ma.quality, ma.metadata_json, s.code AS source_code
-            FROM market_activity ma
-            JOIN instruments i ON i.id=ma.instrument_id
-            JOIN sources s ON s.id=ma.source_id
-            WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
-            ORDER BY ma.trading_date DESC, ma.id DESC
-            LIMIT 1
-            """
-        ).fetchone()
-        if row is not None:
-            return dict(row)
-
+def _market_close(connection, symbol: str) -> dict[str, Any] | None:
     row = connection.execute(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price, mp.quality,
@@ -110,6 +95,33 @@ def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
         (symbol, _SYMBOLS[symbol]["source"]),
     ).fetchone()
     return dict(row) if row is not None else None
+
+
+def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
+    market = _market_close(connection, symbol)
+    if symbol != "OTEC":
+        return market
+
+    activity_row = connection.execute(
+        """
+        SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
+               ma.quality, ma.metadata_json, s.code AS source_code
+        FROM market_activity ma
+        JOIN instruments i ON i.id=ma.instrument_id
+        JOIN sources s ON s.id=ma.source_id
+        WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
+        ORDER BY ma.trading_date DESC, ma.id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    activity = dict(activity_row) if activity_row is not None else None
+    if activity is None:
+        return market
+    if market is None or str(activity["trading_date"]) >= str(market["trading_date"]):
+        activity["close_basis"] = "COMPLETED_SESSION_LAST_TRADE"
+        return activity
+    market["close_basis"] = "OFFICIAL_CLOSE"
+    return market
 
 
 def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
@@ -185,28 +197,8 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
 
 def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, Any]]:
     start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
-    if symbol == "OTEC":
-        rows = [
-            dict(row)
-            for row in connection.execute(
-                """
-                SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
-                       ma.quality, ma.metadata_json, s.code AS source_code
-                FROM market_activity ma
-                JOIN instruments i ON i.id=ma.instrument_id
-                JOIN sources s ON s.id=ma.source_id
-                WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
-                  AND ma.trading_date BETWEEN ? AND ?
-                ORDER BY ma.trading_date ASC, ma.id ASC
-                """,
-                (start, as_of_date),
-            )
-        ]
-        if rows:
-            return _preferred_daily_rows(rows, symbol)
-
-    rows = [
-        dict(row)
+    market_rows = [
+        {**dict(row), "series_priority": 1 if symbol == "OTEC" else 0}
         for row in connection.execute(
             """
             SELECT mp.id, mp.trading_date, mp.price, mp.quality, mp.metadata_json,
@@ -221,7 +213,26 @@ def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, A
             (symbol, start, as_of_date),
         )
     ]
-    return _preferred_daily_rows(rows, symbol)
+    if symbol != "OTEC":
+        return _preferred_daily_rows(market_rows, symbol)
+
+    activity_rows = [
+        {**dict(row), "series_priority": 0}
+        for row in connection.execute(
+            """
+            SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
+                   ma.quality, ma.metadata_json, s.code AS source_code
+            FROM market_activity ma
+            JOIN instruments i ON i.id=ma.instrument_id
+            JOIN sources s ON s.id=ma.source_id
+            WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
+              AND ma.trading_date BETWEEN ? AND ?
+            ORDER BY ma.trading_date ASC, ma.id ASC
+            """,
+            (start, as_of_date),
+        )
+    ]
+    return _preferred_daily_rows([*market_rows, *activity_rows], symbol)
 
 
 def _volume_stats(connection, symbol: str, history: list[dict[str, Any]]) -> dict[str, Any]:
@@ -320,7 +331,7 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
             "price": _number(latest_close.get("price")) if latest_close else None,
             "date": latest_close.get("trading_date") if latest_close else None,
             "source": latest_close.get("source_code") if latest_close else None,
-            "basis": "COMPLETED_SESSION_LAST_TRADE" if symbol == "OTEC" and latest_close else "OFFICIAL_CLOSE",
+            "basis": latest_close.get("close_basis") if latest_close else None,
         },
         "volume": _volume_stats(connection, symbol, history),
         "range_52w": _range_52w(history),
@@ -344,8 +355,8 @@ def market_quote_details(database_path: str | None = None) -> dict[str, Any]:
                 "når full offisiell sesjonssummering ikke finnes."
             ),
             "otec_close": (
-                "OTEC siste sluttkurs bruker siste handel fra den fullførte Euronext-dagsserien når en nyere "
-                "offisiell CLOSE-rad ikke finnes."
+                "OTEC siste sluttkurs bruker den nyeste av eksplisitt CLOSE og siste handel fra fullført "
+                "Euronext-dagsserie."
             ),
         },
     }
