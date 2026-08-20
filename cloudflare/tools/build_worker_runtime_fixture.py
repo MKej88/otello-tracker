@@ -21,6 +21,7 @@ from app.dashboard import dashboard_summary as reference_dashboard_summary  # no
 from app.dashboard_freshness import enrich_dashboard_summary  # noqa: E402
 from app.db.connection import get_connection  # noqa: E402
 from app.economic_nav_investor import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
+from app.marketdata.quote_details import market_quote_details as reference_market_quote_details  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
 from app.shareholders import shareholders_dashboard as reference_shareholders_dashboard  # noqa: E402
@@ -207,6 +208,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
         "consensus": reference_bemobi_consensus(database_path),
         "shareholders": reference_shareholders_dashboard(database_path),
+        "quotes": reference_market_quote_details(database_path),
     }
     for name, payload in expected.items():
         (expected_dir / f"{name}.json").write_text(
@@ -222,6 +224,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "economic_ready": bool(expected["economic"].get("ready")),
         "consensus_ready": bool(expected["consensus"].get("ready")),
         "shareholders_ready": bool(expected["shareholders"].get("ready")),
+        "quotes_ready": bool(expected["quotes"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
     }
 
