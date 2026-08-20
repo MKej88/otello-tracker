@@ -28,6 +28,9 @@ from app.nav_waterfall_settlement import nav_waterfall_summary
 from app.settings import settings
 
 
+API_VERSION = "0.12.0"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database(settings.database_path)
@@ -38,7 +41,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.10.0",
+    version=API_VERSION,
     description="Backend for Otello NAV Dashboard",
     lifespan=lifespan,
 )
@@ -60,7 +63,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "otello-api",
         "environment": settings.app_env,
-        "version": "0.10.0",
+        "version": API_VERSION,
     }
 
 
