@@ -15,7 +15,7 @@ except ImportError:
 
 JOB_NAME = "cloudflare_full_refresh"
 PHASE = "16.3"
-_SOURCE_CODE_BY_STEP = {
+_SOURCE_CODE_BY_COMPONENT = {
     "norges_bank": "NORGES_BANK",
     "b3": "B3",
     "cvm": "CVM",
@@ -25,6 +25,23 @@ _SOURCE_CODE_BY_STEP = {
     "otello_reports": "NEWSWEB",
     "otec_recovery": "EURONEXT",
 }
+_SOURCE_CODE_ORDER = ("NORGES_BANK", "B3", "CVM", "BEMOBI_IR", "NEWSWEB", "EURONEXT")
+_SOURCE_STEPS_BY_CODE = {
+    source_code: tuple(
+        step_name
+        for step_name, mapped_code in _SOURCE_CODE_BY_COMPONENT.items()
+        if mapped_code == source_code
+    )
+    for source_code in _SOURCE_CODE_ORDER
+}
+_CRITICAL_SOURCE_STEPS = {
+    "norges_bank",
+    "b3",
+    "newsweb",
+    "otello_reports",
+    "otec_recovery",
+}
+_NEWSWEB_CRITICAL_COMPONENTS = {"newsweb", "otello_reports"}
 
 
 def _now_iso() -> str:
@@ -97,6 +114,102 @@ def _source_health_status(result: dict[str, Any]) -> str:
     return "DOWN"
 
 
+def _step_health_status(step_name: str, result: dict[str, Any]) -> str:
+    if step_name == "otello_reports" and int(result.get("review_required") or 0) > 0:
+        return "DOWN"
+    return _source_health_status(result)
+
+
+def _source_group_health(
+    source_code: str,
+    source_results: dict[str, dict[str, Any]],
+) -> tuple[str, dict[str, str]]:
+    components = {
+        step_name: _step_health_status(step_name, source_results[step_name])
+        for step_name in _SOURCE_STEPS_BY_CODE[source_code]
+        if step_name in source_results
+    }
+    if not components:
+        return "DOWN", {}
+
+    if source_code == "NEWSWEB":
+        if any(
+            components.get(step_name) == "DOWN"
+            for step_name in _NEWSWEB_CRITICAL_COMPONENTS
+            if step_name in components
+        ):
+            return "DOWN", components
+        if any(status in {"DOWN", "DEGRADED"} for status in components.values()):
+            return "DEGRADED", components
+        return "OK", components
+
+    statuses = set(components.values())
+    if "DOWN" in statuses:
+        return "DOWN", components
+    if "DEGRADED" in statuses:
+        return "DEGRADED", components
+    return "OK", components
+
+
+def _source_group_detail(
+    source_code: str,
+    source_results: dict[str, dict[str, Any]],
+    components: dict[str, str],
+) -> str | None:
+    if source_code == "BEMOBI_IR" and any(status == "DEGRADED" for status in components.values()):
+        return "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
+
+    reports = source_results.get("otello_reports") or {}
+    if source_code == "NEWSWEB" and int(reports.get("review_required") or 0) > 0:
+        return (
+            f"{reports.get('review_required')} report message(s) require review; "
+            "existing production anchors were retained"
+        )
+
+    messages: list[str] = []
+    for step_name, health in components.items():
+        result = source_results.get(step_name) or {}
+        error = str(result.get("error") or "").strip()
+        if error:
+            messages.append(f"{step_name}: {error[:500]}")
+        elif health != "OK":
+            messages.append(f"{step_name}: {health}")
+    return "; ".join(messages)[:1000] or None
+
+
+def _critical_workflow_errors(
+    source_results: dict[str, dict[str, Any]],
+    nav_result: dict[str, Any],
+    preflight_result: dict[str, Any],
+) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+    for step_name in sorted(_CRITICAL_SOURCE_STEPS):
+        result = source_results.get(step_name)
+        if result is None:
+            continue
+        if _step_health_status(step_name, result) == "DOWN":
+            detail = str(result.get("error") or "").strip()
+            if step_name == "otello_reports" and int(result.get("review_required") or 0) > 0:
+                detail = f"{result.get('review_required')} report message(s) require review"
+            errors.append(
+                {
+                    "step": step_name,
+                    "error": detail[:1000] or "critical source step failed",
+                }
+            )
+
+    if nav_result.get("status") in {"partial", "error"}:
+        errors.append({"step": "nav", "error": f"NAV status={nav_result.get('status')}"})
+    if not preflight_result.get("ready"):
+        errors.append(
+            {
+                "step": "preflight",
+                "error": f"{len(preflight_result.get('blockers') or [])} blocker(s)",
+            }
+        )
+    return errors
+
+
 def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     total = 0
     norges_bank = results.get("norges_bank") or {}
@@ -133,20 +246,25 @@ async def finish_full_refresh(
     compact_sources = {
         name: _compact_source_result(result) for name, result in source_results.items()
     }
+    grouped_health: dict[str, str] = {}
 
-    for step_name, result in source_results.items():
-        source_code = _SOURCE_CODE_BY_STEP.get(step_name)
-        if source_code is None:
+    for source_code, step_names in _SOURCE_STEPS_BY_CODE.items():
+        present_steps = [step_name for step_name in step_names if step_name in source_results]
+        if not present_steps:
             continue
-        health = _source_health_status(result)
-        detail = str(result.get("error") or "")[:1000] or None
-        if step_name == "otello_reports" and int(result.get("review_required") or 0) > 0:
-            detail = (
-                f"{result.get('review_required')} report message(s) require review; "
-                "existing production anchors were retained"
-            )
-        if step_name == "bemobi_web" and health == "DEGRADED":
-            detail = "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
+        health, components = _source_group_health(source_code, source_results)
+        grouped_health[source_code] = health
+        detail = _source_group_detail(source_code, source_results, components)
+        if len(present_steps) == 1:
+            result_metadata: dict[str, Any] = compact_sources[present_steps[0]]
+        else:
+            result_metadata = {
+                "components": {
+                    step_name: compact_sources[step_name] for step_name in present_steps
+                },
+                "component_health": components,
+            }
+
         source_id = await repository.source_id(source_code)
         await repository.run(
             """
@@ -163,7 +281,7 @@ async def finish_full_refresh(
                     {
                         "phase": PHASE,
                         "target_date": target_date,
-                        "result": compact_sources[step_name],
+                        "result": result_metadata,
                     },
                     ensure_ascii=False,
                     sort_keys=True,
@@ -172,17 +290,19 @@ async def finish_full_refresh(
             ),
         )
         if health == "DOWN":
-            errors.append({"step": step_name, "error": detail or "source step failed"})
+            errors.append(
+                {
+                    "step": "/".join(present_steps),
+                    "error": detail or f"{source_code} source group failed",
+                }
+            )
 
-    if nav_result.get("status") in {"partial", "error"}:
-        errors.append({"step": "nav", "error": f"NAV status={nav_result.get('status')}"})
-    if not preflight_result.get("ready"):
-        errors.append(
-            {
-                "step": "preflight",
-                "error": f"{len(preflight_result.get('blockers') or [])} blocker(s)",
-            }
-        )
+    critical_errors = _critical_workflow_errors(source_results, nav_result, preflight_result)
+    existing_error_steps = {item["step"] for item in errors}
+    for item in critical_errors:
+        if item["step"] not in existing_error_steps:
+            errors.append(item)
+
     archive_result = archive_result or {"status": "skipped", "reason": "not_requested"}
     if str(archive_result.get("status") or "").lower() == "error":
         errors.append(
@@ -192,23 +312,9 @@ async def finish_full_refresh(
             }
         )
 
-    tracked_results = [
-        source_results[name]
-        for name in _SOURCE_CODE_BY_STEP
-        if name in source_results
-    ]
-    failed_sources = sum(
-        1 for result in tracked_results if _source_health_status(result) == "DOWN"
-    )
-    if (
-        tracked_results
-        and failed_sources == len(tracked_results)
-        and not preflight_result.get("ready")
-    ):
+    if critical_errors:
         status = "FAILED"
-    elif errors or any(
-        _source_health_status(result) == "DEGRADED" for result in tracked_results
-    ):
+    elif errors or any(health == "DEGRADED" for health in grouped_health.values()):
         status = "PARTIAL"
     else:
         status = "SUCCESS"
@@ -218,6 +324,8 @@ async def finish_full_refresh(
         "phase": PHASE,
         "target_date": target_date,
         "sources": compact_sources,
+        "source_health": grouped_health,
+        "critical_errors": critical_errors,
         "nav": _compact_source_result(nav_result),
         "preflight": {
             "status": preflight_result.get("status"),
@@ -242,6 +350,8 @@ async def finish_full_refresh(
         "target_date": target_date,
         "records_written": records_written,
         "source_results": source_results,
+        "source_health": grouped_health,
+        "critical_errors": critical_errors,
         "nav": nav_result,
         "preflight": preflight_result,
         "archive": archive_result,
