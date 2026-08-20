@@ -21,6 +21,7 @@ from app.economic_nav_investor import economic_nav_summary
 from app.fx_backtest import fx_backtest_summary
 from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
+from app.marketdata.quote_details import market_quote_details
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
 from app.nav_waterfall_settlement import nav_waterfall_summary
@@ -82,6 +83,11 @@ def system_market_data() -> dict:
 @app.get("/api/system/market-activity")
 def system_market_activity() -> dict:
     return market_activity_status(settings.database_path)
+
+
+@app.get("/api/market/quotes")
+def market_quotes() -> dict:
+    return market_quote_details(settings.database_path)
 
 
 @app.get("/api/buybacks/status")
