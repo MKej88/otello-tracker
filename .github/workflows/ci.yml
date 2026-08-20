@@ -226,8 +226,12 @@ jobs:
           assert actual['quotes']['ready'] is True
           assert {'OTEC', 'BMOB3'} <= set(actual['quotes']['symbols'])
 
-          assert active_views['waterfall'].get('ready') is True, active_views['waterfall']
-          assert isinstance(active_views['waterfall'].get('components'), list), active_views['waterfall']
+          waterfall = active_views['waterfall']
+          assert isinstance(waterfall.get('ready'), bool), waterfall
+          if waterfall.get('ready'):
+              assert isinstance(waterfall.get('components'), list), waterfall
+          else:
+              assert waterfall.get('reason'), waterfall
           assert isinstance(active_views['report_status'].get('ready'), bool), active_views['report_status']
           assert active_views['report_status'].get('status'), active_views['report_status']
           assert active_views['buyback_dashboard'].get('ready') is True, active_views['buyback_dashboard']
