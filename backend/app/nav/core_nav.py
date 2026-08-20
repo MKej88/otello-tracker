@@ -33,12 +33,21 @@ def _nearest_fx(connection, base: str, as_of_date: str):
     floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
     return connection.execute(
         """
-        SELECT id, substr(observed_at, 1, 10) AS rate_date, rate, source_document_id
-        FROM fx_rates
-        WHERE base_currency = ? AND quote_currency = 'NOK'
-          AND substr(observed_at, 1, 10) <= ?
-          AND substr(observed_at, 1, 10) >= ?
-        ORDER BY observed_at DESC, id DESC
+        SELECT fr.id, substr(fr.observed_at, 1, 10) AS rate_date, fr.rate,
+               fr.source_document_id, s.code AS source_code
+        FROM fx_rates fr
+        JOIN sources s ON s.id = fr.source_id
+        WHERE fr.base_currency = ? AND fr.quote_currency = 'NOK'
+          AND substr(fr.observed_at, 1, 10) <= ?
+          AND substr(fr.observed_at, 1, 10) >= ?
+        ORDER BY substr(fr.observed_at, 1, 10) DESC,
+                 CASE s.code
+                   WHEN 'NORGES_BANK' THEN 0
+                   WHEN 'ECB' THEN 1
+                   ELSE 5
+                 END,
+                 fr.observed_at DESC,
+                 fr.id DESC
         LIMIT 1
         """,
         (base, as_of_date, floor_date),
@@ -144,6 +153,7 @@ def calculate_core_nav_anchor(connection, as_of_date: str) -> dict[str, Any]:
             "brl_nok_id": brl_nok["id"],
             "brl_nok_date": brl_nok["rate_date"],
             "brl_nok": brl_nok["rate"],
+            "brl_nok_source": brl_nok["source_code"],
         },
         "cash": {
             "anchor_id": cash["id"],
@@ -151,6 +161,7 @@ def calculate_core_nav_anchor(connection, as_of_date: str) -> dict[str, Any]:
             "usd_nok_id": usd_nok["id"],
             "usd_nok_date": usd_nok["rate_date"],
             "usd_nok": usd_nok["rate"],
+            "usd_nok_source": usd_nok["source_code"],
         },
         "otec": {
             "share_count_id": shares["id"],

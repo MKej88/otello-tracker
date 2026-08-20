@@ -88,9 +88,12 @@ Se `docs/economic-nav.md` og `docs/option-liability.md` for modellbeskrivelse.
 
 ### Valuta
 
-- Norges Banks åpne EXR-API er primærkilde for direkte BRL/NOK og USD/NOK.
-- Daglige referansekurser arkiveres i R2 og lagres med `NORGES_BANK`-proveniens i D1.
-- Historiske ECB-krysskurser beholdes som eldre provenance/fallback, men oppdateres ikke lenger i produksjon.
+- Norges Banks åpne EXR-API er primærkilde for direkte BRL/NOK og USD/NOK, både løpende og historisk.
+- D1 vedlikeholder en rullerende tiårsserie med daglige Norges Bank-kurser. Første Full Workflow etter manglende dekning backfiller serien automatisk.
+- Når flere kilder finnes for samme kursdato, velges Norges Bank foran ECB. En nyere fallback-dato velges fortsatt foran en eldre Norges Bank-dato; ferskhet går altså foran kildeprioritet.
+- Etter en tiårsbackfill revalueres opprinnelige USD/BRL-baserte kontantankre og kontantstrømmer, og eksisterende historiske CORE/FULL NAV-datoer bygges på nytt deterministisk.
+- Daglige referansekurser og backfill-responser arkiveres i R2 og lagres med `NORGES_BANK`-proveniens i D1.
+- Historiske ECB-krysskurser beholdes som eldre provenance, kontrollgrunnlag og fallback, men oppdateres ikke lenger i produksjon og er ikke primær historisk serie.
 
 Kildedata skal ha provenance der de påvirker finansielle beregninger. CVM-metadata alene skal ikke skape finansielle fakta.
 
@@ -103,6 +106,8 @@ Cloudflare Cron kjører hvert 30. minutt. Banen er bounded og håndterer lette, 
 ### Full oppdatering
 
 Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
+
+Hvis den rullerende tiårsdekningen fra Norges Bank mangler, utvider Full Workflow valutahentingen til hele perioden og rebuild-er deretter eksisterende historiske NAV-datoer med de direkte NOK-kursene. Rebuild-en oppretter ikke kunstige NAV-datoer; den oppdaterer kun historikk som allerede har nødvendige pris- og modellankre.
 
 Rask og full bane bruker samme D1-baserte writer-lock. Låsen skal alltid frigjøres også ved feil, og har i tillegg expiry som siste sikkerhetsnett.
 

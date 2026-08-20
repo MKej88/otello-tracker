@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from workers import WorkflowEntrypoint, WorkerEntrypoint
 
@@ -57,6 +57,59 @@ def _workflow_trigger(event) -> str:
     return f"workflow_schedule:{cron}" if cron else "workflow_manual"
 
 
+def _history_year_windows(start_date: str, end_date: str) -> list[tuple[str, str]]:
+    """Split a one-time historical rebuild into bounded Workflow steps by calendar year."""
+    current = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if current > end:
+        return []
+    windows: list[tuple[str, str]] = []
+    while current <= end:
+        year_end = min(date(current.year, 12, 31), end)
+        windows.append((current.isoformat(), year_end.isoformat()))
+        current = year_end + timedelta(days=1)
+    return windows
+
+
+def _aggregate_history_rebuild(chunks: list[dict]) -> dict:
+    failures = []
+    largest_changes = []
+    repository_metrics = []
+    cash_anchors_updated = 0
+    cash_movements_updated = 0
+    for chunk in chunks:
+        failures.extend(chunk.get("failures") or [])
+        largest_changes.extend(chunk.get("largest_changes") or [])
+        metrics = chunk.get("repository")
+        if metrics:
+            repository_metrics.append(metrics)
+        normalization = chunk.get("cash_normalization") or {}
+        cash_anchors_updated += int(normalization.get("cash_anchors_updated") or 0)
+        cash_movements_updated += int(normalization.get("cash_movements_updated") or 0)
+
+    largest_changes.sort(key=lambda item: float(item.get("absolute_change_nok") or 0), reverse=True)
+    ok = all(chunk.get("status") == "ok" for chunk in chunks)
+    return {
+        "status": "ok" if ok else "partial",
+        "chunks": len(chunks),
+        "from": chunks[0].get("from") if chunks else None,
+        "to": chunks[-1].get("to") if chunks else None,
+        "dates_seen": sum(int(chunk.get("dates_seen") or 0) for chunk in chunks),
+        "full_dates_seen": sum(int(chunk.get("full_dates_seen") or 0) for chunk in chunks),
+        "dates_changed": sum(int(chunk.get("dates_changed") or 0) for chunk in chunks),
+        "dates_unchanged": sum(int(chunk.get("dates_unchanged") or 0) for chunk in chunks),
+        "dates_not_ready": sum(int(chunk.get("dates_not_ready") or 0) for chunk in chunks),
+        "largest_changes": largest_changes[:10],
+        "failures": failures[:25],
+        "cash_normalization": {
+            "cash_anchors_updated": cash_anchors_updated,
+            "cash_movements_updated": cash_movements_updated,
+        },
+        "repository_chunks": repository_metrics,
+        "fx_policy": "NORGES_BANK_DIRECT_NOK_PREFERRED_ECB_FALLBACK",
+    }
+
+
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         import asgi
@@ -89,6 +142,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_nav,
             start_full_refresh,
         )
+        from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
         from job_lock import acquire_refresh_lock, release_refresh_lock
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
@@ -144,7 +198,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
             @step.do(
                 "refresh Norges Bank FX",
-                config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "3 minutes"},
+                config={"retries": {"limit": 3, "delay": "30 seconds"}, "timeout": "10 minutes"},
             )
             async def norges_bank_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
@@ -159,6 +213,45 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["norges_bank"] = await norges_bank_step()
             except Exception as exc:
                 source_results["norges_bank"] = error_result(exc)
+
+            if source_results["norges_bank"].get("history_backfill"):
+                history_start = str(source_results["norges_bank"]["history_start_required"])
+                history_chunks: list[dict] = []
+                for chunk_start, chunk_end in _history_year_windows(history_start, target_date):
+                    chunk_year = chunk_start[:4]
+
+                    @step.do(
+                        f"rebuild historical NAV with Norges Bank FX {chunk_year}",
+                        config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "10 minutes"},
+                    )
+                    async def norges_bank_history_nav_step(
+                        start_date=chunk_start,
+                        end_date=chunk_end,
+                    ):
+                        repository = PerformanceD1WriteRepository(self.env.DB)
+                        result = await rebuild_existing_nav_with_norges_bank(
+                            repository,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                        return {**result, "repository": repository.performance_metrics()}
+
+                    try:
+                        history_chunks.append(await norges_bank_history_nav_step())
+                    except Exception as exc:
+                        history_chunks.append(
+                            {
+                                **error_result(exc),
+                                "status": "partial",
+                                "from": chunk_start,
+                                "to": chunk_end,
+                            }
+                        )
+
+                history_nav = _aggregate_history_rebuild(history_chunks)
+                source_results["norges_bank"]["history_nav_rebuild"] = history_nav
+                if history_nav.get("status") != "ok":
+                    source_results["norges_bank"]["status"] = "partial"
 
             @step.do(
                 "refresh B3 COTAHIST",
