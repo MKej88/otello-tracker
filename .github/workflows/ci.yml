@@ -12,12 +12,13 @@ jobs:
   backend:
     name: Backend reference tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -34,20 +35,21 @@ jobs:
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - name: Install locked dependencies
         run: npm ci
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=high
       - name: Build
         run: npm run build
       - name: Verify Cloudflare static headers are emitted into dist
@@ -59,9 +61,10 @@ jobs:
   d1-parity:
     name: Cloudflare D1 schema + historical data parity
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -80,7 +83,7 @@ jobs:
           --database /tmp/otello-d1-reference.db
           --sql /tmp/otello-d1-bootstrap.sql
           --manifest /tmp/otello-d1-bootstrap.json
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
       - name: Apply D1 migrations in local Wrangler runtime
@@ -108,15 +111,16 @@ jobs:
   worker:
     name: Cloudflare Python Worker API
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: cloudflare
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
       - name: Build dashboard static assets
@@ -159,7 +163,7 @@ jobs:
         run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
       - name: Validate scheduled Workflow production config
         run: pywrangler deploy --dry-run --config wrangler.jsonc --outdir /tmp/otello-workflow-dist
-      - name: End-to-end Worker HTTP parity, active-view smoke tests, static assets and headers
+      - name: End-to-end Worker/reference parity and real browser smoke
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
           worker_pid=$!
@@ -182,7 +186,7 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/dashboard/report-status -o /tmp/worker-report-status.json
           curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
           curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
-          curl -fsS http://127.0.0.1:8787/api/buybacks/dashboard -o /tmp/worker-buyback-dashboard.json
+          curl -fsS 'http://127.0.0.1:8787/api/buybacks/dashboard?as_of_date=2026-08-17' -o /tmp/worker-buyback-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/consensus -o /tmp/worker-bemobi-consensus.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/source-status -o /tmp/worker-bemobi-source-status.json
@@ -197,22 +201,31 @@ jobs:
           actual = {
               'summary': json.loads(Path('/tmp/worker-summary.json').read_text()),
               'economic': json.loads(Path('/tmp/worker-economic.json').read_text()),
+              'waterfall': json.loads(Path('/tmp/worker-waterfall.json').read_text()),
               'history': json.loads(Path('/tmp/worker-history.json').read_text()),
               'forecast': json.loads(Path('/tmp/worker-forecast.json').read_text()),
-              'quotes': json.loads(Path('/tmp/worker-quotes.json').read_text()),
-          }
-          active_views = {
-              'waterfall': json.loads(Path('/tmp/worker-waterfall.json').read_text()),
-              'report_status': json.loads(Path('/tmp/worker-report-status.json').read_text()),
               'buyback_dashboard': json.loads(Path('/tmp/worker-buyback-dashboard.json').read_text()),
               'bemobi_dashboard': json.loads(Path('/tmp/worker-bemobi-dashboard.json').read_text()),
               'bemobi_consensus': json.loads(Path('/tmp/worker-bemobi-consensus.json').read_text()),
               'bemobi_source_status': json.loads(Path('/tmp/worker-bemobi-source-status.json').read_text()),
+              'quotes': json.loads(Path('/tmp/worker-quotes.json').read_text()),
           }
+          report_status = json.loads(Path('/tmp/worker-report-status.json').read_text())
           expected_dir = Path('/tmp/otello-worker-expected')
           expected = {
               name: json.loads((expected_dir / f'{name}.json').read_text())
-              for name in ('summary', 'economic', 'history', 'forecast', 'quotes')
+              for name in (
+                  'summary',
+                  'economic',
+                  'waterfall',
+                  'history',
+                  'forecast',
+                  'buyback_dashboard',
+                  'bemobi_dashboard',
+                  'bemobi_consensus',
+                  'bemobi_source_status',
+                  'quotes',
+              )
           }
           assert health['status'] == 'ok'
           assert health['environment'] == 'cloudflare'
@@ -228,18 +241,18 @@ jobs:
           assert actual['quotes']['ready'] is True
           assert {'OTEC', 'BMOB3'} <= set(actual['quotes']['symbols'])
 
-          waterfall = active_views['waterfall']
+          waterfall = actual['waterfall']
           assert isinstance(waterfall.get('ready'), bool), waterfall
           if waterfall.get('ready'):
               assert isinstance(waterfall.get('components'), list), waterfall
           else:
               assert waterfall.get('reason'), waterfall
-          assert isinstance(active_views['report_status'].get('ready'), bool), active_views['report_status']
-          assert active_views['report_status'].get('status'), active_views['report_status']
-          assert active_views['buyback_dashboard'].get('ready') is True, active_views['buyback_dashboard']
-          assert active_views['bemobi_dashboard'].get('ready') is True, active_views['bemobi_dashboard']
-          assert active_views['bemobi_consensus'].get('ready') is True, active_views['bemobi_consensus']
-          source_status = active_views['bemobi_source_status']
+          assert isinstance(report_status.get('ready'), bool), report_status
+          assert report_status.get('status'), report_status
+          assert actual['buyback_dashboard'].get('ready') is True, actual['buyback_dashboard']
+          assert actual['bemobi_dashboard'].get('ready') is True, actual['bemobi_dashboard']
+          assert actual['bemobi_consensus'].get('ready') is True, actual['bemobi_consensus']
+          source_status = actual['bemobi_source_status']
           assert source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, source_status
           assert len(source_status.get('items') or []) == 4, source_status
 
@@ -263,14 +276,22 @@ jobs:
           assert 'cache-control: public, max-age=300' in history_headers
           assert 'cache-control: public, max-age=300' in forecast_headers
           assert 'cache-control: public, max-age=30' in quotes_headers
-          print('Populated D1 -> workerd -> HTTP parity, active-view smoke and header test passed')
+          print('Populated SQLite reference -> D1 -> workerd HTTP parity passed')
           PY
+
+          chrome_bin="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          if [ -z "$chrome_bin" ]; then
+            echo '::error::GitHub runner mangler Chromium/Chrome for browser-smoke.'
+            exit 1
+          fi
+          CHROME_BIN="$chrome_bin" node ../frontend/tools/browser-smoke.mjs http://127.0.0.1:8787/
 
   docker-reference:
     name: Docker regression reference
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Validate Compose configuration
         run: docker compose config --quiet
       - name: Build reference backend/frontend images
