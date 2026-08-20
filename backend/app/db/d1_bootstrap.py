@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0021"
+LATEST_SQLITE_MIGRATION = "0022"
 
 REFERENCE_TABLES = (
     "sources",
     "instruments",
     "bemobi_investor_facts",
+    "bemobi_forward_consensus_snapshots",
+    "bemobi_consensus_events",
 )
 
 DATA_TABLES = (
