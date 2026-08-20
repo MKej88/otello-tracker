@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import API_VERSION, app
 from app.settings import settings
 
 
@@ -19,7 +19,7 @@ def test_bemobi_news_api_is_safe_on_empty_database(tmp_path) -> None:
 
             health = client.get("/api/health")
             assert health.status_code == 200
-            assert health.json()["version"] == "0.10.0"
+            assert health.json()["version"] == API_VERSION
     finally:
         settings.database_path = previous_path
 

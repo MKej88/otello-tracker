@@ -36,9 +36,10 @@ data/d1-bootstrap/*
 !data/raw/.gitkeep
 !data/d1-bootstrap/.gitkeep
 
-# Portable D1 bootstrap packages can contain the full historical dataset.
+# Portable/bootstrap data can contain complete historical datasets.
 cloudflare/bootstrap/*.sql
 cloudflare/bootstrap/*.json
+bootstrap_inputs/
 
 # Market-data downloads anywhere in project
 COTAHIST_*.ZIP

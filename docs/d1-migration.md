@@ -1,131 +1,70 @@
-# D1-migrering, schema parity og data parity
+# D1-migrering og schema-paritet
 
-Phase 15 etablerer databasestrukturen og dataflyttingen for Cloudflare-produksjonen. Målet er at D1 skal ha samme strukturelle og finansielle semantikk som den validerte SQLite-referansen før API/jobber flyttes.
+D1 er autoritativ produksjonsdatabase. SQLite-backenden beholdes som deterministisk referanseimplementasjon, og CI kontrollerer at Cloudflare/D1 fortsatt har samme strukturelle og finansielle semantikk.
 
-## Prinsipp
+## Schema-paritet
 
-Vi vedlikeholder **ikke** et håndkopiert D1-schema parallelt med backend-migreringene.
+`cloudflare/tools/generate_d1_schema.py` bygger et konsolidert D1-basisschema fra backendens migrerte SQLite-schema. CI kjører generatoren med `--check` og feiler ved schema-drift.
 
-`cloudflare/tools/generate_d1_schema.py` gjør i stedet dette:
-
-1. oppretter en tom midlertidig SQLite-database;
-2. kjører alle backend-migreringene gjennom siste versjon;
-3. leser den effektive sluttilstanden fra `sqlite_master`;
-4. eksporterer tabeller, eksplisitte indekser og triggere;
-5. utelater backendens `schema_migrations`, fordi Wrangler/D1 fører sin egen migreringshistorikk;
-6. skriver `cloudflare/migrations/0001_initial_schema.sql`.
-
-Dermed er backendens migrerte schema fortsatt referansen under overgangsperioden, mens D1-schemaet er en deterministisk konsolidert representasjon av samme struktur.
+Det betyr at endringer i databasestrukturen skal gjøres kontrollert og testes mot både SQLite-referansen og lokal Wrangler D1.
 
 ## D1-migreringer
 
+Produksjonsmigreringer ligger i:
+
 ```text
 cloudflare/migrations/
-  0001_initial_schema.sql   # generert sluttschema
-  0002_reference_data.sql   # stabile sources/instruments
 ```
 
-`0001` skal aldri redigeres manuelt. Endres backend-schemaet før D1 er produksjonsmaster, regenereres filen:
+Regler:
+
+1. eksisterende migreringer som kan være kjørt i en database skal ikke omskrives;
+2. nye migreringer skal være additive og bakoverkompatible;
+3. migreringsnumre som har vært brukt skal aldri gjenbrukes;
+4. Worker-rollback ruller ikke tilbake D1-migreringer;
+5. D1 Time Travel er recovery-mekanismen ved behov for full database-restore.
+
+Se `docs/migration-history.md` for reserverte numre. Etter at aksjonær-/Top 20-funksjonen ble fjernet er Cloudflare `0008` og SQLite `0018` historisk brukt/reservert. Neste nye migrering skal derfor minst være Cloudflare `0009_...` og SQLite `0019_...`.
+
+## Lokal validering
+
+CI bruker lokal Wrangler D1 til å:
+
+- anvende migreringer;
+- bygge/importere deterministisk referansefixture;
+- kontrollere foreign keys;
+- kontrollere schema/data-paritet;
+- kjøre Worker HTTP-paritet mot faktisk lokal D1-runtime.
+
+Eksempel på lokal migrering:
 
 ```bash
-python cloudflare/tools/generate_d1_schema.py
-```
-
-CI bruker:
-
-```bash
-python cloudflare/tools/generate_d1_schema.py --check
-```
-
-og feiler dersom den committede D1-filen har driftet fra referanseschemaet.
-
-## Foreign keys
-
-D1 håndhever foreign keys. Det genererte bootstrap-schemaet bruker derfor `defer_foreign_keys` under opprettelse/import. Finansielle relasjoner, `ON DELETE`-regler og øvrige constraints beholdes, og både schema- og dataparitet avsluttes med `PRAGMA foreign_key_check`.
-
-## Schema parity – Phase 15.1
-
-`backend/tests/test_d1_schema_parity.py` oppretter to tomme databaser:
-
-- **reference:** alle ordinære backend-migreringer til siste versjon;
-- **D1-shape:** det konsoliderte D1-schemaet.
-
-Testene sammenligner:
-
-- eksakt tabellsett;
-- kolonnenavn, type, `NOT NULL`, default og primary-key-posisjon;
-- foreign keys og delete/update-regler;
-- eksplisitte indekser, uniqueness, partial-index flagg og kolonner;
-- triggere;
-- stabile source-/instrumentreferanser;
-- `PRAGMA foreign_key_check`;
-- NewsWeb-triggeradferd som beskytter provenance/klassifisering.
-
-## Data parity – Phase 15.2
-
-Phase 15.2 er implementert som en separat, repeterbar bootstrap-pipeline. Den tar en validert SQLite-snapshot og lager:
-
-```text
-bootstrap.sql
-manifest.json
-```
-
-Manifestet inneholder radtall, kolonneorden og logisk SHA-256 per relevant tabell, samt én global SHA-256 og finansielle kontrollpunkter for CORE/FULL NAV, market/FX coverage, cash, ONA, share count, Bemobi-holding og buybacks.
-
-`sources` og `instruments` opprettes fortsatt av `0002_reference_data.sql`, men bootstrapen bevarer og kontrollerer ID-er og de opprinnelige migreringsmetadataene slik at D1-snapshoten blir logisk identisk med SQLite-kilden.
-
-Historisk finans-/markedsdata flyttes; gamle runtime-tabeller (`job_runs`, `source_health`, `runtime_state`) resettes med vilje fordi de beskriver den gamle prosessens miljøtilstand, ikke historiske finansielle fakta.
-
-Detaljert bruk og cutover-runbook: [`docs/d1-bootstrap.md`](d1-bootstrap.md).
-
-## Lokal Wrangler/D1-validering
-
-CI bruker en egen konto-uavhengig konfigurasjon:
-
-```text
-cloudflare/wrangler.schema-test.jsonc
-```
-
-Schema og referansedata valideres lokalt med:
-
-```bash
-npx --yes wrangler@4 d1 migrations apply DB \
+npx --yes wrangler@4.123.0 d1 migrations apply DB \
   --local \
   --config cloudflare/wrangler.schema-test.jsonc
 ```
 
-Phase 15.2 bygger deretter en deterministisk referansesnapshot, eksporterer bootstrap-pakken, importerer den gjennom Wranglers faktiske lokale D1-runtime og krever eksakt manifest-/nøkkeltallsparitet.
-
-Manuell integrity check kan kjøres med:
+Eksempel på foreign-key-kontroll:
 
 ```bash
-npx --yes wrangler@4 d1 execute DB \
+npx --yes wrangler@4.123.0 d1 execute DB \
   --local \
   --config cloudflare/wrangler.schema-test.jsonc \
   --command "PRAGMA foreign_key_check;"
 ```
 
-## Opprettelse av faktisk produksjons-D1
+## Produksjon
 
-Dette gjøres først når Cloudflare-kontoressursene skal opprettes:
+Produksjonsdeployen kjører remote D1-migreringer før Worker deployes og etterfølges av HTTP-akseptanse.
 
-```bash
-npx wrangler d1 create otello-nav --location=weur
-```
+Fordi en Worker-rollback ikke reverserer schemaendringer, må migreringen være kompatibel med både gammel og ny Worker i overgangsøyeblikket. Breaking schema-endringer skal derfor splittes i flere additive steg.
 
-Den returnerte database-ID-en legges i den endelige Wrangler-konfigurasjonen, ikke i eksempelkonfigurasjonen.
+## Data-paritet og recoveryverktøy
 
-Deretter anvendes migrations mot remote D1 og den konkrete validerte produksjons-bootstrapen importeres. Remote import er ikke gjennomført i Phase 15.2 fordi den faktiske D1-ressursen ennå ikke er opprettet.
+`cloudflare/tools/d1_bootstrap.py` beholdes for deterministisk eksport/verifisering av referansedata, men er ikke en generell produksjonsimportknapp etter go-live.
 
-## Endringskontroll
+Se:
 
-Phase 15.1–15.2 endrer ikke:
-
-- NAV-formelen;
-- cash-modellen;
-- ONA-logikken;
-- buyback-estimatoren;
-- Safe Harbour-backtesten;
-- markedsdatakildenes finansielle prioritet.
-
-D1-adapteren i neste fase må produsere samme API-output før Cloudflare-versjonen får overta som produksjonsmaster.
+- `docs/d1-bootstrap.md`
+- `docs/runbook.md`
+- `docs/migration-history.md`
