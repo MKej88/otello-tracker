@@ -18,26 +18,57 @@ import newsweb_reconciliation as nw_reconcile  # noqa: E402
 from b3_full_refresh import parse_bmob3_daily_zip  # noqa: E402
 from cvm_full_refresh import classify_cvm_record, parse_cvm_ipe_archive  # noqa: E402
 from d1_preflight import run_d1_preflight  # noqa: E402
-from ecb_full_refresh import parse_ecb_cross_rates  # noqa: E402
+from norges_bank_full_refresh import parse_norges_bank_sdmx_json  # noqa: E402
 from otec_workflow_recovery import recover_otec_to_r2  # noqa: E402
 
 from app.db.migration_runner import init_database  # noqa: E402
 from app.history import seed_curated_history  # noqa: E402
 
 
-def test_ecb_cross_rate_parser_matches_reference_math() -> None:
-    text = "\n".join(
-        [
-            "CURRENCY,TIME_PERIOD,OBS_VALUE",
-            "BRL,2026-08-17,6",
-            "NOK,2026-08-17,12",
-            "USD,2026-08-17,1.2",
-        ]
-    )
-    rows = parse_ecb_cross_rates(text)
+def test_norges_bank_direct_rates_match_reference_values() -> None:
+    payload = {
+        "data": {
+            "dataSets": [
+                {
+                    "series": {
+                        "0:0:0:0": {
+                            "attributes": [0, 0, 0, 0],
+                            "observations": {"0": [Decimal("1.82")]},
+                        },
+                        "0:1:0:0": {
+                            "attributes": [0, 0, 0, 0],
+                            "observations": {"0": [Decimal("10.00")]},
+                        },
+                    }
+                }
+            ],
+            "structure": {
+                "dimensions": {
+                    "series": [
+                        {"id": "FREQ", "values": [{"id": "B"}]},
+                        {"id": "BASE_CUR", "values": [{"id": "BRL"}, {"id": "USD"}]},
+                        {"id": "QUOTE_CUR", "values": [{"id": "NOK"}]},
+                        {"id": "TENOR", "values": [{"id": "SP"}]},
+                    ],
+                    "observation": [
+                        {"id": "TIME_PERIOD", "values": [{"id": "2026-08-17"}]}
+                    ],
+                },
+                "attributes": {
+                    "series": [
+                        {"id": "DECIMALS", "values": [{"id": "4"}]},
+                        {"id": "CALCULATED", "values": [{"id": "0"}]},
+                        {"id": "UNIT_MULT", "values": [{"id": "0"}]},
+                        {"id": "COLLECTION", "values": [{"id": "A"}]},
+                    ]
+                },
+            },
+        }
+    }
+    rows = parse_norges_bank_sdmx_json(payload)
     assert rows == [
-        ("2026-08-17", "BRL", Decimal("2")),
-        ("2026-08-17", "USD", Decimal("1E+1")),
+        ("2026-08-17", "BRL", Decimal("1.82")),
+        ("2026-08-17", "USD", Decimal("10.00")),
     ]
 
 
@@ -281,5 +312,5 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
     entry = (ROOT / "cloudflare" / "src" / "entry.py").read_text(encoding="utf-8")
     assert "class FullRefreshWorkflow(WorkflowEntrypoint)" in entry
     assert "scheduled_day - timedelta(days=1)" in entry
-    assert '"refresh ECB FX"' in entry
+    assert '"refresh Norges Bank FX"' in entry
     assert '"D1 data health preflight"' in entry
