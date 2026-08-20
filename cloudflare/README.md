@@ -28,6 +28,7 @@ GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
+GET /api/bemobi/source-status
 ```
 
 ## Scheduling
@@ -54,22 +55,26 @@ Den er bounded og idempotent. Euronext EOD behandles som `LAST / DIRECT`, ikke s
 
 Daglig Workflow håndterer:
 
-1. ECB FX;
+1. Norges Bank FX – direkte BRL/NOK og USD/NOK;
 2. B3 COTAHIST;
 3. Bemobi/CVM;
-4. NewsWeb reconciliation;
-5. NewsWeb PDF og tilbakekjøpsdetaljer;
-6. OTEC recovery/EOD;
-7. NAV-oppdatering;
-8. D1 production-data preflight;
-9. R2 logical snapshot når retention-policy krever det;
-10. jobb-/source-health-finalisering.
+4. Bemobi investor-webfakta;
+5. NewsWeb reconciliation;
+6. NewsWeb PDF og tilbakekjøpsdetaljer;
+7. Otello-rapportinnlesing;
+8. OTEC recovery/EOD;
+9. NAV-oppdatering;
+10. D1 production-data preflight;
+11. R2 logical snapshot når retention-policy krever det;
+12. jobb-/source-health-finalisering.
 
 Preflight skal feile lukket når nødvendige data ikke er klare.
 
 ## Økonomisk NAV og valuta
 
 Økonomisk NAV er separat fra CORE/FULL. Worker-pariteten leser kildebelagte kostnadsankre og cash-FX-ankre fra D1.
+
+Daglige BRL/NOK- og USD/NOK-kurser hentes direkte fra Norges Banks åpne EXR-API og lagres med `NORGES_BANK`-proveniens. Historiske ECB-krysskurser beholdes som eldre provenance/fallback, men ECB brukes ikke lenger som løpende produksjonskilde.
 
 Dokumentert USD- og BRL-eksponering revalueres mot løpende valuta. Ufordelt residual skal ikke gis skjult finansielt innhold uten dokumentasjon.
 
