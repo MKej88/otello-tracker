@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./shareholders-page.css";
 
 type ShareCount = {
@@ -34,9 +34,19 @@ type Snapshot = {
   id: number;
   snapshot_date: string;
   source_kind: string;
+  captured_at?: string | null;
   row_count: number;
   top20_shares: number;
   top20_pct?: number | null;
+};
+
+type DailySummary = {
+  status: "NO_SNAPSHOT" | "FIRST_SNAPSHOT" | "NO_CHANGES" | "CHANGES" | string;
+  message: string;
+  latest_date?: string | null;
+  previous_date?: string | null;
+  is_previous_day: boolean;
+  change_count: number;
 };
 
 type ShareholderPayload = {
@@ -60,7 +70,9 @@ type ShareholderPayload = {
     comparison_ready: boolean;
     snapshots: Snapshot[];
     latest_rows: HoldingRow[];
+    daily_summary?: DailySummary | null;
     movement?: {
+      changes: ChangeRow[];
       biggest_buyers: ChangeRow[];
       biggest_sellers: ChangeRow[];
       new_entries: ChangeRow[];
@@ -77,14 +89,33 @@ function pct(input: number | null | undefined, digits = 1) {
   return `${input.toLocaleString("nb-NO", { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`;
 }
 
+function ownershipLabel(input: string | number | null | undefined) {
+  if (input == null || input === "") return "–";
+  const numeric = Number(input);
+  return Number.isFinite(numeric) ? pct(numeric, 2) : String(input);
+}
+
 function dateLabel(input?: string | null) {
   if (!input) return "–";
-  const [year, month, day] = input.split("-");
+  const [year, month, day] = input.slice(0, 10).split("-");
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
 function changeLabel(value: number) {
   return `${value > 0 ? "+" : ""}${integer.format(value)}`;
+}
+
+function changeClass(value: number) {
+  return value > 0 ? "positive" : value < 0 ? "negative" : "";
+}
+
+function rankLabel(row: ChangeRow) {
+  if (row.new_in_top20) return "Ny i Top 20";
+  if (row.exited_top20) return "Ut av Top 20";
+  if (row.previous_rank != null && row.current_rank != null && row.previous_rank !== row.current_rank) {
+    return `#${row.previous_rank} → #${row.current_rank}`;
+  }
+  return row.current_rank != null ? `#${row.current_rank}` : "";
 }
 
 export default function ShareholdersPage() {
@@ -117,6 +148,12 @@ export default function ShareholdersPage() {
     };
   }, []);
 
+  const changeByName = useMemo(() => {
+    const map = new Map<string, ChangeRow>();
+    for (const row of data?.history.movement?.changes ?? []) map.set(row.shareholder_name, row);
+    return map;
+  }, [data]);
+
   if (!data && !failed) return <div className="shareholdersNotice">Laster aksjonærdata …</div>;
   if (!data) return <div className="shareholdersNotice"><strong>Kunne ikke hente aksjonærdata.</strong></div>;
 
@@ -124,6 +161,7 @@ export default function ShareholdersPage() {
   const count = data.share_count;
   const latestSnapshot = history.snapshots[0];
   const movement = history.movement;
+  const daily = history.daily_summary;
 
   return (
     <div className="shareholdersPage">
@@ -131,10 +169,10 @@ export default function ShareholdersPage() {
         <div>
           <span className="label">OTEC / AKSJONÆRER</span>
           <h2>Hvem eier Otello?</h2>
-          <p>Offisiell Top 20 fra Otello/Euronext, kombinert med trackerens egne snapshots for å se akkumulering og reduksjon over tid.</p>
+          <p>Offisiell Top 20 fra Otello/Euronext, hentet inn i trackeren hver dag og sammenlignet med forrige dags måling.</p>
         </div>
-        <a className="shareholdersSourceButton" href={data.official_live.source_page_url} target="_blank" rel="noreferrer">
-          Offisiell kilde
+        <a className="shareholdersSourceButton" href={data.official_live.embed_url} target="_blank" rel="noreferrer">
+          Åpne originalkilden
         </a>
       </section>
 
@@ -157,47 +195,87 @@ export default function ShareholdersPage() {
         <article className="card">
           <span className="label">Top 20-andel</span>
           <strong>{latestSnapshot ? pct(latestSnapshot.top20_pct) : "–"}</strong>
-          <small>{history.snapshot_count ? `${history.snapshot_count} lagrede snapshots` : "Historikk starter med første snapshot"}</small>
+          <small>{history.snapshot_count ? `${history.snapshot_count} daglige målinger` : "Venter på første måling"}</small>
         </article>
       </section>
 
-      <section className="card liveTop20Card">
+      <section className="card top20NativeCard">
         <div className="cardHeader shareholdersHeader">
           <div>
-            <span className="label">OFFISIELL · OPPDATERES UKENTLIG</span>
+            <span className="label">OFFISIELL · HENTES DAGLIG</span>
             <h2>Top 20 største aksjonærer</h2>
           </div>
-          <a href={data.official_live.embed_url} target="_blank" rel="noreferrer" className="pill">Åpne hos Euronext</a>
+          <div className="shareholdersSnapshotDate">
+            <span>Siste måling</span>
+            <strong>{dateLabel(latestSnapshot?.snapshot_date)}</strong>
+          </div>
         </div>
-        <div className="top20FrameWrap">
-          <iframe
-            className="top20Frame"
-            src={data.official_live.embed_url}
-            title="Otello Top 20 largest shareholders"
-            loading="lazy"
-          />
-        </div>
-        <p className="shareholdersFootnote">
-          Hvis Euronext blokkerer innbygging i nettleseren, bruk «Åpne hos Euronext». Listen er Otellos offisielle Top 20-kilde.
-        </p>
+
+        {daily && (
+          <div className={`dailyChangeSummary dailyChange-${daily.status.toLowerCase()}`}>
+            <span className="dailyChangeDot" />
+            <div>
+              <strong>{daily.message}</strong>
+              {daily.previous_date && !daily.is_previous_day && (
+                <small>Forrige tilgjengelige måling: {dateLabel(daily.previous_date)}</small>
+              )}
+            </div>
+          </div>
+        )}
+
+        {history.latest_rows.length === 0 ? (
+          <div className="shareholdersEmpty">
+            <strong>Venter på første Top 20-snapshot.</strong>
+            <span>Listen vises her så snart den daglige Euronext-innhentingen har lagret en komplett måling.</span>
+          </div>
+        ) : (
+          <div className="shareholdersTableWrap top20TableWrap">
+            <table className="top20Table">
+              <thead>
+                <tr><th>#</th><th>Aksjonær</th><th>Land</th><th>Aksjer</th><th>Andel</th><th>Endring</th></tr>
+              </thead>
+              <tbody>
+                {history.latest_rows.map((row) => {
+                  const change = changeByName.get(row.shareholder_name);
+                  return (
+                    <tr key={`${row.rank}-${row.shareholder_name}`}>
+                      <td className="rankCell">{row.rank}</td>
+                      <td className="shareholderNameCell">{row.shareholder_name}</td>
+                      <td>{row.country ?? "–"}</td>
+                      <td>{integer.format(row.shares)}</td>
+                      <td>{ownershipLabel(row.ownership_pct)}</td>
+                      <td>
+                        {change?.new_in_top20 ? (
+                          <span className="changeBadge positive">Ny</span>
+                        ) : change ? (
+                          <strong className={changeClass(change.change_shares)}>{changeLabel(change.change_shares)}</strong>
+                        ) : (
+                          <span className="mutedText">–</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="shareholdersFootnote">{history.note}</p>
       </section>
 
       <section className="shareholdersTwoCol">
         <article className="card">
           <div className="cardHeader">
-            <div><span className="label">TRACKER</span><h2>Uke-for-uke</h2></div>
-            <span className="pill">{history.comparison_ready ? "Klar" : "Venter"}</span>
+            <div><span className="label">DAGLIG SAMMENLIGNING</span><h2>Endringer</h2></div>
+            <span className="pill">{history.comparison_ready ? `${daily?.change_count ?? 0} endringer` : "Venter"}</span>
           </div>
           {!history.comparison_ready ? (
             <div className="shareholdersEmpty">
-              <strong>Historikken er klargjort.</strong>
-              <span>Når to Top 20-snapshots er lagret, vises største kjøpere, selgere, nye navn og utgående navn automatisk.</span>
+              <strong>Sammenligning trenger to dagsmålinger.</strong>
+              <span>Etter neste lagrede snapshot vises alle endringer automatisk.</span>
             </div>
           ) : (
-            <div className="movementGrid">
-              <MovementList title="Største kjøpere" rows={movement?.biggest_buyers ?? []} />
-              <MovementList title="Største selgere" rows={movement?.biggest_sellers ?? []} />
-            </div>
+            <ChangeList rows={movement?.changes ?? []} />
           )}
         </article>
 
@@ -215,42 +293,32 @@ export default function ShareholdersPage() {
           </a>
         </article>
       </section>
-
-      {history.latest_rows.length > 0 && (
-        <section className="card shareholdersStoredTable">
-          <div className="cardHeader">
-            <div><span className="label">SIST LAGRET</span><h2>Tracker-snapshot {dateLabel(latestSnapshot?.snapshot_date)}</h2></div>
-          </div>
-          <div className="shareholdersTableWrap">
-            <table>
-              <thead><tr><th>#</th><th>Aksjonær</th><th>Land</th><th>Aksjer</th><th>Andel</th></tr></thead>
-              <tbody>
-                {history.latest_rows.map((row) => (
-                  <tr key={`${row.rank}-${row.shareholder_name}`}>
-                    <td>{row.rank}</td>
-                    <td>{row.shareholder_name}</td>
-                    <td>{row.country ?? "–"}</td>
-                    <td>{integer.format(row.shares)}</td>
-                    <td>{row.ownership_pct ?? "–"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }
 
-function MovementList({ title, rows }: { title: string; rows: ChangeRow[] }) {
+function ChangeList({ rows }: { rows: ChangeRow[] }) {
+  if (rows.length === 0) {
+    return <div className="shareholdersNoChanges"><strong>Ingen endringer</strong><span>Top 20 er identisk med forrige måling.</span></div>;
+  }
+
   return (
-    <div className="movementList">
-      <h3>{title}</h3>
-      {rows.length === 0 ? <span className="mutedText">Ingen endringer</span> : rows.map((row) => (
-        <div key={row.shareholder_name}>
-          <span>{row.shareholder_name}</span>
-          <strong className={row.change_shares >= 0 ? "positive" : "negative"}>{changeLabel(row.change_shares)}</strong>
+    <div className="dailyChangesList">
+      {rows.map((row) => (
+        <div className="dailyChangeRow" key={row.shareholder_name}>
+          <div>
+            <strong>{row.shareholder_name}</strong>
+            <small>{rankLabel(row)}</small>
+          </div>
+          <div className="dailyChangeNumbers">
+            {row.new_in_top20 ? (
+              <span className="changeBadge positive">Ny i Top 20</span>
+            ) : row.exited_top20 ? (
+              <span className="changeBadge negative">Ut av Top 20</span>
+            ) : (
+              <strong className={changeClass(row.change_shares)}>{changeLabel(row.change_shares)} aksjer</strong>
+            )}
+          </div>
         </div>
       ))}
     </div>

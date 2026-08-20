@@ -22,7 +22,7 @@
       "name": "otello-shareholder-snapshot",
       "binding": "SHAREHOLDER_SNAPSHOT",
       "class_name": "ShareholderSnapshotWorkflow",
-      "schedules": ["15 7 * * 6"]
+      "schedules": ["15 3 * * *"]
     },
     {
       "name": "otello-r2-snapshot-drill",

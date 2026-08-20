@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from app.db.connection import get_connection
@@ -11,6 +12,7 @@ OTELLO_IDENTIFICATION_XLSX = (
     "https://otello.cdn.prismic.io/otello/"
     "aemxxcBOoF08xO8y_OtelloCorporationASAShareholderListMar26.xlsx"
 )
+SOURCE_KIND = "EURONEXT_OMS"
 
 
 def _latest_share_count(connection) -> dict[str, Any] | None:
@@ -28,7 +30,7 @@ def _latest_share_count(connection) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
-def _snapshots(connection, limit: int = 12) -> list[dict[str, Any]]:
+def _snapshots(connection, limit: int = 31) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
         SELECT ss.id, ss.snapshot_date, ss.source_url, ss.source_kind,
@@ -37,11 +39,12 @@ def _snapshots(connection, limit: int = 12) -> list[dict[str, Any]]:
                COALESCE(SUM(sr.shares), 0) AS top20_shares
         FROM shareholder_snapshots ss
         LEFT JOIN shareholder_snapshot_rows sr ON sr.snapshot_id = ss.id
+        WHERE ss.source_kind = ?
         GROUP BY ss.id
         ORDER BY ss.snapshot_date DESC, ss.id DESC
         LIMIT ?
         """,
-        (limit,),
+        (SOURCE_KIND, limit),
     ).fetchall()
     result = []
     for row in rows:
@@ -105,6 +108,62 @@ def _movement(current: list[dict[str, Any]], previous: list[dict[str, Any]]) -> 
     }
 
 
+def _daily_summary(
+    snapshots: list[dict[str, Any]],
+    movement: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not snapshots:
+        return {
+            "status": "NO_SNAPSHOT",
+            "message": "Venter på første daglige Top 20-måling.",
+            "latest_date": None,
+            "previous_date": None,
+            "is_previous_day": False,
+            "change_count": 0,
+        }
+
+    latest_date = str(snapshots[0]["snapshot_date"])
+    if len(snapshots) < 2:
+        return {
+            "status": "FIRST_SNAPSHOT",
+            "message": "Første daglige måling er lagret. Sammenligning kommer etter neste måling.",
+            "latest_date": latest_date,
+            "previous_date": None,
+            "is_previous_day": False,
+            "change_count": 0,
+        }
+
+    previous_date = str(snapshots[1]["snapshot_date"])
+    day_gap = (date.fromisoformat(latest_date) - date.fromisoformat(previous_date)).days
+    is_previous_day = day_gap == 1
+    changes = (movement or {}).get("changes") or []
+    change_count = len(changes)
+    if change_count == 0:
+        message = (
+            "Ingen endringer siden i går."
+            if is_previous_day
+            else f"Ingen endringer siden forrige måling ({previous_date})."
+        )
+        status = "NO_CHANGES"
+    else:
+        noun = "endring" if change_count == 1 else "endringer"
+        message = (
+            f"{change_count} {noun} siden i går."
+            if is_previous_day
+            else f"{change_count} {noun} siden forrige måling ({previous_date})."
+        )
+        status = "CHANGES"
+
+    return {
+        "status": status,
+        "message": message,
+        "latest_date": latest_date,
+        "previous_date": previous_date,
+        "is_previous_day": is_previous_day,
+        "change_count": change_count,
+    }
+
+
 def shareholders_dashboard(database_path: str | None = None) -> dict[str, Any]:
     with get_connection(database_path) as connection:
         share_count = _latest_share_count(connection)
@@ -116,12 +175,13 @@ def shareholders_dashboard(database_path: str | None = None) -> dict[str, Any]:
         if len(snapshots) >= 2:
             previous_rows = _rows(connection, int(snapshots[1]["id"]))
             movement = _movement(latest_rows, previous_rows)
+        daily_summary = _daily_summary(snapshots, movement)
 
     return {
         "ready": True,
         "official_live": {
             "title": "Top 20 largest shareholders",
-            "updated_frequency": "WEEKLY",
+            "updated_frequency": "DAILY",
             "source": "Otello IR / Euronext OMS",
             "source_page_url": OTELLO_SHAREHOLDERS_PAGE,
             "embed_url": EURONEXT_TOP20_URL,
@@ -139,9 +199,10 @@ def shareholders_dashboard(database_path: str | None = None) -> dict[str, Any]:
             "snapshots": snapshots,
             "latest_rows": latest_rows,
             "movement": movement,
+            "daily_summary": daily_summary,
             "note": (
-                "Den offisielle Euronext-listen vises live. Uke-for-uke-endringer beregnes "
-                "fra snapshots som lagres i trackerens egen database."
+                "Top 20 hentes fra Euronext OMS hver dag og vises direkte i trackeren. "
+                "Endringer beregnes mot forrige lagrede dagsmåling."
             ),
         },
     }

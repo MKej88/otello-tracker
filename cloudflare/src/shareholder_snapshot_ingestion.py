@@ -72,19 +72,7 @@ async def _latest_share_count(repository: Any) -> dict[str, Any] | None:
     )
 
 
-async def _latest_snapshot_rows(repository: Any) -> list[dict[str, Any]]:
-    snapshot = await repository.first(
-        """
-        SELECT id
-        FROM shareholder_snapshots
-        WHERE source_kind = ?
-        ORDER BY snapshot_date DESC, id DESC
-        LIMIT 1
-        """,
-        (SOURCE_KIND,),
-    )
-    if snapshot is None:
-        return []
+async def _snapshot_rows(repository: Any, snapshot_id: int) -> list[dict[str, Any]]:
     return await repository.all(
         """
         SELECT rank, shareholder_name, country, shares, ownership_pct, account_type
@@ -92,7 +80,26 @@ async def _latest_snapshot_rows(repository: Any) -> list[dict[str, Any]]:
         WHERE snapshot_id = ?
         ORDER BY rank ASC
         """,
-        (int(snapshot["id"]),),
+        (snapshot_id,),
+    )
+
+
+def _rows_hash(rows: list[dict[str, Any]]) -> str | None:
+    if len(rows) != EXPECTED_ROWS:
+        return None
+    return hashlib.sha256(canonical_rows(rows)).hexdigest()
+
+
+async def _previous_snapshot(repository: Any, snapshot_date: str) -> dict[str, Any] | None:
+    return await repository.first(
+        """
+        SELECT id, snapshot_date
+        FROM shareholder_snapshots
+        WHERE source_kind = ? AND snapshot_date < ?
+        ORDER BY snapshot_date DESC, id DESC
+        LIMIT 1
+        """,
+        (SOURCE_KIND, snapshot_date),
     )
 
 
@@ -114,18 +121,36 @@ async def store_snapshot(
     canonical = canonical_rows(rows)
     content_hash = hashlib.sha256(canonical).hexdigest()
 
-    previous = await _latest_snapshot_rows(repository)
-    if (
-        len(previous) == EXPECTED_ROWS
-        and hashlib.sha256(canonical_rows(previous)).hexdigest() == content_hash
-    ):
-        return {
-            "status": "unchanged",
-            "snapshot_date": snapshot_date,
-            "rows": EXPECTED_ROWS,
-            "content_sha256": content_hash,
-            **browser_metadata,
-        }
+    # A retry for the same date must be idempotent. An unchanged list on a NEW date,
+    # however, is still stored so the dashboard can truthfully compare today with yesterday.
+    existing = await repository.first(
+        "SELECT id FROM shareholder_snapshots WHERE snapshot_date=? AND source_kind=? LIMIT 1",
+        (snapshot_date, SOURCE_KIND),
+    )
+    if existing is not None:
+        existing_rows = await _snapshot_rows(repository, int(existing["id"]))
+        if _rows_hash(existing_rows) == content_hash:
+            return {
+                "status": "unchanged_same_day",
+                "snapshot_id": int(existing["id"]),
+                "snapshot_date": snapshot_date,
+                "rows": EXPECTED_ROWS,
+                "content_sha256": content_hash,
+                "stored": False,
+                **browser_metadata,
+            }
+
+    previous_snapshot = await _previous_snapshot(repository, snapshot_date)
+    previous_rows = (
+        await _snapshot_rows(repository, int(previous_snapshot["id"]))
+        if previous_snapshot is not None
+        else []
+    )
+    previous_hash = _rows_hash(previous_rows)
+    content_changed = None if previous_hash is None else previous_hash != content_hash
+    previous_snapshot_date = (
+        str(previous_snapshot["snapshot_date"]) if previous_snapshot is not None else None
+    )
 
     archived = None
     if archive_bucket is not None:
@@ -152,15 +177,13 @@ async def store_snapshot(
             "browser_ms": browser_metadata.get("browser_ms"),
             "browser_calls": browser_metadata.get("browser_calls"),
             "row_count": EXPECTED_ROWS,
+            "content_changed_from_previous": content_changed,
+            "previous_snapshot_date": previous_snapshot_date,
             "permission_basis": "PROJECT_OWNER_CONFIRMED_PERMISSION_2026-08-19",
             "r2_key": archived.get("r2_key") if archived else None,
         },
     )
 
-    existing = await repository.first(
-        "SELECT id FROM shareholder_snapshots WHERE snapshot_date=? AND source_kind=? LIMIT 1",
-        (snapshot_date, SOURCE_KIND),
-    )
     if existing is not None:
         await repository.run(
             "DELETE FROM shareholder_snapshots WHERE id=?",
@@ -172,6 +195,8 @@ async def store_snapshot(
             "content_sha256": content_hash,
             "source_document_id": document_id,
             "r2_key": archived.get("r2_key") if archived else None,
+            "content_changed_from_previous": content_changed,
+            "previous_snapshot_date": previous_snapshot_date,
             **browser_metadata,
         },
         ensure_ascii=False,
@@ -241,8 +266,11 @@ async def store_snapshot(
 
     return {
         "status": "stored",
+        "stored": True,
         "snapshot_id": snapshot_id,
         "snapshot_date": snapshot_date,
+        "previous_snapshot_date": previous_snapshot_date,
+        "content_changed": content_changed,
         "rows": EXPECTED_ROWS,
         "content_sha256": content_hash,
         "source_document_id": document_id,

@@ -12,8 +12,9 @@ def test_shareholder_contract_is_kept_in_reference_and_worker() -> None:
 
     for token in (
         "EURONEXT_TOP20_URL",
-        '"updated_frequency": "WEEKLY"',
+        '"updated_frequency": "DAILY"',
         '"comparison_ready"',
+        '"daily_summary"',
         '"biggest_buyers"',
         '"biggest_sellers"',
         '"new_entries"',

@@ -140,7 +140,7 @@ def test_canonical_rows_are_stable_and_semantic() -> None:
     assert decoded[0]["shareholder_name"] == "Investor 1 AS"
 
 
-def test_worker_config_has_weekly_browser_run_workflow() -> None:
+def test_worker_config_has_daily_browser_run_workflow() -> None:
     config = json.loads((ROOT / "cloudflare/wrangler.jsonc").read_text(encoding="utf-8"))
     worker = (ROOT / "cloudflare/src/worker.py").read_text(encoding="utf-8")
     workflow = (ROOT / "cloudflare/src/shareholder_snapshot_workflow.py").read_text(encoding="utf-8")
@@ -154,7 +154,7 @@ def test_worker_config_has_weekly_browser_run_workflow() -> None:
         item for item in config["workflows"] if item["binding"] == "SHAREHOLDER_SNAPSHOT"
     )
     assert shareholder_workflow["class_name"] == "ShareholderSnapshotWorkflow"
-    assert shareholder_workflow["schedules"] == ["15 7 * * 6"]
+    assert shareholder_workflow["schedules"] == ["15 3 * * *"]
     assert "ShareholderSnapshotWorkflow" in worker
     assert "refresh_shareholder_snapshot" in workflow
     assert 'quickAction(\n        "scrape"' in browser
@@ -162,3 +162,6 @@ def test_worker_config_has_weekly_browser_run_workflow() -> None:
     assert f"MAX_BROWSER_CALLS = {MAX_BROWSER_CALLS}" in browser
     assert "permission_basis" in ingestion
     assert "repository.database.batch" in ingestion
+    assert "snapshot_date < ?" in ingestion
+    assert '"unchanged_same_day"' in ingestion
+    assert '"content_changed"' in ingestion
