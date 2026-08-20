@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0020"
+LATEST_SQLITE_MIGRATION = "0021"
 
 REFERENCE_TABLES = (
     "sources",
