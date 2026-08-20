@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -82,6 +83,7 @@ type ConsensusPayload = {
     note?: string | null;
   };
   beat_miss?: BeatMissPeriod[];
+  history_link?: ConsensusHistoryLink;
   reference_model?: {
     broker?: string | null;
     rating?: string | null;
@@ -316,6 +318,8 @@ export default function ConsensusPage() {
         </div>
         <p className="consensusNote">Dette er meglerhus-spesifikk beat/miss, ikke markedskonsensus, inntil vi har flere verifiserte kvartalsestimater per periode.</p>
       </section>
+
+      <ConsensusHistoryPanel history={data.history_link} />
 
       <section className="card consensusSources">
         <div className="cardHeader"><div><span className="label">Kilder</span><h2>Datagrunnlag</h2></div></div>
