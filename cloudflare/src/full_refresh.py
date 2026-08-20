@@ -15,13 +15,24 @@ except ImportError:
 
 JOB_NAME = "cloudflare_full_refresh"
 PHASE = "16.3"
+_SOURCE_CODE_BY_COMPONENT = {
+    "norges_bank": "NORGES_BANK",
+    "b3": "B3",
+    "cvm": "CVM",
+    "bemobi_web": "BEMOBI_IR",
+    "newsweb": "NEWSWEB",
+    "newsweb_attachments": "NEWSWEB",
+    "otello_reports": "NEWSWEB",
+    "otec_recovery": "EURONEXT",
+}
+_SOURCE_CODE_ORDER = ("NORGES_BANK", "B3", "CVM", "BEMOBI_IR", "NEWSWEB", "EURONEXT")
 _SOURCE_STEPS_BY_CODE = {
-    "NORGES_BANK": ("norges_bank",),
-    "B3": ("b3",),
-    "CVM": ("cvm",),
-    "BEMOBI_IR": ("bemobi_web",),
-    "NEWSWEB": ("newsweb", "newsweb_attachments", "otello_reports"),
-    "EURONEXT": ("otec_recovery",),
+    source_code: tuple(
+        step_name
+        for step_name, mapped_code in _SOURCE_CODE_BY_COMPONENT.items()
+        if mapped_code == source_code
+    )
+    for source_code in _SOURCE_CODE_ORDER
 }
 _CRITICAL_SOURCE_STEPS = {
     "norges_bank",
