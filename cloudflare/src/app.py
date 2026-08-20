@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from bemobi_consensus import bemobi_consensus
+from bemobi_consensus_investor import bemobi_consensus
 from bemobi_dashboard import bemobi_dashboard
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast

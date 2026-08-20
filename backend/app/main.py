@@ -4,7 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
-from app.bemobi.consensus import bemobi_consensus
+from app.bemobi.consensus_investor import bemobi_consensus
 from app.bemobi.dashboard import bemobi_dashboard
 from app.buybacks import (
     buyback_forecast,

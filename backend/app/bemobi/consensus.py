@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.bemobi.consensus_history import build_consensus_history
 from app.bemobi.dashboard import bemobi_dashboard
 
 
@@ -189,6 +190,8 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
     otello = bemobi.get("otello") or {}
     price_brl = _number(market.get("price_brl"))
     total_shares = int(otello.get("bemobi_total_shares") or 0) or None
+    forward_years = _forward_payload(price_brl, total_shares)
+    beat_miss = _beat_miss_payload()
 
     return {
         "ready": True,
@@ -206,7 +209,7 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
             "checked_date": "2026-08-19",
             "quality": "PUBLIC_AGGREGATE",
             "analyst_count": None,
-            "years": _forward_payload(price_brl, total_shares),
+            "years": forward_years,
             "note": (
                 "Offentlig aggregert årsprognose. Kilden viser ikke et komplett hus-for-hus "
                 "estimatsett, så antall bidragsytere per linje vises ikke."
@@ -225,7 +228,12 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
             ],
             "note": "Ingen verifiserte offentlige 3Q26-estimater funnet per 19.08.2026.",
         },
-        "beat_miss": _beat_miss_payload(),
+        "beat_miss": beat_miss,
+        "history_link": build_consensus_history(
+            beat_miss,
+            database_path,
+            current_forward=forward_years,
+        ),
         "reference_model": {
             "broker": "XP",
             "rating": "BUY",
