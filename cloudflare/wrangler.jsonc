@@ -21,8 +21,7 @@
     {
       "name": "otello-shareholder-snapshot",
       "binding": "SHAREHOLDER_SNAPSHOT",
-      "class_name": "ShareholderSnapshotWorkflow",
-      "schedules": ["15 3 * * *"]
+      "class_name": "ShareholderSnapshotWorkflow"
     },
     {
       "name": "otello-r2-snapshot-drill",
