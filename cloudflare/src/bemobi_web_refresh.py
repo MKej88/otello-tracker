@@ -28,6 +28,16 @@ XP_BMOB3_REPORTS_URL = "https://conteudos.xpi.com.br/acoes/bmob3/relatorios/"
 
 MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_RESULT_BYTES = 12 * 1024 * 1024
+MAX_RESULT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
+MAX_RESULT_PAGES = 120
+MAX_RESULT_TEXT_CHARS = 2_000_000
+OWNERSHIP_PCT_TOLERANCE = 0.0005
+RESULT_ALLOWED_HOST_SUFFIXES = (
+    "cvm.gov.br",
+    "bemobi.com.br",
+    "mziq.com",
+    "mzweb.com.br",
+)
 USER_AGENT = "otello-tracker/1.0 private-investor-dashboard"
 
 
@@ -424,6 +434,76 @@ async def _fetch_bytes(
     return await read_response_bytes(response, max_bytes=max_bytes, label=label)
 
 
+def _result_url_allowed(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme.lower() != "https" or not host:
+        return False
+    return any(host == suffix or host.endswith(f".{suffix}") for suffix in RESULT_ALLOWED_HOST_SUFFIXES)
+
+
+def _looks_like_pdf_or_zip(payload: bytes) -> bool:
+    if payload.startswith(b"%PDF"):
+        return True
+    try:
+        return zipfile.is_zipfile(io.BytesIO(payload))
+    except (OSError, ValueError):
+        return False
+
+
+def _result_link_candidate(url: str, label: str) -> bool:
+    parsed = urlparse(url)
+    haystack = f"{parsed.path} {parsed.query} {label}".lower()
+    return parsed.path.lower().endswith(".pdf") or "pdf" in haystack or "download" in haystack
+
+
+async def _fetch_result_payload(
+    url: str,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[bytes, str, bool]:
+    """Fetch a result PDF/ZIP, allowing exactly one controlled HTML -> document hop."""
+    if not _result_url_allowed(url):
+        raise ValueError("Resultat-URL er utenfor tillatte Bemobi/CVM-domener")
+    raw = await _fetch_bytes(
+        url,
+        label="Bemobi result release",
+        max_bytes=MAX_RESULT_BYTES,
+        fetcher=fetcher,
+        accept="application/pdf,application/zip,application/octet-stream,text/html,*/*;q=0.8",
+    )
+    if _looks_like_pdf_or_zip(raw):
+        return raw, url, False
+
+    parser = _html_parser(_decode_html(raw))
+    candidates: list[str] = []
+    for href, label in parser.links:
+        absolute = urljoin(url, href)
+        if _result_url_allowed(absolute) and _result_link_candidate(absolute, label):
+            candidates.append(absolute)
+
+    errors: list[str] = []
+    for candidate in list(dict.fromkeys(candidates))[:6]:
+        try:
+            payload = await _fetch_bytes(
+                candidate,
+                label="Bemobi result PDF",
+                max_bytes=MAX_RESULT_BYTES,
+                fetcher=fetcher,
+                accept="application/pdf,application/zip,application/octet-stream,*/*;q=0.8",
+            )
+        except Exception as exc:
+            errors.append(f"{candidate}: {exc}")
+            continue
+        if _looks_like_pdf_or_zip(payload):
+            return payload, candidate, True
+        errors.append(f"{candidate}: ikke PDF/ZIP")
+
+    detail = "; ".join(errors[:3])
+    suffix = f" ({detail})" if detail else ""
+    raise ValueError(f"HTML-resultatsiden inneholdt ingen tillatt PDF/ZIP-lenke{suffix}")
+
+
 async def _store_web_document(
     repository,
     archive_bucket,
@@ -511,26 +591,80 @@ async def _sync_holding(repository, payload: dict[str, Any], document_id: int, t
         """
     )
     shares = int(payload["shares"])
-    pct = str(payload["ownership_pct"])
-    if current is not None and int(current["shares"]) == shares:
-        await repository.run(
-            "UPDATE bemobi_holdings SET ownership_pct=?, source_document_id=?, notes=? WHERE id=?",
-            (pct, document_id, "Automatisk kontrollert mot Bemobi IR.", current["id"]),
-        )
-        return 0
+    pct = float(payload["ownership_pct"])
+    pct_text = format(pct, ".6f").rstrip("0").rstrip(".")
+
     if current is not None:
+        current_shares = int(current["shares"])
+        current_pct = float(current["ownership_pct"])
+        same_pct = abs(current_pct - pct) <= OWNERSHIP_PCT_TOLERANCE
+        if current_shares == shares and same_pct:
+            await repository.run(
+                "UPDATE bemobi_holdings SET source_document_id=?, notes=? WHERE id=?",
+                (document_id, "Automatisk kontrollert mot Bemobi IR.", current["id"]),
+            )
+            return 0
+
+        effective_from = str(current["effective_from"])
+        if effective_from > target_date:
+            raise ValueError("Aktiv Bemobi-beholdning starter etter kontrollens måldato")
+        if effective_from == target_date:
+            await repository.run(
+                """
+                UPDATE bemobi_holdings
+                SET shares=?, ownership_pct=?, source_document_id=?, notes=?
+                WHERE id=?
+                """,
+                (shares, pct_text, document_id, "Automatisk oppdatert fra Bemobi IR samme dag.", current["id"]),
+            )
+            return 1
+
         close_date = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
-        if close_date >= str(current["effective_from"]):
-            await repository.run("UPDATE bemobi_holdings SET effective_to=? WHERE id=?", (close_date, current["id"]))
+        await repository.run("UPDATE bemobi_holdings SET effective_to=? WHERE id=?", (close_date, current["id"]))
+
     await repository.run(
         """
         INSERT INTO bemobi_holdings(
             effective_from, effective_to, shares, ownership_pct, source_document_id, notes
         ) VALUES (?, NULL, ?, ?, ?, ?)
         """,
-        (target_date, shares, pct, document_id, "Automatisk oppdatert fra Bemobi IR."),
+        (target_date, shares, pct_text, document_id, "Automatisk oppdatert fra Bemobi IR."),
     )
     return 1
+
+
+def _analyst_prune_decision(
+    existing_keys: set[str],
+    observed_keys: set[str],
+    previous_observed_keys: set[str] | None,
+) -> tuple[bool, list[str]]:
+    missing = sorted(existing_keys - observed_keys)
+    if not missing:
+        return True, []
+    return previous_observed_keys == observed_keys, missing
+
+
+async def _previous_ir_analyst_keys(repository) -> set[str] | None:
+    row = await repository.first(
+        """
+        SELECT sh.metadata_json
+        FROM source_health sh
+        JOIN sources s ON s.id=sh.source_id
+        WHERE s.code='BEMOBI_IR'
+        ORDER BY sh.checked_at DESC, sh.id DESC
+        LIMIT 1
+        """
+    )
+    if row is None:
+        return None
+    try:
+        metadata = json.loads(str(row.get("metadata_json") or "{}"))
+        keys = (((metadata.get("result") or {}).get("ir") or {}).get("analyst_keys"))
+        if not isinstance(keys, list):
+            return None
+        return {str(item) for item in keys if str(item)}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 async def sync_bemobi_ir(
@@ -540,7 +674,12 @@ async def sync_bemobi_ir(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    ownership_raw = await _fetch_bytes(BEMOBI_OWNERSHIP_URL, label="Bemobi IR ownership", max_bytes=MAX_HTML_BYTES, fetcher=fetcher)
+    ownership_raw = await _fetch_bytes(
+        BEMOBI_OWNERSHIP_URL,
+        label="Bemobi IR ownership",
+        max_bytes=MAX_HTML_BYTES,
+        fetcher=fetcher,
+    )
     ownership = parse_ownership_html(_decode_html(ownership_raw), checked_date=target_date)
     ownership_doc = await _store_web_document(
         repository, archive_bucket, source_code="BEMOBI_IR", url=BEMOBI_OWNERSHIP_URL,
@@ -555,18 +694,41 @@ async def sync_bemobi_ir(
     )
     holding_changes = await _sync_holding(repository, ownership, ownership_doc, target_date)
 
-    analyst_raw = await _fetch_bytes(BEMOBI_ANALYST_URL, label="Bemobi IR analyst coverage", max_bytes=MAX_HTML_BYTES, fetcher=fetcher)
+    analyst_raw = await _fetch_bytes(
+        BEMOBI_ANALYST_URL,
+        label="Bemobi IR analyst coverage",
+        max_bytes=MAX_HTML_BYTES,
+        fetcher=fetcher,
+    )
     analysts = parse_analyst_coverage_html(_decode_html(analyst_raw))
     analyst_doc = await _store_web_document(
         repository, archive_bucket, source_code="BEMOBI_IR", url=BEMOBI_ANALYST_URL,
         kind="analyst-coverage", title="Bemobi analyst coverage", target_date=target_date, payload=analyst_raw,
     )
     names = [item["institution"] for item in analysts]
-    placeholders = ",".join("?" for _ in names)
-    await repository.run(
-        f"DELETE FROM bemobi_investor_facts WHERE fact_type='ANALYST' AND fact_key NOT IN ({placeholders})",
-        tuple(names),
+    observed_keys = set(names)
+    existing_rows = await repository.all(
+        "SELECT fact_key FROM bemobi_investor_facts WHERE fact_type='ANALYST' ORDER BY fact_key"
     )
+    existing_keys = {str(row["fact_key"]) for row in existing_rows}
+    previous_observed_keys = await _previous_ir_analyst_keys(repository)
+    allow_prune, missing_keys = _analyst_prune_decision(
+        existing_keys,
+        observed_keys,
+        previous_observed_keys,
+    )
+    pruned: list[str] = []
+    deferred: list[str] = []
+    if missing_keys and allow_prune:
+        placeholders = ",".join("?" for _ in names)
+        await repository.run(
+            f"DELETE FROM bemobi_investor_facts WHERE fact_type='ANALYST' AND fact_key NOT IN ({placeholders})",
+            tuple(names),
+        )
+        pruned = missing_keys
+    elif missing_keys:
+        deferred = missing_keys
+
     for analyst in analysts:
         await _upsert_fact(
             repository,
@@ -579,6 +741,9 @@ async def sync_bemobi_ir(
         "status": "ok",
         "ownership": ownership,
         "analyst_count": len(analysts),
+        "analyst_keys": sorted(observed_keys),
+        "analyst_pruned": pruned,
+        "analyst_prune_deferred": deferred,
         "holding_changes": holding_changes,
         "rows_written": 1 + len(analysts) + holding_changes,
     }
@@ -619,16 +784,61 @@ def _pdf_text(payload: bytes) -> str:
     if not candidate.startswith(b"%PDF"):
         try:
             with zipfile.ZipFile(io.BytesIO(candidate)) as archive:
-                names = [name for name in archive.namelist() if name.lower().endswith(".pdf")]
-                if names:
-                    candidate = archive.read(names[0])
+                pdf_infos = [info for info in archive.infolist() if not info.is_dir() and info.filename.lower().endswith(".pdf")]
+                if not pdf_infos:
+                    raise ValueError("ZIP-resultatet inneholdt ingen PDF")
+                info = pdf_infos[0]
+                if info.file_size > MAX_RESULT_UNCOMPRESSED_BYTES:
+                    raise ValueError("PDF i ZIP overstiger ukomprimert størrelsesgrense")
+                candidate = archive.read(info)
         except zipfile.BadZipFile:
             pass
     if not candidate.startswith(b"%PDF"):
         raise ValueError("Kilden returnerte ikke PDF/ZIP med PDF")
+    if len(candidate) > MAX_RESULT_UNCOMPRESSED_BYTES:
+        raise ValueError("Resultat-PDF overstiger ukomprimert størrelsesgrense")
+
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(candidate))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    if len(reader.pages) > MAX_RESULT_PAGES:
+        raise ValueError("Resultat-PDF har for mange sider")
+    text_parts: list[str] = []
+    text_chars = 0
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        text_chars += len(text)
+        if text_chars > MAX_RESULT_TEXT_CHARS:
+            raise ValueError("Resultat-PDF overskrider tekstgrensen")
+        text_parts.append(text)
+    return "\n".join(text_parts)
+
+
+async def _store_resolved_result_document(
+    repository,
+    *,
+    candidate: dict[str, Any],
+    resolved_url: str,
+    payload: bytes,
+    published_date: str,
+) -> int | None:
+    if resolved_url == str(candidate["url"]):
+        return None
+    digest = hashlib.sha256(payload).hexdigest()
+    return await repository.create_source_document(
+        source_code=str(candidate.get("source_code") or "CVM"),
+        external_id=f"result-resolved:{candidate['id']}:{digest[:20]}",
+        document_type="RESULT_RELEASE_PDF",
+        title=f"{candidate.get('title') or 'Bemobi result'} – resolved document",
+        url=resolved_url,
+        published_at=f"{published_date}T00:00:00Z",
+        content_sha256=digest,
+        metadata={
+            "workflow": "cloudflare_full_refresh",
+            "parent_source_document_id": int(candidate["id"]),
+            "resolution": "ONE_HOP_HTML_TO_PDF",
+        },
+    )
 
 
 async def sync_latest_result_release(
@@ -660,11 +870,19 @@ async def sync_latest_result_release(
             (candidate["id"],),
         )
         if already is not None:
+            if errors:
+                return {
+                    "status": "not_available",
+                    "reason": "newer_result_documents_not_parseable",
+                    "errors": errors[:6],
+                    "older_result_already_ingested": True,
+                    "rows_written": 0,
+                }
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
-            raw = await _fetch_bytes(
-                str(candidate["url"]), label="Bemobi result release", max_bytes=MAX_RESULT_BYTES,
-                fetcher=fetcher, accept="application/pdf,application/zip,application/octet-stream,*/*;q=0.8",
+            raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                str(candidate["url"]),
+                fetcher=fetcher,
             )
             text = _pdf_text(raw)
             published_date = str(candidate.get("published_at") or target_date)[:10]
@@ -674,20 +892,31 @@ async def sync_latest_result_release(
             continue
 
         period = result["period"]
+        digest = hashlib.sha256(raw).hexdigest()
+        resolved_document_id = await _store_resolved_result_document(
+            repository,
+            candidate=candidate,
+            resolved_url=resolved_url,
+            payload=raw,
+            published_date=published_date,
+        )
         if archive_bucket is not None:
+            extension = "pdf" if raw.startswith(b"%PDF") else "zip"
             await archive_bytes(
                 archive_bucket, raw, source=str(candidate.get("source_code") or "cvm").lower(),
                 kind="bemobi-result-release", logical_date=published_date,
-                filename=f"bemobi-{period.lower()}-{hashlib.sha256(raw).hexdigest()[:12]}.pdf",
+                filename=f"bemobi-{period.lower()}-{digest[:12]}.{extension}",
             )
-        await repository.run(
-            "UPDATE source_documents SET content_sha256=COALESCE(content_sha256, ?) WHERE id=?",
-            (hashlib.sha256(raw).hexdigest(), candidate["id"]),
-        )
+        if not resolved_from_html:
+            await repository.run(
+                "UPDATE source_documents SET content_sha256=COALESCE(content_sha256, ?) WHERE id=?",
+                (digest, candidate["id"]),
+            )
+        source_url = resolved_url
         await _upsert_fact(
             repository, fact_type="RESULT", fact_key=period, as_of_date=result["period_end"],
             published_date=published_date, payload=result, source_name=str(candidate.get("source_code") or "CVM"),
-            source_url=str(candidate["url"]), source_document_id=int(candidate["id"]),
+            source_url=source_url, source_document_id=int(candidate["id"]),
             quality="OFFICIAL_RESULT_AUTO", notes="Automatisk parsede nøkkeltall fra offentlig Bemobi-resultatdokument.",
         )
         ttm = {
@@ -696,12 +925,12 @@ async def sync_latest_result_release(
             "adjusted_ebitda_mbrl": result["adjusted_ebitda_mbrl"],
             "adjusted_cash_generation_mbrl": result["ebitda_less_capex_mbrl"],
             "source": str(candidate.get("source_code") or "CVM"),
-            "source_url": str(candidate["url"]),
+            "source_url": source_url,
         }
         await _upsert_fact(
             repository, fact_type="TTM_QUARTER", fact_key=period, as_of_date=result["period_end"],
             published_date=published_date, payload=ttm, source_name=str(candidate.get("source_code") or "CVM"),
-            source_url=str(candidate["url"]), source_document_id=int(candidate["id"]),
+            source_url=source_url, source_document_id=int(candidate["id"]),
             quality="OFFICIAL_RESULT_AUTO", notes="Automatisk oppdatert TTM-kvartal fra offentlig resultatdokument.",
         )
 
@@ -736,7 +965,7 @@ async def sync_latest_result_release(
                     repository, fact_type="BEAT_MISS", fact_key=period, as_of_date=result["period_end"],
                     published_date=published_date,
                     payload={"period": period, "broker": "XP", "published_date": published_date, "metrics": metrics},
-                    source_name="XP + Bemobi/CVM", source_url=str(candidate["url"]),
+                    source_name="XP + Bemobi/CVM", source_url=source_url,
                     source_document_id=int(candidate["id"]), quality="AUTO_PREVIEW_VS_RESULT",
                     notes="Automatisk sammenligning av lagret offentlig forhåndsestimat mot rapportert resultat.",
                 )
@@ -756,7 +985,15 @@ async def sync_latest_result_release(
             source_name="Bemobi IR", source_url=BEMOBI_CALENDAR_URL, source_document_id=None,
             quality="NOT_CONFIRMED", notes="Neste kvartal rulles automatisk etter nytt resultat.",
         )
-        return {"status": "ok", "period": period, "next_period": next_period, "rows_written": 3 + beat_rows}
+        return {
+            "status": "ok",
+            "period": period,
+            "next_period": next_period,
+            "rows_written": 3 + beat_rows,
+            "resolved_from_html": resolved_from_html,
+            "resolved_url": source_url,
+            "resolved_source_document_id": resolved_document_id,
+        }
 
     return {"status": "not_available", "reason": "result_documents_not_parseable", "errors": errors[:6], "rows_written": 0}
 
