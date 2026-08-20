@@ -22,6 +22,7 @@ _SNAPSHOT_TABLES: tuple[tuple[str, str], ...] = (
     ("market_prices", "id"),
     ("fx_rates", "id"),
     ("bemobi_holdings", "id"),
+    ("bemobi_investor_facts", "id"),
     ("corporate_actions", "id"),
     ("cash_anchors", "id"),
     ("cash_movements", "id"),
@@ -79,7 +80,7 @@ async def _table_chunks(repository, table: str, order_by: str):
             rows = await read(
                 f"SELECT * FROM {table} WHERE {order_by} > ? "
                 f"ORDER BY {order_by} LIMIT ?",
-                (cursor, SNAPSHOT_CHUNK_ROWS),
+                (cursor, SNAPSHOT_CHUNK_ROWS,),
             )
         if not rows:
             break
