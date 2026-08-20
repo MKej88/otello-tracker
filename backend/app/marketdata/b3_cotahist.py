@@ -20,10 +20,15 @@ MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
 class B3DailyClose:
     trading_date: str
     ticker: str
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    average: Decimal
     close: Decimal
     currency: str
     isin: str
     trades: int
+    quantity: int
     volume: Decimal
     quotation_factor: int
 
@@ -38,9 +43,10 @@ def _implied_two_decimals(raw: str) -> Decimal:
 def parse_cotahist_line(line: str) -> B3DailyClose | None:
     """Parse one official B3 COTAHIST register-01 line.
 
-    The layout is fixed width (245 bytes). For equity NAV we only accept round-lot
-    cash-market records and unit quotation factors. A non-unit factor is rejected
-    rather than silently converting the price incorrectly.
+    The fixed-width fields follow B3's public COTAHIST layout: opening, high, low,
+    average and close prices are stored with two implied decimals; QUATOT is the total
+    quantity of securities traded and VOLTOT is the financial trading value. For equity
+    NAV we only accept round-lot cash-market records and unit quotation factors.
     """
     line = line.rstrip("\r\n")
     if len(line) < 245 or line[0:2] != "01":
@@ -61,10 +67,15 @@ def parse_cotahist_line(line: str) -> B3DailyClose | None:
     return B3DailyClose(
         trading_date=f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}",
         ticker=line[12:24].strip(),
+        open=_implied_two_decimals(line[56:69]),
+        high=_implied_two_decimals(line[69:82]),
+        low=_implied_two_decimals(line[82:95]),
+        average=_implied_two_decimals(line[95:108]),
         close=_implied_two_decimals(line[108:121]),
         currency=line[52:56].strip() or "R$",
         isin=line[230:242].strip(),
         trades=int(line[147:152] or "0"),
+        quantity=int(line[152:170] or "0"),
         volume=_implied_two_decimals(line[170:188]),
         quotation_factor=quotation_factor,
     )
@@ -182,6 +193,6 @@ def download_cotahist_year(
         raise ValueError(f"Ugyldig B3-år: {year}")
     url = B3_YEARLY_URL.format(year=year)
     payload = _download_zip(url, timeout=timeout, attempts=attempts)
-    if payload is None:  # defensive; annual downloads never use missing_is_none
+    if payload is None:
         raise RuntimeError(f"B3-nedlasting av COTAHIST_A{year}.ZIP returnerte ingen fil")
     return payload
