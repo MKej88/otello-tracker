@@ -32,7 +32,7 @@ EVENT_METADATA: dict[str, dict[str, Any]] = {
             "after_date": "2026-03-30",
             "target_before_brl": 30.5,
             "target_after_brl": 31.0,
-            "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-atualisering-av-modellen-og-kommentarer-fra-vart-ndr-med-cfo-og-ir-da-bemobi/",
+            "source_url": "https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-atualizacao-do-modelo-e-comentarios-do-nosso-ndr-com-o-cfo-e-ri-da-bemobi/",
             "note": (
                 "XP løftet kursmålet fra R$30,5 til R$31,0 i modelloppdateringen etter 4Q25. "
                 "Oppdateringen inkluderte også konsolideringen av Paytime."
