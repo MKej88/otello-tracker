@@ -123,12 +123,21 @@ function rowFromCells(rawCells, fallbackRank) {
   };
 }
 
+function positionKey(candidate) {
+  return [
+    clean(candidate.shareholder_name).toLocaleLowerCase("en"),
+    Number(candidate.shares),
+    clean(candidate.country).toLocaleUpperCase("en"),
+    clean(candidate.account_type).toLocaleUpperCase("en"),
+  ].join("|");
+}
+
 function normalizeRows(candidateRows) {
   const rows = [];
   const seen = new Set();
   for (const candidate of candidateRows) {
     if (!candidate || !candidate.shareholder_name || !candidate.shares) continue;
-    const key = clean(candidate.shareholder_name).toLocaleLowerCase("en");
+    const key = positionKey(candidate);
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push({
@@ -151,8 +160,8 @@ function validateRows(rows) {
   if (rows.length !== EXPECTED_ROWS) {
     throw new Error(`Forventet ${EXPECTED_ROWS} Top 20-rader, fant ${rows.length}`);
   }
-  const names = rows.map((row) => clean(row.shareholder_name).toLocaleLowerCase("en"));
-  if (new Set(names).size !== EXPECTED_ROWS) throw new Error("Dupliserte aksjonærnavn");
+  const positions = rows.map(positionKey);
+  if (new Set(positions).size !== EXPECTED_ROWS) throw new Error("Dupliserte Top 20-posisjoner");
   if (rows.some((row, index) => row.rank !== index + 1 || !Number.isInteger(row.shares) || row.shares <= 0)) {
     throw new Error("Ugyldig rangering eller aksjetall");
   }
