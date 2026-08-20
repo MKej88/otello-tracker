@@ -321,7 +321,8 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
     assert "class FullRefreshWorkflow(WorkflowEntrypoint)" in entry
     assert "scheduled_day - timedelta(days=1)" in entry
     assert '"refresh Norges Bank FX"' in entry
-    assert '"rebuild historical NAV with Norges Bank FX"' in entry
+    assert "def _history_year_windows" in entry
+    assert 'f"rebuild historical NAV with Norges Bank FX {chunk_year}"' in entry
     assert '"D1 data health preflight"' in entry
 
 
