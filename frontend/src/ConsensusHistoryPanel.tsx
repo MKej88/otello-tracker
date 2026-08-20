@@ -1,3 +1,5 @@
+import "./consensus-history.css";
+
 export type ConsensusHistoryLink = {
   events?: Array<{
     period: string;
