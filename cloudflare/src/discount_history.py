@@ -284,10 +284,12 @@ async def discount_history(
     )
     transactions = await repository.all(
         """
-        SELECT id, weekly_buyback_id, trade_date, shares, quality
-        FROM buyback_daily_transactions
-        WHERE trade_date >= ? AND trade_date <= ?
-        ORDER BY weekly_buyback_id, trade_date, id
+        SELECT d.id, d.weekly_buyback_id, d.trade_date, d.shares, d.quality
+        FROM buyback_daily_transactions d
+        JOIN buybacks b ON b.id = d.weekly_buyback_id
+        WHERE b.period_start IS NOT NULL
+          AND b.trade_date >= ? AND b.period_start <= ?
+        ORDER BY d.weekly_buyback_id, d.trade_date, d.id
         """,
         (history["from"], history["to"]),
     )
