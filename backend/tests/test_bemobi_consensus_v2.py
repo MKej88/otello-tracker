@@ -168,6 +168,6 @@ def test_new_result_creates_waiting_history_event_without_inventing_broker_value
     assert model["target_after_brl"] is None
 
 
-def test_full_workflow_routes_through_consensus_v2_refresh() -> None:
+def test_full_workflow_routes_through_canonical_runtime_refresh() -> None:
     entry = (ROOT / "cloudflare/src/entry.py").read_text(encoding="utf-8")
-    assert "from bemobi_web_refresh_v2 import refresh_bemobi_web" in entry
+    assert "from bemobi_web_refresh_runtime import refresh_bemobi_web" in entry
