@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .fx_freshness import repair_norges_bank_fx_if_stale
     from .job_lock import acquire_refresh_lock, release_refresh_lock
     from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_fast_refresh import collect_newsweb_fast
@@ -22,6 +23,7 @@ try:
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from fx_freshness import repair_norges_bank_fx_if_stale
     from job_lock import acquire_refresh_lock, release_refresh_lock
     from nav_refresh import refresh_dirty_nav_layers
     from newsweb_fast_refresh import collect_newsweb_fast
@@ -305,6 +307,33 @@ async def run_fast_refresh(
                     }
                 )
 
+    fx_repair = await _safe_async_step(
+        "norges_bank_fx_repair",
+        lambda: repair_norges_bank_fx_if_stale(
+            repository,
+            now=scheduled_at,
+            archive_bucket=archive_bucket,
+        ),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+    if isinstance(fx_repair, dict):
+        if fx_repair.get("repaired"):
+            records_written += int(fx_repair.get("rows_written") or 0)
+        if fx_repair.get("status") == "partial":
+            errors.append(
+                {
+                    "step": "norges_bank_fx_repair",
+                    "error": (
+                        "Norges Bank mangler fortsatt forventet valutadato "
+                        f"{fx_repair.get('expected_date')}; siste felles dato er "
+                        f"{fx_repair.get('latest_common_date') or 'ukjent'}"
+                    ),
+                    "error_type": "FxFreshnessPartial",
+                }
+            )
+
     dirty_nav = await _safe_async_step(
         "dirty_nav",
         lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
@@ -363,6 +392,11 @@ async def run_fast_refresh(
                 else None
             ),
             "otec_network_fetch_avoided": not should_poll_otec,
+            "norges_bank_network_fetch_avoided": (
+                bool(fx_repair.get("network_fetches_avoided"))
+                if isinstance(fx_repair, dict)
+                else None
+            ),
         },
     }
     await repository.finish_job(
