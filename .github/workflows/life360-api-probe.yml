@@ -24,23 +24,24 @@ jobs:
           import json
           import urllib.error
           import urllib.request
+          from datetime import UTC, datetime
 
           sources = {
-              "nasdaq": "https://api.nasdaq.com/api/quote/LIF/info?assetclass=stocks",
-              "yahoo_chart": "https://query1.finance.yahoo.com/v8/finance/chart/LIF?interval=1d&range=5d",
-              "stooq": "https://stooq.com/q/l/?s=lif.us&f=sd2t2ohlcv&h&e=csv",
+              "nasdaq": ("https://api.nasdaq.com/api/quote/LIF/info?assetclass=stocks", 8),
+              "yahoo_chart": ("https://query1.finance.yahoo.com/v8/finance/chart/LIF?interval=1d&range=5d&includePrePost=false", 8),
+              "stooq": ("https://stooq.com/q/l/?s=lif.us&f=sd2t2ohlcv&h&e=csv", 8),
           }
 
           headers = {
-              "User-Agent": "Mozilla/5.0 (compatible; OtelloTracker/1.0; +https://otellotracker.com)",
+              "User-Agent": "OtelloTracker/1.0 (+https://otellotracker.com)",
               "Accept": "application/json,text/csv,text/plain,*/*",
           }
 
-          for name, url in sources.items():
+          for name, (url, timeout) in sources.items():
               print(f"\n=== {name} ===")
               req = urllib.request.Request(url, headers=headers)
               try:
-                  with urllib.request.urlopen(req, timeout=15) as response:
+                  with urllib.request.urlopen(req, timeout=timeout) as response:
                       body = response.read().decode("utf-8", "replace")
                       print("HTTP", response.status)
                       print("content-type", response.headers.get("content-type"))
@@ -57,11 +58,22 @@ jobs:
                           payload = json.loads(body)
                           result = ((payload.get("chart") or {}).get("result") or [None])[0]
                           meta = (result or {}).get("meta") or {}
+                          ts = meta.get("regularMarketTime")
                           print("symbol", meta.get("symbol"))
                           print("currency", meta.get("currency"))
                           print("regularMarketPrice", meta.get("regularMarketPrice"))
-                          print("regularMarketTime", meta.get("regularMarketTime"))
+                          print("regularMarketTime", ts)
+                          print("regularMarketTimeUtc", datetime.fromtimestamp(ts, tz=UTC).isoformat() if ts else None)
                           print("exchangeName", meta.get("exchangeName"))
+                          print("exchangeTimezoneName", meta.get("exchangeTimezoneName"))
+                          timestamps = result.get("timestamp") or [] if result else []
+                          quote = (((result or {}).get("indicators") or {}).get("quote") or [{}])[0]
+                          closes = quote.get("close") or []
+                          pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
+                          if pairs:
+                              t, c = pairs[-1]
+                              print("lastDailyClose", c)
+                              print("lastDailyTimestampUtc", datetime.fromtimestamp(t, tz=UTC).isoformat())
                       else:
                           rows = list(csv.DictReader(io.StringIO(body)))
                           print("rows", len(rows))
