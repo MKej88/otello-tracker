@@ -1,0 +1,120 @@
+.runtimeStatusCard {
+  margin-top: 18px;
+}
+
+.runtimeHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.runtimeHeader h2 {
+  margin: 3px 0 4px;
+}
+
+.runtimeHeader p {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.runtimePill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: rgba(120, 120, 120, 0.12);
+}
+
+.runtimePill.ok {
+  background: rgba(55, 150, 95, 0.14);
+}
+
+.runtimePill.warn {
+  background: rgba(205, 145, 40, 0.16);
+}
+
+.runtimePill.bad {
+  background: rgba(190, 70, 70, 0.16);
+}
+
+.runtimeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runtimeMetric {
+  padding: 14px;
+  border: 1px solid rgba(127, 127, 127, 0.16);
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.035);
+}
+
+.runtimeMetric span,
+.runtimeMetric small {
+  display: block;
+}
+
+.runtimeMetric span {
+  font-size: 0.78rem;
+  opacity: 0.65;
+  margin-bottom: 6px;
+}
+
+.runtimeMetric strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.runtimeMetric small {
+  opacity: 0.68;
+}
+
+.runtimeMetricWarn {
+  border-color: rgba(205, 145, 40, 0.36);
+  background: rgba(205, 145, 40, 0.07);
+}
+
+.runtimeAlert,
+.runtimeError {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 10px;
+}
+
+.runtimeAlert {
+  background: rgba(205, 145, 40, 0.09);
+}
+
+.runtimeError {
+  background: rgba(190, 70, 70, 0.08);
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .runtimeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .runtimeHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtimePill {
+    align-self: flex-start;
+  }
+
+  .runtimeGrid {
+    grid-template-columns: 1fr;
+  }
+}
