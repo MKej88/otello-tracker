@@ -1,0 +1,191 @@
+name: Cloudflare workflow diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_name:
+        description: Cloudflare Workflow to inspect
+        required: true
+        default: otello-full-refresh
+        type: choice
+        options:
+          - otello-full-refresh
+          - otello-r2-snapshot-drill
+      instance_id:
+        description: Instance ID, or latest
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read Cloudflare Workflow status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKFLOW_NAME: ${{ inputs.workflow_name }}
+      REQUESTED_INSTANCE_ID: ${{ inputs.instance_id }}
+    steps:
+      - name: Validate read-only configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[A-Za-z0-9_-]+$ ]]
+          [[ "$WORKFLOW_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
+          if [ "$REQUESTED_INSTANCE_ID" != "latest" ]; then
+            [[ "$REQUESTED_INSTANCE_ID" =~ ^[A-Za-z0-9_-]{1,100}$ ]]
+          fi
+
+      - name: Read recent instances and selected details
+        id: fetch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          base_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/${WORKFLOW_NAME}/instances"
+          curl --fail-with-body --silent --show-error \
+            --retry 2 --retry-all-errors \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            "${base_url}?per_page=10&direction=desc" \
+            --output recent.json
+
+          resolved_instance_id="$(python - <<'PY'
+          import json
+          import os
+
+          with open("recent.json", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          if payload.get("success") is not True:
+              raise SystemExit(f"Cloudflare list request failed: {payload.get('errors', [])}")
+
+          requested = os.environ["REQUESTED_INSTANCE_ID"]
+          if requested != "latest":
+              print(requested)
+          else:
+              instances = payload.get("result") or []
+              if not instances:
+                  raise SystemExit("Cloudflare returned no Workflow instances")
+              print(instances[0]["id"])
+          PY
+          )"
+
+          echo "resolved_instance_id=$resolved_instance_id" >> "$GITHUB_OUTPUT"
+          curl --fail-with-body --silent --show-error \
+            --retry 2 --retry-all-errors \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            "${base_url}/${resolved_instance_id}?order=asc" \
+            --output detail.json
+
+      - name: Report status, retries and errors
+        shell: bash
+        env:
+          RESOLVED_INSTANCE_ID: ${{ steps.fetch.outputs.resolved_instance_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          def load(path):
+              with open(path, encoding="utf-8") as handle:
+                  return json.load(handle)
+
+          def clean(value, limit=800):
+              if value is None:
+                  return ""
+              if isinstance(value, dict):
+                  value = ": ".join(
+                      str(value.get(key, "")) for key in ("name", "message")
+                  ).strip(": ") or json.dumps(value, ensure_ascii=False)
+              text = str(value).replace("\r", " ").replace("\n", " ")
+              text = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+", r"\1[REDACTED]", text)
+              text = re.sub(r"(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+", r"\1\2[REDACTED]", text)
+              text = re.sub(r"([?&][^=&#\s]+)=([^&#\s]+)", r"\1=[REDACTED]", text)
+              return text[:limit]
+
+          recent_payload = load("recent.json")
+          detail_payload = load("detail.json")
+          if detail_payload.get("success") is not True:
+              raise SystemExit(f"Cloudflare detail request failed: {detail_payload.get('errors', [])}")
+
+          result = detail_payload.get("result") or {}
+          recent = recent_payload.get("result") or []
+          lines = [
+              "# Cloudflare Workflow-diagnose",
+              "",
+              f"- Workflow: `{os.environ['WORKFLOW_NAME']}`",
+              f"- Instans: `{os.environ['RESOLVED_INSTANCE_ID']}`",
+              f"- Status: **{clean(result.get('status') or 'unknown')}**",
+              f"- Start: `{clean(result.get('start') or result.get('started_on') or '-')}`",
+              f"- Slutt: `{clean(result.get('end') or result.get('ended_on') or '-')}`",
+              f"- Antall trinn: **{result.get('step_count', len(result.get('steps') or []))}**",
+          ]
+
+          if result.get("error"):
+              lines.extend(["", "## Overordnet feil", "", clean(result["error"])])
+
+          lines.extend([
+              "",
+              "## Trinn",
+              "",
+              "| Trinn | Resultat | Forsøk | Start | Slutt | Feil |",
+              "|---|---:|---:|---|---|---|",
+          ])
+
+          failure_count = 0
+          retry_count = 0
+          for index, step in enumerate(result.get("steps") or [], start=1):
+              attempts = step.get("attempts") or []
+              retries = max(0, len(attempts) - 1)
+              retry_count += retries
+              errors = []
+              for attempt in attempts:
+                  if attempt.get("success") is False:
+                      failure_count += 1
+                  if attempt.get("error"):
+                      errors.append(clean(attempt["error"], 300))
+              if step.get("error"):
+                  errors.append(clean(step["error"], 300))
+              success = step.get("success")
+              outcome = "OK" if success is True else "FEIL" if success is False else clean(step.get("type") or "-")
+              name = clean(step.get("name") or f"Trinn {index}", 120).replace("|", "\\|")
+              error_text = "; ".join(dict.fromkeys(errors)).replace("|", "\\|") or "-"
+              lines.append(
+                  f"| {name} | {outcome} | {len(attempts)} | "
+                  f"{clean(step.get('start') or '-')} | {clean(step.get('end') or '-')} | {error_text} |"
+              )
+
+          lines.extend([
+              "",
+              f"- Omkjøringer: **{retry_count}**",
+              f"- Mislykkede forsøk: **{failure_count}**",
+              "",
+              "## Ti siste instanser",
+              "",
+              "| Instans | Status | Opprettet | Start | Slutt |",
+              "|---|---|---|---|---|",
+          ])
+          for instance in recent:
+              lines.append(
+                  f"| `{clean(instance.get('id'), 120)}` | {clean(instance.get('status') or '-')} | "
+                  f"{clean(instance.get('created_on') or '-')} | {clean(instance.get('started_on') or '-')} | "
+                  f"{clean(instance.get('ended_on') or '-')} |"
+              )
+
+          report = "\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(report)
+
+          if result.get("status") in {"errored", "terminated"} or result.get("success") is False:
+              raise SystemExit("Den valgte Cloudflare Workflow-instansen har feilet")
+          PY
