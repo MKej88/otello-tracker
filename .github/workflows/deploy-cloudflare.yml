@@ -8,6 +8,13 @@ on:
         description: "Eksakt main-SHA som har bestått hele CI-kjeden"
         required: true
         type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      CLOUDFLARE_D1_DATABASE_ID:
+        required: false
 
 permissions:
   contents: read
