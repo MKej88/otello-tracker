@@ -67,6 +67,8 @@ jobs:
       CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
       CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
       CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+      CLOUDFLARE_STATUS_EMAIL_TO: ${{ vars.CLOUDFLARE_STATUS_EMAIL_TO }}
+      CLOUDFLARE_STATUS_EMAIL_FROM: ${{ vars.CLOUDFLARE_STATUS_EMAIL_FROM }}
       CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
     steps:
       - name: Check out tested production revision
@@ -130,6 +132,12 @@ jobs:
                   f'CLOUDFLARE_PUBLIC_URL hostname {parsed.hostname!r} does not match '
                   f'CLOUDFLARE_CUSTOM_DOMAIN {expected_host!r}'
               )
+          email_to = os.environ.get('CLOUDFLARE_STATUS_EMAIL_TO', '').strip()
+          email_from = os.environ.get('CLOUDFLARE_STATUS_EMAIL_FROM', '').strip()
+          if bool(email_to) != bool(email_from):
+              raise SystemExit(
+                  'CLOUDFLARE_STATUS_EMAIL_TO and CLOUDFLARE_STATUS_EMAIL_FROM must be set together'
+              )
           PY
 
       - name: Build dashboard assets
@@ -171,6 +179,23 @@ jobs:
           assert config['triggers']['crons'] == ['*/30 * * * *']
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+
+          email_to = os.environ.get('CLOUDFLARE_STATUS_EMAIL_TO', '').strip()
+          email_from = os.environ.get('CLOUDFLARE_STATUS_EMAIL_FROM', '').strip()
+          if email_to:
+              assert config['send_email'] == [
+                  {
+                      'name': 'STATUS_EMAIL',
+                      'destination_address': email_to,
+                      'allowed_sender_addresses': [email_from],
+                  }
+              ]
+              variables = config['vars']
+              assert variables['STATUS_EMAIL_TO'] == email_to
+              assert variables['STATUS_EMAIL_FROM'] == email_from
+              assert variables['PUBLIC_URL'] == os.environ['CLOUDFLARE_PUBLIC_URL'].rstrip('/')
+          else:
+              assert 'send_email' not in config
           PY
 
       - name: Dry-run exact production Worker before D1 migration

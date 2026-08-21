@@ -26,6 +26,9 @@ def render_config(
     d1_database_name: str,
     r2_bucket_name: str,
     custom_domain: str | None = None,
+    status_email_to: str | None = None,
+    status_email_from: str | None = None,
+    public_url: str | None = None,
 ) -> dict[str, Any]:
     config = json.loads(json.dumps(base))
     config["name"] = _required(worker_name, "worker_name")
@@ -87,6 +90,28 @@ def render_config(
         config["workers_dev"] = True
         config.pop("routes", None)
 
+    email_to = (status_email_to or "").strip()
+    email_from = (status_email_from or "").strip()
+    if bool(email_to) != bool(email_from):
+        raise ValueError("status_email_to og status_email_from må settes sammen")
+
+    if email_to:
+        config["send_email"] = [
+            {
+                "name": "STATUS_EMAIL",
+                "destination_address": email_to,
+                "allowed_sender_addresses": [email_from],
+            }
+        ]
+        variables = config.setdefault("vars", {})
+        variables["STATUS_EMAIL_TO"] = email_to
+        variables["STATUS_EMAIL_FROM"] = email_from
+        clean_public_url = (public_url or "").strip().rstrip("/")
+        if clean_public_url:
+            variables["PUBLIC_URL"] = clean_public_url
+    else:
+        config.pop("send_email", None)
+
     return config
 
 
@@ -99,6 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--d1-database-name", default=os.getenv("CLOUDFLARE_D1_DATABASE_NAME", "otello-nav"))
     parser.add_argument("--r2-bucket-name", default=os.getenv("CLOUDFLARE_R2_BUCKET_NAME", "otello-source-archive"))
     parser.add_argument("--custom-domain", default=os.getenv("CLOUDFLARE_CUSTOM_DOMAIN"))
+    parser.add_argument("--status-email-to", default=os.getenv("CLOUDFLARE_STATUS_EMAIL_TO"))
+    parser.add_argument("--status-email-from", default=os.getenv("CLOUDFLARE_STATUS_EMAIL_FROM"))
+    parser.add_argument("--public-url", default=os.getenv("CLOUDFLARE_PUBLIC_URL"))
     return parser
 
 
@@ -112,6 +140,9 @@ def main() -> None:
         d1_database_name=args.d1_database_name,
         r2_bucket_name=args.r2_bucket_name,
         custom_domain=args.custom_domain,
+        status_email_to=args.status_email_to,
+        status_email_from=args.status_email_from,
+        public_url=args.public_url,
     )
     output = Path(args.output)
     output.write_text(json.dumps(rendered, indent=2) + "\n", encoding="utf-8")
