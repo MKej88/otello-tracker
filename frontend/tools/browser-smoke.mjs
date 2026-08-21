@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const baseUrl = process.argv[2] ?? "http://127.0.0.1:8787/";
 const chromeBin = process.env.CHROME_BIN ?? "google-chrome";
-const debugPort = Number(process.env.CHROME_DEBUG_PORT ?? 9222);
+const configuredDebugPort = Number(process.env.CHROME_DEBUG_PORT ?? 0);
+if (!Number.isInteger(configuredDebugPort) || configuredDebugPort < 0 || configuredDebugPort > 65535) {
+  throw new Error(`Ugyldig CHROME_DEBUG_PORT: ${process.env.CHROME_DEBUG_PORT}`);
+}
 const profileDir = mkdtempSync(join(tmpdir(), "otello-browser-smoke-"));
 const chrome = spawn(
   chromeBin,
@@ -19,7 +22,7 @@ const chrome = spawn(
     "--disable-extensions",
     "--disable-sync",
     "--window-size=1440,1200",
-    `--remote-debugging-port=${debugPort}`,
+    `--remote-debugging-port=${configuredDebugPort}`,
     `--user-data-dir=${profileDir}`,
     "about:blank"
   ],
@@ -58,14 +61,41 @@ async function jsonFetch(url, init) {
   return response.json();
 }
 
+function discoverDebugPort() {
+  if (configuredDebugPort > 0) return configuredDebugPort;
+
+  try {
+    const activePort = readFileSync(join(profileDir, "DevToolsActivePort"), "utf8");
+    const [portLine] = activePort.trim().split(/\r?\n/);
+    const port = Number(portLine);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) return port;
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      chromeStderr += `\nKunne ikke lese DevToolsActivePort: ${error}`;
+    }
+  }
+  return null;
+}
+
 async function waitForDevtools() {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
-    try {
-      return await jsonFetch(`http://127.0.0.1:${debugPort}/json/version`);
-    } catch {
-      await sleep(200);
+    if (chrome.exitCode !== null || chrome.signalCode !== null) {
+      throw new Error(
+        `Chrome avsluttet før DevTools startet (exit=${chrome.exitCode}, signal=${chrome.signalCode}).\n${chromeStderr}`
+      );
     }
+
+    const debugPort = discoverDebugPort();
+    if (debugPort) {
+      try {
+        await jsonFetch(`http://127.0.0.1:${debugPort}/json/version`);
+        return debugPort;
+      } catch {
+        // Chrome may have written DevToolsActivePort just before the endpoint is ready.
+      }
+    }
+    await sleep(200);
   }
   throw new Error(`Chrome DevTools startet ikke.\n${chromeStderr}`);
 }
@@ -171,7 +201,7 @@ async function clickView(session, label, heading, readySelector) {
 }
 
 async function main() {
-  await waitForDevtools();
+  const debugPort = await waitForDevtools();
   const page = await jsonFetch(
     `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(baseUrl)}`,
     { method: "PUT" }
