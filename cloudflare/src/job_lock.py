@@ -5,10 +5,13 @@ from typing import Any
 
 LOCK_KEY = "cloudflare_refresh_writer_lock"
 FULL_REFRESH_JOB_NAME = "cloudflare_full_refresh"
-ORPHANED_FULL_REFRESH_REASON = (
-    "Full refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
+FAST_REFRESH_JOB_NAME = "cloudflare_fast_refresh"
+ORPHANED_REFRESH_REASON = (
+    "Refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
     "became available"
 )
+# Backwards-compatible constant for existing diagnostics/tests that imported the older name.
+ORPHANED_FULL_REFRESH_REASON = ORPHANED_REFRESH_REASON
 
 
 def _iso(value: datetime) -> str:
@@ -19,12 +22,13 @@ def _lease_expiry(now: datetime, ttl_seconds: int) -> str:
     return _iso(now + timedelta(seconds=max(60, int(ttl_seconds))))
 
 
-async def _reconcile_orphaned_full_refresh_jobs(repository, *, finished_at: str) -> None:
-    """Close full-refresh job rows that survived after their writer lease ended.
+async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> None:
+    """Close stale writer job rows after a new writer has acquired the shared lease.
 
-    This is only called after a new writer has atomically acquired the shared lock. At that
-    point an older full refresh cannot still be the active writer, so any RUNNING full-refresh
-    row that predates the new lease is orphaned rather than genuinely in progress.
+    Reconciliation only runs after an atomic lock acquisition. At that point an older RUNNING
+    full or fast refresh whose ``started_at`` predates the new lease cannot still be the active
+    writer. A same-timestamp retry is deliberately preserved by the strict ``started_at <``
+    comparison.
     """
     await repository.run(
         """
@@ -32,14 +36,15 @@ async def _reconcile_orphaned_full_refresh_jobs(repository, *, finished_at: str)
         SET finished_at=?,
             status='FAILED',
             error_message=COALESCE(NULLIF(error_message, ''), ?)
-        WHERE job_name=?
+        WHERE job_name IN (?, ?)
           AND status='RUNNING'
           AND started_at < ?
         """,
         (
             finished_at,
-            ORPHANED_FULL_REFRESH_REASON,
+            ORPHANED_REFRESH_REASON,
             FULL_REFRESH_JOB_NAME,
+            FAST_REFRESH_JOB_NAME,
             finished_at,
         ),
     )
@@ -91,7 +96,7 @@ async def acquire_refresh_lock(
     reconciliation_error = None
     if acquired:
         try:
-            await _reconcile_orphaned_full_refresh_jobs(repository, finished_at=now_iso)
+            await _reconcile_orphaned_refresh_jobs(repository, finished_at=now_iso)
         except Exception as exc:
             # Housekeeping must never strand a newly acquired writer lock. The actual refresh
             # can still proceed, and a later lock acquisition will retry the reconciliation.
