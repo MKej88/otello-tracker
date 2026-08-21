@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePollingResource } from "./usePollingResource";
 import "./report-status.css";
 
 type ComponentChange = {
@@ -244,39 +245,13 @@ function ReportPanel({ report, refreshFailed, lastUpdatedAt }: {
 
 export default function ReportStatusMount() {
   const [target, setTarget] = useState<Element | null>(null);
-  const [report, setReport] = useState<ReportStatus | null>(null);
-  const [refreshFailed, setRefreshFailed] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const { data: report, refreshFailed, lastUpdatedAt } = usePollingResource<ReportStatus>(
+    "/api/dashboard/report-status",
+    REFRESH_MS,
+  );
 
   useEffect(() => {
     setTarget(document.querySelector(".main"));
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      fetch("/api/dashboard/report-status")
-        .then((response) => {
-          if (!response.ok) throw new Error("Report status API-feil");
-          return response.json() as Promise<ReportStatus>;
-        })
-        .then((data) => {
-          if (active) {
-            setReport(data);
-            setRefreshFailed(false);
-            setLastUpdatedAt(new Date());
-          }
-        })
-        .catch(() => {
-          if (active) setRefreshFailed(true);
-        });
-    };
-    load();
-    const timer = window.setInterval(load, REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
   }, []);
 
   if (!target) return null;
