@@ -4,20 +4,21 @@ Privat investorverktøy for **Otello Corporation ASA** og **Bemobi Mobile Tech**
 
 Produksjonen kjører på **Cloudflare Workers Paid** med React/Vite, Python Workers, D1, R2, Cron Triggers og Cloudflare Workflows.
 
-## Status 20.08.2026
+## Status 21.08.2026
 
-Produksjonen er live og deploykjeden er etablert.
+Produksjonen er live og deploy-/diagnosekjeden er etablert.
 
 - D1 er autoritativ produksjonsdatabase.
 - R2 brukes til råkilder, NewsWeb-PDF-er og logiske revisjonssnapshots.
 - rask Cron kjører hvert 30. minutt;
 - daglig Full Workflow kjører kl. 03:35 UTC;
-- rask og full oppdatering bruker felles D1-basert writer-lock;
+- rask og full oppdatering bruker felles D1-basert writer-lock, og hver Full Workflow-instans har unik lock-identitet;
 - D1 Time Travel er primær database-recovery;
-- automatisk deploy fra grønn `main`-CI har produksjonsakseptanse og Worker-rollback;
+- automatisk deploy fra grønn `main`-CI har production-shaped kontroll før remote D1, produksjonsakseptanse og Worker-rollback;
+- daglig skrivebeskyttet GitHub-diagnostikk leser Cloudflare Workflow- og D1-status etter nattkjøringen;
 - Workers Paid-kostnadsvern, WAF og begrenset observability er konfigurert.
 
-Historiske go-live- og migreringsplaner er fjernet fra aktiv dokumentasjon. Dagens arkitektur og drift beskrives i `docs/architecture.md` og `docs/runbook.md`.
+Historiske go-live-, Docker-produksjons- og migreringsplaner er fjernet fra aktiv dokumentasjon. Dagens arkitektur og drift beskrives i `docs/architecture.md` og `docs/runbook.md`.
 
 ## Frontend
 
@@ -61,7 +62,7 @@ Se `docs/architecture.md`.
 
 ## Sentrale API-endepunkter
 
-Cloudflare-/referanse-API-versjon: **0.12.0**.
+Cloudflare-/referanse-API-versjon: **0.12.1**.
 
 ```text
 GET /api/health
@@ -72,6 +73,7 @@ GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
 GET /api/dashboard/report-status
+GET /api/dashboard/runtime-status
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
@@ -79,7 +81,7 @@ GET /api/bemobi/consensus
 GET /api/bemobi/source-status
 ```
 
-Aktive frontend-API-er inngår i Worker-smoke og produksjonsakseptanse.
+Aktive frontend-API-er inngår i Worker-smoke og/eller produksjonsakseptanse. `runtime-status` inngår i produksjonsakseptansen og viser kun kompakt, sanitert driftstatus; detaljerte feil beholdes i den private GitHub-diagnostikken.
 
 ## NAV-modellene
 
@@ -155,7 +157,19 @@ Den raske banen håndterer lette og inkrementelle oppdateringer som OTEC/BMOB3, 
 
 Full Workflow håndterer tyngre kilder og avstemming, blant annet Norges Bank, B3, CVM, Bemobi-webkilder, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
 
-Begge write-paths bruker samme writer-lock. Cleanup skal frigjøre låsen også ved feil; expiry er siste sikkerhetsnett.
+Begge write-paths bruker samme writer-lock. Full Workflow bruker unik per-instans-identitet, locken fornyes gjennom kjøringen, cleanup skal frigjøre låsen også ved feil, og expiry er siste sikkerhetsnett.
+
+## Nattdiagnostikk
+
+GitHub Actions kjører daglig skrivebeskyttet diagnostikk etter nattens Full Workflow. Diagnostikken bruker et separat Cloudflare-token med lesetilgang og kontrollerer blant annet:
+
+- status, trinn, retries og feil for siste Cloudflare Workflow-instans;
+- siste full- og 30-minuttersjobb i D1 og om de er ferske;
+- Norges Bank BRL/NOK og USD/NOK mot forventet Oslo Børs-handelsdag;
+- siste CORE-NAV og valuta-datoen som NAV faktisk bruker;
+- siste kildehelse.
+
+Den planlagte diagnosejobben feiler dersom den finner et reelt Workflow- eller D1-avvik. Diagnostikken endrer ikke produksjonsdata og trigger ikke Cloudflare Workflows.
 
 ## Deploy og produksjonskontroll
 
@@ -167,12 +181,16 @@ PR
  -> merge til main
  -> CI på main grønn
  -> production gate
+ -> verifiser eksakt testet SHA
+ -> render/valider produksjonskonfig
+ -> production-shaped Worker dry-run + runtime-kontroll
+ -> remote D1-migreringer
  -> deploy av eksakt testet SHA
  -> produksjons-HTTP-akseptanse
  -> Worker-rollback ved feil
 ```
 
-Produksjonsakseptansen tester frontend, health, NAV, økonomisk NAV, historikk, tilbakekjøp, Bemobi, konsensus og øvrige aktive investorendepunkter.
+Remote D1 berøres ikke før den renderte produksjonskonfigurasjonen og Worker-bundlen for eksakt deploy-SHA er kontrollert. Produksjonsakseptansen tester frontend, health, NAV, økonomisk NAV, historikk, runtime-status, tilbakekjøp, Bemobi, konsensus og øvrige aktive investorendepunkter.
 
 Worker-rollback reverserer ikke D1-migreringer. Nye migreringer skal derfor være additive og bakoverkompatible.
 
@@ -203,6 +221,8 @@ Se `docs/cloudflare-paid-cost-guard.md`.
 
 Frontend leveres med blant annet CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` og Permissions Policy. Produksjonscredentials skal ligge i GitHub/Cloudflare secrets og variables, aldri i Git.
 
+Produksjonsdeploy og skrivebeskyttet diagnostikk bruker separate Cloudflare-token med ulike rettigheter. Se `docs/cloudflare-api-token.md`.
+
 ## Lokal utvikling
 
 SQLite-backenden brukes fortsatt til modellutvikling, historiske rebuilds, regresjonstester og sammenligning mot Cloudflare/D1.
@@ -226,6 +246,7 @@ npm run build
 - `docs/option-liability.md` – opsjonsmodellen
 - `docs/buyback-forecast.md` – tilbakekjøpsmodellen
 - `docs/cloudflare-paid-cost-guard.md` – kostnadsvern
+- `docs/cloudflare-api-token.md` – deploy- og read-only diagnose-token
 - `docs/ci-auto-deploy.md` – automatisk produksjonsdeploy
 - `cloudflare/README.md` – Cloudflare-implementasjonen
 - `ROADMAP.md` – neste finansielle og tekniske prioriteringer
