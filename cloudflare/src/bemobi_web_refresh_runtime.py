@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Aktiv Bemobi web-orkestrering for Cloudflare Full Workflow.
 
 Modulen bygger på parser- og kildehjelperne i ``bemobi_web_refresh`` og eier den
 rullerende forward-konsensusen, append-only snapshots og consensus-history-eventer.
 Det separate modulnavnet gjør runtime-ansvaret eksplisitt uten et tidsavhengig ``v2``-navn.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
