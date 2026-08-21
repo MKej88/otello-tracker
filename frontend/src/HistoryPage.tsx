@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import "./history-page.css";
 
 type HistoryPoint = {
@@ -228,15 +228,14 @@ export default function HistoryPage() {
   const premiumShare = statistics.count > 0
     ? statistics.premium_observation_count / statistics.count * 100
     : null;
-
-  const distributionRows = useMemo(() => [
+  const distributionRows = [
     ["10. persentil", discountLabel(statistics.p10_discount_pct)],
     ["25. persentil", discountLabel(statistics.p25_discount_pct)],
     ["Median", discountLabel(statistics.median_discount_pct)],
     ["75. persentil", discountLabel(statistics.p75_discount_pct)],
     ["90. persentil", discountLabel(statistics.p90_discount_pct)],
     ["Gjennomsnitt", discountLabel(statistics.average_discount_pct)]
-  ], [statistics]);
+  ];
 
   return (
     <div className="historyPage">
@@ -351,8 +350,7 @@ export default function HistoryPage() {
         <p>{data.basis?.note}</p>
         <p>
           Persentilene er beskrivende historikk, ikke et kjøps- eller salgssignal. Serien bruker
-          alle tilgjengelige validerte observasjoner i valgt periode før grafen eventuelt
-          nedprøves for visning.
+          én siste komplett NAV-observasjon per dato før grafen eventuelt nedprøves for visning.
         </p>
       </section>
     </div>
