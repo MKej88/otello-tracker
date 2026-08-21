@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
+if str(CLOUDFLARE_SRC) not in sys.path:
+    sys.path.insert(0, str(CLOUDFLARE_SRC))
+
+from runtime_status import (  # noqa: E402
+    FAST_MAX_AGE,
+    FAST_RUNNING_MAX_AGE,
+    _job_freshness,
+    _job_payload,
+)
+
+
+def test_completed_fast_job_becomes_stale_after_limit() -> None:
+    now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+    row = {
+        "status": "SUCCESS",
+        "started_at": "2026-08-21T07:59:00Z",
+        "finished_at": "2026-08-21T08:00:00Z",
+    }
+
+    freshness = _job_freshness(
+        row,
+        now=now,
+        completed_max_age=FAST_MAX_AGE,
+        running_max_age=FAST_RUNNING_MAX_AGE,
+    )
+
+    assert freshness["stale"] is True
+    assert freshness["reason"] == "too_old"
+    assert freshness["age_minutes"] == 120
+
+
+def test_recent_fast_job_is_current() -> None:
+    now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+    row = {
+        "status": "SUCCESS",
+        "started_at": "2026-08-21T09:28:00Z",
+        "finished_at": "2026-08-21T09:30:00Z",
+    }
+
+    freshness = _job_freshness(
+        row,
+        now=now,
+        completed_max_age=FAST_MAX_AGE,
+        running_max_age=FAST_RUNNING_MAX_AGE,
+    )
+
+    assert freshness == {"stale": False, "age_minutes": 30, "reason": None}
+
+
+def test_public_job_payload_does_not_expose_raw_exception_text() -> None:
+    now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+    row = {
+        "status": "FAILED",
+        "started_at": "2026-08-21T09:30:00Z",
+        "finished_at": "2026-08-21T09:31:00Z",
+        "records_written": 0,
+        "error_message": "upstream request failed: https://example.invalid/?token=secret-value",
+        "metadata_json": '{"target_date":"2026-08-20"}',
+    }
+
+    payload = _job_payload(
+        row,
+        now=now,
+        completed_max_age=FAST_MAX_AGE,
+        running_max_age=FAST_RUNNING_MAX_AGE,
+    )
+
+    assert payload["error_message"] is None
+    assert payload["has_error"] is True
+    assert payload["target_date"] == "2026-08-20"

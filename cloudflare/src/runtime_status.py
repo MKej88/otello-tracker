@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 try:
@@ -11,6 +11,10 @@ except ImportError:
 
 FULL_JOB = "cloudflare_full_refresh"
 FAST_JOB = "cloudflare_fast_refresh"
+FAST_MAX_AGE = timedelta(minutes=90)
+FULL_MAX_AGE = timedelta(hours=36)
+FAST_RUNNING_MAX_AGE = timedelta(minutes=90)
+FULL_RUNNING_MAX_AGE = timedelta(hours=4)
 
 
 def _metadata(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -26,7 +30,61 @@ def _metadata(row: dict[str, Any] | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _job_payload(row: dict[str, Any] | None) -> dict[str, Any]:
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _job_freshness(
+    row: dict[str, Any] | None,
+    *,
+    now: datetime,
+    completed_max_age: timedelta,
+    running_max_age: timedelta,
+) -> dict[str, Any]:
+    if not row:
+        return {"stale": True, "age_minutes": None, "reason": "missing"}
+
+    status = str(row.get("status") or "MISSING").upper()
+    timestamp = _parse_timestamp(
+        row.get("started_at") if status == "RUNNING" else row.get("finished_at") or row.get("started_at")
+    )
+    if timestamp is None:
+        return {"stale": True, "age_minutes": None, "reason": "missing_timestamp"}
+
+    age = max(timedelta(0), now - timestamp)
+    limit = running_max_age if status == "RUNNING" else completed_max_age
+    stale = age > limit
+    return {
+        "stale": stale,
+        "age_minutes": int(age.total_seconds() // 60),
+        "reason": "running_too_long" if stale and status == "RUNNING" else "too_old" if stale else None,
+    }
+
+
+def _job_payload(
+    row: dict[str, Any] | None,
+    *,
+    now: datetime,
+    completed_max_age: timedelta,
+    running_max_age: timedelta,
+) -> dict[str, Any]:
+    freshness = _job_freshness(
+        row,
+        now=now,
+        completed_max_age=completed_max_age,
+        running_max_age=running_max_age,
+    )
     if not row:
         return {
             "available": False,
@@ -35,7 +93,9 @@ def _job_payload(row: dict[str, Any] | None) -> dict[str, Any]:
             "finished_at": None,
             "records_written": 0,
             "error_message": None,
+            "has_error": False,
             "target_date": None,
+            **freshness,
         }
     metadata = _metadata(row)
     return {
@@ -44,8 +104,12 @@ def _job_payload(row: dict[str, Any] | None) -> dict[str, Any]:
         "started_at": row.get("started_at"),
         "finished_at": row.get("finished_at"),
         "records_written": int(row.get("records_written") or 0),
-        "error_message": row.get("error_message"),
+        # Keep arbitrary upstream exception text out of the public API. Detailed errors remain
+        # available through the authenticated GitHub/Cloudflare diagnostics workflow.
+        "error_message": None,
+        "has_error": bool(row.get("error_message")),
         "target_date": metadata.get("target_date"),
+        **freshness,
     }
 
 
@@ -81,14 +145,24 @@ async def runtime_status_summary(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    current = now or datetime.now(UTC)
+    current = (now or datetime.now(UTC)).astimezone(UTC)
     full_row = await _latest_job(repository, FULL_JOB)
     fast_row = await _latest_job(repository, FAST_JOB)
     norges_bank_health = await _latest_norges_bank_health(repository)
     fx = await norges_bank_fx_coverage(repository)
 
-    full = _job_payload(full_row)
-    fast = _job_payload(fast_row)
+    full = _job_payload(
+        full_row,
+        now=current,
+        completed_max_age=FULL_MAX_AGE,
+        running_max_age=FULL_RUNNING_MAX_AGE,
+    )
+    fast = _job_payload(
+        fast_row,
+        now=current,
+        completed_max_age=FAST_MAX_AGE,
+        running_max_age=FAST_RUNNING_MAX_AGE,
+    )
     expected_fx_date = expected_norges_bank_date(current)
     latest_common_date = fx.get("latest_common_date")
     fx_current = latest_common_date is not None and str(latest_common_date) >= expected_fx_date
@@ -102,6 +176,8 @@ async def runtime_status_summary(
         status = "DOWN"
     elif (
         not fx_current
+        or bool(full.get("stale"))
+        or bool(fast.get("stale"))
         or full_status in {"FAILED", "PARTIAL"}
         or fast_status in {"FAILED", "PARTIAL"}
         or health_status in {"DOWN", "DEGRADED"}
@@ -119,7 +195,8 @@ async def runtime_status_summary(
         "norges_bank": {
             "status": health_status,
             "checked_at": (norges_bank_health or {}).get("checked_at"),
-            "error_message": (norges_bank_health or {}).get("error_message"),
+            "error_message": None,
+            "has_error": bool((norges_bank_health or {}).get("error_message")),
         },
         "fx": {
             **fx,

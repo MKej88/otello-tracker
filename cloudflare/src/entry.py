@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sys
 import types
 from datetime import UTC, date, datetime, timedelta
@@ -55,6 +56,24 @@ def _workflow_trigger(event) -> str:
     schedule = _event_value(event, "schedule")
     cron = _nested_value(schedule, "cron")
     return f"workflow_schedule:{cron}" if cron else "workflow_manual"
+
+
+def _workflow_instance_key(event) -> str:
+    """Return a stable, non-sensitive key unique to one Cloudflare Workflow instance.
+
+    Cloudflare exposes ``instanceId`` on every Workflow event. The writer-lock owner must use
+    this instance identity rather than only target date/trigger; otherwise two manual runs on
+    the same day can be mistaken for the same lock owner and write concurrently.
+    """
+    instance_id = _event_value(event, "instanceId")
+    if instance_id is None:
+        try:
+            instance_id = getattr(event, "instanceId")
+        except (AttributeError, TypeError):
+            instance_id = None
+    if instance_id is None or not str(instance_id).strip():
+        raise RuntimeError("Cloudflare Workflow event missing instanceId")
+    return hashlib.sha256(str(instance_id).encode("utf-8")).hexdigest()[:20]
 
 
 def _history_year_windows(start_date: str, end_date: str) -> list[tuple[str, str]]:
@@ -155,7 +174,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         target_date = _workflow_target_date(event)
         trigger = _workflow_trigger(event)
         source_results = {}
-        lock_owner = f"full:{target_date}:{trigger}"
+        lock_owner = f"full:{target_date}:{_workflow_instance_key(event)}"
 
         @step.do(
             "acquire full refresh writer lock",
