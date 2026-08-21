@@ -18,6 +18,7 @@ const chrome = spawn(
     "--disable-default-apps",
     "--disable-extensions",
     "--disable-sync",
+    "--window-size=1440,1200",
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${profileDir}`,
     "about:blank"
