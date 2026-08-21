@@ -78,11 +78,18 @@ jobs:
           )"
 
           echo "resolved_instance_id=$resolved_instance_id" >> "$GITHUB_OUTPUT"
+          encoded_instance_id="$(python - "$resolved_instance_id" <<'PY'
+          import sys
+          from urllib.parse import quote
+
+          print(quote(sys.argv[1], safe=""))
+          PY
+          )"
           curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Accept: application/json" \
-            "${base_url}/${resolved_instance_id}?order=asc" \
+            "${base_url}/${encoded_instance_id}?order=asc" \
             --output detail.json
 
       - name: Report status, retries and errors
