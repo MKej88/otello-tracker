@@ -137,6 +137,53 @@ jobs:
       - name: Render production Wrangler config
         run: python cloudflare/tools/render_production_config.py
 
+      - name: Validate rendered production config before remote changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
+          assert config['name'] == os.environ['CLOUDFLARE_WORKER_NAME']
+          assert config['main'] == 'src/worker.py'
+          assert config['workers_dev'] is False
+          assert config['routes'] == [
+              {'pattern': os.environ['CLOUDFLARE_CUSTOM_DOMAIN'], 'custom_domain': True}
+          ]
+          d1 = config['d1_databases'][0]
+          assert d1['database_id'] == os.environ['CLOUDFLARE_D1_DATABASE_ID']
+          assert d1['database_name'] == os.environ['CLOUDFLARE_D1_DATABASE_NAME']
+          assert config['r2_buckets'][0]['bucket_name'] == os.environ['CLOUDFLARE_R2_BUCKET_NAME']
+          assert config['limits']['cpu_ms'] == 60000
+          assert config['limits']['subrequests'] == 500
+          assert config['triggers']['crons'] == ['*/30 * * * *']
+          workflows = {item['binding']: item for item in config['workflows']}
+          assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+          PY
+
+      - name: Dry-run exact production Worker before D1 migration
+        working-directory: cloudflare
+        run: >-
+          pywrangler deploy --dry-run
+          --config wrangler.production.jsonc
+          --outdir /tmp/otello-production-predeploy
+
+      - name: Verify vendored Worker runtime prerequisites
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f python_modules/tzdata/__init__.py
+          PYTHONPATH=python_modules python - <<'PY'
+          from importlib import resources
+
+          oslo = resources.files('tzdata.zoneinfo.Europe').joinpath('Oslo')
+          assert oslo.is_file(), f'Missing vendored IANA Europe/Oslo data: {oslo}'
+          print(f'Worker timezone data present: {oslo}')
+          PY
+
       - name: Apply remote D1 migrations
         working-directory: cloudflare
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc
@@ -165,6 +212,8 @@ jobs:
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/report-status" -o /tmp/otello-report-status.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/runtime-status" -o /tmp/otello-runtime-status.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/fx-backtest" -o /tmp/otello-fx-backtest.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
@@ -190,6 +239,7 @@ jobs:
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
           waterfall = json.loads(Path('/tmp/otello-waterfall.json').read_text())
           report_status = json.loads(Path('/tmp/otello-report-status.json').read_text())
+          runtime_status = json.loads(Path('/tmp/otello-runtime-status.json').read_text())
           fx_backtest = json.loads(Path('/tmp/otello-fx-backtest.json').read_text())
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
@@ -218,6 +268,11 @@ jobs:
           assert isinstance(waterfall.get('components'), list), waterfall
           assert isinstance(report_status.get('ready'), bool), report_status
           assert report_status.get('status'), report_status
+          assert isinstance(runtime_status.get('ready'), bool), runtime_status
+          assert runtime_status.get('status') in {'OK', 'DEGRADED', 'DOWN'}, runtime_status
+          assert isinstance(runtime_status.get('full_refresh'), dict), runtime_status
+          assert isinstance(runtime_status.get('fast_refresh'), dict), runtime_status
+          assert isinstance(runtime_status.get('fx'), dict), runtime_status
           assert fx_backtest.get('ready') is True, fx_backtest
           fx_summary = fx_backtest.get('summary') or {}
           assert int(fx_summary.get('periods_ready') or 0) >= 2, fx_backtest
@@ -249,6 +304,7 @@ jobs:
               f"economic_nav={economic.get('nav_per_share')}",
               f"waterfall_components={len(waterfall.get('components') or [])}",
               f"report_status={report_status.get('status')}",
+              f"runtime_status={runtime_status.get('status')}",
               f"fx_backtest_periods={fx_summary.get('periods_ready')}",
               f"buyback_status={forecast.get('status')}",
               f"buyback_latest={buyback_latest.get('shares')}",
