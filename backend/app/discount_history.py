@@ -80,6 +80,30 @@ def _discount_statistics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _history_point(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "date": str(row["date"]),
+        "nav_per_share": _float(row.get("nav_per_share_nok")),
+        "otec_price": _float(row.get("otec_price_nok")),
+        "discount_pct": _float(row.get("discount_pct")),
+        "cash_mnok": None if row.get("cash_estimate_nok") is None else _float(row["cash_estimate_nok"]) / 1_000_000,
+        "other_net_assets_mnok": None if row.get("other_net_assets_nok") is None else _float(row["other_net_assets_nok"]) / 1_000_000,
+        "status": str(row.get("status") or "UNKNOWN"),
+    }
+
+
+def _downsample(points: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]:
+    if len(points) <= max_points:
+        return points
+    indexes = sorted(
+        {
+            round(index * (len(points) - 1) / (max_points - 1))
+            for index in range(max_points)
+        }
+    )
+    return [points[index] for index in indexes]
+
+
 def _economic_reference(database_path: str | None) -> dict[str, Any]:
     economic = economic_nav_summary(database_path)
     if not economic.get("ready"):
@@ -107,9 +131,9 @@ def discount_history(
 ) -> dict[str, Any]:
     """Historical validated NAV discount distribution plus current investor NAV reference.
 
-    Historical economic NAV is deliberately not reconstructed before its source-backed
-    FX, cost and option inputs exist. Percentiles therefore use the validated CORE/FULL
-    NAV series, while current economic NAV is presented separately.
+    Statistics use the last complete validated NAV snapshot per calendar date so frequent
+    intraday refreshes cannot overweight a day. Historical economic NAV is deliberately
+    not reconstructed before its source-backed FX, cost and option inputs exist.
     """
     days = max(30, min(int(days), 3650))
     max_points = max(50, min(int(max_points), 1000))
@@ -125,11 +149,26 @@ def discount_history(
     with get_connection(database_path) as connection:
         rows = connection.execute(
             """
-            SELECT substr(as_of_at,1,10) AS date, discount_pct
-            FROM nav_snapshots
-            WHERE calculation_version=? AND nav_scope=?
-              AND substr(as_of_at,1,10) >= ? AND substr(as_of_at,1,10) <= ?
-            ORDER BY as_of_at
+            WITH ranked AS (
+                SELECT substr(as_of_at,1,10) AS date,
+                       nav_per_share_nok, otec_price_nok, discount_pct,
+                       cash_estimate_nok, other_net_assets_nok, status,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY substr(as_of_at,1,10)
+                           ORDER BY as_of_at DESC, id DESC
+                       ) AS rn
+                FROM nav_snapshots
+                WHERE calculation_version=? AND nav_scope=?
+                  AND substr(as_of_at,1,10) >= ? AND substr(as_of_at,1,10) <= ?
+                  AND nav_per_share_nok IS NOT NULL
+                  AND otec_price_nok IS NOT NULL
+                  AND discount_pct IS NOT NULL
+            )
+            SELECT date, nav_per_share_nok, otec_price_nok, discount_pct,
+                   cash_estimate_nok, other_net_assets_nok, status
+            FROM ranked
+            WHERE rn=1
+            ORDER BY date
             """,
             (
                 history["calculation_version"],
@@ -138,26 +177,31 @@ def discount_history(
                 history["to"],
             ),
         ).fetchall()
-        raw_rows = [dict(row) for row in rows]
+        daily_rows = [dict(row) for row in rows]
 
-    statistics = _discount_statistics(raw_rows)
-    latest_point = history["points"][-1] if history.get("points") else None
+    statistics = _discount_statistics(daily_rows)
+    daily_points = [_history_point(row) for row in daily_rows]
+    points = _downsample(daily_points, max_points)
+    latest_point = daily_points[-1] if daily_points else None
     return {
         "ready": True,
         "data_status": history.get("data_status"),
         "period_days": days,
-        "from": history.get("from"),
-        "to": history.get("to"),
-        "raw_count": history.get("raw_count"),
-        "point_count": history.get("point_count"),
+        "from": daily_points[0]["date"] if daily_points else history.get("from"),
+        "to": daily_points[-1]["date"] if daily_points else history.get("to"),
+        "raw_count": len(daily_points),
+        "source_snapshot_count": history.get("raw_count"),
+        "point_count": len(points),
         "basis": {
             "type": "VALIDATED_NAV_HISTORY",
             "model_scope": history.get("model_scope"),
             "calculation_version": history.get("calculation_version"),
+            "observation_policy": "LATEST_COMPLETE_SNAPSHOT_PER_DATE",
             "note": (
-                "Historiske persentiler bruker validert FULL/CORE NAV. Dagens økonomiske "
-                "investor-NAV vises separat; historiske økonomiske NAV-tall konstrueres ikke "
-                "før kildebelagte valuta-, kostnads- og opsjonsinput finnes for perioden."
+                "Historiske persentiler bruker siste komplette validerte FULL/CORE NAV per dato. "
+                "Dagens økonomiske investor-NAV vises separat; historiske økonomiske NAV-tall "
+                "konstrueres ikke før kildebelagte valuta-, kostnads- og opsjonsinput finnes "
+                "for perioden."
             ),
         },
         "statistics": statistics,
@@ -172,5 +216,5 @@ def discount_history(
             }
         ),
         "current_economic": _economic_reference(database_path),
-        "points": history.get("points") or [],
+        "points": points,
     }
