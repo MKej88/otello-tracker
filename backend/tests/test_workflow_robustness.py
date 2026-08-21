@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import sys
 from datetime import UTC, datetime
@@ -124,3 +125,27 @@ def test_full_workflow_renews_lease_and_releases_latest_token() -> None:
     assert 'await renew_lock(f"after Norges Bank history {chunk_year}")' in entry
     assert 'await renew_lock("after Otello reports")' in entry
     assert "release_refresh_lock(repository, lock_token)" in entry
+
+
+def test_workflow_steps_do_not_capture_state_with_default_arguments() -> None:
+    entry_path = ROOT / "cloudflare" / "src" / "entry.py"
+    tree = ast.parse(entry_path.read_text(encoding="utf-8"))
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        is_workflow_step = any(
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and decorator.func.attr == "do"
+            and isinstance(decorator.func.value, ast.Name)
+            and decorator.func.value.id == "step"
+            for decorator in node.decorator_list
+        )
+        has_defaults = bool(node.args.defaults) or any(
+            default is not None for default in node.args.kw_defaults
+        )
+        if is_workflow_step and has_defaults:
+            offenders.append(node.name)
+
+    assert offenders == []

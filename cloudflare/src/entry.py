@@ -180,12 +180,13 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
         async def renew_lock(checkpoint: str):
             nonlocal lock_token
+            current_token = lock_token
 
             @step.do(
                 f"renew full refresh writer lock {checkpoint}",
                 config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
             )
-            async def renew_step(current_token=lock_token):
+            async def renew_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
                 result = await renew_refresh_lock(
                     repository,
@@ -248,20 +249,19 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 history_chunks: list[dict] = []
                 for chunk_start, chunk_end in _history_year_windows(history_start, target_date):
                     chunk_year = chunk_start[:4]
+                    history_chunk_start = chunk_start
+                    history_chunk_end = chunk_end
 
                     @step.do(
                         f"rebuild historical NAV with Norges Bank FX {chunk_year}",
                         config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "10 minutes"},
                     )
-                    async def norges_bank_history_nav_step(
-                        start_date=chunk_start,
-                        end_date=chunk_end,
-                    ):
+                    async def norges_bank_history_nav_step():
                         repository = PerformanceD1WriteRepository(self.env.DB)
                         result = await rebuild_existing_nav_with_norges_bank(
                             repository,
-                            start_date=start_date,
-                            end_date=end_date,
+                            start_date=history_chunk_start,
+                            end_date=history_chunk_end,
                         )
                         return {**result, "repository": repository.performance_metrics()}
 
