@@ -74,7 +74,8 @@ def test_waterfall_routes_are_exposed() -> None:
 
     assert '@app.get("/api/dashboard/waterfall")' in backend
     assert '@app.get("/api/dashboard/waterfall")' in worker
-    assert 'fetch("/api/dashboard/waterfall")' in frontend
+    assert 'usePollingResource<NavWaterfall>(' in frontend
+    assert '"/api/dashboard/waterfall"' in frontend
     assert "Tilbakekjøp – kontantbruk" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
     assert "Færre utestående aksjer" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
 
