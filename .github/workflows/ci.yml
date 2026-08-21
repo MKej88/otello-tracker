@@ -193,6 +193,7 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/dashboard/waterfall -o /tmp/worker-waterfall.json
           curl -fsS http://127.0.0.1:8787/api/dashboard/report-status -o /tmp/worker-report-status.json
           curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
+          curl -fsS -D /tmp/worker-discount-history.headers 'http://127.0.0.1:8787/api/dashboard/discount-history?days=365&max_points=600' -o /tmp/worker-discount-history.json
           curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
           curl -fsS 'http://127.0.0.1:8787/api/buybacks/dashboard?as_of_date=2026-08-17' -o /tmp/worker-buyback-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
@@ -211,6 +212,7 @@ jobs:
               'economic': json.loads(Path('/tmp/worker-economic.json').read_text()),
               'waterfall': json.loads(Path('/tmp/worker-waterfall.json').read_text()),
               'history': json.loads(Path('/tmp/worker-history.json').read_text()),
+              'discount_history': json.loads(Path('/tmp/worker-discount-history.json').read_text()),
               'forecast': json.loads(Path('/tmp/worker-forecast.json').read_text()),
               'buyback_dashboard': json.loads(Path('/tmp/worker-buyback-dashboard.json').read_text()),
               'bemobi_dashboard': json.loads(Path('/tmp/worker-bemobi-dashboard.json').read_text()),
@@ -227,6 +229,7 @@ jobs:
                   'economic',
                   'waterfall',
                   'history',
+                  'discount_history',
                   'forecast',
                   'buyback_dashboard',
                   'bemobi_dashboard',
@@ -252,6 +255,7 @@ jobs:
           assert actual['economic']['conservative_nav_per_share'] <= actual['economic']['nav_per_share']
           assert isinstance(actual['economic'].get('cash_fx'), dict)
           assert actual['history']['ready'] is True and actual['history']['points']
+          assert actual['discount_history']['ready'] is True and actual['discount_history']['points']
           assert actual['forecast']['ready'] is True
           assert actual['forecast']['status'] != 'INSUFFICIENT_VOLUME_HISTORY'
           assert actual['quotes']['ready'] is True
@@ -281,6 +285,7 @@ jobs:
           summary_headers = Path('/tmp/worker-summary.headers').read_text().lower()
           economic_headers = Path('/tmp/worker-economic.headers').read_text().lower()
           history_headers = Path('/tmp/worker-history.headers').read_text().lower()
+          discount_history_headers = Path('/tmp/worker-discount-history.headers').read_text().lower()
           forecast_headers = Path('/tmp/worker-forecast.headers').read_text().lower()
           quotes_headers = Path('/tmp/worker-quotes.headers').read_text().lower()
           assert 'content-security-policy:' in index_headers
@@ -290,6 +295,7 @@ jobs:
           assert 'cache-control: public, max-age=15' in summary_headers
           assert 'cache-control: public, max-age=15' in economic_headers
           assert 'cache-control: public, max-age=300' in history_headers
+          assert 'cache-control: public, max-age=300' in discount_history_headers
           assert 'cache-control: public, max-age=300' in forecast_headers
           assert 'cache-control: public, max-age=30' in quotes_headers
           print('Populated SQLite reference -> D1 -> workerd HTTP parity passed')

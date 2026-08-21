@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { usePollingResource } from "./usePollingResource";
 import "./nav-waterfall.css";
 
 type WaterfallComponent = {
@@ -155,38 +156,27 @@ function investorComponents(components: WaterfallComponent[]): DisplayWaterfallC
 }
 
 export default function NavWaterfallPanel() {
-  const [data, setData] = useState<NavWaterfall | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      fetch("/api/dashboard/waterfall")
-        .then((response) => {
-          if (!response.ok) throw new Error("Waterfall API-feil");
-          return response.json() as Promise<NavWaterfall>;
-        })
-        .then((result) => {
-          if (active) setData(result);
-        })
-        .catch(() => {
-          if (active) setData({ ready: false, reason: "api_error" });
-        });
-    };
-
-    load();
-    const timer = window.setInterval(load, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+  const { data, refreshFailed } = usePollingResource<NavWaterfall>(
+    "/api/dashboard/waterfall",
+    AUTO_REFRESH_MS
+  );
 
   const rows = useMemo(() => {
     if (!data?.ready || !data.anchor?.economic_nav_per_share_nok) return [];
     return investorComponents(data.components ?? []);
   }, [data]);
 
-  if (data == null) return null;
+  if (data == null) {
+    if (!refreshFailed) return null;
+    return (
+      <section className="waterfallPanel waterfallUnavailable">
+        <div>
+          <span className="waterfallEyebrow">Siden siste rapport</span>
+          <strong>{reasonLabel("api_error")}</strong>
+        </div>
+      </section>
+    );
+  }
 
   if (!data.ready) {
     return (
@@ -214,8 +204,8 @@ export default function NavWaterfallPanel() {
           <span className="waterfallEyebrow">Siden siste rapport</span>
           <h2>Hva har flyttet økonomisk NAV?</h2>
         </div>
-        <span className={reconciled ? "waterfallStatus ok" : "waterfallStatus"}>
-          {reconciled ? "AVSTEMT" : "KONTROLLER AVVIK"}
+        <span className={reconciled && !refreshFailed ? "waterfallStatus ok" : "waterfallStatus"}>
+          {refreshFailed ? "SISTE GODE DATA" : reconciled ? "AVSTEMT" : "KONTROLLER AVVIK"}
         </span>
       </div>
 
