@@ -57,6 +57,9 @@ jobs:
             [[ "$REQUESTED_INSTANCE_ID" =~ ^[A-Za-z0-9_-]{1,100}$ ]]
           fi
 
+      - name: Check out diagnostic calendar logic
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
       - name: Read recent instances and selected details
         id: fetch
         shell: bash
@@ -230,6 +233,7 @@ jobs:
           PY
 
       - name: Read production D1 diagnostics
+        id: d1_report
         if: always()
         shell: bash
         run: |
@@ -334,6 +338,15 @@ jobs:
           import json
           import os
           import re
+          import sys
+          from datetime import UTC, datetime, timedelta
+          from zoneinfo import ZoneInfo
+
+          sys.path.insert(0, "cloudflare/src")
+          from oslo_calendar import is_oslo_bors_trading_day
+
+          FAST_MAX_AGE = timedelta(minutes=90)
+          FULL_MAX_AGE = timedelta(hours=36)
 
           def clean(value, limit=500):
               if value is None:
@@ -356,6 +369,32 @@ jobs:
               except (TypeError, ValueError, json.JSONDecodeError):
                   return {}
               return parsed if isinstance(parsed, dict) else {}
+
+          def parse_ts(value):
+              if not value:
+                  return None
+              try:
+                  parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+              except ValueError:
+                  return None
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=UTC)
+              return parsed.astimezone(UTC)
+
+          def job_age(row, now):
+              if not row:
+                  return None
+              status = str(row.get("status") or "").upper()
+              value = row.get("started_at") if status == "RUNNING" else row.get("finished_at") or row.get("started_at")
+              parsed = parse_ts(value)
+              return max(timedelta(0), now - parsed) if parsed else None
+
+          def expected_fx_date(now):
+              current_oslo_day = now.astimezone(ZoneInfo("Europe/Oslo")).date()
+              candidate = current_oslo_day - timedelta(days=1)
+              while not is_oslo_bors_trading_day(candidate):
+                  candidate -= timedelta(days=1)
+              return candidate.isoformat()
 
           with open("d1-query.json", encoding="utf-8") as handle:
               payload = json.load(handle)
@@ -381,7 +420,14 @@ jobs:
                   latest_fx[currency] = row
           fx_dates = [latest_fx[c].get("observed_date") for c in ("BRL", "USD") if c in latest_fx]
           latest_common_fx = min(fx_dates) if len(fx_dates) == 2 and all(fx_dates) else None
-          fx_matches_target = bool(full_target and latest_common_fx and latest_common_fx >= str(full_target))
+
+          now = datetime.now(UTC)
+          expected_fx = expected_fx_date(now)
+          fx_current = bool(latest_common_fx and latest_common_fx >= expected_fx)
+          full_age = job_age(full, now)
+          fast_age = job_age(fast, now)
+          full_stale = full_age is None or full_age > FULL_MAX_AGE
+          fast_stale = fast_age is None or fast_age > FAST_MAX_AGE
 
           nav = nav_rows[0] if nav_rows else {}
           components = safe_json(nav.get("components_json"))
@@ -393,8 +439,12 @@ jobs:
           d1_status = "OK"
           if full_status != "SUCCESS" or fast_status not in {"SUCCESS", "PARTIAL"}:
               d1_status = "AVVIK"
-          if full_target and not fx_matches_target:
+          if not fx_current or full_stale or fast_stale:
               d1_status = "AVVIK"
+          d1_unhealthy = d1_status != "OK"
+
+          full_age_minutes = int(full_age.total_seconds() // 60) if full_age is not None else None
+          fast_age_minutes = int(fast_age.total_seconds() // 60) if fast_age is not None else None
 
           lines = [
               "",
@@ -404,9 +454,12 @@ jobs:
               f"- D1-status: **{d1_status}**",
               f"- Siste fulloppdatering: **{cell(full_status, 40)}** – `{cell((full or {}).get('finished_at') or (full or {}).get('started_at'), 80)}`",
               f"- Fulljobb mål-dato: `{cell(full_target, 20)}`",
+              f"- Fulljobb alder: `{cell(full_age_minutes, 20)} min` – {'FOR GAMMEL' if full_stale else 'OK'}",
               f"- Siste 30-minuttersjobb: **{cell(fast_status, 40)}** – `{cell((fast or {}).get('finished_at') or (fast or {}).get('started_at'), 80)}`",
+              f"- 30-minuttersjobb alder: `{cell(fast_age_minutes, 20)} min` – {'FOR GAMMEL' if fast_stale else 'OK'}",
               f"- Siste felles Norges Bank FX-dato: `{cell(latest_common_fx, 20)}`",
-              f"- FX dekker fulljobbens mål-dato: **{'JA' if fx_matches_target else 'NEI' if full_target else 'UKJENT'}**",
+              f"- Forventet Norges Bank-dato: `{cell(expected_fx, 20)}`",
+              f"- FX er handelsdagsmessig fersk: **{'JA' if fx_current else 'NEI'}**",
               f"- BRL/NOK-dato brukt i siste CORE-NAV: `{cell(nav_brl_date, 20)}`",
               f"- Siste CORE-NAV: `{cell(nav.get('as_of_at'), 80)}` ({cell(nav.get('status'), 40)})",
               "",
@@ -457,14 +510,19 @@ jobs:
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"d1_unhealthy={'true' if d1_unhealthy else 'false'}\n")
+          if d1_unhealthy:
+              print("::warning::D1-diagnostikken fant et produksjonsavvik.")
           PY
 
       - name: Alert on unhealthy scheduled production
         if: >-
           always() &&
           github.event_name == 'schedule' &&
-          steps.workflow_report.outputs.production_unhealthy == 'true'
+          (steps.workflow_report.outputs.production_unhealthy == 'true' ||
+           steps.d1_report.outputs.d1_unhealthy == 'true')
         shell: bash
         run: |
-          echo '::error::Den automatiske diagnosen fant en feilet Cloudflare Workflow-instans.'
+          echo '::error::Den automatiske diagnosen fant et produksjonsavvik i Cloudflare Workflow eller D1.'
           exit 1
