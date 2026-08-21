@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import MarketQuotePanel from "./MarketQuotePanel";
+import { usePollingResource } from "./usePollingResource";
 import "./economic-nav.css";
 
 type EconomicNav = {
@@ -85,34 +85,26 @@ function reasonLabel(reason?: string) {
 }
 
 export default function EconomicNavPanel({ variant = "summary" }: Props) {
-  const [data, setData] = useState<EconomicNav | null>(null);
+  const { data, refreshFailed } = usePollingResource<EconomicNav>(
+    "/api/dashboard/economic",
+    AUTO_REFRESH_MS
+  );
 
-  useEffect(() => {
-    let active = true;
-
-    const load = () => {
-      fetch("/api/dashboard/economic")
-        .then((response) => {
-          if (!response.ok) throw new Error("Economic NAV API-feil");
-          return response.json() as Promise<EconomicNav>;
-        })
-        .then((result) => {
-          if (active) setData(result);
-        })
-        .catch(() => {
-          if (active) setData({ ready: false, reason: "api_error" });
-        });
-    };
-
-    load();
-    const timer = window.setInterval(load, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  if (data == null) return variant === "summary" ? <MarketQuotePanel /> : null;
+  if (data == null) {
+    if (!refreshFailed) return variant === "summary" ? <MarketQuotePanel /> : null;
+    return (
+      <section className="economicNavHost">
+        <div className="economicNavPanel economicNavUnavailable">
+          <div>
+            <span className="economicEyebrow">Investorjustert NAV</span>
+            <strong>Økonomisk NAV kunne ikke hentes</strong>
+          </div>
+          <span>{reasonLabel("api_error")}</span>
+        </div>
+        {variant === "summary" && <MarketQuotePanel />}
+      </section>
+    );
+  }
 
   if (!data.ready) {
     return (
@@ -141,7 +133,9 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
             <span className="economicEyebrow">Investorjustert verdsettelse</span>
             <h2>Økonomisk NAV</h2>
           </div>
-          <span className="economicBadge">ESTIMERT MELLOM RAPPORTER</span>
+          <span className="economicBadge">
+            {refreshFailed ? "SISTE GODE DATA" : "ESTIMERT MELLOM RAPPORTER"}
+          </span>
         </div>
 
         <div className="economicMetrics">
