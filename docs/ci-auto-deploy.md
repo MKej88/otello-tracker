@@ -12,11 +12,18 @@ pull request
   -> merge til main
   -> CI på main
   -> production environment-gate
+  -> sjekk ut og verifiser eksakt testet SHA
+  -> render og valider produksjonskonfigurasjon
+  -> production-shaped Worker dry-run
+  -> verifiser Worker-runtime, inkl. Europe/Oslo-tidssonedata
+  -> remote D1-migreringer
   -> Cloudflare deploy av eksakt testet SHA
   -> HTTP-akseptanse mot faktisk produksjon
   -> Worker-rollback dersom etterkontrollen feiler
 ```
 
-HTTP-akseptansen dekker aktive investorvisninger og sentrale datakontrakter, ikke bare `/api/health`.
+Ingen remote D1-endring skal skje før produksjonskonfigurasjonen og Worker-bundlen for den eksakte deploy-SHA-en er validert. Dette gir en ekstra fail-closed gate utover den ordinære `CI`-workflowen.
 
-D1-migreringer kjøres før Worker deployes. Worker-rollback reverserer ikke disse migreringene, så schemaendringer skal være additive og bakoverkompatible. Se `docs/migration-history.md` og `docs/runbook.md`.
+HTTP-akseptansen dekker aktive investorvisninger og sentrale datakontrakter, inkludert offentlig runtime-status, ikke bare `/api/health`.
+
+D1-migreringer kjøres fortsatt før selve Worker-deployen. Worker-rollback reverserer ikke disse migreringene, så schemaendringer skal være additive og bakoverkompatible. Se `docs/migration-history.md` og `docs/runbook.md`.
