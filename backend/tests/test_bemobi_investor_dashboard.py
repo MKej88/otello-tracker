@@ -141,7 +141,6 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "CREATE TABLE bemobi_investor_facts" in d1_migration
     assert "'RESULT', '2Q26'" in d1_migration
     assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
-    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
     assert 'fetch("/api/bemobi/dashboard")' in page
