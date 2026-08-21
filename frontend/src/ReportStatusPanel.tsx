@@ -63,6 +63,16 @@ function dateLabel(input?: string | null) {
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
+function timeLabel(input?: Date | null) {
+  if (!input) return "–";
+  return input.toLocaleString("nb-NO", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function moneyUsd(input?: number | null) {
   if (input == null || !Number.isFinite(input)) return "–";
   const abs = Math.abs(input);
@@ -130,11 +140,30 @@ function Metric({ label, change }: { label: string; change?: ComponentChange }) 
   );
 }
 
-function ReportPanel({ report }: { report: ReportStatus | null }) {
+function RefreshWarning({ refreshFailed, lastUpdatedAt }: { refreshFailed: boolean; lastUpdatedAt: Date | null }) {
+  if (!refreshFailed) return null;
+  return (
+    <div className="reportAlert">
+      <strong>Ny status kunne ikke hentes.</strong>
+      <span>
+        {lastUpdatedAt
+          ? `Siste gyldige rapportstatus beholdes, sist oppdatert ${timeLabel(lastUpdatedAt)}.`
+          : "Rapportstatus er foreløpig utilgjengelig. Nytt forsøk skjer automatisk."}
+      </span>
+    </div>
+  );
+}
+
+function ReportPanel({ report, refreshFailed, lastUpdatedAt }: {
+  report: ReportStatus | null;
+  refreshFailed: boolean;
+  lastUpdatedAt: Date | null;
+}) {
   if (!report) {
     return (
       <section className="card reportStatusCard">
-        <div className="reportHeader"><div><span className="label">Rapportkontroll</span><h2>Automatisk rapportinnlesing</h2></div><span className="reportStatusPill wait">LASTER</span></div>
+        <div className="reportHeader"><div><span className="label">Rapportkontroll</span><h2>Automatisk rapportinnlesing</h2></div><span className="reportStatusPill wait">{refreshFailed ? "UTILGJENGELIG" : "LASTER"}</span></div>
+        <RefreshWarning refreshFailed={refreshFailed} lastUpdatedAt={lastUpdatedAt} />
       </section>
     );
   }
@@ -146,6 +175,7 @@ function ReportPanel({ report }: { report: ReportStatus | null }) {
           <div><span className="label">Rapportkontroll</span><h2>Automatisk rapportinnlesing</h2></div>
           <span className="reportStatusPill wait">{statusText(report.status)}</span>
         </div>
+        <RefreshWarning refreshFailed={refreshFailed} lastUpdatedAt={lastUpdatedAt} />
         <p className="reportWaitingText">{report.message ?? "Venter på neste Otello-finansrapport."}</p>
         <div className="reportPipeline compact">
           <PipelineStep label="NewsWeb-overvåkning" done={report.automation?.newsweb_watch} />
@@ -172,6 +202,8 @@ function ReportPanel({ report }: { report: ReportStatus | null }) {
         </div>
         <span className={`reportStatusPill ${tone(report.status)}`}>{statusText(report.status)}</span>
       </div>
+
+      <RefreshWarning refreshFailed={refreshFailed} lastUpdatedAt={lastUpdatedAt} />
 
       <div className="reportPipeline">
         <PipelineStep label="NewsWeb" done={pipeline.newsweb_processed} />
@@ -213,6 +245,8 @@ function ReportPanel({ report }: { report: ReportStatus | null }) {
 export default function ReportStatusMount() {
   const [target, setTarget] = useState<Element | null>(null);
   const [report, setReport] = useState<ReportStatus | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     setTarget(document.querySelector(".main"));
@@ -226,8 +260,16 @@ export default function ReportStatusMount() {
           if (!response.ok) throw new Error("Report status API-feil");
           return response.json() as Promise<ReportStatus>;
         })
-        .then((data) => { if (active) setReport(data); })
-        .catch(() => { if (active) setReport(null); });
+        .then((data) => {
+          if (active) {
+            setReport(data);
+            setRefreshFailed(false);
+            setLastUpdatedAt(new Date());
+          }
+        })
+        .catch(() => {
+          if (active) setRefreshFailed(true);
+        });
     };
     load();
     const timer = window.setInterval(load, REFRESH_MS);
@@ -238,5 +280,8 @@ export default function ReportStatusMount() {
   }, []);
 
   if (!target) return null;
-  return createPortal(<ReportPanel report={report} />, target);
+  return createPortal(
+    <ReportPanel report={report} refreshFailed={refreshFailed} lastUpdatedAt={lastUpdatedAt} />,
+    target,
+  );
 }
