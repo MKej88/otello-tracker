@@ -4,20 +4,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
-def test_auto_deploy_waits_for_successful_main_ci_and_uses_tested_sha() -> None:
-    source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+def test_auto_deploy_is_called_only_after_complete_main_ci_and_uses_tested_sha() -> None:
+    deploy = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'workflow_run:' in source
-    assert 'workflows: ["CI"]' in source
-    assert 'types: [completed]' in source
-    assert "github.event.workflow_run.event == 'push'" in source
-    assert "github.event.workflow_run.head_branch == 'main'" in source
-    assert "github.event.workflow_run.conclusion == 'success'" in source
-    assert "github.event.workflow_run.head_sha" in source
-    assert "EXPECTED_SHA" in source
-    assert "git rev-parse HEAD" in source
+    assert "workflow_run:" not in deploy
+    assert "workflow_call:" in deploy
+    assert "tested_sha:" in deploy
+    assert "required: true" in deploy
+    assert "inputs.tested_sha != ''" in deploy
+    assert "inputs.tested_sha == github.sha" in deploy
+    assert "ref: ${{ inputs.tested_sha || github.sha }}" in deploy
+    assert "EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}" in deploy
+    assert "git rev-parse HEAD" in deploy
+
+    assert "  deploy-production:" in ci
+    deploy_job = ci.split("  deploy-production:\n", 1)[1]
+    assert "needs: [backend, frontend, d1-parity, worker, docker-reference]" in deploy_job
+    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in deploy_job
+    assert "uses: ./.github/workflows/deploy-cloudflare.yml" in deploy_job
+    assert "tested_sha: ${{ github.sha }}" in deploy_job
+    assert "secrets: inherit" in deploy_job
 
 
 def test_environment_scoped_auto_deploy_variable_is_resolved_after_environment_assignment() -> None:
@@ -38,3 +48,9 @@ def test_manual_production_deploy_is_limited_to_main() -> None:
 
     assert "github.event_name == 'workflow_dispatch'" in source
     assert "github.ref == 'refs/heads/main'" in source
+
+
+def test_production_checkout_does_not_persist_git_credentials() -> None:
+    source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    checkout = source.split("uses: actions/checkout@", 1)[1].split("\n\n", 1)[0]
+    assert "persist-credentials: false" in checkout
