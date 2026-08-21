@@ -34,6 +34,24 @@ chrome.stderr.on("data", (chunk) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function stopChrome() {
+  if (chrome.exitCode !== null || chrome.signalCode !== null) return;
+
+  chrome.kill("SIGTERM");
+  let deadline = Date.now() + 3000;
+  while (chrome.exitCode === null && chrome.signalCode === null && Date.now() < deadline) {
+    await sleep(50);
+  }
+
+  if (chrome.exitCode === null && chrome.signalCode === null) {
+    chrome.kill("SIGKILL");
+    deadline = Date.now() + 1000;
+    while (chrome.exitCode === null && chrome.signalCode === null && Date.now() < deadline) {
+      await sleep(50);
+    }
+  }
+}
+
 async function jsonFetch(url, init) {
   const response = await fetch(url, init);
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${url}`);
@@ -188,7 +206,19 @@ async function main() {
 try {
   await main();
 } finally {
-  chrome.kill("SIGTERM");
-  await sleep(100);
-  rmSync(profileDir, { recursive: true, force: true });
+  await stopChrome();
+  try {
+    rmSync(profileDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 100
+    });
+  } catch (error) {
+    if (["ENOTEMPTY", "EBUSY", "EPERM"].includes(error?.code)) {
+      console.warn(`Kunne ikke rydde midlertidig Chrome-profil ${profileDir}: ${error.code}`);
+    } else {
+      throw error;
+    }
+  }
 }
