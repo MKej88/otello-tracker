@@ -1,0 +1,55 @@
+import { useEffect, useState } from "react";
+
+export type PollingResourceState<T> = {
+  data: T | null;
+  refreshFailed: boolean;
+  lastUpdatedAt: Date | null;
+};
+
+export function usePollingResource<T>(url: string, intervalMs: number): PollingResourceState<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    let controller: AbortController | null = null;
+
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const currentController = new AbortController();
+      controller = currentController;
+
+      try {
+        const response = await fetch(url, { signal: currentController.signal });
+        if (!response.ok) {
+          throw new Error(`Polling API-feil: ${response.status}`);
+        }
+        const result = await response.json() as T;
+        if (!active) return;
+        setData(result);
+        setRefreshFailed(false);
+        setLastUpdatedAt(new Date());
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setRefreshFailed(true);
+      } finally {
+        if (controller === currentController) controller = null;
+        inFlight = false;
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => { void load(); }, intervalMs);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      controller?.abort();
+    };
+  }, [url, intervalMs]);
+
+  return { data, refreshFailed, lastUpdatedAt };
+}
