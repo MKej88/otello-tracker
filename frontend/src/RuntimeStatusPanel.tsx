@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePollingResource } from "./usePollingResource";
 import "./runtime-status.css";
 
 type JobStatus = {
@@ -146,37 +147,13 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
 
 export default function RuntimeStatusMount() {
   const [target, setTarget] = useState<Element | null>(null);
-  const [data, setData] = useState<RuntimeStatus | null>(null);
-  const [refreshFailed, setRefreshFailed] = useState(false);
+  const { data, refreshFailed } = usePollingResource<RuntimeStatus>(
+    "/api/dashboard/runtime-status",
+    REFRESH_MS,
+  );
 
   useEffect(() => {
     setTarget(document.querySelector(".main"));
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      fetch("/api/dashboard/runtime-status")
-        .then((response) => {
-          if (!response.ok) throw new Error("Runtime status API-feil");
-          return response.json() as Promise<RuntimeStatus>;
-        })
-        .then((result) => {
-          if (active) {
-            setData(result);
-            setRefreshFailed(false);
-          }
-        })
-        .catch(() => {
-          if (active) setRefreshFailed(true);
-        });
-    };
-    load();
-    const timer = window.setInterval(load, REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
   }, []);
 
   if (!target) return null;

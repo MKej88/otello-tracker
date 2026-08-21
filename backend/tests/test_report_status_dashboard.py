@@ -120,10 +120,13 @@ def test_frontend_mount_and_api_route_are_wired() -> None:
     app = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
     panel = (ROOT / "frontend" / "src" / "ReportStatusPanel.tsx").read_text(encoding="utf-8")
+    polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(encoding="utf-8")
 
     assert '@app.get("/api/dashboard/report-status")' in app
     assert "report_status_summary" in app
     assert "<ReportStatusMount />" in main
-    assert 'fetch("/api/dashboard/report-status")' in panel
+    assert '"/api/dashboard/report-status"' in panel
+    assert "usePollingResource<ReportStatus>" in panel
+    assert "fetch(url" in polling
     assert "PDF hentet" in panel
     assert "NAV bygget på nytt" in panel
