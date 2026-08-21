@@ -3,6 +3,7 @@ import BemobiPage from "./BemobiPage";
 import BuybackPage from "./BuybackPage";
 import ConsensusPage from "./ConsensusPage";
 import EconomicNavPanel from "./EconomicNavPanel";
+import HistoryPage from "./HistoryPage";
 import NavWaterfallPanel from "./NavWaterfallPanel";
 
 type ChangeSet = {
@@ -113,7 +114,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";
+type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøp" | "Bemobi" | "Konsensus";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -123,7 +124,7 @@ const initialForecast: BuybackForecast = { ready: false, status: "loading" };
 const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "Oversikt", enabled: true },
   { label: "NAV", enabled: true },
-  { label: "Historikk", enabled: false },
+  { label: "Historikk", enabled: true },
   { label: "Tilbakekjøp", enabled: true },
   { label: "Bemobi", enabled: true },
   { label: "Konsensus", enabled: true },
@@ -385,13 +386,15 @@ export default function App() {
   const timestampStatus = timestamps?.status ?? "UNKNOWN";
   const pageTitle = activeView === "NAV"
     ? "NAV og verdsettelse"
-    : activeView === "Tilbakekjøp"
-      ? "Tilbakekjøp"
-      : activeView === "Bemobi"
-        ? "Bemobi"
-        : activeView === "Konsensus"
-          ? "Konsensus"
-          : "Otello investoroversikt";
+    : activeView === "Historikk"
+      ? "Historisk NAV-rabatt"
+      : activeView === "Tilbakekjøp"
+        ? "Tilbakekjøp"
+        : activeView === "Bemobi"
+          ? "Bemobi"
+          : activeView === "Konsensus"
+            ? "Konsensus"
+            : "Otello investoroversikt";
 
   return (
     <div className="shell">
@@ -511,6 +514,8 @@ export default function App() {
               </article>
             </section>
           </>
+        ) : activeView === "Historikk" ? (
+          <HistoryPage />
         ) : activeView === "Tilbakekjøp" ? (
           <BuybackPage />
         ) : activeView === "Bemobi" ? (
