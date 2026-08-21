@@ -2,9 +2,12 @@ name: Deploy Cloudflare production
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      tested_sha:
+        description: "Eksakt main-SHA som har bestått hele CI-kjeden"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -17,10 +20,9 @@ jobs:
   gate:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.conclusion == 'success')
+      (inputs.tested_sha != '' &&
+       github.ref == 'refs/heads/main' &&
+       inputs.tested_sha == github.sha)
     runs-on: ubuntu-latest
     environment: production
     outputs:
@@ -37,7 +39,7 @@ jobs:
             echo "Manual production deploy approved for main."
           elif [ "$AUTO_DEPLOY_ENABLED" = "true" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "Automatic production deploy is enabled."
+            echo "Automatic production deploy is enabled after the complete CI gate."
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             echo "Automatic production deploy is disabled by the production environment variable."
@@ -63,12 +65,13 @@ jobs:
       - name: Check out tested production revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.tested_sha || github.sha }}
+          persist-credentials: false
 
       - name: Verify deployment revision
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}
         run: |
           actual_sha="$(git rev-parse HEAD)"
           if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
