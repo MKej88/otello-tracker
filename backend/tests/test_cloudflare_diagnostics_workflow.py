@@ -41,6 +41,23 @@ def test_cloudflare_diagnostics_reads_d1_without_write_operations() -> None:
         assert mutation not in workflow
 
 
+def test_cloudflare_diagnostics_uses_dedicated_read_only_token() -> None:
+    workflow = _workflow_text()
+    assert "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}" in workflow
+    assert "GitHub secret CLOUDFLARE_READ_TOKEN mangler" in workflow
+    assert "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}" not in workflow
+
+
+def test_manual_diagnostics_reports_old_failure_without_failing_probe() -> None:
+    workflow = _workflow_text()
+    assert "id: workflow_report" in workflow
+    assert "production_unhealthy=" in workflow
+    assert "Diagnostikken fant en feilet Cloudflare Workflow-instans" in workflow
+    assert "github.event_name == 'schedule'" in workflow
+    assert "steps.workflow_report.outputs.production_unhealthy == 'true'" in workflow
+    assert "Den valgte Cloudflare Workflow-instansen har feilet" not in workflow
+
+
 def test_cloudflare_diagnostics_keeps_minimal_github_permissions() -> None:
     workflow = _workflow_text()
     assert "permissions:\n  contents: read" in workflow
