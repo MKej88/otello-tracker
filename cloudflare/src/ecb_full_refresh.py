@@ -19,6 +19,8 @@ except ImportError:
         refresh_norges_bank_fx,
     )
 
+__all__ = ("ensure_fx_backtest_history", "refresh_ecb_fx")
+
 
 async def refresh_ecb_fx(
     repository,
