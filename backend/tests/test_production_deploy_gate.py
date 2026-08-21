@@ -28,6 +28,9 @@ def test_auto_deploy_is_called_only_after_complete_main_ci_and_uses_tested_sha()
     assert "uses: ./.github/workflows/deploy-cloudflare.yml" in deploy_job
     assert "tested_sha: ${{ github.sha }}" in deploy_job
     assert "secrets: inherit" not in deploy_job
+    assert "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}" in deploy_job
+    assert "CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" in deploy_job
+    assert "CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}" in deploy_job
 
 
 def test_environment_scoped_auto_deploy_variable_is_resolved_after_environment_assignment() -> None:
