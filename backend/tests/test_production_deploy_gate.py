@@ -27,7 +27,7 @@ def test_auto_deploy_is_called_only_after_complete_main_ci_and_uses_tested_sha()
     assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in deploy_job
     assert "uses: ./.github/workflows/deploy-cloudflare.yml" in deploy_job
     assert "tested_sha: ${{ github.sha }}" in deploy_job
-    assert "secrets: inherit" in deploy_job
+    assert "secrets: inherit" not in deploy_job
 
 
 def test_environment_scoped_auto_deploy_variable_is_resolved_after_environment_assignment() -> None:
