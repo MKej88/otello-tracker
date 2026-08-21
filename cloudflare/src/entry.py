@@ -152,7 +152,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
     async def run(self, event, step):
         from b3_full_refresh import refresh_bmob3_close
-        from bemobi_web_refresh_v2 import refresh_bemobi_web
+        from bemobi_web_refresh_runtime import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
         from full_refresh import (
             error_result,
