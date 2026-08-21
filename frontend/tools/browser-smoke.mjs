@@ -192,6 +192,7 @@ async function clickView(session, label, heading, readySelector) {
   const body = await session.evaluate("document.body.innerText");
   for (const errorText of [
     "Kunne ikke hente investordata.",
+    "Kunne ikke hente historikkdata.",
     "Kunne ikke hente tilbakekjøpsdata.",
     "Kunne ikke hente Bemobi-data.",
     "Kunne ikke hente konsensusdata."
@@ -217,7 +218,7 @@ async function main() {
     "vellykket API-tilkobling"
   );
 
-  const disabledViewsOk = await session.evaluate(`['Historikk', 'Nyheter', 'Innstillinger'].every((label) => {
+  const disabledViewsOk = await session.evaluate(`['Nyheter', 'Innstillinger'].every((label) => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === label);
     return Boolean(button?.disabled);
   })`);
@@ -225,11 +226,12 @@ async function main() {
 
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
   await clickView(session, "NAV", "NAV og verdsettelse", ".navCompositionGrid");
+  await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyPage");
   await clickView(session, "Tilbakekjøp", "Tilbakekjøp", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
 
-  console.log("Browser-smoke bestått for Oversikt, NAV, Tilbakekjøp, Bemobi og Konsensus.");
+  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøp, Bemobi og Konsensus.");
   session.close();
 }
 
