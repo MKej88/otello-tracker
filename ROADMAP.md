@@ -22,31 +22,31 @@ Når rapporten publiseres:
 8. rebuild CORE/FULL og økonomisk NAV;
 9. kjør SQLite/D1-paritet, produksjonspreflight og frontend-smoke.
 
+## Teknisk status ferdigstilt 20.08.2026
+
+- Bemobi-resultater, forward-konsensus og historiske konsensussnapshots er flyttet til D1 med kildeprovenance og automatisk innhenting der offentlig kilde finnes.
+- Norges Bank er primær kilde for direkte BRL/NOK og USD/NOK, med historisk gjenoppbygging og ECB som bevart fallback/provenance.
+- Full Workflow har fornybar writer-lock og tydelig fail-closed klassifisering for kritiske kilde-, NAV- og preflight-feil.
+- Aktive API-endepunkter sammenlignes mot SQLite-referansen i CI.
+- Aktive investorvisninger har ekte headless browser-smoke i CI: Oversikt, NAV, Tilbakekjøp, Bemobi og Konsensus.
+- Produksjonskritiske GitHub Actions er låst til immutable commit-SHA-er, og Dependabot følger GitHub Actions, frontend/npm og backend/pip.
+
 ## Teknisk prioritet
 
-### 1. Flytt finansielle fakta ut av Python-kode
+### 1. Otello 1H26 – automatisert rapportløp
 
-Bemobi-resultater, meglerestimater og konsensus bør gradvis lagres i D1 med kildeprovenance i stedet for å være hardkodet i Python. Tabellenes grunnstruktur finnes allerede.
+Neste prioritet er å bruke 1H26 som full produksjonstest av den automatiske rapportkjeden: oppdagelse, PDF-parser, fail-closed validering, rapporterte ankere, NAV-rebuild og preflight. Eventuelle manuelle inngrep skal dokumenteres og reduseres dersom de kan automatiseres uten å svekke kildekontrollen.
 
-Målet er at nye rapporter/megleroppdateringer skal være dataoppdateringer, ikke kodeendringer.
+### 2. Frontend-feiltilstander
 
-### 2. Frontend-smoketester
+Browser-smoke dekker nå alle aktive normalvisninger. Neste nyttige utvidelse er en deterministisk browser-test av feil ved ny API-henting mens sist gyldige investor-data beholdes, slik at stale-data-varselet ikke kan regressere.
 
-Legg til et lite sett automatiske tester for aktive visninger:
+### 3. Videre CI- og supply-chain-herding
 
-- Oversikt
-- NAV
-- Tilbakekjøp
-- Bemobi
-- Konsensus
-- feiltilstand/sist gyldige data
-
-### 3. CI- og supply-chain-herding
-
-- gradvis strengere Ruff-regler;
-- vurder Dependabot/Renovate;
-- vurder CodeQL;
-- lås produksjonskritiske GitHub Actions til immutable commit-SHA-er.
+- stram Ruff-reglene gradvis uten store støy-PR-er;
+- vurder CodeQL som separat sikkerhetskontroll;
+- behold immutable Action-SHA-er som obligatorisk CI-regel;
+- la Dependabot foreslå oppgraderinger, men krev ordinær CI før merge.
 
 ## Prinsipper
 

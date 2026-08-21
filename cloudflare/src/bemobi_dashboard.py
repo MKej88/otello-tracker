@@ -317,6 +317,6 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
         "sources": sources,
         "note": (
             "BMOB3 og markedsverdi følger NAV-grunnlaget. Eierandel, rapporttall og "
-            "verdsettelsesankre leses fra kildebelagte Bemobi-fakta i D1."
+            "verdsettelsesankre leses fra kildebelagte Bemobi-fakta i databasen."
         ),
     }
