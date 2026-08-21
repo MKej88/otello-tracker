@@ -9,6 +9,10 @@ type JobStatus = {
   finished_at?: string | null;
   target_date?: string | null;
   error_message?: string | null;
+  has_error?: boolean;
+  stale?: boolean;
+  age_minutes?: number | null;
+  reason?: string | null;
 };
 
 type RuntimeStatus = {
@@ -21,6 +25,7 @@ type RuntimeStatus = {
     status: string;
     checked_at?: string | null;
     error_message?: string | null;
+    has_error?: boolean;
   };
   fx: {
     expected_date?: string | null;
@@ -70,14 +75,18 @@ function tone(status?: string | null) {
   return "warn";
 }
 
-function RuntimePanel({ data }: { data: RuntimeStatus | null }) {
+function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; refreshFailed: boolean }) {
   if (!data) {
     return (
       <section className="card runtimeStatusCard">
         <div className="runtimeHeader"><div><span className="label">Drift</span><h2>Produksjonsstatus</h2></div><span className="runtimePill warn">LASTER</span></div>
+        {refreshFailed && <p className="runtimeError">Kunne ikke hente produksjonsstatus.</p>}
       </section>
     );
   }
+
+  const staleJob = data.full_refresh.stale || data.fast_refresh.stale;
+  const hiddenError = data.full_refresh.has_error || data.fast_refresh.has_error || data.norges_bank.has_error;
 
   return (
     <section className="card runtimeStatusCard">
@@ -91,12 +100,12 @@ function RuntimePanel({ data }: { data: RuntimeStatus | null }) {
       </div>
 
       <div className="runtimeGrid">
-        <div className="runtimeMetric">
+        <div className={`runtimeMetric ${data.full_refresh.stale ? "runtimeMetricWarn" : ""}`}>
           <span>Full oppdatering</span>
           <strong>{statusLabel(data.full_refresh.status)}</strong>
           <small>{timeLabel(data.full_refresh.finished_at ?? data.full_refresh.started_at)}</small>
         </div>
-        <div className="runtimeMetric">
+        <div className={`runtimeMetric ${data.fast_refresh.stale ? "runtimeMetricWarn" : ""}`}>
           <span>30-min oppdatering</span>
           <strong>{statusLabel(data.fast_refresh.status)}</strong>
           <small>{timeLabel(data.fast_refresh.finished_at ?? data.fast_refresh.started_at)}</small>
@@ -113,13 +122,23 @@ function RuntimePanel({ data }: { data: RuntimeStatus | null }) {
         </div>
       </div>
 
+      {refreshFailed && (
+        <div className="runtimeAlert">
+          Ny status kunne ikke hentes. Siste gyldige produksjonsstatus beholdes, sist kontrollert {timeLabel(data.checked_at)}.
+        </div>
+      )}
       {!data.fx.current && (
         <div className="runtimeAlert">
           Valutaen er eldre enn forventet. 30-minuttersjobben vil forsøke en begrenset Norges Bank-reparasjon automatisk.
         </div>
       )}
-      {(data.full_refresh.error_message || data.norges_bank.error_message) && (
-        <p className="runtimeError">{data.norges_bank.error_message ?? data.full_refresh.error_message}</p>
+      {staleJob && (
+        <div className="runtimeAlert">
+          En automatisk jobb er eldre enn forventet. Detaljert driftsdiagnose ligger i den private GitHub-kontrollen.
+        </div>
+      )}
+      {hiddenError && (
+        <p className="runtimeError">Et produksjonsavvik er registrert. Detaljer vises kun i privat driftsdiagnostikk.</p>
       )}
     </section>
   );
@@ -128,6 +147,7 @@ function RuntimePanel({ data }: { data: RuntimeStatus | null }) {
 export default function RuntimeStatusMount() {
   const [target, setTarget] = useState<Element | null>(null);
   const [data, setData] = useState<RuntimeStatus | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   useEffect(() => {
     setTarget(document.querySelector(".main"));
@@ -141,8 +161,15 @@ export default function RuntimeStatusMount() {
           if (!response.ok) throw new Error("Runtime status API-feil");
           return response.json() as Promise<RuntimeStatus>;
         })
-        .then((result) => { if (active) setData(result); })
-        .catch(() => { if (active) setData(null); });
+        .then((result) => {
+          if (active) {
+            setData(result);
+            setRefreshFailed(false);
+          }
+        })
+        .catch(() => {
+          if (active) setRefreshFailed(true);
+        });
     };
     load();
     const timer = window.setInterval(load, REFRESH_MS);
@@ -153,5 +180,5 @@ export default function RuntimeStatusMount() {
   }, []);
 
   if (!target) return null;
-  return createPortal(<RuntimePanel data={data} />, target);
+  return createPortal(<RuntimePanel data={data} refreshFailed={refreshFailed} />, target);
 }
