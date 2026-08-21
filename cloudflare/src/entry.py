@@ -170,6 +170,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from otello_report_ingestion import process_pending_otello_reports
         from performance_repository import PerformanceD1WriteRepository
         from r2_snapshot import archive_d1_snapshot
+        from status_email import send_full_refresh_status_email
 
         target_date = _workflow_target_date(event)
         trigger = _workflow_trigger(event)
@@ -493,6 +494,47 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     archive_result=archive_result,
                 )
 
-            return await finish_step()
+            result = await finish_step()
+
+            @step.do(
+                "send nightly status email",
+                config={"retries": {"limit": 1, "delay": "10 seconds"}, "timeout": "2 minutes"},
+            )
+            async def email_step():
+                return await send_full_refresh_status_email(self.env, result)
+
+            await email_step()
+            return result
+        except Exception as exc:
+            failure_result = {
+                "status": "FAILED",
+                "job_id": locals().get("job_id"),
+                "target_date": target_date,
+                "records_written": 0,
+                "source_health": {},
+                "critical_errors": [
+                    {
+                        "step": "workflow",
+                        "error": str(exc)[:1000] or type(exc).__name__,
+                    }
+                ],
+                "preflight": locals().get("preflight_result", {}),
+                "errors": [
+                    {
+                        "step": "workflow",
+                        "error": str(exc)[:1000] or type(exc).__name__,
+                    }
+                ],
+            }
+
+            @step.do(
+                "send nightly failure status email",
+                config={"retries": {"limit": 1, "delay": "10 seconds"}, "timeout": "2 minutes"},
+            )
+            async def failure_email_step():
+                return await send_full_refresh_status_email(self.env, failure_result)
+
+            await failure_email_step()
+            raise
         finally:
             await release_step()
