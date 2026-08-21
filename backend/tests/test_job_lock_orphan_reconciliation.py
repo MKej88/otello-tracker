@@ -12,7 +12,7 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 
 from job_lock import (  # noqa: E402
     LOCK_KEY,
-    ORPHANED_FULL_REFRESH_REASON,
+    ORPHANED_REFRESH_REASON,
     acquire_refresh_lock,
 )
 
@@ -37,6 +37,14 @@ class FakeRepository:
                 "status": "RUNNING",
                 "error_message": None,
             },
+            {
+                "id": 3,
+                "job_name": "cloudflare_fast_refresh",
+                "started_at": "2026-08-21T09:30:00Z",
+                "finished_at": None,
+                "status": "RUNNING",
+                "error_message": None,
+            },
         ]
 
     async def run(self, sql: str, parameters=()):
@@ -54,10 +62,10 @@ class FakeRepository:
             return None
 
         if normalized.startswith("UPDATE JOB_RUNS"):
-            finished_at, reason, job_name, before = parameters
+            finished_at, reason, full_job_name, fast_job_name, before = parameters
             for row in self.jobs:
                 if (
-                    row["job_name"] == job_name
+                    row["job_name"] in {full_job_name, fast_job_name}
                     and row["status"] == "RUNNING"
                     and row["started_at"] < before
                 ):
@@ -78,7 +86,7 @@ class FakeRepository:
         return {"value": self.lock}
 
 
-def test_acquiring_writer_lock_reconciles_orphaned_full_refresh() -> None:
+def test_acquiring_writer_lock_reconciles_orphaned_writer_jobs() -> None:
     repository = FakeRepository()
     result = asyncio.run(
         acquire_refresh_lock(
@@ -91,21 +99,19 @@ def test_acquiring_writer_lock_reconciles_orphaned_full_refresh() -> None:
 
     assert result["acquired"] is True
     assert result["orphan_reconciliation_error"] is None
-    assert repository.jobs[0] == {
-        "id": 1,
-        "job_name": "cloudflare_full_refresh",
-        "started_at": "2026-08-21T03:35:55Z",
-        "finished_at": "2026-08-21T09:30:00Z",
-        "status": "FAILED",
-        "error_message": ORPHANED_FULL_REFRESH_REASON,
-    }
-    assert repository.jobs[1]["status"] == "RUNNING"
-    assert repository.jobs[1]["finished_at"] is None
+    for row in repository.jobs[:2]:
+        assert row["finished_at"] == "2026-08-21T09:30:00Z"
+        assert row["status"] == "FAILED"
+        assert row["error_message"] == ORPHANED_REFRESH_REASON
+
+    # Same-timestamp retry/current fast job is not orphaned by strict started_at < finished_at.
+    assert repository.jobs[2]["status"] == "RUNNING"
+    assert repository.jobs[2]["finished_at"] is None
 
 
-def test_failed_lock_acquisition_does_not_reconcile_full_refresh() -> None:
+def test_failed_lock_acquisition_does_not_reconcile_writer_jobs() -> None:
     repository = FakeRepository(
-        held_lock="full:2026-08-21:workflow_schedule|2026-08-21T12:00:00Z"
+        held_lock="full:2026-08-21:existing-instance|2026-08-21T12:00:00Z"
     )
     result = asyncio.run(
         acquire_refresh_lock(
@@ -118,5 +124,5 @@ def test_failed_lock_acquisition_does_not_reconcile_full_refresh() -> None:
 
     assert result["acquired"] is False
     assert result["orphan_reconciliation_error"] is None
-    assert repository.jobs[0]["status"] == "RUNNING"
-    assert repository.jobs[0]["finished_at"] is None
+    assert all(row["status"] == "RUNNING" for row in repository.jobs)
+    assert all(row["finished_at"] is None for row in repository.jobs)
