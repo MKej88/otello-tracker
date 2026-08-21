@@ -16,7 +16,7 @@ from quote_details import market_quote_details
 from report_status import report_status_summary
 from runtime_status import runtime_status_summary
 
-API_VERSION = "0.12.2"
+API_VERSION = "0.12.1"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -29,7 +29,7 @@ CACHE_POLICIES = {
     "/api/health": ("no-store", "no-store"),
     "/api/dashboard/summary": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/report-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
-    "/api/dashboard/runtime-status": ("no-store", "no-store"),
+    "/api/dashboard/runtime-status": ("public, max-age=15", "public, max-age=30, stale-while-revalidate=60"),
     "/api/dashboard/economic": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
