@@ -8,6 +8,7 @@ from bemobi_source_status import bemobi_source_status
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
+from discount_history import discount_history
 from economic_nav_investor import economic_nav_summary
 from fx_backtest import fx_backtest_summary
 from nav_waterfall_settlement import nav_waterfall_summary
@@ -34,6 +35,7 @@ CACHE_POLICIES = {
     "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
     "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
+    "/api/dashboard/discount-history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/buybacks/forecast": ("public, max-age=300", "public, max-age=900, stale-while-revalidate=1800"),
     "/api/buybacks/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
@@ -123,6 +125,15 @@ async def get_dashboard_history(
 ) -> dict:
     repository = _repository(request)
     return await dashboard_history(repository, days=days, max_points=max_points)
+
+
+@app.get("/api/dashboard/discount-history")
+async def get_discount_history(
+    request: Request,
+    days: int = Query(default=365, ge=30, le=3650),
+    max_points: int = Query(default=600, ge=50, le=1000),
+) -> dict:
+    return await discount_history(_repository(request), days=days, max_points=max_points)
 
 
 @app.get("/api/market/quotes")
