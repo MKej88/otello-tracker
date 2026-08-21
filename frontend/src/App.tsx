@@ -314,15 +314,21 @@ export default function App() {
           return response.json() as Promise<History>;
         }),
         fetch("/api/buybacks/forecast").then((response) => {
-          if (!response.ok) return initialForecast;
+          if (!response.ok) throw new Error("Forecast API-feil");
           return response.json() as Promise<BuybackForecast>;
-        }).catch(() => initialForecast)
+        }).catch(() => null)
       ])
         .then(([summaryData, historyData, forecastData]) => {
           if (!active) return;
           setSummary(summaryData);
           setHistory(historyData);
-          setForecast(forecastData);
+          if (forecastData) {
+            setForecast(forecastData);
+          } else {
+            setForecast((current) => current.ready
+              ? { ...current, status: "FETCH_STALE" }
+              : { ready: false, status: "API_ERROR" });
+          }
           setApiOk(true);
           setRefreshFailed(false);
           setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
@@ -468,7 +474,13 @@ export default function App() {
               <article className="card">
                 <div className="cardHeader">
                   <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
-                  <span className="pill muted">{forecast.ready ? statusLabel(forecastEstimate?.confidence) : statusLabel(forecast.status)}</span>
+                  <span className="pill muted">
+                    {forecast.status === "FETCH_STALE"
+                      ? "PROGNOSE UTDATERT"
+                      : forecast.ready
+                        ? statusLabel(forecastEstimate?.confidence)
+                        : statusLabel(forecast.status)}
+                  </span>
                 </div>
                 <div className="placeholderRows">
                   <div><span>Siste rapporterte kjøp</span><strong>{latestBuyback ? `${integer.format(latestBuyback.shares)} aksjer` : "–"}</strong></div>
@@ -477,6 +489,9 @@ export default function App() {
                     <strong>{forecastEstimate ? `${integer.format(forecastEstimate.base_case_shares)} aksjer` : "–"}</strong>
                   </div>
                   <div><span>Estimatintervall</span><strong>{forecastEstimate ? `${integer.format(forecastEstimate.low_shares)}–${integer.format(forecastEstimate.high_shares)}` : "–"}</strong></div>
+                  {forecast.status === "FETCH_STALE" && (
+                    <div><span>Datastatus</span><strong>Viser sist gode prognose</strong></div>
+                  )}
                   {forecastEstimate?.warning && <div><span>Varsel</span><strong>{warningLabel(forecastEstimate.warning)}</strong></div>}
                 </div>
               </article>
