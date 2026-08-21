@@ -326,6 +326,5 @@ jobs:
     uses: ./.github/workflows/deploy-cloudflare.yml
     with:
       tested_sha: ${{ github.sha }}
-    secrets: inherit
 
 # Docker remains only a regression/reference implementation and is not the production target.
