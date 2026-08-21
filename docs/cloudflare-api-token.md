@@ -1,8 +1,18 @@
-# Cloudflare API-token for produksjonsdeploy
+# Cloudflare API-token for produksjon
 
-GitHub Actions bruker et avgrenset Cloudflare Account API Token.
+GitHub Actions bruker to separate Cloudflare Account API Token: ett skrive-token for produksjonsdeploy og ett skrivebeskyttet token for drift-/D1-diagnostikk. Tokenverdier skal aldri legges i Git, dokumentasjon, logger eller chat.
 
-## Påkrevde konto-rettigheter
+## 1. Produksjonsdeploy
+
+GitHub secret:
+
+```text
+CLOUDFLARE_API_TOKEN
+```
+
+Tokenet brukes bare av produksjonsdeployen og trenger skriveadgang til ressursene som Wrangler faktisk oppdaterer.
+
+### Påkrevde konto-rettigheter
 
 Policy på **Entire Account**:
 
@@ -11,7 +21,7 @@ Policy på **Entire Account**:
 - `Workers R2 Storage Write`
 - `Account Settings Read`
 
-## Påkrevd domene-rettighet
+### Påkrevd domene-rettighet
 
 Egen policy på **Specified Domains → produksjonsdomenet**:
 
@@ -23,12 +33,27 @@ For Otello-produksjon skal domeneressursen begrenses til `otellotracker.com`.
 
 Ingen DNS Write-, Zone Write-, WAF Write-, KV- eller bredere administratorrettigheter er nødvendige for den normale GitHub-deployen.
 
-## GitHub secret
+## 2. Skrivebeskyttet produksjonsdiagnostikk
 
-Tokenverdien lagres kun som:
+GitHub secret:
 
 ```text
-CLOUDFLARE_API_TOKEN
+CLOUDFLARE_READ_TOKEN
 ```
 
-under GitHub `production` environment. Tokenverdien skal ikke legges i Git, dokumentasjon, logger eller chat.
+Den planlagte GitHub-workflowen `.github/workflows/cloudflare-workflow-diagnostics.yml` bruker dette tokenet til å lese status fra Cloudflare Workflows og produksjons-D1 etter nattkjøringen.
+
+På **Entire Account** skal tokenet ha minst:
+
+- `Workers Scripts Read`
+- `D1 Read`
+
+Tokenet skal **ikke** ha Workers-, D1-, R2- eller andre skrive-rettigheter. Dersom diagnostikken senere utvides til å lese R2-arkiv eller live Worker-logger, kan henholdsvis `Workers R2 Storage Read` eller `Workers Tail Read` legges til eksplisitt da. De er ikke nødvendige for dagens Workflow-/D1-diagnostikk.
+
+Diagnostikken bruker samme konto-ID som deployen:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+```
+
+Den skrivebeskyttede workflowen skal ikke trigge Cloudflare Workflows, endre D1 eller utføre andre produksjonswrites. Et avvik rapporteres kun gjennom GitHub Actions.

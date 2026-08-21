@@ -6,19 +6,21 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 20.08.2026 til `0021_norges_bank_fx_source.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 21.08.2026 til `0022_bemobi_consensus_history.sql`.
 
 - `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
 - `0020` kobler automatiske Bemobi-fakta til `source_documents` og registrerer de eksplisitte sekundærkildene MarketScreener og XP.
 - `0021` registrerer Norges Bank som ny autoritativ valutakilde for direkte BRL/NOK- og USD/NOK-kurser. Historiske ECB-rader beholdes som provenance/fallback og slettes ikke.
+- `0022` oppretter historikklagene `bemobi_forward_consensus_snapshots` og `bemobi_consensus_events` og migrerer den kuraterte konsensushistorikken inn i databasen.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 20.08.2026 til `0011_norges_bank_fx_source.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 21.08.2026 til `0012_bemobi_consensus_history.sql`.
 
 - `0009` oppretter og seeder Bemobi-faktalaget i D1.
 - `0010` legger til samme webproveniens og kilderegistrering som SQLite `0020`.
 - `0011` registrerer Norges Bank som samme nye FX-kilde som SQLite `0021`.
+- `0012` oppretter og seeder samme Bemobi-konsensushistorikk som SQLite `0022`.
 
 SQLite og D1 skal fortsatt være strukturelt og logisk kompatible og inngår i den deterministiske paritetskontrollen.
 
@@ -33,8 +35,8 @@ Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk 
 
 **Neste nye migrering skal minst være:**
 
-- SQLite: `0022_...`
-- Cloudflare D1: `0012_...`
+- SQLite: `0023_...`
+- Cloudflare D1: `0013_...`
 
 ## Regel for nye migreringer
 
