@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 8
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WORKFLOW_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_name || 'otello-full-refresh' }}
       REQUESTED_INSTANCE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.instance_id || 'latest' }}
@@ -44,7 +44,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "$CLOUDFLARE_API_TOKEN"
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo '::error::GitHub secret CLOUDFLARE_READ_TOKEN mangler.'
+            exit 1
+          fi
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$D1_DATABASE_NAME"
           [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[A-Za-z0-9_-]+$ ]]
@@ -103,6 +106,7 @@ jobs:
             --output detail.json
 
       - name: Report status, retries and errors
+        id: workflow_report
         shell: bash
         env:
           RESOLVED_INSTANCE_ID: ${{ steps.fetch.outputs.resolved_instance_id }}
@@ -198,13 +202,31 @@ jobs:
                   f"{clean(instance.get('ended_on') or '-')} |"
               )
 
+          production_unhealthy = (
+              result.get("status") in {"errored", "terminated"}
+              or result.get("success") is False
+          )
+          lines.extend([
+              "",
+              "## Diagnoseutfall",
+              "",
+              (
+                  "- Diagnostikken kunne lese Workflow-instansen, men fant et produksjonsavvik."
+                  if production_unhealthy
+                  else "- Diagnostikken kunne lese Workflow-instansen uten produksjonsavvik."
+              ),
+          ])
+
           report = "\n".join(lines) + "\n"
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
-
-          if result.get("status") in {"errored", "terminated"} or result.get("success") is False:
-              raise SystemExit("Den valgte Cloudflare Workflow-instansen har feilet")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(
+                  f"production_unhealthy={'true' if production_unhealthy else 'false'}\n"
+              )
+          if production_unhealthy:
+              print("::warning::Diagnostikken fant en feilet Cloudflare Workflow-instans.")
           PY
 
       - name: Read production D1 diagnostics
@@ -436,3 +458,13 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
           PY
+
+      - name: Alert on unhealthy scheduled production
+        if: >-
+          always() &&
+          github.event_name == 'schedule' &&
+          steps.workflow_report.outputs.production_unhealthy == 'true'
+        shell: bash
+        run: |
+          echo '::error::Den automatiske diagnosen fant en feilet Cloudflare Workflow-instans.'
+          exit 1
