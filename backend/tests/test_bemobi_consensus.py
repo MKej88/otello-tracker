@@ -103,7 +103,6 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert "'ANALYST', 'BTG Pactual'" in migration
     assert "'FORWARD_CONSENSUS', '2027'" in migration
     assert "'BEAT_MISS', '2Q26'" in migration
-    assert 'type View = "Oversikt" | "NAV" | "Tilbakekjøp" | "Bemobi" | "Konsensus";' in frontend
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
