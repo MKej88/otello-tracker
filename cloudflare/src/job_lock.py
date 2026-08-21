@@ -4,6 +4,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 LOCK_KEY = "cloudflare_refresh_writer_lock"
+FULL_REFRESH_JOB_NAME = "cloudflare_full_refresh"
+ORPHANED_FULL_REFRESH_REASON = (
+    "Full refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
+    "became available"
+)
 
 
 def _iso(value: datetime) -> str:
@@ -12,6 +17,32 @@ def _iso(value: datetime) -> str:
 
 def _lease_expiry(now: datetime, ttl_seconds: int) -> str:
     return _iso(now + timedelta(seconds=max(60, int(ttl_seconds))))
+
+
+async def _reconcile_orphaned_full_refresh_jobs(repository, *, finished_at: str) -> None:
+    """Close full-refresh job rows that survived after their writer lease ended.
+
+    This is only called after a new writer has atomically acquired the shared lock. At that
+    point an older full refresh cannot still be the active writer, so any RUNNING full-refresh
+    row that predates the new lease is orphaned rather than genuinely in progress.
+    """
+    await repository.run(
+        """
+        UPDATE job_runs
+        SET finished_at=?,
+            status='FAILED',
+            error_message=COALESCE(NULLIF(error_message, ''), ?)
+        WHERE job_name=?
+          AND status='RUNNING'
+          AND started_at < ?
+        """,
+        (
+            finished_at,
+            ORPHANED_FULL_REFRESH_REASON,
+            FULL_REFRESH_JOB_NAME,
+            finished_at,
+        ),
+    )
 
 
 async def acquire_refresh_lock(
@@ -56,6 +87,16 @@ async def acquire_refresh_lock(
     acquired = actual == token
     held_by = actual.split("|", 1)[0] if actual else None
     held_until = actual.split("|", 1)[1] if "|" in actual else None
+
+    reconciliation_error = None
+    if acquired:
+        try:
+            await _reconcile_orphaned_full_refresh_jobs(repository, finished_at=now_iso)
+        except Exception as exc:
+            # Housekeeping must never strand a newly acquired writer lock. The actual refresh
+            # can still proceed, and a later lock acquisition will retry the reconciliation.
+            reconciliation_error = f"{type(exc).__name__}: {str(exc)[:500]}"
+
     return {
         "acquired": acquired,
         "owner": clean_owner,
@@ -63,6 +104,7 @@ async def acquire_refresh_lock(
         "expires_at": expires_iso if acquired else held_until,
         "held_by": clean_owner if acquired else held_by,
         "lock_key": LOCK_KEY,
+        "orphan_reconciliation_error": reconciliation_error,
     }
 
 
