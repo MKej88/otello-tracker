@@ -23,6 +23,7 @@ from app.dashboard import dashboard_history as reference_dashboard_history  # no
 from app.dashboard import dashboard_summary as reference_dashboard_summary  # noqa: E402
 from app.dashboard_freshness import enrich_dashboard_summary  # noqa: E402
 from app.db.connection import get_connection  # noqa: E402
+from app.discount_history import discount_history as reference_discount_history  # noqa: E402
 from app.economic_nav_investor import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
 from app.marketdata.quote_details import market_quote_details as reference_market_quote_details  # noqa: E402
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
@@ -211,6 +212,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "economic": reference_economic_nav_summary(database_path),
         "waterfall": reference_nav_waterfall_summary(database_path),
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
+        "discount_history": reference_discount_history(database_path, days=365, max_points=600),
         "forecast": reference_buyback_forecast(database_path, as_of_date="2026-08-17"),
         "buyback_dashboard": reference_buyback_dashboard(database_path, as_of_date="2026-08-17"),
         "bemobi_dashboard": reference_bemobi_dashboard(database_path),
@@ -236,6 +238,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "consensus_ready": bool(expected["bemobi_consensus"].get("ready")),
         "quotes_ready": bool(expected["quotes"].get("ready")),
         "history_points": len(expected["history"].get("points", [])),
+        "discount_history_points": len(expected["discount_history"].get("points", [])),
     }
 
 
