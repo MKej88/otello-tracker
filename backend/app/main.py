@@ -18,6 +18,7 @@ from app.dashboard import dashboard_history as get_dashboard_history
 from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.dashboard_freshness import enrich_dashboard_summary
 from app.db.migration_runner import database_status, init_database
+from app.discount_history import discount_history as get_discount_history
 from app.economic_nav_investor import economic_nav_summary
 from app.fx_backtest import fx_backtest_summary
 from app.history import history_status, seed_curated_history_if_needed
@@ -198,6 +199,18 @@ def dashboard_history(
     max_points: int = Query(default=400, ge=50, le=1000),
 ) -> dict:
     return get_dashboard_history(
+        settings.database_path,
+        days=days,
+        max_points=max_points,
+    )
+
+
+@app.get("/api/dashboard/discount-history")
+def dashboard_discount_history(
+    days: int = Query(default=365, ge=30, le=3650),
+    max_points: int = Query(default=600, ge=50, le=1000),
+) -> dict:
+    return get_discount_history(
         settings.database_path,
         days=days,
         max_points=max_points,
