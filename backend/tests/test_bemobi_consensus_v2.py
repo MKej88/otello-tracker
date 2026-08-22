@@ -47,7 +47,7 @@ def test_consensus_history_migration_seeds_data_backed_baseline(tmp_path) -> Non
     init_database(database)
 
     status = database_status(database)
-    assert status["latest_migration"] == "0022"
+    assert status["latest_migration"] == "0023"
     assert status["table_counts"]["bemobi_consensus_events"] == 3
     assert status["table_counts"]["bemobi_forward_consensus_snapshots"] == 1
 

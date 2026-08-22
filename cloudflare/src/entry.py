@@ -163,6 +163,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
         from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
+        from life360_market_data import refresh_life360_market_data
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
         from norges_bank_full_refresh import refresh_norges_bank_fx
@@ -302,6 +303,25 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["norges_bank"]["history_nav_rebuild"] = history_nav
                 if history_nav.get("status") != "ok":
                     source_results["norges_bank"]["status"] = "partial"
+
+            @step.do(
+                "refresh Life360 market data",
+                config={"retries": {"limit": 2, "delay": "1 minute"}, "timeout": "10 minutes"},
+            )
+            async def life360_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await refresh_life360_market_data(
+                    repository,
+                    target_date=target_date,
+                    archive_bucket=self.env.SOURCE_ARCHIVE,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                source_results["life360"] = await life360_step()
+            except Exception as exc:
+                source_results["life360"] = error_result(exc)
+            await renew_lock("after Life360")
 
             @step.do(
                 "refresh B3 COTAHIST",

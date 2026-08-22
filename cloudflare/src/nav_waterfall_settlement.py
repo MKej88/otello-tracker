@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from life360_nav import life360_nav_adjustment
 from nav_waterfall_investor import nav_waterfall_summary as investor_waterfall_summary
 from option_settlement import MILLION, nav_cash_settlement, settlement_inputs_from_daily_row
 
@@ -30,6 +31,8 @@ def apply_nav_settlement_waterfall(
     *,
     anchor_option_inputs: tuple[Decimal, int, Decimal],
     current_option_inputs: tuple[Decimal, int, Decimal],
+    life360_adjustment_nok: Decimal = Decimal("0"),
+    life360_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not result.get("ready"):
         return result
@@ -52,7 +55,11 @@ def apply_nav_settlement_waterfall(
 
     anchor_pre_option_nok = anchor_full_nok + anchor_accounting
     current_pre_option_nok = (
-        current_full_nok + current_accounting + cash_fx_nok + operating_effect_nok
+        current_full_nok
+        + current_accounting
+        + cash_fx_nok
+        + operating_effect_nok
+        + life360_adjustment_nok
     )
     anchor_settlement = nav_cash_settlement(
         pre_option_total_nok=anchor_pre_option_nok,
@@ -73,6 +80,18 @@ def apply_nav_settlement_waterfall(
     current_economic_nok = Decimal(str(current_settlement["economic_total_after_settlement_nok"]))
     option_effect_nok = -(current_settlement_nok - anchor_settlement_nok)
 
+    life360_component = {
+        "key": "life360_mark_to_market",
+        "label": "Life360 – mark-to-market",
+        "amount_mnok": float(life360_adjustment_nok / MILLION),
+        "per_share_nok": float(life360_adjustment_nok / Decimal(anchor_shares)),
+        "impact_kind": "TOTAL_AND_PER_SHARE",
+        "note": (
+            "Endring fra Life360-verdien som allerede ligger i siste rapporterte ONA-anker "
+            "til dagens markedsverdi av LIF. Komponenten er en erstatning, ikke et tillegg "
+            "til hele posten for andre investeringer."
+        ),
+    }
     settlement_component = {
         "key": "option_settlement",
         "label": "Opsjoner – kontantoppgjør ved NAV",
@@ -86,23 +105,24 @@ def apply_nav_settlement_waterfall(
     }
 
     rebuilt: list[dict[str, Any]] = []
-    inserted = False
+    life360_inserted = False
+    settlement_inserted = False
     for item in components:
         key = str(item.get("key"))
-        if key == "accounting_option":
-            if not inserted:
+        if key in {"accounting_option", "option_overhang"}:
+            if not life360_inserted:
+                rebuilt.append(life360_component)
+                life360_inserted = True
+            if not settlement_inserted:
                 rebuilt.append(settlement_component)
-                inserted = True
+                settlement_inserted = True
             continue
-        if key == "option_overhang":
-            if not inserted:
-                rebuilt.append(settlement_component)
-                inserted = True
-            continue
-        if key == "share_count":
+        if key in {"life360_mark_to_market", "share_count"}:
             continue
         rebuilt.append(item)
-    if not inserted:
+    if not life360_inserted:
+        rebuilt.append(life360_component)
+    if not settlement_inserted:
         rebuilt.append(settlement_component)
 
     share_count_effect = (
@@ -181,10 +201,15 @@ def apply_nav_settlement_waterfall(
         "method": current_settlement["method"],
         "assumption": current_settlement["assumption"],
     }
+    result["life360"] = {
+        **(life360_metadata or {}),
+        "adjustment_mnok": float(life360_adjustment_nok / MILLION),
+    }
     result["note"] = (
         str(result.get("note") or "")
-        + " Investor-waterfallet erstatter regnskapsført opsjon og Black-Scholes-overheng "
-        "med ett selvkonsistent kontantoppgjør ved NAV."
+        + " Investor-waterfallet mark-to-market-justerer Life360 mot siste rapporterte "
+        "fair-value-anker og erstatter regnskapsført opsjon/Black-Scholes-overheng med ett "
+        "selvkonsistent kontantoppgjør ved NAV."
     ).strip()
     return result
 
@@ -205,8 +230,28 @@ async def nav_waterfall_summary(repository) -> dict[str, Any]:
             "anchor_date": anchor_date,
             "as_of_date": as_of_date,
         }
+
+    life360 = await life360_nav_adjustment(repository, as_of_date=as_of_date)
+    life360_adjustment = (
+        Decimal(str(life360.get("adjustment_nok") or "0"))
+        if life360.get("ready")
+        else Decimal("0")
+    )
+    life360_metadata = {
+        key: value
+        for key, value in life360.items()
+        if key not in {"adjustment_nok", "market_value_nok", "embedded_value_nok"}
+        and not isinstance(value, Decimal)
+    }
+    if life360.get("market_value_nok") is not None:
+        life360_metadata["market_value_mnok"] = float(
+            Decimal(str(life360["market_value_nok"])) / MILLION
+        )
+
     return apply_nav_settlement_waterfall(
         result,
         anchor_option_inputs=anchor_inputs,
         current_option_inputs=current_inputs,
+        life360_adjustment_nok=life360_adjustment,
+        life360_metadata=life360_metadata,
     )

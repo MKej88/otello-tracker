@@ -17,6 +17,7 @@ JOB_NAME = "cloudflare_full_refresh"
 PHASE = "16.3"
 _SOURCE_CODE_BY_COMPONENT = {
     "norges_bank": "NORGES_BANK",
+    "life360": "YAHOO_FINANCE",
     "b3": "B3",
     "cvm": "CVM",
     "bemobi_web": "BEMOBI_IR",
@@ -25,7 +26,15 @@ _SOURCE_CODE_BY_COMPONENT = {
     "otello_reports": "NEWSWEB",
     "otec_recovery": "EURONEXT",
 }
-_SOURCE_CODE_ORDER = ("NORGES_BANK", "B3", "CVM", "BEMOBI_IR", "NEWSWEB", "EURONEXT")
+_SOURCE_CODE_ORDER = (
+    "NORGES_BANK",
+    "YAHOO_FINANCE",
+    "B3",
+    "CVM",
+    "BEMOBI_IR",
+    "NEWSWEB",
+    "EURONEXT",
+)
 _SOURCE_STEPS_BY_CODE = {
     source_code: tuple(
         step_name
@@ -77,6 +86,7 @@ def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
             "result_release",
             "consensus",
             "xp_preview",
+            "series",
         } and isinstance(value, dict):
             compact[key] = _compact_source_result(value)
             continue
@@ -158,6 +168,8 @@ def _source_group_detail(
 ) -> str | None:
     if source_code == "BEMOBI_IR" and any(status == "DEGRADED" for status in components.values()):
         return "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
+    if source_code == "YAHOO_FINANCE" and any(status != "OK" for status in components.values()):
+        return "Life360s sekundære markedskilde var helt eller delvis utilgjengelig; siste gode LIF-kurs beholdes i investor-NAV."
 
     reports = source_results.get("otello_reports") or {}
     if source_code == "NEWSWEB" and int(reports.get("review_required") or 0) > 0:
@@ -214,6 +226,7 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     total = 0
     norges_bank = results.get("norges_bank") or {}
     total += int(norges_bank.get("rows_written") or 0)
+    total += int((results.get("life360") or {}).get("rows_written") or 0)
     if (results.get("b3") or {}).get("status") == "ok":
         total += 1
     total += int((results.get("cvm") or {}).get("archived") or 0)

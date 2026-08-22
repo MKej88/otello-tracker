@@ -1,0 +1,386 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import urllib.parse
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
+from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
+
+try:
+    from .bounded_response import read_response_bytes
+    from .r2_archive import archive_bytes
+except ImportError:
+    from bounded_response import read_response_bytes
+    from r2_archive import archive_bytes
+
+YAHOO_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+SOURCE_CODE = "YAHOO_FINANCE"
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+WRITE_BATCH_ROWS = 20
+RECENT_LOOKBACK_DAYS = 21
+LIFE360_SERIES = {
+    "360.AX": {
+        "provider_symbol": "360.AX",
+        "currency": "AUD",
+        "listing_date": "2019-05-10",
+        "role": "ASX_CDI",
+    },
+    "LIF": {
+        "provider_symbol": "LIF",
+        "currency": "USD",
+        "listing_date": "2024-06-06",
+        "role": "NASDAQ_COMMON",
+    },
+}
+
+
+def _epoch(day: date) -> int:
+    return int(datetime.combine(day, time.min, tzinfo=UTC).timestamp())
+
+
+def build_yahoo_chart_url(provider_symbol: str, start_date: str, end_date: str) -> str:
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date) + timedelta(days=1)
+    query = urllib.parse.urlencode(
+        {
+            "period1": _epoch(start),
+            "period2": _epoch(end),
+            "interval": "1d",
+            "events": "history",
+            "includeAdjustedClose": "false",
+        }
+    )
+    symbol = urllib.parse.quote(provider_symbol, safe="")
+    return f"{YAHOO_CHART_BASE}/{symbol}?{query}"
+
+
+def parse_yahoo_chart(
+    payload: bytes | str | dict[str, Any],
+    *,
+    expected_symbol: str,
+    expected_currency: str,
+) -> dict[str, Any]:
+    if isinstance(payload, bytes):
+        parsed = json.loads(payload.decode("utf-8-sig"))
+    elif isinstance(payload, str):
+        parsed = json.loads(payload)
+    else:
+        parsed = payload
+    if not isinstance(parsed, dict):
+        raise ValueError("Yahoo-returneringen er ikke et JSON-objekt")
+
+    chart = parsed.get("chart")
+    if not isinstance(chart, dict):
+        raise ValueError("Yahoo-returneringen mangler chart")
+    if chart.get("error"):
+        raise ValueError(f"Yahoo-returneringen inneholder feil: {chart.get('error')}")
+    results = chart.get("result")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        raise ValueError("Yahoo-returneringen mangler én entydig resultatserie")
+
+    result = results[0]
+    meta = result.get("meta")
+    if not isinstance(meta, dict):
+        raise ValueError("Yahoo-returneringen mangler metadata")
+    symbol = str(meta.get("symbol") or "")
+    currency = str(meta.get("currency") or "")
+    if symbol != expected_symbol:
+        raise ValueError(f"Yahoo-symbol {symbol!r} matcher ikke forventet {expected_symbol!r}")
+    if currency != expected_currency:
+        raise ValueError(f"Yahoo-valuta {currency!r} matcher ikke forventet {expected_currency!r}")
+
+    timezone_name = str(meta.get("exchangeTimezoneName") or "UTC")
+    try:
+        exchange_tz = ZoneInfo(timezone_name)
+    except (KeyError, ValueError):
+        exchange_tz = UTC
+        timezone_name = "UTC"
+
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators")
+    quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
+    if not isinstance(timestamps, list) or not isinstance(quote_rows, list) or len(quote_rows) != 1:
+        raise ValueError("Yahoo-returneringen mangler daglige timestamps/quote")
+    closes = quote_rows[0].get("close") if isinstance(quote_rows[0], dict) else None
+    if not isinstance(closes, list) or len(closes) != len(timestamps):
+        raise ValueError("Yahoo close-serien matcher ikke timestamp-serien")
+
+    rows: list[dict[str, str]] = []
+    previous_timestamp: int | None = None
+    for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
+        if raw_close is None:
+            continue
+        try:
+            timestamp = int(raw_timestamp)
+            price = Decimal(str(raw_close))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError("Yahoo-serien inneholder ugyldig timestamp eller sluttkurs") from exc
+        if previous_timestamp is not None and timestamp <= previous_timestamp:
+            raise ValueError("Yahoo-timestamps er ikke strengt stigende")
+        previous_timestamp = timestamp
+        if not price.is_finite() or price <= 0 or price > Decimal("100000"):
+            raise ValueError(f"Yahoo-serien inneholder urimelig sluttkurs: {price}")
+        observed = datetime.fromtimestamp(timestamp, tz=UTC)
+        trading_date = observed.astimezone(exchange_tz).date().isoformat()
+        rows.append(
+            {
+                "trading_date": trading_date,
+                "observed_at": observed.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "price": format(price, "f"),
+            }
+        )
+
+    if not rows:
+        raise ValueError("Yahoo-returneringen inneholdt ingen gyldige sluttkurser")
+    return {
+        "symbol": symbol,
+        "currency": currency,
+        "exchange_name": str(meta.get("exchangeName") or ""),
+        "exchange_timezone": timezone_name,
+        "rows": rows,
+    }
+
+
+async def _download(
+    url: str,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> bytes:
+    if fetcher is None:
+        from workers import fetch
+
+        fetcher = fetch
+    response = await fetcher(
+        url,
+        headers={
+            "Accept": "application/json,*/*;q=0.8",
+            "User-Agent": "OtelloTracker/1.0 (+https://otellotracker.com)",
+        },
+    )
+    if not bool(getattr(response, "ok", False)):
+        raise RuntimeError(f"Yahoo Finance feilet med HTTP {getattr(response, 'status', 'unknown')}")
+    return await read_response_bytes(response, max_bytes=MAX_RESPONSE_BYTES, label="Yahoo Finance chart JSON")
+
+
+async def _coverage(repository, symbol: str) -> dict[str, Any]:
+    row = await repository.first(
+        """
+        SELECT COUNT(*) AS n, MIN(mp.trading_date) AS min_date, MAX(mp.trading_date) AS max_date
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol=? AND s.code=? AND mp.price_type='CLOSE'
+        """,
+        (symbol, SOURCE_CODE),
+    )
+    return dict(row or {"n": 0, "min_date": None, "max_date": None})
+
+
+async def _write_rows(
+    repository,
+    *,
+    symbol: str,
+    currency: str,
+    rows: list[dict[str, str]],
+    document_id: int,
+    role: str,
+) -> int:
+    source_id = await repository.source_id(SOURCE_CODE)
+    instrument_id = await repository.instrument_id(symbol)
+    written = 0
+    for offset in range(0, len(rows), WRITE_BATCH_ROWS):
+        chunk = rows[offset : offset + WRITE_BATCH_ROWS]
+        values_sql = ",".join("(?, ?, ?, 'CLOSE', ?, ?, ?, ?, 'SECONDARY', ?)" for _ in chunk)
+        parameters: list[Any] = []
+        for row in chunk:
+            metadata = json.dumps(
+                {
+                    "provider": "Yahoo Finance",
+                    "provider_symbol": LIFE360_SERIES[symbol]["provider_symbol"],
+                    "role": role,
+                    "adjusted": False,
+                    "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            parameters.extend(
+                (
+                    instrument_id,
+                    row["observed_at"],
+                    row["trading_date"],
+                    row["price"],
+                    currency,
+                    source_id,
+                    document_id,
+                    metadata,
+                )
+            )
+        await repository.run(
+            f"""
+            INSERT INTO market_prices(
+                instrument_id, observed_at, trading_date, price_type, price, currency,
+                source_id, source_document_id, quality, metadata_json
+            ) VALUES {values_sql}
+            ON CONFLICT(instrument_id, observed_at, price_type, source_id)
+            DO UPDATE SET
+                trading_date=excluded.trading_date,
+                price=excluded.price,
+                currency=excluded.currency,
+                source_document_id=excluded.source_document_id,
+                quality=excluded.quality,
+                metadata_json=excluded.metadata_json
+            """,
+            tuple(parameters),
+        )
+        written += len(chunk)
+    return written
+
+
+async def _refresh_symbol(
+    repository,
+    *,
+    symbol: str,
+    target_date: str,
+    archive_bucket: Any | None,
+    fetcher: Callable[..., Awaitable[Any]] | None,
+) -> dict[str, Any]:
+    config = LIFE360_SERIES[symbol]
+    target = date.fromisoformat(target_date)
+    listing = date.fromisoformat(str(config["listing_date"]))
+    coverage = await _coverage(repository, symbol)
+    min_date = str(coverage.get("min_date") or "")
+    max_date = str(coverage.get("max_date") or "")
+    history_backfill = not min_date or date.fromisoformat(min_date) > listing + timedelta(days=7)
+    if history_backfill:
+        start = listing
+    elif max_date:
+        start = max(listing, date.fromisoformat(max_date) - timedelta(days=RECENT_LOOKBACK_DAYS))
+    else:
+        start = max(listing, target - timedelta(days=RECENT_LOOKBACK_DAYS))
+    if start > target:
+        start = target
+
+    url = build_yahoo_chart_url(str(config["provider_symbol"]), start.isoformat(), target_date)
+    payload = await _download(url, fetcher=fetcher)
+    parsed = parse_yahoo_chart(
+        payload,
+        expected_symbol=str(config["provider_symbol"]),
+        expected_currency=str(config["currency"]),
+    )
+    digest = hashlib.sha256(payload).hexdigest()
+    archived = (
+        await archive_bytes(
+            archive_bucket,
+            payload,
+            source="yahoo-finance",
+            kind="life360-chart",
+            logical_date=target_date,
+            filename=f"{symbol.replace('.', '-')}-{start.isoformat()}-{target_date}-{digest[:12]}.json",
+        )
+        if archive_bucket is not None
+        else None
+    )
+    document_id = await repository.create_source_document(
+        source_code=SOURCE_CODE,
+        external_id=f"life360-chart:{symbol}:{start.isoformat()}:{target_date}",
+        document_type="API_RESPONSE",
+        title=f"Life360 {symbol} daily unadjusted closes from Yahoo Finance",
+        url=url,
+        published_at=f"{target_date}T00:00:00Z",
+        content_sha256=digest,
+        metadata={
+            "symbol": symbol,
+            "provider_symbol": config["provider_symbol"],
+            "currency": config["currency"],
+            "role": config["role"],
+            "from": start.isoformat(),
+            "to": target_date,
+            "history_backfill": history_backfill,
+            "exchange_name": parsed["exchange_name"],
+            "exchange_timezone": parsed["exchange_timezone"],
+            "price_type": "unadjusted_close",
+            "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
+            "r2_key": archived.get("r2_key") if archived else None,
+            "control_sources": [
+                "https://investors.life360.com/stock-information/stock-quote-chart/nasdaq",
+                "https://www.nasdaq.com/market-activity/stocks/lif",
+            ],
+        },
+    )
+    rows = [
+        row for row in parsed["rows"]
+        if str(config["listing_date"]) <= row["trading_date"] <= target_date
+    ]
+    written = await _write_rows(
+        repository,
+        symbol=symbol,
+        currency=str(config["currency"]),
+        rows=rows,
+        document_id=document_id,
+        role=str(config["role"]),
+    )
+    return {
+        "status": "ok",
+        "symbol": symbol,
+        "provider_symbol": config["provider_symbol"],
+        "currency": config["currency"],
+        "from": start.isoformat(),
+        "to": target_date,
+        "rows_written": written,
+        "write_batches": (written + WRITE_BATCH_ROWS - 1) // WRITE_BATCH_ROWS,
+        "history_backfill": history_backfill,
+        "first_price_date": rows[0]["trading_date"] if rows else None,
+        "last_price_date": rows[-1]["trading_date"] if rows else None,
+        "source_document_id": document_id,
+        "content_sha256": digest,
+        "r2_archive": archived,
+    }
+
+
+async def refresh_life360_market_data(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket: Any | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    results: dict[str, dict[str, Any]] = {}
+    errors: list[dict[str, str]] = []
+    total_written = 0
+    history_backfill = False
+    for symbol in ("360.AX", "LIF"):
+        try:
+            result = await _refresh_symbol(
+                repository,
+                symbol=symbol,
+                target_date=target_date,
+                archive_bucket=archive_bucket,
+                fetcher=fetcher,
+            )
+        except Exception as exc:
+            result = {
+                "status": "error",
+                "symbol": symbol,
+                "error": str(exc)[:1000],
+                "error_type": type(exc).__name__,
+            }
+            errors.append({"symbol": symbol, "error": str(exc)[:1000]})
+        results[symbol] = result
+        total_written += int(result.get("rows_written") or 0)
+        history_backfill = history_backfill or bool(result.get("history_backfill"))
+
+    ok_count = sum(1 for item in results.values() if item.get("status") == "ok")
+    status = "ok" if ok_count == len(results) else ("partial" if ok_count else "error")
+    return {
+        "status": status,
+        "provider": "Yahoo Finance",
+        "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
+        "target_date": target_date,
+        "rows_written": total_written,
+        "history_backfill": history_backfill,
+        "series": results,
+        "errors": errors,
+    }

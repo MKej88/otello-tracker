@@ -15,6 +15,7 @@ D1_BEMOBI_FACTS = ROOT / "cloudflare" / "migrations" / "0009_bemobi_investor_fac
 D1_BEMOBI_WEB = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web_provenance.sql"
 D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_source.sql"
 D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
+D1_LIFE360 = ROOT / "cloudflare" / "migrations" / "0013_life360_market_data.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -120,6 +121,7 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
     d1 = _connect_d1_shape()
     try:
         d1.executescript(D1_REFERENCE_DATA.read_text(encoding="utf-8"))
+        d1.executescript(D1_LIFE360.read_text(encoding="utf-8"))
 
         source_columns = "code, name, source_type, base_url, is_official, is_active, terms_notes"
         reference_sources = [
@@ -164,6 +166,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_BEMOBI_WEB,
             D1_NORGES_BANK,
             D1_BEMOBI_CONSENSUS,
+            D1_LIFE360,
         )
     ).upper()
 
