@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 try:
+    from .history_rebuild_state import history_window_complete, mark_history_window_complete
     from .nav_refresh import (
         CORE_CALCULATION_VERSION,
         FULL_CALCULATION_VERSION,
@@ -14,6 +15,7 @@ try:
         refresh_other_net_assets_if_dirty,
     )
 except ImportError:
+    from history_rebuild_state import history_window_complete, mark_history_window_complete
     from nav_refresh import (
         CORE_CALCULATION_VERSION,
         FULL_CALCULATION_VERSION,
@@ -149,7 +151,32 @@ async def rebuild_existing_nav_with_norges_bank(
 
     Existing CORE dates are rebuilt. ONA/FULL are rebuilt only where a FULL snapshot
     already existed, so the job never manufactures additional historical model coverage.
+    Completed calendar-year windows are checkpointed so a failed ten-year bootstrap can
+    resume without spending the D1/subrequest budget on years already completed.
     """
+    if await history_window_complete(repository, start_date=start_date, end_date=end_date):
+        return {
+            "status": "ok",
+            "skipped": True,
+            "reason": "history_window_already_complete",
+            "from": start_date,
+            "to": end_date,
+            "dates_seen": 0,
+            "full_dates_seen": 0,
+            "dates_changed": 0,
+            "dates_unchanged": 0,
+            "dates_not_ready": 0,
+            "largest_changes": [],
+            "failures": [],
+            "cash_normalization": {
+                "cash_anchors_updated": 0,
+                "cash_movements_updated": 0,
+            },
+            "core_calculation_version": CORE_CALCULATION_VERSION,
+            "full_calculation_version": FULL_CALCULATION_VERSION,
+            "fx_policy": "NORGES_BANK_DIRECT_NOK_PREFERRED_ECB_FALLBACK",
+        }
+
     normalized = await _normalize_fx_derived_cash(
         repository,
         start_date=start_date,
@@ -215,8 +242,15 @@ async def rebuild_existing_nav_with_norges_bank(
             )
 
     largest_changes.sort(key=lambda item: item["absolute_change_nok"], reverse=True)
+    status = "partial" if failures else "ok"
+    if status == "ok":
+        await mark_history_window_complete(
+            repository,
+            start_date=start_date,
+            end_date=end_date,
+        )
     return {
-        "status": "partial" if failures else "ok",
+        "status": status,
         "from": start_date,
         "to": end_date,
         "dates_seen": len(dates),
