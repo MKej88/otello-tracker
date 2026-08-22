@@ -68,7 +68,7 @@ def test_renderer_produces_paid_guardrails_and_workers_dev_bootstrap() -> None:
     assert config["observability"]["logs"]["invocation_logs"] is True
     assert config["observability"]["logs"]["head_sampling_rate"] == 0.05
     assert config["observability"]["traces"]["enabled"] is False
-    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 500}
+    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 5000}
     assert config["triggers"]["crons"] == ["*/30 * * * *"]
     assert config["workflows"][0]["class_name"] == "FullRefreshWorkflow"
 

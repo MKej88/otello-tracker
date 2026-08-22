@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,8 +15,9 @@ for path in (CLOUDFLARE_SRC, CLOUDFLARE_TOOLS):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from render_production_config import render_config  # noqa: E402
-from status_email import build_status_email  # noqa: E402
+import performance_repository  # noqa: E402
+from render_production_config import WORKER_SUBREQUEST_LIMIT, render_config  # noqa: E402
+from status_email import _finalize_failed_job, build_status_email  # noqa: E402
 
 
 def _base_config() -> dict:
@@ -110,9 +113,75 @@ def test_production_email_binding_is_optional_and_restricted() -> None:
     assert with_email["vars"]["PUBLIC_URL"] == "https://nav.example.com"
 
 
+def test_production_worker_keeps_bounded_headroom_for_historical_rebuild() -> None:
+    config = _render()
+    assert WORKER_SUBREQUEST_LIMIT == 5000
+    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 5000}
+
+
 def test_production_email_configuration_requires_sender_and_recipient_together() -> None:
     with pytest.raises(ValueError, match="må settes sammen"):
         _render(status_email_to="owner@example.net")
 
     with pytest.raises(ValueError, match="må settes sammen"):
         _render(status_email_from="otello@example.com")
+
+
+def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class _Repository:
+        def __init__(self, database) -> None:
+            assert database == "DB"
+
+        async def finish_job(self, job_id, **kwargs):
+            calls.append({"job_id": job_id, **kwargs})
+
+    monkeypatch.setattr(performance_repository, "PerformanceD1WriteRepository", _Repository)
+    result = asyncio.run(
+        _finalize_failed_job(
+            SimpleNamespace(DB="DB"),
+            {
+                "status": "FAILED",
+                "job_id": 141,
+                "target_date": "2026-08-21",
+                "records_written": 0,
+                "critical_errors": [
+                    {"step": "workflow", "error": "Too many API requests by single Worker invocation"}
+                ],
+            },
+        )
+    )
+
+    assert result["status"] == "finalized"
+    assert len(calls) == 1
+    assert calls[0]["job_id"] == 141
+    assert calls[0]["status"] == "FAILED"
+    assert calls[0]["records_written"] == 0
+    assert "Too many API requests" in calls[0]["error_message"]
+    assert calls[0]["metadata"]["workflow_exception"] is True
+
+
+def test_controlled_failed_result_is_not_finalized_twice(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class _Repository:
+        def __init__(self, database) -> None:
+            calls.append({"database": database})
+
+    monkeypatch.setattr(performance_repository, "PerformanceD1WriteRepository", _Repository)
+    result = asyncio.run(
+        _finalize_failed_job(
+            SimpleNamespace(DB="DB"),
+            {
+                "status": "FAILED",
+                "job_id": 142,
+                "target_date": "2026-08-21",
+                "source_results": {},
+                "critical_errors": [{"step": "preflight", "error": "1 blocker"}],
+            },
+        )
+    )
+
+    assert result == {"status": "skipped", "reason": "already_finalized"}
+    assert calls == []

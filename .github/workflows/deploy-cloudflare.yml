@@ -175,7 +175,7 @@ jobs:
           assert d1['database_name'] == os.environ['CLOUDFLARE_D1_DATABASE_NAME']
           assert config['r2_buckets'][0]['bucket_name'] == os.environ['CLOUDFLARE_R2_BUCKET_NAME']
           assert config['limits']['cpu_ms'] == 60000
-          assert config['limits']['subrequests'] == 500
+          assert config['limits']['subrequests'] == 5000
           assert config['triggers']['crons'] == ['*/30 * * * *']
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']

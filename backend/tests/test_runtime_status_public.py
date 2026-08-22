@@ -12,6 +12,9 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 from runtime_status import (  # noqa: E402
     FAST_MAX_AGE,
     FAST_RUNNING_MAX_AGE,
+    FULL_MAX_AGE,
+    FULL_RUNNING_MAX_AGE,
+    _guard_orphaned_full_job,
     _job_freshness,
     _job_payload,
 )
@@ -76,3 +79,59 @@ def test_public_job_payload_does_not_expose_raw_exception_text() -> None:
     assert payload["error_message"] is None
     assert payload["has_error"] is True
     assert payload["target_date"] == "2026-08-20"
+
+
+def _running_full_payload(now: datetime) -> tuple[dict, dict]:
+    row = {
+        "status": "RUNNING",
+        "started_at": "2026-08-22T03:35:43Z",
+        "finished_at": None,
+        "records_written": 0,
+        "error_message": None,
+        "metadata_json": '{"target_date":"2026-08-21"}',
+    }
+    payload = _job_payload(
+        row,
+        now=now,
+        completed_max_age=FULL_MAX_AGE,
+        running_max_age=FULL_RUNNING_MAX_AGE,
+    )
+    return row, payload
+
+
+def test_running_full_job_stays_running_with_matching_active_writer_lease() -> None:
+    now = datetime(2026, 8, 22, 4, 0, tzinfo=UTC)
+    row, payload = _running_full_payload(now)
+    guarded = _guard_orphaned_full_job(
+        payload,
+        row,
+        {
+            "value": "full:2026-08-21:workflow-instance|2026-08-22T06:36:27Z",
+            "updated_at": "2026-08-22T03:36:27Z",
+        },
+        now=now,
+    )
+
+    assert guarded["status"] == "RUNNING"
+    assert guarded["stale"] is False
+    assert guarded["reason"] is None
+
+
+def test_running_full_job_is_failed_when_writer_lease_is_missing_or_expired() -> None:
+    now = datetime(2026, 8, 22, 7, 0, tzinfo=UTC)
+    row, payload = _running_full_payload(now)
+
+    missing = _guard_orphaned_full_job(payload, row, None, now=now)
+    expired = _guard_orphaned_full_job(
+        payload,
+        row,
+        {"value": "full:2026-08-21:workflow-instance|2026-08-22T06:36:27Z"},
+        now=now,
+    )
+
+    for guarded in (missing, expired):
+        assert guarded["status"] == "FAILED"
+        assert guarded["stale"] is True
+        assert guarded["reason"] == "writer_lease_inactive"
+        assert guarded["has_error"] is True
+        assert guarded["error_message"] is None
