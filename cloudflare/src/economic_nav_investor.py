@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from economic_nav import economic_nav_summary as accounting_economic_nav_summary
+from life360_nav import life360_nav_adjustment
 from option_settlement import MILLION, nav_cash_settlement, settlement_inputs_from_components
 
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
@@ -26,6 +27,30 @@ def _components(raw: Any) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _life360_public(raw: dict[str, Any]) -> dict[str, Any]:
+    result = dict(raw)
+    for key in (
+        "price",
+        "fx_rate",
+        "anchor_price_usd",
+        "market_value_usd",
+        "market_value_nok",
+        "embedded_value_usd",
+        "embedded_value_nok",
+        "adjustment_nok",
+    ):
+        value = result.get(key)
+        if isinstance(value, Decimal):
+            result[key] = float(value)
+    adjustment = Decimal(str(raw.get("adjustment_nok") or "0"))
+    result["adjustment_mnok"] = _float(adjustment / MILLION)
+    if raw.get("market_value_nok") is not None:
+        result["market_value_mnok"] = _float(Decimal(str(raw["market_value_nok"])) / MILLION)
+    if raw.get("embedded_value_nok") is not None:
+        result["embedded_value_mnok"] = _float(Decimal(str(raw["embedded_value_nok"])) / MILLION)
+    return result
 
 
 async def economic_nav_summary(repository) -> dict[str, Any]:
@@ -64,6 +89,11 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
     base_cost_nok = Decimal(str(operating.get("base_mnok") or "0")) * MILLION
     conservative_cost_nok = Decimal(str(operating.get("conservative_mnok") or "0")) * MILLION
 
+    life360 = await life360_nav_adjustment(repository, as_of_date=as_of_date)
+    life360_adjustment_nok = (
+        Decimal(str(life360.get("adjustment_nok") or "0")) if life360.get("ready") else Decimal("0")
+    )
+
     full_nav_total_nok = Decimal(str(row["nav_total_nok"]))
     shares_outstanding = int(row["shares_outstanding"])
     otec_price_nok = (
@@ -71,10 +101,18 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
     )
 
     base_pre_option_total = (
-        full_nav_total_nok + accounting_liability_nok + cash_fx_nok - base_cost_nok
+        full_nav_total_nok
+        + accounting_liability_nok
+        + cash_fx_nok
+        + life360_adjustment_nok
+        - base_cost_nok
     )
     conservative_pre_option_total = (
-        full_nav_total_nok + accounting_liability_nok + cash_fx_nok - conservative_cost_nok
+        full_nav_total_nok
+        + accounting_liability_nok
+        + cash_fx_nok
+        + life360_adjustment_nok
+        - conservative_cost_nok
     )
     settlement = nav_cash_settlement(
         pre_option_total_nok=base_pre_option_total,
@@ -116,20 +154,26 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
 
     base.update(
         {
-            "quality": "NAV_SETTLEMENT_SCENARIO",
+            "quality": (
+                "NAV_SETTLEMENT_SCENARIO_LIFE360_MARK_TO_MARKET"
+                if life360.get("ready")
+                else "NAV_SETTLEMENT_SCENARIO"
+            ),
             "nav_per_share": _float(economic_per_share),
             "discount_pct": _discount_pct(otec_price_nok, economic_per_share),
             "conservative_nav_per_share": _float(conservative_per_share),
             "conservative_discount_pct": _discount_pct(otec_price_nok, conservative_per_share),
             "option": option_meta,
+            "life360": _life360_public(life360),
             "economic_cash_note": (
                 "Kontantbeholdningen er før det hypotetiske opsjonsoppgjøret; scenarioet "
                 "forutsetter samtidig full Bemobi-realisering og retur av proveny."
             ),
             "note": (
                 "Investor-NAV replaces the Black-Scholes option overhang with a self-consistent "
-                "full-realisation cash-settlement scenario. FULL NAV and the accounting option "
-                "liability remain unchanged for report reconciliation."
+                "full-realisation cash-settlement scenario. From the 2025 fair-value reporting "
+                "anchor it also replaces the embedded Life360 value with current LIF market value. "
+                "FULL NAV and the accounting option liability remain unchanged for report reconciliation."
             ),
         }
     )
