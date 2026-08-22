@@ -1,4 +1,4 @@
--- Cloudflare D1 reference data equivalent to backend migrations 0002/0007/0009/0013/0023.
+-- Cloudflare D1 reference data equivalent to backend migrations 0002/0007/0009/0013.
 -- Financial/history data is migrated separately; this file only establishes stable source
 -- and instrument identities required by the application.
 
@@ -14,8 +14,7 @@ INSERT INTO sources(code, name, source_type, base_url, is_official, is_active, t
     ('MANUAL', 'Manuell registrering', 'MANUAL', NULL, 0, 1, 'Brukes bare når datapunktet er manuelt kontrollert og dokumentert.'),
     ('INVESTING', 'Investing.com manual CSV export', 'OTHER', 'https://www.investing.com/', 0, 1, 'Kun bruker-eksportert CSV til privat historisk backfill; ingen automatisert scraping. Pre-09.08.2022 OTEC-priser kan være dividend-adjusted og må rekonstrueres eksplisitt.'),
     ('MFN', 'MFN.se', 'OTHER', 'https://mfn.se', 0, 1, 'Secondary public mirror/discovery source. Never label as official; upstream provider/source must be retained in document metadata.'),
-    ('NEWSWEB', 'Oslo Børs NewsWeb', 'EXCHANGE', 'https://newsweb.oslobors.no/', 1, 1, 'Official Oslo Børs disclosure and attachment source. Store only OTEC-relevant facts/metadata needed for private research and provenance.'),
-    ('YAHOO_FINANCE', 'Yahoo Finance', 'API', 'https://query1.finance.yahoo.com/', 0, 1, 'Sekundær, uoffisiell maskinlesbar kurskilde. Siste gode verdi beholdes ved kildefeil; rå svar arkiveres med proveniens.')
+    ('NEWSWEB', 'Oslo Børs NewsWeb', 'EXCHANGE', 'https://newsweb.oslobors.no/', 1, 1, 'Official Oslo Børs disclosure and attachment source. Store only OTEC-relevant facts/metadata needed for private research and provenance.')
 ON CONFLICT(code) DO UPDATE SET
     name = excluded.name,
     source_type = excluded.source_type,
@@ -26,9 +25,7 @@ ON CONFLICT(code) DO UPDATE SET
 
 INSERT INTO instruments(symbol, name, asset_type, exchange_mic, currency, isin, source_symbol, is_active) VALUES
     ('OTEC', 'Otello Corporation ASA', 'EQUITY', 'XOSL', 'NOK', 'NO0010040611', 'OTEC', 1),
-    ('BMOB3', 'Bemobi Mobile Tech S.A.', 'EQUITY', 'BVMF', 'BRL', NULL, 'BMOB3', 1),
-    ('LIF', 'Life360, Inc. common stock', 'EQUITY', 'XNAS', 'USD', NULL, 'LIF', 1),
-    ('360.AX', 'Life360, Inc. CHESS Depositary Interests', 'EQUITY', 'XASX', 'AUD', NULL, '360.AX', 1)
+    ('BMOB3', 'Bemobi Mobile Tech S.A.', 'EQUITY', 'BVMF', 'BRL', NULL, 'BMOB3', 1)
 ON CONFLICT(symbol, exchange_mic) DO UPDATE SET
     name = excluded.name,
     asset_type = excluded.asset_type,
