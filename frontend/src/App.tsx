@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import BemobiPage from "./BemobiPage";
-import BuybackPage from "./BuybackPage";
-import ConsensusPage from "./ConsensusPage";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import EconomicNavPanel from "./EconomicNavPanel";
-import HistoryPage from "./HistoryPage";
-import NavWaterfallPanel from "./NavWaterfallPanel";
+
+const loadBemobiPage = () => import("./BemobiPage");
+const loadBuybackPage = () => import("./BuybackPage");
+const loadConsensusPage = () => import("./ConsensusPage");
+const loadHistoryPage = () => import("./HistoryPage");
+const loadNavWaterfallPanel = () => import("./NavWaterfallPanel");
+
+const BemobiPage = lazy(loadBemobiPage);
+const BuybackPage = lazy(loadBuybackPage);
+const ConsensusPage = lazy(loadConsensusPage);
+const HistoryPage = lazy(loadHistoryPage);
+const NavWaterfallPanel = lazy(loadNavWaterfallPanel);
 
 type ChangeSet = {
   nav_pct: number | null;
@@ -292,6 +299,24 @@ function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: 
   );
 }
 
+
+function preloadView(view: View) {
+  if (view === "Historikk") void loadHistoryPage();
+  else if (view === "Tilbakekjøp") void loadBuybackPage();
+  else if (view === "Bemobi") void loadBemobiPage();
+  else if (view === "Konsensus") void loadConsensusPage();
+  else if (view === "NAV") void loadNavWaterfallPanel();
+}
+
+function ViewFallback() {
+  return (
+    <section className="card" aria-busy="true">
+      <span className="label">Visning</span>
+      <strong>Laster modul …</strong>
+    </section>
+  );
+}
+
 export default function App() {
   const [summary, setSummary] = useState<Summary>(initialSummary);
   const [history, setHistory] = useState<History>(initialHistory);
@@ -303,57 +328,107 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
 
-    const loadDashboard = () => {
-      Promise.all([
-        fetch("/api/dashboard/summary").then((response) => {
-          if (!response.ok) throw new Error("Summary API-feil");
-          return response.json() as Promise<Summary>;
-        }),
-        fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
-          if (!response.ok) throw new Error("History API-feil");
-          return response.json() as Promise<History>;
-        }),
-        fetch("/api/buybacks/forecast").then((response) => {
-          if (!response.ok) throw new Error("Forecast API-feil");
-          return response.json() as Promise<BuybackForecast>;
-        }).catch(() => null)
-      ])
-        .then(([summaryData, historyData, forecastData]) => {
-          if (!active) return;
-          setSummary(summaryData);
-          setHistory(historyData);
-          if (forecastData) {
-            setForecast(forecastData);
-          } else {
-            setForecast((current) => current.ready
-              ? { ...current, status: "FETCH_STALE" }
-              : { ready: false, status: "API_ERROR" });
-          }
-          setApiOk(true);
-          setRefreshFailed(false);
-          setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
-            hour: "2-digit",
-            minute: "2-digit"
-          }));
-        })
-        .catch(() => {
-          if (!active) return;
-          setApiOk(false);
-          setRefreshFailed(true);
-          setSummary((current) => current.ready
-            ? current
-            : { ready: false, data_status: "error", message: "Kunne ikke hente investordata." });
-        });
+    const loadSummary = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/dashboard/summary");
+        if (!response.ok) throw new Error("Summary API-feil");
+        const summaryData = await response.json() as Summary;
+        if (!active) return;
+        setSummary(summaryData);
+        setApiOk(true);
+        setRefreshFailed(false);
+        setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
+          hour: "2-digit",
+          minute: "2-digit"
+        }));
+      } catch {
+        if (!active) return;
+        setApiOk(false);
+        setRefreshFailed(true);
+        setSummary((current) => current.ready
+          ? current
+          : { ready: false, data_status: "error", message: "Kunne ikke hente investordata." });
+      } finally {
+        inFlight = false;
+      }
     };
 
-    loadDashboard();
-    const timer = window.setInterval(loadDashboard, AUTO_REFRESH_MS);
+    void loadSummary();
+    const timer = window.setInterval(() => { void loadSummary(); }, AUTO_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!summary.ready) return undefined;
+    let active = true;
+    let inFlight = false;
+
+    const loadForecast = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/buybacks/forecast");
+        if (!response.ok) throw new Error("Forecast API-feil");
+        const forecastData = await response.json() as BuybackForecast;
+        if (!active) return;
+        setForecast(forecastData);
+      } catch {
+        if (!active) return;
+        setForecast((current) => current.ready
+          ? { ...current, status: "FETCH_STALE" }
+          : { ready: false, status: "API_ERROR" });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const initialTimer = window.setTimeout(() => { void loadForecast(); }, 600);
+    const timer = window.setInterval(() => { void loadForecast(); }, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, [summary.ready]);
+
+  useEffect(() => {
+    if (activeView !== "NAV") return undefined;
+    let active = true;
+    let inFlight = false;
+
+    const loadHistory = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/dashboard/history?days=365&max_points=300");
+        if (!response.ok) throw new Error("History API-feil");
+        const historyData = await response.json() as History;
+        if (!active) return;
+        setHistory(historyData);
+      } catch {
+        if (!active) return;
+        setHistory((current) => current.ready
+          ? current
+          : { ready: false, data_status: "error", points: [] });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void loadHistory();
+    const timer = window.setInterval(() => { void loadHistory(); }, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeView]);
 
   const changes = summary.changes;
   const overviewCards = useMemo(() => [
@@ -412,6 +487,9 @@ export default function App() {
                 key={item.label}
                 disabled={!item.enabled}
                 onClick={() => item.enabled && setActiveView(item.label as View)}
+                onMouseEnter={() => item.enabled && preloadView(item.label as View)}
+                onFocus={() => item.enabled && preloadView(item.label as View)}
+                onPointerDown={() => item.enabled && preloadView(item.label as View)}
                 title={item.enabled ? undefined : "Denne visningen er ikke aktiv ennå"}
               >
                 <span className="navDot" />{item.label}
@@ -515,13 +593,13 @@ export default function App() {
             </section>
           </>
         ) : activeView === "Historikk" ? (
-          <HistoryPage />
+          <Suspense fallback={<ViewFallback />}><HistoryPage /></Suspense>
         ) : activeView === "Tilbakekjøp" ? (
-          <BuybackPage />
+          <Suspense fallback={<ViewFallback />}><BuybackPage /></Suspense>
         ) : activeView === "Bemobi" ? (
-          <BemobiPage />
+          <Suspense fallback={<ViewFallback />}><BemobiPage /></Suspense>
         ) : activeView === "Konsensus" ? (
-          <ConsensusPage />
+          <Suspense fallback={<ViewFallback />}><ConsensusPage /></Suspense>
         ) : (
           <>
             <div className="pageIntro">
@@ -533,7 +611,7 @@ export default function App() {
             </div>
 
             <EconomicNavPanel variant="detail" />
-            <NavWaterfallPanel />
+            <Suspense fallback={<ViewFallback />}><NavWaterfallPanel /></Suspense>
 
             <section className="kpiGrid navKpiGrid">
               {navCards.map((card) => (
