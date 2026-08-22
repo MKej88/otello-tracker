@@ -9,6 +9,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = ROOT / "wrangler.jsonc"
 DEFAULT_OUTPUT = ROOT / "wrangler.production.jsonc"
+WORKER_SUBREQUEST_LIMIT = 5000
 
 
 def _required(value: str | None, name: str) -> str:
@@ -33,13 +34,12 @@ def render_config(
     config = json.loads(json.dumps(base))
     config["name"] = _required(worker_name, "worker_name")
 
-    # Paid-plan capacity is deliberately used for the heavy scheduled/workflow path, but
-    # we do not expose Cloudflare's 5-minute/10k-subrequest maxima. Lower per-invocation
-    # ceilings bound runaway work and denial-of-wallet scenarios while still leaving ample
-    # headroom for PDF parsing, historical refreshes and logical model work.
+    # The one-time ten-year NAV/FX bootstrap is D1-query heavy and exhausted the old 500
+    # subrequest guard in production. Keep a bounded limit well below the Paid-plan default
+    # headroom while leaving enough capacity for cleanup/finalization if a workflow step fails.
     config["limits"] = {
         "cpu_ms": 60000,
-        "subrequests": 500,
+        "subrequests": WORKER_SUBREQUEST_LIMIT,
     }
 
     # Enable Workers Caching only for the default WorkerEntrypoint used by /api/*. Static
