@@ -11,6 +11,7 @@ _STATUS_LABELS = {
 
 _SOURCE_LABELS = {
     "NORGES_BANK": "Norges Bank",
+    "YAHOO_FINANCE": "Life360 / Yahoo Finance",
     "B3": "B3",
     "CVM": "CVM",
     "BEMOBI_IR": "Bemobi IR",
@@ -123,6 +124,17 @@ def build_status_email(
             lines.append(f"- Rabatt: {discount} %")
         if conservative_nav is not None:
             lines.append(f"- Konservativ NAV: {conservative_nav} kr/aksje")
+        life360 = economic.get("life360") or {}
+        if life360.get("ready"):
+            lif_price = _number(life360.get("price"), 2)
+            lif_value = _number(life360.get("market_value_mnok"), 1)
+            lif_adjustment = _number(life360.get("adjustment_mnok"), 1)
+            if lif_price is not None:
+                lines.append(f"- Life360 LIF: USD {lif_price}")
+            if lif_value is not None:
+                lines.append(f"- Life360 markedsverdi: {lif_value} MNOK")
+            if lif_adjustment is not None:
+                lines.append(f"- Life360 NAV-justering: {lif_adjustment} MNOK")
         if economic.get("as_of_date"):
             lines.append(f"- NAV-dato: {economic['as_of_date']}")
     else:
