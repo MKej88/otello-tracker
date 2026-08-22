@@ -1,0 +1,75 @@
+name: Email config probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/email-config-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+      EMAIL_TO: ${{ vars.CLOUDFLARE_STATUS_EMAIL_TO }}
+      EMAIL_FROM: ${{ vars.CLOUDFLARE_STATUS_EMAIL_FROM }}
+    steps:
+      - name: Check production status and email config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          print('EMAIL_TO_SET', bool(os.environ.get('EMAIL_TO','').strip()))
+          print('EMAIL_FROM_SET', bool(os.environ.get('EMAIL_FROM','').strip()))
+          print('WORKER_NAME_SET', bool(os.environ.get('WORKER_NAME','').strip()))
+          print('READ_TOKEN_SET', bool(os.environ.get('CLOUDFLARE_API_TOKEN','').strip()))
+          PY
+
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            https://otellotracker.com/api/dashboard/runtime-status -o runtime.json
+          python - <<'PY'
+          import json
+          with open('runtime.json', encoding='utf-8') as f:
+              r=json.load(f)
+          fr=r.get('full_refresh') or {}
+          print('RUNTIME_STATUS', r.get('status'))
+          print('FULL_STATUS', fr.get('status'))
+          print('FULL_STARTED_AT', fr.get('started_at'))
+          print('FULL_FINISHED_AT', fr.get('finished_at'))
+          print('FULL_RECORDS_WRITTEN', fr.get('records_written'))
+          print('FULL_HAS_ERROR', fr.get('has_error'))
+          print('FULL_ERROR', fr.get('error_message'))
+          PY
+
+          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] && [ -n "${WORKER_NAME:-}" ]; then
+            code=$(curl --silent --show-error --output worker-settings.json --write-out '%{http_code}' \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --header 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings")
+            echo "WORKER_SETTINGS_HTTP $code"
+            if [ "$code" = "200" ]; then
+              python - <<'PY'
+          import json
+          with open('worker-settings.json', encoding='utf-8') as f:
+              payload=json.load(f)
+          result=payload.get('result') or {}
+          bindings=result.get('bindings') or []
+          email=[b for b in bindings if b.get('type')=='send_email']
+          status=[b for b in email if b.get('name')=='STATUS_EMAIL']
+          print('SEND_EMAIL_BINDING_COUNT', len(email))
+          print('STATUS_EMAIL_BINDING', bool(status))
+          if status:
+              b=status[0]
+              print('DESTINATION_RESTRICTED', bool(b.get('destination_address') or b.get('allowed_destination_addresses')))
+              print('SENDER_RESTRICTED', bool(b.get('allowed_sender_addresses')))
+          PY
+            fi
+          fi
