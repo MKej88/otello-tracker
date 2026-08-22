@@ -152,6 +152,8 @@ async def _finalize_failed_job(env: Any, result: dict[str, Any]) -> dict[str, An
     """Best-effort close a raw Workflow exception so public runtime never stays RUNNING."""
     if str(result.get("status") or "").upper() != "FAILED":
         return {"status": "skipped", "reason": "not_failed"}
+    if "source_results" in result:
+        return {"status": "skipped", "reason": "already_finalized"}
     job_id = result.get("job_id")
     if job_id is None:
         return {"status": "skipped", "reason": "missing_job_id"}
