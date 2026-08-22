@@ -1,0 +1,104 @@
+name: Nightly failure diagnostic temp
+
+on:
+  push:
+    branches: [fix/nightly-fx-runtime-status]
+    paths:
+      - '.github/workflows/nightly-failure-diagnostic-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+      WORKFLOW_NAME: otello-full-refresh
+    steps:
+      - name: Read exact failure and D1 lock state
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/${WORKFLOW_NAME}/instances"
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Accept: application/json' \
+            "${base}?per_page=3&direction=desc" -o recent.json
+          instance_id=$(python - <<'PY'
+          import json
+          with open('recent.json', encoding='utf-8') as f:
+              rows=(json.load(f).get('result') or [])
+          print(rows[0]['id'])
+          PY
+          )
+          encoded=$(python - "$instance_id" <<'PY'
+          import sys
+          from urllib.parse import quote
+          print(quote(sys.argv[1], safe=''))
+          PY
+          )
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Accept: application/json' \
+            "${base}/${encoded}?order=asc" -o detail.json
+          python - <<'PY'
+          import json
+          with open('detail.json', encoding='utf-8') as f:
+              r=(json.load(f).get('result') or {})
+          print('WORKFLOW_STATUS', r.get('status'))
+          print('WORKFLOW_START', r.get('start') or r.get('started_on'))
+          print('WORKFLOW_END', r.get('end') or r.get('ended_on'))
+          if r.get('error'):
+              print('WORKFLOW_ERROR', r['error'])
+          for s in r.get('steps') or []:
+              if ('2021' in str(s.get('name')) or
+                  'renew full refresh writer lock after Norges Bank history 2021' in str(s.get('name')) or
+                  'release full refresh writer lock' in str(s.get('name'))):
+                  print('\nSTEP_NAME', s.get('name'))
+                  print('STEP_SUCCESS', s.get('success'))
+                  print('STEP_ERROR', s.get('error'))
+                  for i,a in enumerate(s.get('attempts') or [],1):
+                      print(f'ATTEMPT_{i}_SUCCESS', a.get('success'))
+                      print(f'ATTEMPT_{i}_ERROR', a.get('error'))
+          PY
+
+          curl --fail-with-body --silent --show-error --get \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Accept: application/json' \
+            --data-urlencode "name=${D1_DATABASE_NAME}" \
+            --data-urlencode 'per_page=10' \
+            "${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database" -o dbs.json
+          dbid=$(python - <<'PY'
+          import json, os
+          with open('dbs.json', encoding='utf-8') as f:
+              rows=(json.load(f).get('result') or [])
+          wanted=os.environ['D1_DATABASE_NAME']
+          print(next(x['uuid'] for x in rows if x.get('name')==wanted))
+          PY
+          )
+          python - <<'PY'
+          import json
+          batch=[
+            {'sql': "SELECT id,job_name,started_at,finished_at,status,records_written,error_message,metadata_json FROM job_runs WHERE job_name='cloudflare_full_refresh' ORDER BY id DESC LIMIT 3"},
+            {'sql': "SELECT key,value,updated_at FROM runtime_state WHERE key='cloudflare_refresh_writer_lock'"},
+            {'sql': "SELECT COUNT(*) AS core_2021 FROM nav_snapshots WHERE nav_scope='CORE' AND substr(as_of_at,1,4)='2021'"},
+            {'sql': "SELECT COUNT(*) AS cash_moves_2021 FROM cash_movements WHERE movement_date >= '2021-01-01' AND movement_date <= '2021-12-31'"}
+          ]
+          with open('q.json','w',encoding='utf-8') as f: json.dump({'batch':batch},f)
+          PY
+          curl --fail-with-body --silent --show-error --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data-binary @q.json \
+            "${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${dbid}/query" -o d1.json
+          python - <<'PY'
+          import json
+          with open('d1.json',encoding='utf-8') as f: p=json.load(f)
+          for i,r in enumerate(p.get('result') or []):
+              print('D1_RESULT',i, r.get('results'))
+          PY
