@@ -148,8 +148,53 @@ def build_status_email(
     return {"subject": subject, "text": "\n".join(lines)}
 
 
+async def _finalize_failed_job(env: Any, result: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort close a raw Workflow exception so public runtime never stays RUNNING."""
+    if str(result.get("status") or "").upper() != "FAILED":
+        return {"status": "skipped", "reason": "not_failed"}
+    job_id = result.get("job_id")
+    if job_id is None:
+        return {"status": "skipped", "reason": "missing_job_id"}
+
+    try:
+        from performance_repository import PerformanceD1WriteRepository
+
+        repository = PerformanceD1WriteRepository(env.DB)
+        errors = result.get("critical_errors") or result.get("errors") or []
+        message_parts: list[str] = []
+        for item in errors[:5]:
+            if isinstance(item, dict):
+                message_parts.append(str(item.get("error") or item.get("step") or "workflow failed"))
+            else:
+                message_parts.append(str(item))
+        error_message = "; ".join(message_parts)[:4000] or "Cloudflare Workflow failed"
+        finished_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        await repository.finish_job(
+            int(job_id),
+            finished_at=finished_at,
+            status="FAILED",
+            records_written=int(result.get("records_written") or 0),
+            error_message=error_message,
+            metadata={
+                "phase": "16.3",
+                "target_date": result.get("target_date"),
+                "workflow_exception": True,
+                "critical_errors": errors[:10],
+            },
+        )
+        return {"status": "finalized", "finished_at": finished_at}
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc)[:500],
+            "error_type": type(exc).__name__,
+        }
+
+
 async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> dict[str, Any]:
-    """Send one best-effort status email without ever failing the full refresh workflow."""
+    """Finalize failure state and send one best-effort status email when configured."""
+    finalization = await _finalize_failed_job(env, result)
+
     recipient = _env_text(env, "STATUS_EMAIL_TO")
     sender = _env_text(env, "STATUS_EMAIL_FROM")
     public_url = _env_text(env, "PUBLIC_URL")
@@ -159,7 +204,11 @@ async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> di
         binding = None
 
     if not recipient or not sender or binding is None:
-        return {"status": "skipped", "reason": "not_configured"}
+        return {
+            "status": "skipped",
+            "reason": "not_configured",
+            "job_finalization": finalization,
+        }
 
     economic: dict[str, Any] = {"ready": False, "reason": "ikke hentet"}
     started_at = None
@@ -213,10 +262,12 @@ async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> di
         return {
             "status": "sent",
             "message_id": str(message_id) if message_id is not None else None,
+            "job_finalization": finalization,
         }
     except Exception as exc:
         return {
             "status": "error",
             "error": str(exc)[:500],
             "error_type": type(exc).__name__,
+            "job_finalization": finalization,
         }
