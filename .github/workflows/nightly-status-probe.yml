@@ -1,0 +1,39 @@
+name: Nightly status probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/nightly-status-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read production nightly status
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://otellotracker.com"
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            "$base/api/dashboard/runtime-status" -o runtime.json
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            "$base/api/dashboard/report-status" -o report.json
+          python - <<'PY'
+          import json
+          from pprint import pprint
+
+          with open('runtime.json', encoding='utf-8') as f:
+              runtime = json.load(f)
+          with open('report.json', encoding='utf-8') as f:
+              report = json.load(f)
+
+          print('=== RUNTIME STATUS ===')
+          pprint(runtime, sort_dicts=False)
+          print('\n=== REPORT STATUS ===')
+          pprint(report, sort_dicts=False)
+          PY
