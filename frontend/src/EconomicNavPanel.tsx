@@ -20,6 +20,27 @@ type EconomicNav = {
     coverage_pct?: number | null;
     anchor_date?: string;
   };
+  life360?: {
+    ready?: boolean;
+    reason?: string;
+    shares?: number;
+    holding_basis?: string;
+    history_available_from?: string;
+    market_symbol?: string;
+    currency?: string;
+    price?: number | null;
+    price_date?: string;
+    price_age_days?: number;
+    price_source?: string;
+    fx_rate?: number | null;
+    fx_date?: string;
+    market_value_mnok?: number | null;
+    embedded_value_mnok?: number | null;
+    adjustment_mnok?: number | null;
+    anchor_date?: string;
+    anchor_price_usd?: number | null;
+    stale?: boolean;
+  };
   option?: {
     accounting_liability_mnok?: number | null;
     economic_value_mnok?: number | null;
@@ -124,6 +145,7 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
   const option = data.option;
   const costs = data.operating_costs;
   const cashFx = data.cash_fx;
+  const life360 = data.life360;
 
   return (
     <section className="economicNavHost">
@@ -173,6 +195,15 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
                 </small>
               </div>
               <div>
+                <span>Life360 – mark-to-market</span>
+                <strong>{life360?.ready ? signedValue(life360.adjustment_mnok) : "–"}</strong>
+                <small>
+                  {life360?.ready
+                    ? `${integer(life360.shares)} LIF · USD ${value(life360.price, 2)} · verdi ${value(life360.market_value_mnok, 1)} mill. kr · kurs ${dateLabel(life360.price_date)}`
+                    : "Venter på gyldig LIF-kurs og rapportanker"}
+                </small>
+              </div>
+              <div>
                 <span>Opsjoner – kontantoppgjør ved NAV</span>
                 <strong>−{value(option?.settlement_mnok, 1)} mill.</strong>
                 <small>
@@ -186,6 +217,9 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
             </div>
 
             <div className="economicFootnote">
+              <span>
+                Life360-linjen erstatter markedsverdien som allerede ligger i siste rapporterte «andre investeringer»-anker; den legges ikke oppå hele posten. Historiske Life360-markedsdata lagres fra ASX-noteringen i 2019, mens investor-NAV bruker Nasdaq LIF fra fair-value-perioden.
+              </span>
               <span>
                 Opsjonslinjen er et scenario ved full Bemobi-realisering: OTEC-kurs ved exercise settes lik NAV etter kontantoppgjøret. Regnskapsført Black–Scholes-verdi beholdes kun som kontrollgrunnlag i modellen.
               </span>
