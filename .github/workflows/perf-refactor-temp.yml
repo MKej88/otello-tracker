@@ -18,17 +18,12 @@ jobs:
       - name: Refactor critical first load
         shell: python
         run: |
+          import re
           from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              if old not in text:
-                  raise SystemExit(f"Expected block not found in {path}: {old[:80]!r}")
-              file.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           app_path = Path("frontend/src/App.tsx")
           app = app_path.read_text(encoding="utf-8")
+
           old_imports = '''import { useEffect, useMemo, useState } from "react";
           import BemobiPage from "./BemobiPage";
           import BuybackPage from "./BuybackPage";
@@ -54,12 +49,10 @@ jobs:
               raise SystemExit("App imports changed unexpectedly")
           app = app.replace(old_imports, new_imports, 1)
 
-          start_marker = '''  useEffect(() => {
-            let active = true;
-
-            const loadDashboard = () => {'''.replace("          ", "")
-          start = app.index(start_marker)
-          end = app.index("\n\n  const changes =", start)
+          effect_pattern = re.compile(
+              r'  useEffect\(\(\) => \{\n    let active = true;\n\n    const loadDashboard = \(\) => \{.*?\n  \}, \[\]\);',
+              re.S,
+          )
           effects = '''  useEffect(() => {
             let active = true;
             let inFlight = false;
@@ -168,16 +161,15 @@ jobs:
             if (!summary.ready) return undefined;
             const timer = window.setTimeout(() => {
               void Promise.allSettled([
-                loadHistoryPage(),
-                loadBuybackPage(),
-                loadBemobiPage(),
-                loadConsensusPage(),
-                loadNavWaterfallPanel(),
+                loadHistoryPage(), loadBuybackPage(), loadBemobiPage(),
+                loadConsensusPage(), loadNavWaterfallPanel(),
               ]);
             }, 2500);
             return () => window.clearTimeout(timer);
           }, [summary.ready]);'''.replace("          ", "")
-          app = app[:start] + effects + app[end:]
+          app, count = effect_pattern.subn(lambda _: effects, app, count=1)
+          if count != 1:
+              raise SystemExit(f"Expected one dashboard effect, found {count}")
 
           helper = '''
           function preloadView(view: View) {
@@ -197,27 +189,28 @@ jobs:
             );
           }
           '''.replace("          ", "")
-          export_marker = "\nexport default function App()"
-          app = app.replace(export_marker, "\n" + helper + export_marker, 1)
+          marker = "\nexport default function App()"
+          if marker not in app:
+              raise SystemExit("App export marker missing")
+          app = app.replace(marker, "\n" + helper + marker, 1)
 
-          nav_click = '''                onClick={() => item.enabled && setActiveView(item.label as View)}
+          old_nav = '''                onClick={() => item.enabled && setActiveView(item.label as View)}
                 title={item.enabled ? undefined : "Denne visningen er ikke aktiv ennå"}'''
-          nav_prefetch = '''                onClick={() => item.enabled && setActiveView(item.label as View)}
+          new_nav = '''                onClick={() => item.enabled && setActiveView(item.label as View)}
                 onMouseEnter={() => item.enabled && preloadView(item.label as View)}
                 onFocus={() => item.enabled && preloadView(item.label as View)}
                 title={item.enabled ? undefined : "Denne visningen er ikke aktiv ennå"}'''
-          if nav_click not in app:
+          if old_nav not in app:
               raise SystemExit("Navigation button changed unexpectedly")
-          app = app.replace(nav_click, nav_prefetch, 1)
+          app = app.replace(old_nav, new_nav, 1)
 
-          lazy_replacements = {
-              "          <HistoryPage />": "          <Suspense fallback={<ViewFallback />}><HistoryPage /></Suspense>",
-              "          <BuybackPage />": "          <Suspense fallback={<ViewFallback />}><BuybackPage /></Suspense>",
-              "          <BemobiPage />": "          <Suspense fallback={<ViewFallback />}><BemobiPage /></Suspense>",
-              "          <ConsensusPage />": "          <Suspense fallback={<ViewFallback />}><ConsensusPage /></Suspense>",
-              "            <NavWaterfallPanel />": "            <Suspense fallback={<ViewFallback />}><NavWaterfallPanel /></Suspense>",
-          }
-          for old, new in lazy_replacements.items():
+          for old, new in (
+              ('          <HistoryPage />', '          <Suspense fallback={<ViewFallback />}><HistoryPage /></Suspense>'),
+              ('          <BuybackPage />', '          <Suspense fallback={<ViewFallback />}><BuybackPage /></Suspense>'),
+              ('          <BemobiPage />', '          <Suspense fallback={<ViewFallback />}><BemobiPage /></Suspense>'),
+              ('          <ConsensusPage />', '          <Suspense fallback={<ViewFallback />}><ConsensusPage /></Suspense>'),
+              ('            <NavWaterfallPanel />', '            <Suspense fallback={<ViewFallback />}><NavWaterfallPanel /></Suspense>'),
+          ):
               if old not in app:
                   raise SystemExit(f"Lazy target not found: {old}")
               app = app.replace(old, new, 1)
@@ -225,22 +218,11 @@ jobs:
 
           economic_path = Path("frontend/src/EconomicNavPanel.tsx")
           economic = economic_path.read_text(encoding="utf-8")
-          old_loading = '''  if (data == null) {
-            if (!refreshFailed) return variant === "summary" ? <MarketQuotePanel /> : null;
-            return (
-              <section className="economicNavHost">
-                <div className="economicNavPanel economicNavUnavailable">
-                  <div>
-                    <span className="economicEyebrow">Investorjustert NAV</span>
-                    <strong>Økonomisk NAV kunne ikke hentes</strong>
-                  </div>
-                  <span>{reasonLabel("api_error")}</span>
-                </div>
-                {variant === "summary" && <MarketQuotePanel />}
-              </section>
-            );
-          }'''.replace("          ", "")
-          new_loading = '''  if (data == null) {
+          loading_pattern = re.compile(
+              r'  if \(data == null\) \{\n    if \(!refreshFailed\).*?\n  \}\n\n  if \(!data\.ready\)',
+              re.S,
+          )
+          loading = '''  if (data == null) {
             return (
               <section className="economicNavHost">
                 <div className="economicNavPanel economicNavUnavailable" aria-busy={!refreshFailed}>
@@ -253,10 +235,13 @@ jobs:
                 {variant === "summary" && <MarketQuotePanel />}
               </section>
             );
-          }'''.replace("          ", "")
-          if old_loading not in economic:
-              raise SystemExit("Economic NAV loading block changed unexpectedly")
-          economic_path.write_text(economic.replace(old_loading, new_loading, 1), encoding="utf-8")
+          }
+
+          if (!data.ready)'''.replace("          ", "")
+          economic, count = loading_pattern.subn(lambda _: loading, economic, count=1)
+          if count != 1:
+              raise SystemExit(f"Expected one EconomicNav loading block, found {count}")
+          economic_path.write_text(economic, encoding="utf-8")
 
           Path("frontend/src/DeferredDiagnostics.tsx").write_text('''import { lazy, Suspense, useEffect, useState } from "react";
 
@@ -271,10 +256,8 @@ jobs:
               const schedule = () => {
                 timer = window.setTimeout(() => setReady(true), 2000);
               };
-
               if (document.readyState === "complete") schedule();
               else window.addEventListener("load", schedule, { once: true });
-
               return () => {
                 window.removeEventListener("load", schedule);
                 if (timer != null) window.clearTimeout(timer);
