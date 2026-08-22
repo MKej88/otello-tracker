@@ -160,3 +160,28 @@ def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch
     assert calls[0]["records_written"] == 0
     assert "Too many API requests" in calls[0]["error_message"]
     assert calls[0]["metadata"]["workflow_exception"] is True
+
+
+def test_controlled_failed_result_is_not_finalized_twice(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class _Repository:
+        def __init__(self, database) -> None:
+            calls.append({"database": database})
+
+    monkeypatch.setattr(performance_repository, "PerformanceD1WriteRepository", _Repository)
+    result = asyncio.run(
+        _finalize_failed_job(
+            SimpleNamespace(DB="DB"),
+            {
+                "status": "FAILED",
+                "job_id": 142,
+                "target_date": "2026-08-21",
+                "source_results": {},
+                "critical_errors": [{"step": "preflight", "error": "1 blocker"}],
+            },
+        )
+    )
+
+    assert result == {"status": "skipped", "reason": "already_finalized"}
+    assert calls == []
