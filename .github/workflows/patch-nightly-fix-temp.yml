@@ -1,0 +1,39 @@
+name: Patch nightly fix temp
+
+on:
+  push:
+    branches: [fix/nightly-fx-runtime-status]
+    paths:
+      - '.github/workflows/patch-nightly-fix-temp.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: fix/nightly-fx-runtime-status
+      - name: Patch deploy guard and remove temporary diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/deploy-cloudflare.yml')
+          text = path.read_text(encoding='utf-8')
+          old = "assert config['limits']['subrequests'] == 500"
+          new = "assert config['limits']['subrequests'] == 5000"
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one deploy subrequest assertion, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git rm -f .github/workflows/nightly-failure-diagnostic-temp.yml
+          git rm -f .github/workflows/patch-nightly-fix-temp.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/deploy-cloudflare.yml
+          git commit -m 'Oppdater produksjonsgrense og fjern diagnosefiler'
+          git push origin HEAD:fix/nightly-fx-runtime-status
