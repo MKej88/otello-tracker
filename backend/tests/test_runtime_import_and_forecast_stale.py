@@ -15,8 +15,8 @@ def test_full_workflow_uses_canonical_bemobi_runtime_import() -> None:
 def test_overview_preserves_last_good_forecast_on_isolated_failure() -> None:
     app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
 
-    assert ').catch(() => null)' in app
-    assert '.catch(() => initialForecast)' not in app
+    assert 'const loadForecast = async () =>' in app
+    assert 'fetch("/api/buybacks/forecast")' in app
     assert 'setForecast((current) => current.ready' in app
     assert '{ ...current, status: "FETCH_STALE" }' in app
     assert '{ ready: false, status: "API_ERROR" }' in app

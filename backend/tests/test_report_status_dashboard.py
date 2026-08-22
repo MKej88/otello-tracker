@@ -119,12 +119,15 @@ def test_report_status_exposes_archive_validation_and_anchor_changes() -> None:
 def test_frontend_mount_and_api_route_are_wired() -> None:
     app = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
+    deferred = (ROOT / "frontend" / "src" / "DeferredDiagnostics.tsx").read_text(encoding="utf-8")
     panel = (ROOT / "frontend" / "src" / "ReportStatusPanel.tsx").read_text(encoding="utf-8")
     polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(encoding="utf-8")
 
     assert '@app.get("/api/dashboard/report-status")' in app
     assert "report_status_summary" in app
-    assert "<ReportStatusMount />" in main
+    assert "<DeferredDiagnostics />" in main
+    assert 'lazy(() => import("./ReportStatusPanel"))' in deferred
+    assert "<ReportStatusMount />" in deferred
     assert '"/api/dashboard/report-status"' in panel
     assert "usePollingResource<ReportStatus>" in panel
     assert "fetch(url" in polling

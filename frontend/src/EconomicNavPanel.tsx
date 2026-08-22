@@ -112,15 +112,14 @@ export default function EconomicNavPanel({ variant = "summary" }: Props) {
   );
 
   if (data == null) {
-    if (!refreshFailed) return variant === "summary" ? <MarketQuotePanel /> : null;
     return (
       <section className="economicNavHost">
-        <div className="economicNavPanel economicNavUnavailable">
+        <div className="economicNavPanel economicNavUnavailable" aria-busy={!refreshFailed}>
           <div>
             <span className="economicEyebrow">Investorjustert NAV</span>
-            <strong>Økonomisk NAV kunne ikke hentes</strong>
+            <strong>{refreshFailed ? "Økonomisk NAV kunne ikke hentes" : "Henter økonomisk NAV …"}</strong>
           </div>
-          <span>{reasonLabel("api_error")}</span>
+          <span>{refreshFailed ? reasonLabel("api_error") : "LASTER"}</span>
         </div>
         {variant === "summary" && <MarketQuotePanel />}
       </section>

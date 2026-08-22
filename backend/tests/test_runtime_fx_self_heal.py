@@ -159,13 +159,16 @@ def test_runtime_status_is_wired_to_api_frontend_and_fast_refresh() -> None:
     app = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
     scheduled = (ROOT / "cloudflare" / "src" / "scheduled.py").read_text(encoding="utf-8")
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
+    deferred = (ROOT / "frontend" / "src" / "DeferredDiagnostics.tsx").read_text(encoding="utf-8")
     panel = (ROOT / "frontend" / "src" / "RuntimeStatusPanel.tsx").read_text(encoding="utf-8")
     polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(encoding="utf-8")
 
     assert '@app.get("/api/dashboard/runtime-status")' in app
     assert "repair_norges_bank_fx_if_stale" in scheduled
     assert scheduled.index("norges_bank_fx_repair") < scheduled.index('"dirty_nav"')
-    assert "<RuntimeStatusMount />" in main
+    assert "<DeferredDiagnostics />" in main
+    assert 'lazy(() => import("./RuntimeStatusPanel"))' in deferred
+    assert "<RuntimeStatusMount />" in deferred
     assert '"/api/dashboard/runtime-status"' in panel
     assert "usePollingResource<RuntimeStatus>" in panel
     assert "fetch(url" in polling
