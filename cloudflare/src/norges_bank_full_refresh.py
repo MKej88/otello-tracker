@@ -9,9 +9,11 @@ from typing import Any, Awaitable, Callable
 
 try:
     from .bounded_response import read_response_bytes
+    from .history_rebuild_state import history_rebuild_needed
     from .r2_archive import archive_bytes
 except ImportError:
     from bounded_response import read_response_bytes
+    from history_rebuild_state import history_rebuild_needed
     from r2_archive import archive_bytes
 
 NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.BRL+USD.NOK.SP"
@@ -276,6 +278,7 @@ async def refresh_norges_bank_fx(
 ) -> dict[str, Any]:
     target = date.fromisoformat(target_date)
     history_backfill = False
+    history_resume_pending = False
     required_history_start = norges_bank_history_start(target_date)
     if lookback_days == 21:
         complete, _, required_history_start = await _norges_bank_coverage(
@@ -286,6 +289,13 @@ async def refresh_norges_bank_fx(
             history_start = date.fromisoformat(required_history_start)
             lookback_days = max(lookback_days, (target - history_start).days)
             history_backfill = True
+        else:
+            history_resume_pending = await history_rebuild_needed(
+                repository,
+                required_start=required_history_start,
+                target_date=target_date,
+            )
+            history_backfill = history_resume_pending
 
     start = (target - timedelta(days=max(7, lookback_days))).isoformat()
     url = build_norges_bank_url(start, target_date)
@@ -324,6 +334,7 @@ async def refresh_norges_bank_fx(
             "history_years": NORGES_BANK_HISTORY_YEARS,
             "history_start_required": required_history_start,
             "history_backfill": history_backfill,
+            "history_resume_pending": history_resume_pending,
             "auto_fx_backtest_history": history_backfill,
         },
     )
@@ -348,6 +359,7 @@ async def refresh_norges_bank_fx(
         "history_years": NORGES_BANK_HISTORY_YEARS,
         "history_start_required": required_history_start,
         "history_backfill": history_backfill,
+        "history_resume_pending": history_resume_pending,
         "auto_fx_backtest_history": history_backfill,
     }
 
