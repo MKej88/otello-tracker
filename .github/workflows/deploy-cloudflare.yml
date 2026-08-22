@@ -279,7 +279,7 @@ jobs:
           forecast = json.loads(Path('/tmp/otello-forecast.json').read_text())
           buyback_dashboard = json.loads(Path('/tmp/otello-buyback-dashboard.json').read_text())
           bemobi_dashboard = json.loads(Path('/tmp/otello-bemobi-dashboard.json').read_text())
-          bemobi_consensus = json.loads(Path('/tmp/otello-consensus.json').read_text()) if Path('/tmp/otello-consensus.json').exists() else json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
+          bemobi_consensus = json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
           bemobi_source_status = json.loads(Path('/tmp/otello-bemobi-source-status.json').read_text())
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
