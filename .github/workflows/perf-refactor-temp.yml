@@ -1,0 +1,348 @@
+name: Temporary performance refactor
+
+on:
+  push:
+    branches:
+      - perf-snappy-first-load
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: ${{ !contains(github.event.head_commit.message, '[perf-refactor]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: perf-snappy-first-load
+      - name: Apply first-load performance refactor
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Expected block not found in {path}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          app = "frontend/src/App.tsx"
+          replace_once(
+              app,
+              '''import { useEffect, useMemo, useState } from "react";
+          import BemobiPage from "./BemobiPage";
+          import BuybackPage from "./BuybackPage";
+          import ConsensusPage from "./ConsensusPage";
+          import EconomicNavPanel from "./EconomicNavPanel";
+          import HistoryPage from "./HistoryPage";
+          import NavWaterfallPanel from "./NavWaterfallPanel";'''.replace("          ", ""),
+              '''import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+          import EconomicNavPanel from "./EconomicNavPanel";
+
+          const loadBemobiPage = () => import("./BemobiPage");
+          const loadBuybackPage = () => import("./BuybackPage");
+          const loadConsensusPage = () => import("./ConsensusPage");
+          const loadHistoryPage = () => import("./HistoryPage");
+          const loadNavWaterfallPanel = () => import("./NavWaterfallPanel");
+
+          const BemobiPage = lazy(loadBemobiPage);
+          const BuybackPage = lazy(loadBuybackPage);
+          const ConsensusPage = lazy(loadConsensusPage);
+          const HistoryPage = lazy(loadHistoryPage);
+          const NavWaterfallPanel = lazy(loadNavWaterfallPanel);'''.replace("          ", ""),
+          )
+
+          old_effect = '''  useEffect(() => {
+            let active = true;
+
+            const loadDashboard = () => {
+              Promise.all([
+                fetch("/api/dashboard/summary").then((response) => {
+                  if (!response.ok) throw new Error("Summary API-feil");
+                  return response.json() as Promise<Summary>;
+                }),
+                fetch("/api/dashboard/history?days=365&max_points=300").then((response) => {
+                  if (!response.ok) throw new Error("History API-feil");
+                  return response.json() as Promise<History>;
+                }),
+                fetch("/api/buybacks/forecast").then((response) => {
+                  if (!response.ok) throw new Error("Forecast API-feil");
+                  return response.json() as Promise<BuybackForecast>;
+                }).catch(() => null)
+              ])
+                .then(([summaryData, historyData, forecastData]) => {
+                  if (!active) return;
+                  setSummary(summaryData);
+                  setHistory(historyData);
+                  if (forecastData) {
+                    setForecast(forecastData);
+                  } else {
+                    setForecast((current) => current.ready
+                      ? { ...current, status: "FETCH_STALE" }
+                      : { ready: false, status: "API_ERROR" });
+                  }
+                  setApiOk(true);
+                  setRefreshFailed(false);
+                  setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  }));
+                })
+                .catch(() => {
+                  if (!active) return;
+                  setApiOk(false);
+                  setRefreshFailed(true);
+                  setSummary((current) => current.ready
+                    ? current
+                    : { ready: false, data_status: "error", message: "Kunne ikke hente investordata." });
+                });
+            };
+
+            loadDashboard();
+            const timer = window.setInterval(loadDashboard, AUTO_REFRESH_MS);
+            return () => {
+              active = false;
+              window.clearInterval(timer);
+            };
+          }, []);'''.replace("          ", "")
+
+          new_effect = '''  useEffect(() => {
+            let active = true;
+            let inFlight = false;
+
+            const loadSummary = async () => {
+              if (inFlight) return;
+              inFlight = true;
+              try {
+                const response = await fetch("/api/dashboard/summary");
+                if (!response.ok) throw new Error("Summary API-feil");
+                const summaryData = await response.json() as Summary;
+                if (!active) return;
+                setSummary(summaryData);
+                setApiOk(true);
+                setRefreshFailed(false);
+                setLastSuccessfulFetchAt(new Date().toLocaleTimeString("nb-NO", {
+                  hour: "2-digit",
+                  minute: "2-digit"
+                }));
+              } catch {
+                if (!active) return;
+                setApiOk(false);
+                setRefreshFailed(true);
+                setSummary((current) => current.ready
+                  ? current
+                  : { ready: false, data_status: "error", message: "Kunne ikke hente investordata." });
+              } finally {
+                inFlight = false;
+              }
+            };
+
+            void loadSummary();
+            const timer = window.setInterval(() => { void loadSummary(); }, AUTO_REFRESH_MS);
+            return () => {
+              active = false;
+              window.clearInterval(timer);
+            };
+          }, []);
+
+          useEffect(() => {
+            let active = true;
+            let inFlight = false;
+
+            const loadForecast = async () => {
+              if (inFlight) return;
+              inFlight = true;
+              try {
+                const response = await fetch("/api/buybacks/forecast");
+                if (!response.ok) throw new Error("Forecast API-feil");
+                const forecastData = await response.json() as BuybackForecast;
+                if (!active) return;
+                setForecast(forecastData);
+              } catch {
+                if (!active) return;
+                setForecast((current) => current.ready
+                  ? { ...current, status: "FETCH_STALE" }
+                  : { ready: false, status: "API_ERROR" });
+              } finally {
+                inFlight = false;
+              }
+            };
+
+            const initialTimer = window.setTimeout(() => { void loadForecast(); }, 150);
+            const timer = window.setInterval(() => { void loadForecast(); }, AUTO_REFRESH_MS);
+            return () => {
+              active = false;
+              window.clearTimeout(initialTimer);
+              window.clearInterval(timer);
+            };
+          }, []);
+
+          useEffect(() => {
+            if (activeView !== "NAV") return undefined;
+            let active = true;
+            let inFlight = false;
+
+            const loadHistory = async () => {
+              if (inFlight) return;
+              inFlight = true;
+              try {
+                const response = await fetch("/api/dashboard/history?days=365&max_points=300");
+                if (!response.ok) throw new Error("History API-feil");
+                const historyData = await response.json() as History;
+                if (!active) return;
+                setHistory(historyData);
+              } catch {
+                if (!active) return;
+                setHistory((current) => current.ready
+                  ? current
+                  : { ready: false, data_status: "error", points: [] });
+              } finally {
+                inFlight = false;
+              }
+            };
+
+            void loadHistory();
+            const timer = window.setInterval(() => { void loadHistory(); }, AUTO_REFRESH_MS);
+            return () => {
+              active = false;
+              window.clearInterval(timer);
+            };
+          }, [activeView]);
+
+          useEffect(() => {
+            if (!summary.ready) return undefined;
+            const timer = window.setTimeout(() => {
+              void Promise.allSettled([
+                loadHistoryPage(),
+                loadBuybackPage(),
+                loadBemobiPage(),
+                loadConsensusPage(),
+                loadNavWaterfallPanel(),
+              ]);
+            }, 1200);
+            return () => window.clearTimeout(timer);
+          }, [summary.ready]);'''.replace("          ", "")
+          replace_once(app, old_effect, new_effect)
+
+          marker = '''function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: number | null }) {'''
+          text = Path(app).read_text(encoding="utf-8")
+          insert_at = text.index("\nexport default function App()")
+          fallback = '''\n\nfunction ViewFallback() {
+            return (
+              <section className="card" aria-busy="true">
+                <span className="label">Visning</span>
+                <strong>Laster modul …</strong>
+              </section>
+            );
+          }'''.replace("          ", "")
+          text = text[:insert_at] + fallback + text[insert_at:]
+          Path(app).write_text(text, encoding="utf-8")
+
+          replace_once(
+              app,
+              '''        {activeView === "Oversikt" ? (''',
+              '''        <Suspense fallback={<ViewFallback />}>
+          {activeView === "Oversikt" ? (''',
+          )
+          replace_once(
+              app,
+              '''        )}
+              </main>'''.replace("              ", ""),
+              '''        )}
+          </Suspense>
+        </main>'''.replace("        </main>", "      </main>"),
+          )
+
+          economic = "frontend/src/EconomicNavPanel.tsx"
+          old_loading = '''  if (data == null) {
+            if (!refreshFailed) return variant === "summary" ? <MarketQuotePanel /> : null;
+            return (
+              <section className="economicNavHost">
+                <div className="economicNavPanel economicNavUnavailable">
+                  <div>
+                    <span className="economicEyebrow">Investorjustert NAV</span>
+                    <strong>Økonomisk NAV kunne ikke hentes</strong>
+                  </div>
+                  <span>{reasonLabel("api_error")}</span>
+                </div>
+                {variant === "summary" && <MarketQuotePanel />}
+              </section>
+            );
+          }'''.replace("          ", "")
+          new_loading = '''  if (data == null) {
+            return (
+              <section className="economicNavHost">
+                <div className="economicNavPanel economicNavUnavailable" aria-busy={!refreshFailed}>
+                  <div>
+                    <span className="economicEyebrow">Investorjustert NAV</span>
+                    <strong>{refreshFailed ? "Økonomisk NAV kunne ikke hentes" : "Henter økonomisk NAV …"}</strong>
+                  </div>
+                  <span>{refreshFailed ? reasonLabel("api_error") : "LASTER"}</span>
+                </div>
+                {variant === "summary" && <MarketQuotePanel />}
+              </section>
+            );
+          }'''.replace("          ", "")
+          replace_once(economic, old_loading, new_loading)
+
+          Path("frontend/src/DeferredDiagnostics.tsx").write_text('''import { lazy, Suspense, useEffect, useState } from "react";
+
+const ReportStatusMount = lazy(() => import("./ReportStatusPanel"));
+const RuntimeStatusMount = lazy(() => import("./RuntimeStatusPanel"));
+
+export default function DeferredDiagnostics() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const schedule = () => {
+      timer = window.setTimeout(() => setReady(true), 2000);
+    };
+
+    if (document.readyState === "complete") {
+      schedule();
+    } else {
+      window.addEventListener("load", schedule, { once: true });
+    }
+
+    return () => {
+      window.removeEventListener("load", schedule);
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, []);
+
+  if (!ready) return null;
+  return (
+    <Suspense fallback={null}>
+      <ReportStatusMount />
+      <RuntimeStatusMount />
+    </Suspense>
+  );
+}
+''', encoding="utf-8")
+
+          Path("frontend/src/main.tsx").write_text('''import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import DeferredDiagnostics from "./DeferredDiagnostics";
+import "./styles.css";
+import "./prelive.css";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+    <DeferredDiagnostics />
+  </React.StrictMode>
+);
+''', encoding="utf-8")
+
+          Path(".github/workflows/perf-refactor-temp.yml").unlink()
+      - name: Commit refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[perf-refactor] Prioriter kritisk førsteinnlasting"
+          git push origin HEAD:perf-snappy-first-load
