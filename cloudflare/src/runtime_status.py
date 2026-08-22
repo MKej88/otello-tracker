@@ -11,6 +11,7 @@ except ImportError:
 
 FULL_JOB = "cloudflare_full_refresh"
 FAST_JOB = "cloudflare_fast_refresh"
+WRITER_LOCK_KEY = "cloudflare_refresh_writer_lock"
 FAST_MAX_AGE = timedelta(minutes=90)
 FULL_MAX_AGE = timedelta(hours=36)
 FAST_RUNNING_MAX_AGE = timedelta(minutes=90)
@@ -43,6 +44,19 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _active_writer_owner(lock_row: dict[str, Any] | None, *, now: datetime) -> str | None:
+    if not lock_row or not lock_row.get("value"):
+        return None
+    token = str(lock_row["value"])
+    owner, separator, expires_text = token.rpartition("|")
+    if not separator or not owner:
+        return None
+    expires_at = _parse_timestamp(expires_text)
+    if expires_at is None or expires_at <= now:
+        return None
+    return owner
 
 
 def _job_freshness(
@@ -113,6 +127,29 @@ def _job_payload(
     }
 
 
+def _guard_orphaned_full_job(
+    payload: dict[str, Any],
+    row: dict[str, Any] | None,
+    lock_row: dict[str, Any] | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """Do not expose RUNNING when its full-refresh writer lease is gone or expired."""
+    if not row or str(row.get("status") or "").upper() != "RUNNING":
+        return payload
+    target_date = str(payload.get("target_date") or "").strip()
+    owner = _active_writer_owner(lock_row, now=now)
+    if target_date and owner and owner.startswith(f"full:{target_date}:"):
+        return payload
+    return {
+        **payload,
+        "status": "FAILED",
+        "stale": True,
+        "reason": "writer_lease_inactive",
+        "has_error": True,
+    }
+
+
 async def _latest_job(repository, job_name: str) -> dict[str, Any] | None:
     return await repository.first(
         """
@@ -140,6 +177,13 @@ async def _latest_norges_bank_health(repository) -> dict[str, Any] | None:
     )
 
 
+async def _writer_lock(repository) -> dict[str, Any] | None:
+    return await repository.first(
+        "SELECT value, updated_at FROM runtime_state WHERE key=? LIMIT 1",
+        (WRITER_LOCK_KEY,),
+    )
+
+
 async def runtime_status_summary(
     repository,
     *,
@@ -148,6 +192,7 @@ async def runtime_status_summary(
     current = (now or datetime.now(UTC)).astimezone(UTC)
     full_row = await _latest_job(repository, FULL_JOB)
     fast_row = await _latest_job(repository, FAST_JOB)
+    writer_lock = await _writer_lock(repository)
     norges_bank_health = await _latest_norges_bank_health(repository)
     fx = await norges_bank_fx_coverage(repository)
 
@@ -157,6 +202,7 @@ async def runtime_status_summary(
         completed_max_age=FULL_MAX_AGE,
         running_max_age=FULL_RUNNING_MAX_AGE,
     )
+    full = _guard_orphaned_full_job(full, full_row, writer_lock, now=current)
     fast = _job_payload(
         fast_row,
         now=current,
