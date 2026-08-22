@@ -5,6 +5,10 @@ on:
     branches: [fix/nightly-fx-runtime-status]
     paths:
       - '.github/workflows/nightly-failure-diagnostic-temp.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/nightly-failure-diagnostic-temp.yml'
 
 permissions:
   contents: read
