@@ -526,6 +526,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             await email_step()
             return result
         except Exception as exc:
+            workflow_error = str(exc)[:1000] or type(exc).__name__
             failure_result = {
                 "status": "FAILED",
                 "job_id": locals().get("job_id"),
@@ -535,17 +536,48 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 "critical_errors": [
                     {
                         "step": "workflow",
-                        "error": str(exc)[:1000] or type(exc).__name__,
+                        "error": workflow_error,
                     }
                 ],
                 "preflight": locals().get("preflight_result", {}),
                 "errors": [
                     {
                         "step": "workflow",
-                        "error": str(exc)[:1000] or type(exc).__name__,
+                        "error": workflow_error,
                     }
                 ],
             }
+
+            failure_job_id = failure_result.get("job_id")
+            if failure_job_id is not None:
+                @step.do(
+                    "finalize failed full refresh",
+                    config={"retries": {"limit": 3, "delay": "10 seconds"}, "timeout": "2 minutes"},
+                )
+                async def failure_finalize_step():
+                    repository = PerformanceD1WriteRepository(self.env.DB)
+                    updated = await repository.fail_job_if_running(
+                        int(failure_job_id),
+                        finished_at=datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                        error_message=workflow_error,
+                        metadata={
+                            "target_date": target_date,
+                            "failure": {"step": "workflow", "error": workflow_error},
+                        },
+                    )
+                    return {"updated": updated, "job_id": int(failure_job_id)}
+
+                try:
+                    failure_result["job_finalization"] = await failure_finalize_step()
+                except Exception as finalize_exc:
+                    finalize_error = str(finalize_exc)[:1000] or type(finalize_exc).__name__
+                    failure_result["job_finalization"] = {
+                        "updated": False,
+                        "error": finalize_error,
+                    }
+                    failure_result["errors"].append(
+                        {"step": "failure_finalization", "error": finalize_error}
+                    )
 
             @step.do(
                 "send nightly failure status email",

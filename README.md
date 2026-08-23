@@ -4,7 +4,7 @@ Privat investorverktøy for **Otello Corporation ASA** og **Bemobi Mobile Tech**
 
 Produksjonen kjører på **Cloudflare Workers Paid** med React/Vite, Python Workers, D1, R2, Cron Triggers og Cloudflare Workflows.
 
-## Status 21.08.2026
+## Status 23.08.2026
 
 Produksjonen er live og deploy-/diagnosekjeden er etablert.
 
@@ -26,11 +26,12 @@ Aktive visninger:
 
 - Oversikt
 - NAV
+- Historikk
 - Tilbakekjøp
 - Bemobi
 - Konsensus
 
-Historikk, Nyheter og Innstillinger er fortsatt inaktive områder i navigasjonen.
+Nyheter og Innstillinger er fortsatt inaktive områder i navigasjonen.
 
 ## Arkitektur
 
@@ -62,7 +63,7 @@ Se `docs/architecture.md`.
 
 ## Sentrale API-endepunkter
 
-Cloudflare-/referanse-API-versjon: **0.12.1**.
+Cloudflare-/referanse-API-versjon: **0.13.0**.
 
 ```text
 GET /api/health
@@ -72,6 +73,7 @@ GET /api/dashboard/economic
 GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
+GET /api/dashboard/discount-history
 GET /api/dashboard/report-status
 GET /api/dashboard/runtime-status
 GET /api/buybacks/forecast
@@ -155,9 +157,9 @@ Den raske banen håndterer lette og inkrementelle oppdateringer som OTEC/BMOB3, 
 35 3 * * * UTC
 ```
 
-Full Workflow håndterer tyngre kilder og avstemming, blant annet Norges Bank, B3, CVM, Bemobi-webkilder, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
+Full Workflow håndterer tyngre kilder og avstemming, blant annet Norges Bank, Life360, B3, CVM, Bemobi-webkilder, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
 
-Begge write-paths bruker samme writer-lock. Full Workflow bruker unik per-instans-identitet, locken fornyes gjennom kjøringen, cleanup skal frigjøre låsen også ved feil, og expiry er siste sikkerhetsnett.
+Begge write-paths bruker samme writer-lock. Full Workflow bruker unik per-instans-identitet, locken fornyes gjennom kjøringen, cleanup skal frigjøre låsen også ved feil, og expiry er siste sikkerhetsnett. En startet D1-jobb terminaliseres eksplisitt til `FAILED` ved hard Workflow-feil dersom den fortsatt står `RUNNING`.
 
 ## Nattdiagnostikk
 
@@ -210,7 +212,7 @@ Produksjonskonfigurasjonen bruker bevisst avgrensede grenser:
 
 ```text
 CPU:          60 000 ms
-Subrequests:  500
+Subrequests:  50 000
 ```
 
 I tillegg brukes blant annet API-cache, direkte Static Assets, begrenset loggsampling, tracing av som standard, målrettede D1-indekser, writer-lock, WAF rate limiting og Budget Alerts.

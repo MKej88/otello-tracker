@@ -29,11 +29,12 @@ Aktive hovedvisninger:
 
 - Oversikt
 - NAV
+- Historikk
 - Tilbakekjøp
 - Bemobi
 - Konsensus
 
-Historikk, Nyheter og Innstillinger ligger fortsatt i navigasjonen som inaktive områder og skal ikke beskrives som ferdige sider.
+Nyheter og Innstillinger ligger fortsatt i navigasjonen som inaktive områder og skal ikke beskrives som ferdige sider.
 
 Frontend leveres som Workers Static Assets på samme domene som API-et. `/api/*` går gjennom Worker-koden.
 
@@ -49,7 +50,9 @@ GET /api/dashboard/economic
 GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
+GET /api/dashboard/discount-history
 GET /api/dashboard/report-status
+GET /api/dashboard/runtime-status
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
@@ -105,11 +108,11 @@ Cloudflare Cron kjører hvert 30. minutt. Banen er bounded og håndterer lette, 
 
 ### Full oppdatering
 
-Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
+Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, Life360-markedsdata, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
 
 Hvis den rullerende tiårsdekningen fra Norges Bank mangler, utvider Full Workflow valutahentingen til hele perioden og rebuild-er deretter eksisterende historiske NAV-datoer med de direkte NOK-kursene. Rebuild-en oppretter ikke kunstige NAV-datoer; den oppdaterer kun historikk som allerede har nødvendige pris- og modellankre.
 
-Rask og full bane bruker samme D1-baserte writer-lock. Låsen skal alltid frigjøres også ved feil, og har i tillegg expiry som siste sikkerhetsnett.
+Rask og full bane bruker samme D1-baserte writer-lock. Låsen skal alltid frigjøres også ved feil, og har i tillegg expiry som siste sikkerhetsnett. Dersom Full Workflow krasjer etter at D1-jobben er startet, terminaliseres en fortsatt `RUNNING` jobbrad til `FAILED` før feilstatusmail forsøkes sendt.
 
 ## Deploy
 

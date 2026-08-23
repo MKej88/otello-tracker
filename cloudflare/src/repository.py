@@ -332,3 +332,36 @@ class D1WriteRepository(D1Repository):
                 job_id,
             ),
         )
+
+    async def fail_job_if_running(
+        self,
+        job_id: int,
+        *,
+        finished_at: str,
+        error_message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Mark a still-running job FAILED without overwriting a terminal result."""
+        row = await self.first(
+            "SELECT status, metadata_json FROM job_runs WHERE id=? LIMIT 1",
+            (job_id,),
+        )
+        if row is None or str(row.get("status") or "").upper() != "RUNNING":
+            return False
+
+        try:
+            existing_metadata = json.loads(str(row.get("metadata_json") or "{}"))
+        except (TypeError, json.JSONDecodeError):
+            existing_metadata = {}
+        if not isinstance(existing_metadata, dict):
+            existing_metadata = {}
+        merged_metadata = {**existing_metadata, **(metadata or {})}
+        await self.finish_job(
+            job_id,
+            finished_at=finished_at,
+            status="FAILED",
+            records_written=0,
+            error_message=error_message[:4000] or None,
+            metadata=merged_metadata,
+        )
+        return True
