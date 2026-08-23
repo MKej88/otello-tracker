@@ -17,8 +17,11 @@ except ImportError:
     from economic_nav_investor import economic_nav_summary
     from quote_details import market_quote_details
 
-STATE_KEY = "dashboard_hot_snapshot_v1"
-SNAPSHOT_VERSION = 1
+# Persisted hot snapshots contain already-rendered API payloads. Bump both the key
+# and version whenever response semantics change so a newly deployed Worker cannot
+# serve a payload produced by the previous application version.
+STATE_KEY = "dashboard_hot_snapshot_v2"
+SNAPSHOT_VERSION = 2
 _COMPONENTS = {"summary", "economic", "quotes", "forecast"}
 
 
