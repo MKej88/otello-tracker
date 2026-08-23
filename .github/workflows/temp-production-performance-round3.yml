@@ -1,0 +1,66 @@
+name: Temporary production performance measurement round 3
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Measure production TTFB
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://otellotracker.com'
+          stamp=$(date +%s%N)
+          for path in '/' '/api/dashboard/summary' '/api/dashboard/economic' '/api/market/quotes'; do
+            echo "=== NORMAL $path ==="
+            for i in 1 2 3; do
+              curl -sS -D /tmp/headers -o /dev/null \
+                -w 'ttfb=%{time_starttransfer}s total=%{time_total}s size=%{size_download}\n' \
+                "$base$path"
+              grep -iE '^(cf-cache-status|cache-control|cloudflare-cdn-cache-control|age):' /tmp/headers || true
+            done
+            if [[ "$path" != "/" ]]; then
+              echo "=== CACHE_BUST $path ==="
+              curl -sS -D /tmp/headers -o /dev/null \
+                -w 'ttfb=%{time_starttransfer}s total=%{time_total}s size=%{size_download}\n' \
+                "$base$path?perf_probe=$stamp"
+              grep -iE '^(cf-cache-status|cache-control|cloudflare-cdn-cache-control|age):' /tmp/headers || true
+              stamp=$((stamp+1))
+            fi
+          done
+      - name: Run Lighthouse twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in 1 2; do
+            npx --yes lighthouse@12.8.2 https://otellotracker.com \
+              --output=json --output-path="/tmp/lighthouse-$run.json" \
+              --only-categories=performance \
+              --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+              --quiet
+            node - "$run" <<'NODE'
+          const fs = require('fs');
+          const run = process.argv[2];
+          const r = JSON.parse(fs.readFileSync(`/tmp/lighthouse-${run}.json`, 'utf8'));
+          const a = r.audits;
+          console.log('LIGHTHOUSE_METRICS', run, JSON.stringify({
+            performance: Math.round((r.categories.performance.score || 0) * 100),
+            fcp_ms: a['first-contentful-paint']?.numericValue,
+            lcp_ms: a['largest-contentful-paint']?.numericValue,
+            speed_index_ms: a['speed-index']?.numericValue,
+            tbt_ms: a['total-blocking-time']?.numericValue,
+            cls: a['cumulative-layout-shift']?.numericValue,
+            document_ttfb_ms: a['server-response-time']?.numericValue,
+            transfer_bytes: a['total-byte-weight']?.numericValue
+          }));
+          NODE
+          done
