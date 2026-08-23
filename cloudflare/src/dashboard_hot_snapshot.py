@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -77,6 +78,34 @@ async def load_dashboard_hot_snapshot(repository: Any) -> dict[str, Any] | None:
     if not _COMPONENTS.issubset(payload):
         return None
     return payload
+
+
+async def dashboard_bootstrap_payload(repository: Any) -> dict[str, Any]:
+    """Return all first-screen components through one D1 snapshot read.
+
+    A live calculation is kept only as a fail-safe for a missing/invalid snapshot.
+    The response includes small timing metadata so cold-start vs application work can
+    be distinguished in production without exposing investor internals.
+    """
+    started = perf_counter()
+    snapshot = await load_dashboard_hot_snapshot(repository)
+    source = "hot_snapshot"
+    if snapshot is None:
+        snapshot = await build_dashboard_hot_snapshot(repository)
+        source = "live_fallback"
+
+    return {
+        "summary": snapshot["summary"],
+        "economic": snapshot["economic"],
+        "quotes": snapshot["quotes"],
+        "forecast": snapshot["forecast"],
+        "meta": {
+            "source": source,
+            "snapshot_version": snapshot.get("version"),
+            "generated_at": snapshot.get("generated_at"),
+            "server_ms": round((perf_counter() - started) * 1000, 2),
+        },
+    }
 
 
 async def dashboard_hot_snapshot_status(

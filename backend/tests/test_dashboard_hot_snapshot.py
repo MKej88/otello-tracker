@@ -117,6 +117,42 @@ def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) 
     assert repository.writes == 0
 
 
+def test_dashboard_bootstrap_reuses_hot_snapshot_without_rebuild(monkeypatch) -> None:
+    repository = FakeRepository()
+    existing = {
+        "version": hot.SNAPSHOT_VERSION,
+        "generated_at": "2026-08-23T16:00:00.000Z",
+        "summary": {"ready": True, "nav_per_share": 31.5},
+        "economic": {"ready": True, "nav_per_share": 32.1},
+        "quotes": {"ready": True, "symbols": {"OTEC": {"last": 24.0}}},
+        "forecast": {"ready": True, "status": "READY"},
+    }
+    repository.rows[hot.STATE_KEY] = {
+        "value": json.dumps(existing),
+        "updated_at": existing["generated_at"],
+    }
+
+    async def must_not_run(*_args, **_kwargs):
+        raise AssertionError("bootstrap should reuse the persisted hot snapshot")
+
+    monkeypatch.setattr(hot, "dashboard_summary", must_not_run)
+    monkeypatch.setattr(hot, "economic_nav_summary", must_not_run)
+    monkeypatch.setattr(hot, "market_quote_details", must_not_run)
+    monkeypatch.setattr(hot, "buyback_forecast", must_not_run)
+
+    result = asyncio.run(hot.dashboard_bootstrap_payload(repository))
+
+    assert result["summary"] == existing["summary"]
+    assert result["economic"] == existing["economic"]
+    assert result["quotes"] == existing["quotes"]
+    assert result["forecast"] == existing["forecast"]
+    assert result["meta"]["source"] == "hot_snapshot"
+    assert result["meta"]["snapshot_version"] == hot.SNAPSHOT_VERSION
+    assert result["meta"]["generated_at"] == existing["generated_at"]
+    assert result["meta"]["server_ms"] >= 0
+    assert repository.writes == 0
+
+
 def test_hot_snapshot_status_reports_hit_age_size_and_components() -> None:
     repository = FakeRepository()
     existing = {
