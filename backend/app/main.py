@@ -26,6 +26,7 @@ from app.marketdata import market_data_status
 from app.marketdata.quote_details import market_quote_details
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
+from app.nav_waterfall_attribution_enrich import enrich_nav_waterfall
 from app.nav_waterfall_settlement import nav_waterfall_summary
 from app.settings import settings
 
@@ -185,7 +186,8 @@ def dashboard_economic_nav() -> dict:
 
 @app.get("/api/dashboard/waterfall")
 def dashboard_nav_waterfall() -> dict:
-    return nav_waterfall_summary(settings.database_path)
+    settled = nav_waterfall_summary(settings.database_path)
+    return enrich_nav_waterfall(settled, database_path=settings.database_path)
 
 
 @app.get("/api/dashboard/fx-backtest")
