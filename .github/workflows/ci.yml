@@ -8,152 +8,63 @@ permissions:
 
 jobs:
   cloudflare-diagnostic:
-    name: Temporary Cloudflare instance diagnostic
+    name: Temporary Cloudflare error-tail diagnostic
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
     steps:
-      - name: Read latest full-refresh instance and D1 checkpoints
+      - name: Read exact failure tails
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
-            echo '::error::CLOUDFLARE_READ_TOKEN unavailable to this PR workflow.'
-            exit 1
-          fi
+          test -n "${CLOUDFLARE_API_TOKEN}"
           test -n "${CLOUDFLARE_ACCOUNT_ID}"
-
           base_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/otello-full-refresh/instances"
           curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Accept: application/json" \
-            "${base_url}?per_page=5&direction=desc" \
+            "${base_url}?per_page=1&direction=desc" \
             --output recent.json
-
           instance_id="$(python - <<'PY'
           import json
           with open('recent.json', encoding='utf-8') as f:
-              data = json.load(f)
-          assert data.get('success') is True
-          rows = data.get('result') or []
-          assert rows
-          print(rows[0]['id'])
+              print((json.load(f).get('result') or [])[0]['id'])
           PY
           )"
-          encoded_instance_id="$(python - "$instance_id" <<'PY'
+          encoded="$(python - "$instance_id" <<'PY'
           import sys
           from urllib.parse import quote
           print(quote(sys.argv[1], safe=''))
           PY
           )"
           curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Accept: application/json" \
-            "${base_url}/${encoded_instance_id}?order=asc" \
+            "${base_url}/${encoded}?order=asc" \
             --output detail.json
-
-          databases_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database"
-          curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors \
-            --get \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Accept: application/json" \
-            --data-urlencode "name=${D1_DATABASE_NAME}" \
-            --data-urlencode "per_page=10" \
-            "$databases_url" \
-            --output d1-databases.json
-
-          database_id="$(python - <<'PY'
-          import json, os
-          with open('d1-databases.json', encoding='utf-8') as f:
-              data = json.load(f)
-          assert data.get('success') is True
-          wanted = os.environ['D1_DATABASE_NAME']
-          rows = [r for r in (data.get('result') or []) if r.get('name') == wanted]
-          assert len(rows) == 1
-          print(rows[0]['uuid'])
-          PY
-          )"
-
           python - <<'PY'
           import json
-          batch = [
-              {"sql": "SELECT id, job_name, started_at, finished_at, status, records_written, error_message, metadata_json FROM job_runs WHERE job_name='cloudflare_full_refresh' ORDER BY id DESC LIMIT 4"},
-              {"sql": "SELECT key, value, updated_at FROM runtime_state WHERE key='cloudflare_refresh_writer_lock' OR key LIKE 'norges_bank_nav_history_v1:%' ORDER BY key"},
-              {"sql": "SELECT s.code, sh.checked_at, sh.status, sh.error_message, sh.metadata_json FROM source_health sh JOIN sources s ON s.id=sh.source_id WHERE s.code IN ('NORGES_BANK','YAHOO_FINANCE') ORDER BY sh.id DESC LIMIT 8"},
-          ]
-          with open('d1-query-request.json', 'w', encoding='utf-8') as f:
-              json.dump({'batch': batch}, f)
-          PY
-
-          query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
-          curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors \
-            --request POST \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Accept: application/json" \
-            --header "Content-Type: application/json" \
-            --data-binary @d1-query-request.json \
-            "$query_url" \
-            --output d1-query.json
-
-          python - <<'PY'
-          import json, re
-
-          def clean(value, limit=700):
-              if value is None:
-                  return None
-              text = str(value).replace('\r', ' ').replace('\n', ' ')
-              text = re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/-]+', r'\1[REDACTED]', text)
-              text = re.sub(r'(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+', r'\1\2[REDACTED]', text)
-              return text[:limit]
-
-          with open('recent.json', encoding='utf-8') as f:
-              recent = json.load(f).get('result') or []
           with open('detail.json', encoding='utf-8') as f:
-              payload = json.load(f)
-          assert payload.get('success') is True, payload
-          detail = payload.get('result') or {}
+              result = json.load(f).get('result') or {}
 
-          print('=== CLOUDFLARE WORKFLOW ===')
-          print('id=', detail.get('id'))
-          print('status=', detail.get('status'))
-          print('start=', detail.get('start') or detail.get('started_on'))
-          print('end=', detail.get('end') or detail.get('ended_on'))
-          print('error=', clean(detail.get('error')))
-          steps = detail.get('steps') or []
-          print('step_count=', len(steps))
-          for i, step in enumerate(steps, 1):
-              attempts = step.get('attempts') or []
-              errors = []
-              for attempt in attempts:
-                  if attempt.get('error'):
-                      errors.append(clean(attempt.get('error'), 300))
-              if step.get('error'):
-                  errors.append(clean(step.get('error'), 300))
-              print(json.dumps({
-                  'n': i,
-                  'name': step.get('name'),
-                  'success': step.get('success'),
-                  'type': step.get('type'),
-                  'attempts': len(attempts),
-                  'start': step.get('start'),
-                  'end': step.get('end'),
-                  'errors': errors,
-              }, ensure_ascii=False, sort_keys=True))
+          def msg(value):
+              if isinstance(value, dict):
+                  value = value.get('message') or value.get('name') or json.dumps(value)
+              return str(value or '')
 
-          print('=== RECENT INSTANCES ===')
-          for row in recent:
-              print(json.dumps({k: row.get(k) for k in ('id','status','created_on','started_on','ended_on')}, ensure_ascii=False, sort_keys=True))
-
-          with open('d1-query.json', encoding='utf-8') as f:
-              d1 = json.load(f)
-          print('=== D1 DIAGNOSTICS ===')
-          print(json.dumps(d1, ensure_ascii=False, sort_keys=True)[:12000])
+          print('WORKFLOW_STATUS', result.get('status'))
+          overall = msg(result.get('error'))
+          if overall:
+              print('OVERALL_ERROR_TAIL', overall[-1800:])
+          for step in result.get('steps') or []:
+              if step.get('success') is False:
+                  print('FAILED_STEP', step.get('name'))
+                  if step.get('error'):
+                      print('STEP_ERROR_TAIL', msg(step.get('error'))[-1800:])
+                  for n, attempt in enumerate(step.get('attempts') or [], 1):
+                      if attempt.get('error'):
+                          print(f'ATTEMPT_{n}_ERROR_TAIL', msg(attempt.get('error'))[-1800:])
           PY
