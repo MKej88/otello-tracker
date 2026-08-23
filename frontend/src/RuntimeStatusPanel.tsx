@@ -16,12 +16,27 @@ type JobStatus = {
   reason?: string | null;
 };
 
+type HotSnapshotStatus = {
+  state_key?: string;
+  expected_version?: number;
+  available?: boolean;
+  valid?: boolean;
+  cache_status?: "HIT" | "MISS";
+  stored_version?: number | null;
+  generated_at?: string | null;
+  age_seconds?: number | null;
+  bytes?: number;
+  components?: string[];
+  reason?: string | null;
+};
+
 type RuntimeStatus = {
   ready: boolean;
   status: string;
   checked_at?: string | null;
   full_refresh: JobStatus;
   fast_refresh: JobStatus;
+  hot_snapshot?: HotSnapshotStatus;
   norges_bank: {
     status: string;
     checked_at?: string | null;
@@ -76,6 +91,14 @@ function tone(status?: string | null) {
   return "warn";
 }
 
+function snapshotDetail(snapshot?: HotSnapshotStatus) {
+  if (!snapshot) return "Diagnostikk ikke tilgjengelig";
+  if (snapshot.cache_status !== "HIT") return snapshot.reason ?? "Cache mangler";
+  const minutes = snapshot.age_seconds == null ? null : Math.max(0, Math.round(snapshot.age_seconds / 60));
+  const version = snapshot.stored_version ?? snapshot.expected_version;
+  return `v${version ?? "?"}${minutes == null ? "" : ` · ${minutes} min gammel`}`;
+}
+
 function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; refreshFailed: boolean }) {
   if (!data) {
     return (
@@ -88,6 +111,8 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
 
   const staleJob = data.full_refresh.stale || data.fast_refresh.stale;
   const hiddenError = data.full_refresh.has_error || data.fast_refresh.has_error || data.norges_bank.has_error;
+  const snapshot = data.hot_snapshot;
+  const snapshotHit = snapshot?.cache_status === "HIT" && snapshot.valid === true;
 
   return (
     <section className="card runtimeStatusCard">
@@ -95,7 +120,7 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
         <div>
           <span className="label">Drift</span>
           <h2>Produksjonsstatus</h2>
-          <p>Automatiske jobber og valutaferskhet</p>
+          <p>Automatiske jobber, førsteside-cache og valutaferskhet</p>
         </div>
         <span className={`runtimePill ${tone(data.status)}`}>{statusLabel(data.status)}</span>
       </div>
@@ -110,6 +135,11 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
           <span>30-min oppdatering</span>
           <strong>{statusLabel(data.fast_refresh.status)}</strong>
           <small>{timeLabel(data.fast_refresh.finished_at ?? data.fast_refresh.started_at)}</small>
+        </div>
+        <div className={`runtimeMetric ${snapshot && !snapshotHit ? "runtimeMetricWarn" : ""}`}>
+          <span>Førsteside-cache</span>
+          <strong>{snapshot?.cache_status ?? "UKJENT"}</strong>
+          <small>{snapshotDetail(snapshot)}</small>
         </div>
         <div className="runtimeMetric">
           <span>Norges Bank</span>
@@ -126,6 +156,11 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
       {refreshFailed && (
         <div className="runtimeAlert">
           Ny status kunne ikke hentes. Siste gyldige produksjonsstatus beholdes, sist kontrollert {timeLabel(data.checked_at)}.
+        </div>
+      )}
+      {snapshot && !snapshotHit && (
+        <div className="runtimeAlert">
+          Førsteside-cachen er ikke klar ({snapshot.reason ?? "ukjent årsak"}). Første innlasting kan derfor bli tregere fordi NAV og markedsdata må beregnes direkte.
         </div>
       )}
       {!data.fx.current && (
