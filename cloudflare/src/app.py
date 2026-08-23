@@ -7,7 +7,7 @@ from bemobi_dashboard import bemobi_dashboard
 from bemobi_source_status import bemobi_source_status
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
-from dashboard_hot_snapshot import dashboard_hot_component
+from dashboard_hot_snapshot import dashboard_bootstrap_payload, dashboard_hot_component
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from discount_history import discount_history
 from economic_nav_investor import economic_nav_summary
@@ -19,7 +19,7 @@ from quote_details import market_quote_details
 from report_status import report_status_summary
 from runtime_status import runtime_status_summary
 
-API_VERSION = "0.13.0"
+API_VERSION = "0.13.1"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -30,6 +30,7 @@ SECURITY_HEADERS = {
 
 CACHE_POLICIES = {
     "/api/health": ("no-store", "no-store"),
+    "/api/dashboard/bootstrap": ("public, max-age=15", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/dashboard/summary": ("public, max-age=15", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/dashboard/report-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
     "/api/dashboard/runtime-status": ("public, max-age=15", "public, max-age=30, stale-while-revalidate=60"),
@@ -85,6 +86,11 @@ async def health(request: Request) -> dict[str, str]:
     if row is None or int(row.get("ok", 0)) != 1:
         raise HTTPException(status_code=503, detail="D1 unavailable")
     return {"status": "ok", "service": "otello-api", "environment": "cloudflare", "version": API_VERSION}
+
+
+@app.get("/api/dashboard/bootstrap")
+async def get_dashboard_bootstrap(request: Request) -> dict:
+    return await dashboard_bootstrap_payload(_repository(request))
 
 
 @app.get("/api/dashboard/summary")
