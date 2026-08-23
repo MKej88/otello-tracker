@@ -230,36 +230,44 @@ jobs:
 
       - name: Production HTTP acceptance
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}
         run: |
           base="${CLOUDFLARE_PUBLIC_URL%/}"
+          acceptance_token="${EXPECTED_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          q="acceptance=${acceptance_token}"
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            -D /tmp/otello-index.headers "$base/" -o /tmp/otello-index.html
+            -D /tmp/otello-index.headers "$base/?${q}" -o /tmp/otello-index.html
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/health" -o /tmp/otello-health.json
+            "$base/api/health?${q}" -o /tmp/otello-health.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/summary" -o /tmp/otello-summary.json
+            "$base/api/dashboard/bootstrap?${q}" -o /tmp/otello-bootstrap.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/history?days=365&max_points=300" -o /tmp/otello-history.json
+            "$base/api/dashboard/summary?${q}" -o /tmp/otello-summary.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/economic" -o /tmp/otello-economic.json
+            "$base/api/dashboard/history?days=365&max_points=300&${q}" -o /tmp/otello-history.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/waterfall" -o /tmp/otello-waterfall.json
+            "$base/api/dashboard/economic?${q}" -o /tmp/otello-economic.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/report-status" -o /tmp/otello-report-status.json
+            "$base/api/dashboard/waterfall?${q}" -o /tmp/otello-waterfall.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/runtime-status" -o /tmp/otello-runtime-status.json
+            "$base/api/dashboard/report-status?${q}" -o /tmp/otello-report-status.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/dashboard/fx-backtest" -o /tmp/otello-fx-backtest.json
+            "$base/api/dashboard/runtime-status?${q}" -o /tmp/otello-runtime-status.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/buybacks/forecast" -o /tmp/otello-forecast.json
+            "$base/api/dashboard/fx-backtest?${q}" -o /tmp/otello-fx-backtest.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/buybacks/dashboard" -o /tmp/otello-buyback-dashboard.json
+            "$base/api/buybacks/forecast?${q}" -o /tmp/otello-forecast.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/bemobi/dashboard" -o /tmp/otello-bemobi-dashboard.json
+            "$base/api/buybacks/dashboard?${q}" -o /tmp/otello-buyback-dashboard.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/bemobi/consensus" -o /tmp/otello-bemobi-consensus.json
+            "$base/api/bemobi/dashboard?${q}" -o /tmp/otello-bemobi-dashboard.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/bemobi/source-status" -o /tmp/otello-bemobi-source-status.json
+            "$base/api/bemobi/consensus?${q}" -o /tmp/otello-bemobi-consensus.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/bemobi/source-status?${q}" -o /tmp/otello-bemobi-source-status.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/market/quotes?${q}" -o /tmp/otello-quotes.json
           python - <<'PY'
           import json
           from datetime import date, datetime
@@ -269,6 +277,7 @@ jobs:
           index = Path('/tmp/otello-index.html').read_text()
           index_headers = Path('/tmp/otello-index.headers').read_text().lower()
           health = json.loads(Path('/tmp/otello-health.json').read_text())
+          bootstrap = json.loads(Path('/tmp/otello-bootstrap.json').read_text())
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
           history = json.loads(Path('/tmp/otello-history.json').read_text())
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
@@ -281,17 +290,39 @@ jobs:
           bemobi_dashboard = json.loads(Path('/tmp/otello-bemobi-dashboard.json').read_text())
           bemobi_consensus = json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
           bemobi_source_status = json.loads(Path('/tmp/otello-bemobi-source-status.json').read_text())
+          quotes = json.loads(Path('/tmp/otello-quotes.json').read_text())
+
+          bootstrap_summary = bootstrap.get('summary') or {}
+          bootstrap_economic = bootstrap.get('economic') or {}
+          bootstrap_quotes = bootstrap.get('quotes') or {}
+          bootstrap_meta = bootstrap.get('meta') or {}
 
           assert '<title>Otello NAV-oversikt</title>' in index, index[:500]
           assert 'content-security-policy:' in index_headers, index_headers
           assert 'x-content-type-options: nosniff' in index_headers, index_headers
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
+
+          assert bootstrap_summary.get('ready') is True, bootstrap
+          assert bootstrap_economic.get('ready') is True, bootstrap
+          assert bootstrap_economic.get('as_of_date') == bootstrap_summary.get('as_of_date'), bootstrap
+          assert bootstrap_economic['conservative_nav_per_share'] <= bootstrap_economic['nav_per_share'], bootstrap
+          assert bootstrap_quotes.get('ready') is True, bootstrap
+          assert bootstrap_meta.get('snapshot_version') == 2, bootstrap
+
           assert summary.get('ready') is True, summary
+          assert bootstrap_summary.get('as_of_date') == summary.get('as_of_date'), {
+              'bootstrap': bootstrap_summary.get('as_of_date'),
+              'summary': summary.get('as_of_date'),
+          }
           assert history.get('ready') is True and history.get('points'), history
           assert economic.get('ready') is True, economic
           assert economic.get('as_of_date') == summary.get('as_of_date'), {
               'summary': summary.get('as_of_date'),
+              'economic': economic.get('as_of_date'),
+          }
+          assert bootstrap_economic.get('as_of_date') == economic.get('as_of_date'), {
+              'bootstrap': bootstrap_economic.get('as_of_date'),
               'economic': economic.get('as_of_date'),
           }
           assert economic.get('nav_per_share') is not None, economic
@@ -326,6 +357,7 @@ jobs:
           assert bemobi_consensus.get('ready') is True, bemobi_consensus
           assert bemobi_source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, bemobi_source_status
           assert len(bemobi_source_status.get('items') or []) == 4, bemobi_source_status
+          assert quotes.get('ready') is True, quotes
 
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
           today = datetime.now(ZoneInfo('Europe/Oslo')).date()
@@ -335,6 +367,8 @@ jobs:
               'Production HTTP acceptance passed:',
               summary.get('as_of_date'),
               summary.get('data_status'),
+              f"bootstrap_source={bootstrap_meta.get('source')}",
+              f"bootstrap_server_ms={bootstrap_meta.get('server_ms')}",
               f"history_points={len(history.get('points') or [])}",
               f"economic_nav={economic.get('nav_per_share')}",
               f"waterfall_components={len(waterfall.get('components') or [])}",
