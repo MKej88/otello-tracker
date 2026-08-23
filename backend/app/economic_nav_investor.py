@@ -10,6 +10,8 @@ from app.life360_nav import life360_nav_adjustment
 from app.nav.full_nav import FULL_CALCULATION_VERSION
 from app.option_settlement import MILLION, nav_cash_settlement, settlement_inputs_from_components
 
+CONSERVATIVE_COST_POLICY = "MAX_BASE_RUN_RATE_AND_SOURCE_CONSERVATIVE"
+
 
 def _float(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
@@ -53,6 +55,36 @@ def _life360_public(raw: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _apply_conservative_cost_floor(operating: dict[str, Any]) -> tuple[Decimal, Decimal, dict[str, Any]]:
+    """A conservative scenario may never assume lower operating cost than BASE."""
+    base_cost_nok = Decimal(str(operating.get("base_mnok") or "0")) * MILLION
+    source_conservative_cost_nok = (
+        Decimal(str(operating.get("conservative_mnok") or "0")) * MILLION
+    )
+    conservative_cost_nok = max(base_cost_nok, source_conservative_cost_nok)
+
+    public_operating = dict(operating)
+    public_operating["conservative_source_mnok"] = _float(
+        source_conservative_cost_nok / MILLION
+    )
+    public_operating["conservative_mnok"] = _float(conservative_cost_nok / MILLION)
+    public_operating["conservative_floor_applied"] = (
+        source_conservative_cost_nok < base_cost_nok
+    )
+    public_operating["conservative_policy"] = CONSERVATIVE_COST_POLICY
+
+    base_annualized = operating.get("base_annualized_usd_m")
+    source_conservative_annualized = operating.get("conservative_annualized_usd_m")
+    if source_conservative_annualized is not None:
+        public_operating["conservative_source_annualized_usd_m"] = source_conservative_annualized
+    if base_annualized is not None and source_conservative_annualized is not None:
+        public_operating["conservative_annualized_usd_m"] = max(
+            float(base_annualized), float(source_conservative_annualized)
+        )
+
+    return base_cost_nok, conservative_cost_nok, public_operating
+
+
 def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
     """Investor NAV with option settlement and Life360 market-value overlays."""
     base = accounting_economic_nav_summary(database_path)
@@ -88,8 +120,9 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
     accounting_liability_nok = Decimal(str(option_meta.get("accounting_liability_mnok") or "0")) * MILLION
     cash_fx_nok = Decimal(str((base.get("cash_fx") or {}).get("adjustment_mnok") or "0")) * MILLION
     operating = base.get("operating_costs") or {}
-    base_cost_nok = Decimal(str(operating.get("base_mnok") or "0")) * MILLION
-    conservative_cost_nok = Decimal(str(operating.get("conservative_mnok") or "0")) * MILLION
+    base_cost_nok, conservative_cost_nok, public_operating = _apply_conservative_cost_floor(
+        operating
+    )
 
     life360 = life360_nav_adjustment(as_of_date=as_of_date, database_path=database_path)
     life360_adjustment_nok = (
@@ -167,6 +200,7 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             "conservative_discount_pct": _discount_pct(otec_price_nok, conservative_per_share),
             "option": option_meta,
             "life360": _life360_public(life360),
+            "operating_costs": public_operating,
             "economic_cash_note": (
                 "Kontantbeholdningen er før det hypotetiske opsjonsoppgjøret; scenarioet "
                 "forutsetter samtidig full Bemobi-realisering og retur av proveny."
@@ -175,7 +209,9 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
                 "Investor-NAV replaces the Black-Scholes option overhang with a self-consistent "
                 "full-realisation cash-settlement scenario. From the 2025 fair-value reporting "
                 "anchor it also replaces the embedded Life360 value with current LIF market value. "
-                "FULL NAV and the accounting option liability remain unchanged for report reconciliation."
+                "The conservative operating-cost scenario is floored at the BASE run-rate so it "
+                "can never increase NAV. FULL NAV and the accounting option liability remain "
+                "unchanged for report reconciliation."
             ),
         }
     )
