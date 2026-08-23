@@ -50,11 +50,12 @@
 .economicAdjustments > div:last-child { border-right: 0; }
 .economicAdjustments strong { display: block; margin-top: 4px; color: #dae7fa; font-size: 14px; }
 .economicFootnote { display: flex; justify-content: space-between; gap: 16px; color: #748aa8; font-size: 11px; margin-top: 11px; }
-.economicNavUnavailable { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #8295af; }
+.economicNavUnavailable { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 180px; color: #8295af; }
 .economicNavUnavailable strong { display: block; margin-top: 4px; color: #c4d2e5; font-size: 13px; }
 
 @media (max-width: 1100px) {
   .economicMetrics { grid-template-columns: repeat(2, 1fr); }
+  .economicNavUnavailable { min-height: 260px; }
 }
 @media (max-width: 700px) {
   .cashCurrencyGrid, .fxBacktestGrid { grid-template-columns: 1fr; }
@@ -64,6 +65,7 @@
 @media (max-width: 600px) {
   .economicMetrics, .economicAdjustments { grid-template-columns: 1fr; }
   .economicHeader, .economicFootnote, .economicNavUnavailable { align-items: flex-start; flex-direction: column; }
+  .economicNavUnavailable { min-height: 450px; }
   .economicAdjustments > div { border-right: 0; border-bottom: 1px solid rgba(75, 110, 154, .3); }
   .economicAdjustments > div:last-child { border-bottom: 0; }
 }
