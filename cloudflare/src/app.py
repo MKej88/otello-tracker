@@ -7,6 +7,7 @@ from bemobi_dashboard import bemobi_dashboard
 from bemobi_source_status import bemobi_source_status
 from buyback_dashboard import buyback_dashboard
 from buyback_service import buyback_forecast
+from dashboard_hot_snapshot import dashboard_hot_component
 from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
 from discount_history import discount_history
 from economic_nav_investor import economic_nav_summary
@@ -17,7 +18,7 @@ from quote_details import market_quote_details
 from report_status import report_status_summary
 from runtime_status import runtime_status_summary
 
-API_VERSION = "0.12.1"
+API_VERSION = "0.13.0"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -88,6 +89,9 @@ async def health(request: Request) -> dict[str, str]:
 @app.get("/api/dashboard/summary")
 async def get_dashboard_summary(request: Request) -> dict:
     repository = _repository(request)
+    cached = await dashboard_hot_component(repository, "summary")
+    if cached is not None:
+        return cached
     summary = await dashboard_summary(repository)
     return await enrich_dashboard_summary(summary, repository)
 
@@ -104,7 +108,11 @@ async def get_runtime_status(request: Request) -> dict:
 
 @app.get("/api/dashboard/economic")
 async def get_economic_nav(request: Request) -> dict:
-    return await economic_nav_summary(_repository(request))
+    repository = _repository(request)
+    cached = await dashboard_hot_component(repository, "economic")
+    if cached is not None:
+        return cached
+    return await economic_nav_summary(repository)
 
 
 @app.get("/api/dashboard/waterfall")
@@ -138,7 +146,11 @@ async def get_discount_history(
 
 @app.get("/api/market/quotes")
 async def get_market_quotes(request: Request) -> dict:
-    return await market_quote_details(_repository(request))
+    repository = _repository(request)
+    cached = await dashboard_hot_component(repository, "quotes")
+    if cached is not None:
+        return cached
+    return await market_quote_details(repository)
 
 
 @app.get("/api/buybacks/forecast")
@@ -148,6 +160,10 @@ async def get_buyback_forecast(
 ) -> dict:
     repository = _repository(request)
     try:
+        if as_of_date is None:
+            cached = await dashboard_hot_component(repository, "forecast")
+            if cached is not None:
+                return cached
         return await buyback_forecast(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
