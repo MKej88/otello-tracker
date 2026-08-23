@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +115,75 @@ def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) 
         "generated_at": existing["generated_at"],
     }
     assert repository.writes == 0
+
+
+def test_hot_snapshot_status_reports_hit_age_size_and_components() -> None:
+    repository = FakeRepository()
+    existing = {
+        "version": hot.SNAPSHOT_VERSION,
+        "generated_at": "2026-08-23T08:00:00.000Z",
+        "summary": {"ready": True},
+        "economic": {"ready": True},
+        "quotes": {"ready": True},
+        "forecast": {"ready": True},
+    }
+    encoded = json.dumps(existing)
+    repository.rows[hot.STATE_KEY] = {
+        "value": encoded,
+        "updated_at": existing["generated_at"],
+    }
+
+    status = asyncio.run(
+        hot.dashboard_hot_snapshot_status(
+            repository,
+            now=datetime(2026, 8, 23, 8, 5, tzinfo=UTC),
+        )
+    )
+
+    assert status["cache_status"] == "HIT"
+    assert status["available"] is True
+    assert status["valid"] is True
+    assert status["state_key"] == hot.STATE_KEY
+    assert status["expected_version"] == hot.SNAPSHOT_VERSION
+    assert status["stored_version"] == hot.SNAPSHOT_VERSION
+    assert status["generated_at"] == existing["generated_at"]
+    assert status["age_seconds"] == 300
+    assert status["bytes"] == len(encoded.encode("utf-8"))
+    assert status["components"] == ["economic", "forecast", "quotes", "summary"]
+    assert status["reason"] is None
+
+
+def test_hot_snapshot_status_reports_missing_and_version_mismatch() -> None:
+    repository = FakeRepository()
+    missing = asyncio.run(hot.dashboard_hot_snapshot_status(repository))
+    assert missing["cache_status"] == "MISS"
+    assert missing["available"] is False
+    assert missing["valid"] is False
+    assert missing["reason"] == "missing"
+
+    old = {
+        "version": hot.SNAPSHOT_VERSION - 1,
+        "generated_at": "2026-08-23T08:00:00.000Z",
+        "summary": {},
+        "economic": {},
+        "quotes": {},
+        "forecast": {},
+    }
+    repository.rows[hot.STATE_KEY] = {
+        "value": json.dumps(old),
+        "updated_at": old["generated_at"],
+    }
+    mismatch = asyncio.run(
+        hot.dashboard_hot_snapshot_status(
+            repository,
+            now=datetime(2026, 8, 23, 8, 5, tzinfo=UTC),
+        )
+    )
+    assert mismatch["cache_status"] == "MISS"
+    assert mismatch["available"] is True
+    assert mismatch["valid"] is False
+    assert mismatch["stored_version"] == hot.SNAPSHOT_VERSION - 1
+    assert mismatch["reason"] == "version_mismatch"
 
 
 def test_invalid_or_old_snapshot_is_ignored() -> None:
