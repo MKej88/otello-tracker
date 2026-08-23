@@ -12,7 +12,8 @@ from dashboard_service import dashboard_history, dashboard_summary, enrich_dashb
 from discount_history import discount_history
 from economic_nav_investor import economic_nav_summary
 from fx_backtest import fx_backtest_summary
-from nav_waterfall_attribution import nav_waterfall_summary
+from nav_waterfall_attribution_enrich import enrich_nav_waterfall
+from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from quote_details import market_quote_details
 from report_status import report_status_summary
@@ -117,7 +118,9 @@ async def get_economic_nav(request: Request) -> dict:
 
 @app.get("/api/dashboard/waterfall")
 async def get_nav_waterfall(request: Request) -> dict:
-    return await nav_waterfall_summary(_repository(request))
+    repository = _repository(request)
+    settled = await nav_waterfall_summary(repository)
+    return await enrich_nav_waterfall(repository, settled)
 
 
 @app.get("/api/dashboard/fx-backtest")
