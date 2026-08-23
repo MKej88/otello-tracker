@@ -6,21 +6,24 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 21.08.2026 til `0022_bemobi_consensus_history.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 23.08.2026 til `0023_life360_market_data.sql`.
 
 - `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
 - `0020` kobler automatiske Bemobi-fakta til `source_documents` og registrerer de eksplisitte sekundærkildene MarketScreener og XP.
 - `0021` registrerer Norges Bank som ny autoritativ valutakilde for direkte BRL/NOK- og USD/NOK-kurser. Historiske ECB-rader beholdes som provenance/fallback og slettes ikke.
 - `0022` oppretter historikklagene `bemobi_forward_consensus_snapshots` og `bemobi_consensus_events` og migrerer den kuraterte konsensushistorikken inn i databasen.
+- `0023` legger til Life360-markedsdata som kildebelagt investorlag.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 21.08.2026 til `0012_bemobi_consensus_history.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 23.08.2026 til `0014_requeue_otello_1h26_report.sql`.
 
 - `0009` oppretter og seeder Bemobi-faktalaget i D1.
 - `0010` legger til samme webproveniens og kilderegistrering som SQLite `0020`.
 - `0011` registrerer Norges Bank som samme nye FX-kilde som SQLite `0021`.
 - `0012` oppretter og seeder samme Bemobi-konsensushistorikk som SQLite `0022`.
+- `0013` legger til samme Life360-markedsdatalag som SQLite `0023`.
+- `0014` er en avgrenset datamigrering som setter kun Otello-resultatmeldinger som feilet lukket under `otello-financial-report-v2` tilbake til `PARSED`, slik at 1H26 kan forsøkes én gang på nytt med parser v3. Den endrer ikke databaseskjemaet.
 
 SQLite og D1 skal fortsatt være strukturelt og logisk kompatible og inngår i den deterministiske paritetskontrollen.
 
@@ -35,8 +38,8 @@ Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk 
 
 **Neste nye migrering skal minst være:**
 
-- SQLite: `0023_...`
-- Cloudflare D1: `0013_...`
+- SQLite: `0024_...`
+- Cloudflare D1: `0015_...`
 
 ## Regel for nye migreringer
 

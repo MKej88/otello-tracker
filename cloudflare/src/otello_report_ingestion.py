@@ -4,7 +4,7 @@ import hashlib
 import io
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 
@@ -17,7 +17,7 @@ except ImportError:
     from newsweb_client import attachment_url, fetch_attachment, fetch_message
     from r2_archive import archive_bytes, archive_json
 
-REPORT_PARSER_VERSION = "otello-financial-report-v2"
+REPORT_PARSER_VERSION = "otello-financial-report-v3"
 AUTO_REPORT_START_DATE = "2026-08-19"
 MAX_REPORT_CANDIDATES = 8
 MAX_NAV_BACKFILL_DATES = 90
@@ -27,6 +27,13 @@ OPTION_GRANT_DATE = date(2025, 9, 15)
 _SPACE_RE = re.compile(r"\s+")
 _DATE_RE = re.compile(r"\b(\d{1,2}/\d{1,2}/20\d{2})\b")
 _NUMBER_RE = re.compile(r"\(?-?\d[\d,]*(?:\.\d+)?\)?|(?<!\w)-(?!\w)")
+_POST_REPORT_PATENT_CASH_RE = re.compile(
+    r"\bOn\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"(\d{1,2}),\s+(20\d{2}),\s+Otello\s+received\s+the\s+final\s+install?ment\s+from\s+the\s+sale\s+"
+    r"of\s+patents\s+from\s+(20\d{2}),\s+being\s+a\s+net\s+amount\s+of\s+USD\s+"
+    r"([\d,]+(?:\.\d+)?)\s+thousand\b",
+    re.I,
+)
 
 
 def _decimal_text(value: Decimal | str | int | float) -> str:
@@ -74,25 +81,28 @@ def _row_current_value(
     *,
     start: int = 0,
     end: int | None = None,
+    skip_leading_note_reference: bool = False,
 ) -> Decimal | None:
-    """Return the current-period value, which is the first numeric data column.
-
-    Otello's real reports vary between two, three and four comparison columns. The
-    current period is consistently the left-most numeric data value for the rows used
-    by this parser. Parsing the second-to-last value therefore silently selected a
-    comparison/YTD column in some historical reports.
-    """
+    """Return the current-period value, ignoring an explicit leading Note column when requested."""
     limit = len(lines) if end is None else min(end, len(lines))
     regexes = [re.compile(pattern, re.I) for pattern in patterns]
     for index in range(start, limit):
         line = lines[index]
         if not any(regex.search(line) for regex in regexes):
             continue
-        values = [_parse_number(token) for token in _NUMBER_RE.findall(line)]
-        if not values and index + 1 < limit:
-            values = [_parse_number(token) for token in _NUMBER_RE.findall(lines[index + 1])]
-        if values:
-            return values[0]
+        tokens = _NUMBER_RE.findall(line)
+        if tokens:
+            if (
+                skip_leading_note_reference
+                and len(tokens) >= 2
+                and re.fullmatch(r"\d{1,2}", tokens[0])
+            ):
+                tokens = tokens[1:]
+            return _parse_number(tokens[0])
+        if index + 1 < limit:
+            next_tokens = _NUMBER_RE.findall(lines[index + 1])
+            if next_tokens:
+                return _parse_number(next_tokens[0])
     return None
 
 
@@ -145,16 +155,45 @@ def _thousands_to_usd(value: Decimal | None) -> Decimal | None:
     return None if value is None else value * Decimal("1000")
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return _decimal_text(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _facts_for_json(facts: dict[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in facts.items():
-        if isinstance(value, Decimal):
-            result[key] = _decimal_text(value)
-        elif isinstance(value, date):
-            result[key] = value.isoformat()
-        else:
-            result[key] = value
-    return result
+    return {key: _json_safe(value) for key, value in facts.items()}
+
+
+def _post_report_patent_cash_events(lines: list[str], report_day: date) -> tuple[list[dict[str, Any]], list[str]]:
+    normalized = " ".join(lines)
+    events: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for match in _POST_REPORT_PATENT_CASH_RE.finditer(normalized):
+        month, day, year, patent_year, amount_k = match.groups()
+        event_day = datetime.strptime(f"{month} {day}, {year}", "%B %d, %Y").date()
+        if event_day <= report_day:
+            issues.append("post_report_cash_event_not_after_report_date")
+            continue
+        amount_usd = Decimal(amount_k.replace(",", "")) * Decimal("1000")
+        if amount_usd <= 0:
+            issues.append("post_report_cash_event_nonpositive")
+            continue
+        events.append(
+            {
+                "event_type": "PATENT_SALE_FINAL_INSTALMENT",
+                "movement_date": event_day,
+                "amount_usd": amount_usd,
+                "description": f"Final net instalment from the {patent_year} patent sale",
+            }
+        )
+    return events, issues
 
 
 def parse_otello_financial_report(text: str) -> dict[str, Any]:
@@ -186,6 +225,9 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
     kind = _report_kind(upper, report_day)
     if kind == "UNKNOWN":
         issues.append("unknown_report_period")
+
+    post_report_cash_events, post_report_issues = _post_report_patent_cash_events(lines, report_day)
+    issues.extend(post_report_issues)
 
     balance_start = _line_index(lines, r"consolidated statement of financial position") or 0
     balance_end = _line_index(lines[balance_start + 1 :], r"consolidated statement of cash flows")
@@ -227,6 +269,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         ),
         start=balance_start,
         end=balance_end,
+        skip_leading_note_reference=True,
     )
 
     bemobi_k = _row_current_value(
@@ -248,6 +291,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         (r"^employee benefits expense\b", r"^employee benefit expense\b"),
         start=pnl_start,
         end=pnl_end,
+        skip_leading_note_reference=True,
     )
     other_opex_k = _row_current_value(
         lines,
@@ -348,6 +392,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         "stock_compensation_usd": _thousands_to_usd(abs(stock_comp_k)) if stock_comp_k is not None else None,
         "recurring_opex_usd": recurring_opex_usd,
         "balance_gap_usd": _thousands_to_usd(balance_gap_k),
+        "post_report_cash_events": post_report_cash_events,
     }
     return {
         "valid": not issues,
@@ -533,6 +578,10 @@ async def _set_report_document_apply_status(repository, report_doc_id: int, stat
 
 async def _cleanup_report_anchors(repository, report_doc_id: int) -> None:
     await repository.run(
+        "DELETE FROM cash_movements WHERE source_document_id=? AND external_movement_id LIKE 'otello-report-post-cash:%'",
+        (report_doc_id,),
+    )
+    await repository.run(
         """
         DELETE FROM other_net_assets_anchors
         WHERE reported_anchor_id IN (
@@ -590,6 +639,101 @@ async def _upsert_cash_anchor(repository, report_doc_id: int, facts: dict[str, A
     if row is None:
         raise RuntimeError("Rapportens cash-anchor ble skrevet, men kunne ikke leses tilbake")
     return int(row["id"])
+
+
+async def _prepare_post_report_cash_events(repository, facts: dict[str, Any]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for raw_event in facts.get("post_report_cash_events") or []:
+        event = dict(raw_event)
+        movement_date = str(event["movement_date"])
+        amount_usd = Decimal(str(event["amount_usd"]))
+        fx = await _nearest_usd_nok(repository, movement_date)
+        if fx is None:
+            raise ValueError(f"Mangler USD/NOK for bekreftet kontantbevegelse {movement_date}")
+        usd_nok = Decimal(str(fx["rate"]))
+        prepared.append(
+            {
+                **event,
+                "movement_date": movement_date,
+                "amount_usd": amount_usd,
+                "fx": fx,
+                "amount_nok": amount_usd * usd_nok,
+            }
+        )
+    return prepared
+
+
+async def _upsert_post_report_cash_events(
+    repository,
+    report_doc_id: int,
+    prepared_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    for event in prepared_events:
+        movement_date = str(event["movement_date"])
+        event_type = str(event["event_type"])
+        amount_usd = Decimal(str(event["amount_usd"]))
+        amount_nok = Decimal(str(event["amount_nok"]))
+        fx = event["fx"]
+        external_id = f"otello-report-post-cash:{event_type}:{movement_date}"
+        existing = await repository.first(
+            """
+            SELECT id, amount_original, currency, amount_nok
+            FROM cash_movements WHERE external_movement_id=? LIMIT 1
+            """,
+            (external_id,),
+        )
+        if existing is not None:
+            if (
+                str(existing.get("currency") or "") != "USD"
+                or Decimal(str(existing.get("amount_original") or "0")) != amount_usd
+            ):
+                raise ValueError(f"Konflikt i eksisterende kontantbevegelse {external_id}")
+            results.append(
+                {
+                    "status": "existing",
+                    "id": int(existing["id"]),
+                    "external_movement_id": external_id,
+                    "movement_date": movement_date,
+                }
+            )
+            continue
+        await repository.run(
+            """
+            INSERT INTO cash_movements(
+                movement_date, movement_type, amount_nok, amount_original, currency,
+                fx_rate_to_nok, description, source_document_id, confidence, external_movement_id
+            ) VALUES (?, 'OTHER', ?, ?, 'USD', ?, ?, ?, 'CONFIRMED', ?)
+            """,
+            (
+                movement_date,
+                _decimal_text(amount_nok),
+                _decimal_text(amount_usd),
+                _decimal_text(Decimal(str(fx["rate"]))),
+                str(event["description"]),
+                report_doc_id,
+                external_id,
+            ),
+        )
+        row = await repository.first(
+            "SELECT id FROM cash_movements WHERE external_movement_id=? LIMIT 1",
+            (external_id,),
+        )
+        if row is None:
+            raise RuntimeError("Rapportens kontantbevegelse ble skrevet, men kunne ikke leses tilbake")
+        results.append(
+            {
+                "status": "inserted",
+                "id": int(row["id"]),
+                "external_movement_id": external_id,
+                "movement_date": movement_date,
+                "amount_usd": _decimal_text(amount_usd),
+                "amount_nok": _decimal_text(amount_nok),
+                "fx_rate": str(fx["rate"]),
+                "fx_date": str(fx["rate_date"]),
+            }
+        )
+    return {"status": "ok", "count": len(results), "events": results}
 
 
 async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, Any], fx: dict[str, Any]) -> tuple[int, int]:
@@ -877,9 +1021,16 @@ async def _apply_report(
             "rapportens tilknyttede fordring må identifiseres eksplisitt før automatisk ONA-anker"
         )
 
+    prepared_cash_events = await _prepare_post_report_cash_events(repository, facts)
+
     try:
         cash_id = await _upsert_cash_anchor(repository, report_doc_id, facts, fx)
         ona_reported_id, ona_converted_id = await _upsert_ona_anchor(repository, report_doc_id, facts, fx)
+        post_report_cash = await _upsert_post_report_cash_events(
+            repository,
+            report_doc_id,
+            prepared_cash_events,
+        )
     except Exception:
         await _cleanup_report_anchors(repository, report_doc_id)
         raise
@@ -907,6 +1058,7 @@ async def _apply_report(
         "cash_anchor_id": cash_id,
         "ona_reported_anchor_id": ona_reported_id,
         "ona_anchor_id": ona_converted_id,
+        "post_report_cash_events": post_report_cash,
         "cost_anchors": cost_result,
         "nav_backfill": backfill,
         "warnings": warnings,
@@ -1073,13 +1225,15 @@ async def process_pending_otello_reports(
 
         applied += 1
         warning_count = len(applied_result.get("warnings") or [])
+        post_cash_count = int((applied_result.get("post_report_cash_events") or {}).get("count") or 0)
         await _set_news_status(
             repository,
             company_news_id,
             status="APPLIED",
             summary=(
                 f"Otello {facts['source_period']} automatisk innlest: cash, ONA, opsjonsanker "
-                f"og driftskostnadsgrunnlag oppdatert; NAV bygget på nytt. warnings={warning_count}"
+                f"og driftskostnadsgrunnlag oppdatert; {post_cash_count} bekreftet(e) etterfølgende "
+                f"kontantbevegelse(r) lagt inn; NAV bygget på nytt. warnings={warning_count}"
             ),
             notes=(
                 f"parser={REPORT_PARSER_VERSION}; report_document_id={report_doc_id}; "
