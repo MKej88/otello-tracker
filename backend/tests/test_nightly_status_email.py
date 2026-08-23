@@ -115,8 +115,8 @@ def test_production_email_binding_is_optional_and_restricted() -> None:
 
 def test_production_worker_keeps_bounded_headroom_for_historical_rebuild() -> None:
     config = _render()
-    assert WORKER_SUBREQUEST_LIMIT == 5000
-    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 5000}
+    assert WORKER_SUBREQUEST_LIMIT == 50000
+    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 50000}
 
 
 def test_production_email_configuration_requires_sender_and_recipient_together() -> None:
