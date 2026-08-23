@@ -23,7 +23,9 @@ GET /api/dashboard/economic
 GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
+GET /api/dashboard/discount-history
 GET /api/dashboard/report-status
+GET /api/dashboard/runtime-status
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
@@ -38,7 +40,7 @@ Fast refresh:   */30 * * * *
 Full Workflow:  35 3 * * * UTC
 ```
 
-Begge write-paths bruker `runtime_state`-låsen `cloudflare_refresh_writer_lock`. Fast refresh hopper kontrollert over dersom Full Workflow holder låsen. Full Workflow bruker garantert cleanup for å forsøke å frigjøre låsen også ved feil, og låsen har expiry som siste sikkerhetsnett.
+Begge write-paths bruker `runtime_state`-låsen `cloudflare_refresh_writer_lock`. Fast refresh hopper kontrollert over dersom Full Workflow holder låsen. Full Workflow bruker garantert cleanup for å forsøke å frigjøre låsen også ved feil, og låsen har expiry som siste sikkerhetsnett. En startet D1-jobb som fortsatt står `RUNNING` terminaliseres til `FAILED` ved hard Workflow-feil.
 
 ## Fast refresh
 
@@ -56,17 +58,18 @@ Den er bounded og idempotent. Euronext EOD behandles som `LAST / DIRECT`, ikke s
 Daglig Workflow håndterer:
 
 1. Norges Bank FX – direkte BRL/NOK og USD/NOK;
-2. B3 COTAHIST;
-3. Bemobi/CVM;
-4. Bemobi investor-webfakta;
-5. NewsWeb reconciliation;
-6. NewsWeb PDF og tilbakekjøpsdetaljer;
-7. Otello-rapportinnlesing;
-8. OTEC recovery/EOD;
-9. NAV-oppdatering;
-10. D1 production-data preflight;
-11. R2 logical snapshot når retention-policy krever det;
-12. jobb-/source-health-finalisering.
+2. Life360-markedsdata;
+3. B3 COTAHIST;
+4. Bemobi/CVM;
+5. Bemobi investor-webfakta;
+6. NewsWeb reconciliation;
+7. NewsWeb PDF og tilbakekjøpsdetaljer;
+8. Otello-rapportinnlesing;
+9. OTEC recovery/EOD;
+10. NAV-oppdatering;
+11. D1 production-data preflight;
+12. R2 logical snapshot når retention-policy krever det;
+13. jobb-/source-health-finalisering.
 
 Preflight skal feile lukket når nødvendige data ikke er klare.
 
@@ -86,7 +89,7 @@ Produksjonsrenderer bruker avgrensede grenser:
 
 ```text
 CPU per invocation:                60 000 ms
-Subrequests per invocation:        500
+Subrequests per invocation:        50 000
 Workers Caching, API-entrypoint:   på
 Global Workers Caching:            av
 Workers Logs sampling:             5 %

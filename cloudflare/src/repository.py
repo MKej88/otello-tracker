@@ -332,3 +332,53 @@ class D1WriteRepository(D1Repository):
                 job_id,
             ),
         )
+
+    async def fail_job_if_running(
+        self,
+        job_id: int,
+        *,
+        finished_at: str,
+        error_message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Atomically mark a still-running job FAILED without overwriting a terminal result."""
+        row = await self.first(
+            "SELECT status, metadata_json FROM job_runs WHERE id=? LIMIT 1",
+            (job_id,),
+        )
+        if row is None or str(row.get("status") or "").upper() != "RUNNING":
+            return False
+
+        try:
+            existing_metadata = json.loads(str(row.get("metadata_json") or "{}"))
+        except (TypeError, json.JSONDecodeError):
+            existing_metadata = {}
+        if not isinstance(existing_metadata, dict):
+            existing_metadata = {}
+        merged_metadata = {**existing_metadata, **(metadata or {})}
+        clipped_error = error_message[:4000] or None
+
+        await self.run(
+            """
+            UPDATE job_runs
+            SET finished_at=?, status='FAILED', records_written=0,
+                error_message=?, metadata_json=?
+            WHERE id=? AND status='RUNNING'
+            """,
+            (
+                finished_at,
+                clipped_error,
+                json.dumps(merged_metadata, ensure_ascii=False, sort_keys=True),
+                job_id,
+            ),
+        )
+        final_row = await self.first(
+            "SELECT status, finished_at, error_message FROM job_runs WHERE id=? LIMIT 1",
+            (job_id,),
+        )
+        return bool(
+            final_row
+            and str(final_row.get("status") or "").upper() == "FAILED"
+            and str(final_row.get("finished_at") or "") == finished_at
+            and (final_row.get("error_message") or None) == clipped_error
+        )
