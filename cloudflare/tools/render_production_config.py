@@ -9,7 +9,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = ROOT / "wrangler.jsonc"
 DEFAULT_OUTPUT = ROOT / "wrangler.production.jsonc"
-WORKER_SUBREQUEST_LIMIT = 5000
+WORKER_SUBREQUEST_LIMIT = 50000
 
 
 def _required(value: str | None, name: str) -> str:
@@ -34,9 +34,11 @@ def render_config(
     config = json.loads(json.dumps(base))
     config["name"] = _required(worker_name, "worker_name")
 
-    # The one-time ten-year NAV/FX bootstrap is D1-query heavy and exhausted the old 500
-    # subrequest guard in production. Keep a bounded limit well below the Paid-plan default
-    # headroom while leaving enough capacity for cleanup/finalization if a workflow step fails.
+    # The one-time ten-year NAV/FX bootstrap is D1-query heavy and the subrequest budget is
+    # shared across the entire long-running Workflow invocation, not reset per step.do call.
+    # Production exhausted 5,000 requests after checkpointing 2016-2021. Workers Paid allows
+    # a substantially higher configured ceiling, so keep 50,000 as a bounded margin that is
+    # still far below the platform maximum and leaves room for cleanup/finalization on failure.
     config["limits"] = {
         "cpu_ms": 60000,
         "subrequests": WORKER_SUBREQUEST_LIMIT,
