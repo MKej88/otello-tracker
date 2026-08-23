@@ -29,10 +29,10 @@ SECURITY_HEADERS = {
 
 CACHE_POLICIES = {
     "/api/health": ("no-store", "no-store"),
-    "/api/dashboard/summary": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/dashboard/summary": ("public, max-age=15", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/dashboard/report-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
     "/api/dashboard/runtime-status": ("public, max-age=15", "public, max-age=30, stale-while-revalidate=60"),
-    "/api/dashboard/economic": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/dashboard/economic": ("public, max-age=15", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
     "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
@@ -42,7 +42,7 @@ CACHE_POLICIES = {
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/bemobi/source-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
-    "/api/market/quotes": ("public, max-age=30", "public, max-age=60, stale-while-revalidate=120"),
+    "/api/market/quotes": ("public, max-age=30", "public, max-age=300, stale-while-revalidate=1800"),
 }
 
 app = FastAPI(
