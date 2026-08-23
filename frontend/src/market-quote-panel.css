@@ -3,7 +3,7 @@
 .marketQuoteSectionHeader h2 { margin: 5px 0 0; font-size: 18px; color: #eaf2ff; }
 .marketQuoteGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .marketQuoteCard { padding: 18px; overflow: hidden; background: linear-gradient(180deg, rgba(15, 29, 49, .98), rgba(10, 20, 36, .98)); }
-.marketQuoteUnavailable { min-height: 160px; align-content: center; }
+.marketQuoteUnavailable { min-height: 360px; align-content: center; }
 .marketQuoteUnavailable strong { color: #8191aa; margin-top: 8px; }
 .marketQuoteHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 15px; border-bottom: 1px solid #1a2a41; }
 .marketQuotePrice { margin-top: 8px; color: #f2f7ff; font-size: 28px; font-weight: 800; letter-spacing: -.035em; }
@@ -22,7 +22,7 @@
 .marketQuoteRange i { margin: 0 7px; color: #4f6380; font-style: normal; }
 .marketQuoteFootnote { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 11px; color: #60728d; font-size: 9px; line-height: 1.45; }
 .marketQuoteFootnote span::before { content: "•"; margin-right: 5px; color: #3f8cff; }
-.marketQuoteMethod { margin: 0 2px; color: #5f708a; font-size: 9px; line-height: 1.45; }
+.marketQuoteMethod { min-height: 13px; margin: 0 2px; color: #5f708a; font-size: 9px; line-height: 1.45; }
 
 @media (max-width: 1050px) {
   .marketQuoteGrid { grid-template-columns: 1fr; }
@@ -33,4 +33,5 @@
   .marketQuoteUpdated { justify-items: start; text-align: left; }
   .marketQuoteStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .marketQuoteStats .marketQuoteRange { grid-column: span 2; }
+  .marketQuoteUnavailable { min-height: 455px; }
 }
