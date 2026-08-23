@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
     from .job_lock import acquire_refresh_lock, release_refresh_lock
     from .nav_refresh import refresh_dirty_nav_layers
@@ -23,6 +24,7 @@ try:
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
     from job_lock import acquire_refresh_lock, release_refresh_lock
     from nav_refresh import refresh_dirty_nav_layers
@@ -352,6 +354,20 @@ async def run_fast_refresh(
                     "error_type": "DirtyNavPartial",
                 }
             )
+
+    # First-screen cache is a performance optimization, not an ingestion source. Seed it even
+    # on no-change/weekend runs when it is missing; otherwise rebuild only when upstream data
+    # changed. Failure must never turn an otherwise healthy market-data refresh into PARTIAL.
+    hot_snapshot_errors: list[dict[str, str]] = []
+    await _safe_async_step(
+        "dashboard_hot_snapshot",
+        lambda: refresh_dashboard_hot_snapshot(repository, force=records_written > 0),
+        steps=steps,
+        errors=hot_snapshot_errors,
+        timings_ms=timings_ms,
+    )
+    if hot_snapshot_errors and isinstance(steps.get("dashboard_hot_snapshot"), dict):
+        steps["dashboard_hot_snapshot"]["non_critical"] = True
 
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}

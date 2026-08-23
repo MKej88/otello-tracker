@@ -6,10 +6,12 @@ from typing import Any
 
 try:
     from .d1_preflight import run_d1_preflight
+    from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .nav_refresh import refresh_dirty_nav_layers
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from d1_preflight import run_d1_preflight
+    from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from nav_refresh import refresh_dirty_nav_layers
     from performance_repository import PerformanceD1WriteRepository
 
@@ -332,6 +334,13 @@ async def finish_full_refresh(
     else:
         status = "SUCCESS"
 
+    # Refresh the user-facing hot snapshot after all source/NAV writes. This is deliberately
+    # non-critical: a cache build failure must not turn a valid full refresh into FAILED.
+    try:
+        hot_snapshot = await refresh_dashboard_hot_snapshot(repository, force=True)
+    except Exception as exc:
+        hot_snapshot = {**error_result(exc), "non_critical": True}
+
     records_written = _records_written(source_results, nav_result)
     metadata = {
         "phase": PHASE,
@@ -347,6 +356,7 @@ async def finish_full_refresh(
             "warnings": preflight_result.get("warnings"),
         },
         "archive": _compact_source_result(archive_result),
+        "dashboard_hot_snapshot": hot_snapshot,
         "repository": repository.performance_metrics(),
     }
     await repository.finish_job(
@@ -368,5 +378,6 @@ async def finish_full_refresh(
         "nav": nav_result,
         "preflight": preflight_result,
         "archive": archive_result,
+        "dashboard_hot_snapshot": hot_snapshot,
         "errors": errors,
     }
