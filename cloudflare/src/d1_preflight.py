@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from typing import Any
 
 try:
     from .buyback_service import buyback_forecast
     from .dashboard_service import dashboard_summary, enrich_dashboard_summary
-    from .economic_nav import economic_nav_summary
+    from .economic_nav_investor import economic_nav_summary
 except ImportError:
     from buyback_service import buyback_forecast
     from dashboard_service import dashboard_summary, enrich_dashboard_summary
-    from economic_nav import economic_nav_summary
+    from economic_nav_investor import economic_nav_summary
 
 HISTORY_START = "2021-02-10"
 NEWSWEB_HISTORY_START_YEAR = "2020"
@@ -44,6 +45,27 @@ def _fresh_enough(value: str | None, target: date, max_age_days: int = MAX_INPUT
     except ValueError:
         return False
     return observed <= target and (target - observed).days <= max_age_days
+
+
+def _investor_nav_is_valid(
+    economic: dict[str, Any],
+    *,
+    dashboard_as_of_date: Any,
+) -> bool:
+    """Require the same investor-NAV contract that production exposes to the user."""
+    if not economic.get("ready") or economic.get("as_of_date") != dashboard_as_of_date:
+        return False
+    try:
+        nav_per_share = float(economic["nav_per_share"])
+        accounting_nav_per_share = float(economic["accounting_nav_per_share"])
+        conservative_nav_per_share = float(economic["conservative_nav_per_share"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    values = (nav_per_share, accounting_nav_per_share, conservative_nav_per_share)
+    return (
+        all(math.isfinite(value) and value > 0 for value in values)
+        and conservative_nav_per_share <= nav_per_share
+    )
 
 
 async def _market_coverage(repository, symbol: str, price_types: tuple[str, ...]) -> dict[str, Any]:
@@ -162,9 +184,10 @@ async def run_d1_preflight(
           (SELECT COUNT(*) FROM otello_share_counts) AS otello_share_counts
         """
     ) or {}
-    reference_counts = {key: int(refs.get(key) or 0) for key in (
-        "cash_anchors", "bemobi_holdings", "otello_share_counts"
-    )}
+    reference_counts = {
+        key: int(refs.get(key) or 0)
+        for key in ("cash_anchors", "bemobi_holdings", "otello_share_counts")
+    }
     _check(
         checks,
         "curated_reference_data",
@@ -253,7 +276,9 @@ async def run_d1_preflight(
         },
     )
 
-    buybacks = await repository.first("SELECT COUNT(*) AS n, MAX(trade_date) AS max_date FROM buybacks") or {}
+    buybacks = await repository.first(
+        "SELECT COUNT(*) AS n, MAX(trade_date) AS max_date FROM buybacks"
+    ) or {}
     _check(
         checks,
         "newsweb_buybacks",
@@ -376,8 +401,10 @@ async def run_d1_preflight(
         _check(
             checks,
             "economic_nav_overlay",
-            bool(economic.get("ready"))
-            and economic.get("as_of_date") == summary.get("as_of_date"),
+            _investor_nav_is_valid(
+                economic,
+                dashboard_as_of_date=summary.get("as_of_date"),
+            ),
             details={
                 "ready": economic.get("ready"),
                 "reason": economic.get("reason"),
@@ -385,6 +412,7 @@ async def run_d1_preflight(
                 "dashboard_as_of_date": summary.get("as_of_date"),
                 "nav_per_share": economic.get("nav_per_share"),
                 "accounting_nav_per_share": economic.get("accounting_nav_per_share"),
+                "conservative_nav_per_share": economic.get("conservative_nav_per_share"),
                 "cash_fx": economic.get("cash_fx"),
             },
         )
