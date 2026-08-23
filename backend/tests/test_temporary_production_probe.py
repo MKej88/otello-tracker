@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from urllib.request import Request, urlopen
 
+# Fersk produksjonsprobe 2026-08-23 ca. 07:32 Oslo.
 
 def _get(path: str) -> dict:
     req = Request(
