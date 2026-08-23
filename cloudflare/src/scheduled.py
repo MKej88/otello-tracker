@@ -9,7 +9,7 @@ try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
-    from .job_lock import acquire_refresh_lock, release_refresh_lock
+    from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_fast_refresh import collect_newsweb_fast
     from .oslo_calendar import is_oslo_bors_trading_day
@@ -26,7 +26,7 @@ except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
-    from job_lock import acquire_refresh_lock, release_refresh_lock
+    from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from nav_refresh import refresh_dirty_nav_layers
     from newsweb_fast_refresh import collect_newsweb_fast
     from oslo_calendar import is_oslo_bors_trading_day
@@ -153,6 +153,7 @@ async def run_fast_refresh(
     *,
     archive_bucket: Any | None = None,
     scheduled_time_ms: Any | None = None,
+    renew_lock: Callable[[str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Run the bounded 30-minute ingestion path with cheap no-change behavior."""
     run_started = perf_counter()
@@ -231,6 +232,9 @@ async def run_fast_refresh(
         timings_ms["otec_delayed"] = 0.0
         timings_ms["otec_eod"] = 0.0
 
+    if renew_lock is not None:
+        await renew_lock("after OTEC")
+
     bmob3_eod = await _safe_async_step(
         "bmob3_eod",
         lambda: maybe_finalize_bmob3_eod(repository=repository, now=scheduled_at),
@@ -258,6 +262,9 @@ async def run_fast_refresh(
         if isinstance(bmob3, dict) and bmob3.get("status") == "ok":
             records_written += 1
 
+    if renew_lock is not None:
+        await renew_lock("after B3")
+
     newsweb_date = scheduled_at.astimezone(OSLO_TZ).date().isoformat()
     newsweb = await _safe_async_step(
         "newsweb_fast",
@@ -278,6 +285,9 @@ async def run_fast_refresh(
     else:
         steps["newsweb_history"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
         steps["newsweb_buybacks"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
+
+    if renew_lock is not None:
+        await renew_lock("after NewsWeb")
 
     if archive_bucket is None:
         report_result = {"status": "skipped", "reason": "missing_archive_bucket_binding"}
@@ -309,6 +319,9 @@ async def run_fast_refresh(
                     }
                 )
 
+    if renew_lock is not None:
+        await renew_lock("after Otello reports")
+
     fx_repair = await _safe_async_step(
         "norges_bank_fx_repair",
         lambda: repair_norges_bank_fx_if_stale(
@@ -336,6 +349,9 @@ async def run_fast_refresh(
                 }
             )
 
+    if renew_lock is not None:
+        await renew_lock("after Norges Bank FX")
+
     dirty_nav = await _safe_async_step(
         "dirty_nav",
         lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
@@ -355,6 +371,9 @@ async def run_fast_refresh(
                 }
             )
 
+    if renew_lock is not None:
+        await renew_lock("after dirty NAV")
+
     # First-screen cache is a performance optimization, not an ingestion source. Seed it even
     # on no-change/weekend runs when it is missing; otherwise rebuild only when upstream data
     # changed. Failure must never turn an otherwise healthy market-data refresh into PARTIAL.
@@ -368,6 +387,9 @@ async def run_fast_refresh(
     )
     if hot_snapshot_errors and isinstance(steps.get("dashboard_hot_snapshot"), dict):
         steps["dashboard_hot_snapshot"]["non_critical"] = True
+
+    if renew_lock is not None:
+        await renew_lock("after dashboard snapshot")
 
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}
@@ -447,14 +469,12 @@ async def run_scheduled(
     if cron != FAST_REFRESH_CRON:
         return {"status": "SKIPPED", "reason": "unknown_cron", "cron": cron}
 
-    scheduled_at = _scheduled_datetime(scheduled_time_ms)
     repository = PerformanceD1WriteRepository(database)
     owner = f"fast:{_scheduled_iso(scheduled_time_ms)}"
     lock = await acquire_refresh_lock(
         repository,
         owner=owner,
         ttl_seconds=FAST_LOCK_TTL_SECONDS,
-        now=scheduled_at,
     )
     if not lock.get("acquired"):
         return {
@@ -464,11 +484,30 @@ async def run_scheduled(
             "held_by": lock.get("held_by"),
             "expires_at": lock.get("expires_at"),
         }
+
+    lock_token = lock.get("token")
+
+    async def renew_lock(checkpoint: str) -> None:
+        nonlocal lock_token
+        result = await renew_refresh_lock(
+            repository,
+            lock_token,
+            ttl_seconds=FAST_LOCK_TTL_SECONDS,
+        )
+        if not result.get("renewed"):
+            raise RuntimeError(
+                "fast refresh writer lease lost at "
+                f"{checkpoint}; held_by={result.get('held_by')} "
+                f"expires_at={result.get('expires_at')}"
+            )
+        lock_token = result.get("token")
+
     try:
         return await run_fast_refresh(
             database,
             archive_bucket=archive_bucket,
             scheduled_time_ms=scheduled_time_ms,
+            renew_lock=renew_lock,
         )
     finally:
-        await release_refresh_lock(repository, lock.get("token"))
+        await release_refresh_lock(repository, lock_token)
