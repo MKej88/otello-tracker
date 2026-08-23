@@ -29,6 +29,18 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
     """Build the expensive first-screen payload outside the user request path."""
     summary = await dashboard_summary(repository)
@@ -65,6 +77,73 @@ async def load_dashboard_hot_snapshot(repository: Any) -> dict[str, Any] | None:
     if not _COMPONENTS.issubset(payload):
         return None
     return payload
+
+
+async def dashboard_hot_snapshot_status(
+    repository: Any,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Expose small, non-sensitive cache diagnostics without returning cached investor data."""
+    row = await repository.first(
+        "SELECT value, updated_at FROM runtime_state WHERE key = ?",
+        (STATE_KEY,),
+    )
+    base = {
+        "state_key": STATE_KEY,
+        "expected_version": SNAPSHOT_VERSION,
+        "available": row is not None,
+        "valid": False,
+        "cache_status": "MISS",
+        "stored_version": None,
+        "generated_at": None,
+        "age_seconds": None,
+        "bytes": 0,
+        "components": [],
+        "reason": "missing" if row is None else None,
+    }
+    if row is None:
+        return base
+
+    raw = str(row.get("value") or "")
+    base["bytes"] = len(raw.encode("utf-8"))
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {**base, "reason": "invalid_json", "generated_at": row.get("updated_at")}
+
+    if not isinstance(payload, dict):
+        return {**base, "reason": "invalid_payload", "generated_at": row.get("updated_at")}
+
+    stored_version = payload.get("version")
+    generated_at = payload.get("generated_at") or row.get("updated_at")
+    present_components = sorted(name for name in _COMPONENTS if isinstance(payload.get(name), dict))
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    generated = _parse_timestamp(generated_at)
+    age_seconds = (
+        max(0, int((current - generated).total_seconds()))
+        if generated is not None
+        else None
+    )
+
+    if stored_version != SNAPSHOT_VERSION:
+        reason = "version_mismatch"
+    elif len(present_components) != len(_COMPONENTS):
+        reason = "missing_or_invalid_components"
+    else:
+        reason = None
+
+    valid = reason is None
+    return {
+        **base,
+        "valid": valid,
+        "cache_status": "HIT" if valid else "MISS",
+        "stored_version": stored_version,
+        "generated_at": generated_at,
+        "age_seconds": age_seconds,
+        "components": present_components,
+        "reason": reason,
+    }
 
 
 async def dashboard_hot_component(repository: Any, component: str) -> dict[str, Any] | None:
