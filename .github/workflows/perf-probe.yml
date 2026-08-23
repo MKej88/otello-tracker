@@ -1,0 +1,66 @@
+name: Temporary production performance probe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  production-perf:
+    if: github.head_ref == 'perf/first-load-round-2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - name: Measure production TTFB
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://otellotracker.com'
+          for path in '/' '/api/dashboard/summary' '/api/dashboard/economic' '/api/market/quotes'; do
+            echo "=== $path ==="
+            for i in 1 2 3; do
+              curl -sS -o /dev/null \
+                -w 'run=%{num_connects} dns=%{time_namelookup}s connect=%{time_connect}s tls=%{time_appconnect}s ttfb=%{time_starttransfer}s total=%{time_total}s size=%{size_download}\n' \
+                "$base$path"
+            done
+          done
+      - name: Run cold-load Lighthouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse@12.8.2 https://otellotracker.com \
+            --output=json --output-path=/tmp/lighthouse.json \
+            --only-categories=performance \
+            --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+            --quiet
+          node <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('/tmp/lighthouse.json', 'utf8'));
+          const a = r.audits;
+          const out = {
+            performance: Math.round((r.categories.performance.score || 0) * 100),
+            fcp_ms: a['first-contentful-paint']?.numericValue,
+            lcp_ms: a['largest-contentful-paint']?.numericValue,
+            speed_index_ms: a['speed-index']?.numericValue,
+            tbt_ms: a['total-blocking-time']?.numericValue,
+            cls: a['cumulative-layout-shift']?.numericValue,
+            ttfb_ms: a['server-response-time']?.numericValue,
+            mainthread_ms: a['mainthread-work-breakdown']?.numericValue,
+            bootup_ms: a['bootup-time']?.numericValue,
+            transfer_bytes: a['total-byte-weight']?.numericValue,
+            unused_js_bytes: a['unused-javascript']?.details?.overallSavingsBytes,
+            unused_css_bytes: a['unused-css-rules']?.details?.overallSavingsBytes,
+          };
+          console.log('LIGHTHOUSE_METRICS', JSON.stringify(out));
+          const requests = a['network-requests']?.details?.items || [];
+          const important = requests
+            .filter(x => x.url.includes('otellotracker.com'))
+            .map(x => ({url:x.url, resourceType:x.resourceType, transferSize:x.transferSize, startTime:x.startTime, endTime:x.endTime, statusCode:x.statusCode}))
+            .sort((x,y) => (y.transferSize||0)-(x.transferSize||0))
+            .slice(0,20);
+          console.log('TOP_REQUESTS', JSON.stringify(important));
+          NODE
