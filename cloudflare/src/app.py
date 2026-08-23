@@ -12,7 +12,7 @@ from dashboard_service import dashboard_history, dashboard_summary, enrich_dashb
 from discount_history import discount_history
 from economic_nav_investor import economic_nav_summary
 from fx_backtest import fx_backtest_summary
-from nav_waterfall_settlement import nav_waterfall_summary
+from nav_waterfall_attribution import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
 from quote_details import market_quote_details
 from report_status import report_status_summary
