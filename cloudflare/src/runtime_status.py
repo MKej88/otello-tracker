@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 try:
+    from .dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from .fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
 except ImportError:
+    from dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
 
 FULL_JOB = "cloudflare_full_refresh"
@@ -195,6 +197,7 @@ async def runtime_status_summary(
     writer_lock = await _writer_lock(repository)
     norges_bank_health = await _latest_norges_bank_health(repository)
     fx = await norges_bank_fx_coverage(repository)
+    hot_snapshot = await dashboard_hot_snapshot_status(repository, now=current)
 
     full = _job_payload(
         full_row,
@@ -238,6 +241,7 @@ async def runtime_status_summary(
         "checked_at": current.isoformat(timespec="seconds").replace("+00:00", "Z"),
         "full_refresh": full,
         "fast_refresh": fast,
+        "hot_snapshot": hot_snapshot,
         "norges_bank": {
             "status": health_status,
             "checked_at": (norges_bank_health or {}).get("checked_at"),
