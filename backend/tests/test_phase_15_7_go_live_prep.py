@@ -68,7 +68,7 @@ def test_renderer_produces_paid_guardrails_and_workers_dev_bootstrap() -> None:
     assert config["observability"]["logs"]["invocation_logs"] is True
     assert config["observability"]["logs"]["head_sampling_rate"] == 0.05
     assert config["observability"]["traces"]["enabled"] is False
-    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 5000}
+    assert config["limits"] == {"cpu_ms": 60000, "subrequests": 50000}
     assert config["triggers"]["crons"] == ["*/30 * * * *"]
     assert config["workflows"][0]["class_name"] == "FullRefreshWorkflow"
 
@@ -125,6 +125,7 @@ def test_deploy_workflow_is_guarded_and_runs_remote_acceptance() -> None:
     assert "economic.get('as_of_date') == summary.get('as_of_date')" in workflow
     assert "fx_backtest.get('ready') is True" in workflow
     assert "periods_ready') or 0) >= 2" in workflow
+    assert "config['limits']['subrequests'] == 50000" in workflow
     assert "Warn when public URL acceptance is skipped" not in workflow
 
 
