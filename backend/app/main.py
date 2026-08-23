@@ -26,7 +26,7 @@ from app.marketdata import market_data_status
 from app.marketdata.quote_details import market_quote_details
 from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
 from app.nav.core_nav import core_nav_status
-from app.nav_waterfall_settlement import nav_waterfall_summary
+from app.nav_waterfall_attribution import nav_waterfall_summary
 from app.settings import settings
 
 
