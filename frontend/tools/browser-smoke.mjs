@@ -195,7 +195,9 @@ async function clickView(session, label, heading, readySelector) {
     "Kunne ikke hente historikkdata.",
     "Kunne ikke hente tilbakekjøpsdata.",
     "Kunne ikke hente Bemobi-data.",
-    "Kunne ikke hente konsensusdata."
+    "Kunne ikke hente konsensusdata.",
+    "Kunne ikke hente NAV-sammensetningen.",
+    "Kunne ikke hente Estimert NAV-historikk."
   ]) {
     if (body.includes(errorText)) throw new Error(`${label} viser feiltilstand: ${errorText}`);
   }
@@ -214,24 +216,19 @@ async function main() {
 
   await waitFor(
     session,
-    "document.readyState === 'complete' && document.body?.innerText?.includes('API tilkoblet')",
-    "vellykket API-tilkobling"
+    "document.readyState === 'complete' && document.querySelector('.overviewV2 .estimatedHero h2')?.textContent?.includes('kr')",
+    "vellykket innlasting av Estimert NAV"
   );
 
-  const disabledViewsOk = await session.evaluate(`['Nyheter', 'Innstillinger'].every((label) => {
-    const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === label);
-    return Boolean(button?.disabled);
-  })`);
-  if (!disabledViewsOk) throw new Error("En inaktiv menyvisning er blitt klikkbar uten browser-smoke-dekning.");
-
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
-  await clickView(session, "NAV", "NAV og verdsettelse", ".navCompositionGrid");
-  await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyPage");
+  await clickView(session, "NAV", "Estimert NAV", ".compositionTable");
+  await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
   await clickView(session, "Tilbakekjøp", "Tilbakekjøp", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
+  await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
-  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøp, Bemobi og Konsensus.");
+  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøp, Bemobi, Konsensus og Datakvalitet.");
   session.close();
 }
 
