@@ -1,0 +1,238 @@
+name: Publish Cloudflare diagnostic status
+
+on:
+  workflow_run:
+    workflows:
+      - Cloudflare workflow diagnostics
+    types:
+      - completed
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-cloudflare-diagnostic-status.yml
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: cloudflare-diagnostic-status-publish
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish latest diagnostic to issue 164
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STATUS_ISSUE_NUMBER: "164"
+    steps:
+      - name: Resolve diagnostic run
+        id: diagnostic_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            python - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+              run = json.load(handle)["workflow_run"]
+
+          values = {
+              "run_id": run["id"],
+              "run_number": run.get("run_number") or "-",
+              "run_url": run.get("html_url") or "",
+              "run_conclusion": run.get("conclusion") or "unknown",
+              "run_event": run.get("event") or "unknown",
+              "run_created_at": run.get("created_at") or "",
+              "run_updated_at": run.get("updated_at") or "",
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+          else
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-workflow-diagnostics.yml/runs?status=completed&per_page=1" \
+              --output latest-run.json
+            python - <<'PY'
+          import json
+          import os
+
+          with open("latest-run.json", encoding="utf-8") as handle:
+              runs = json.load(handle).get("workflow_runs") or []
+          if not runs:
+              raise SystemExit("Fant ingen ferdige Cloudflare-diagnosekjøringer")
+          run = runs[0]
+          values = {
+              "run_id": run["id"],
+              "run_number": run.get("run_number") or "-",
+              "run_url": run.get("html_url") or "",
+              "run_conclusion": run.get("conclusion") or "unknown",
+              "run_event": run.get("event") or "unknown",
+              "run_created_at": run.get("created_at") or "",
+              "run_updated_at": run.get("updated_at") or "",
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+          fi
+
+      - name: Download diagnostic logs
+        id: logs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.diagnostic_run.outputs.run_id }}
+        run: |
+          set -u
+          mkdir -p diagnostic-logs
+          if curl --fail --location --silent --show-error \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/logs" \
+            --output diagnostic-logs.zip \
+            && unzip -q diagnostic-logs.zip -d diagnostic-logs; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Kunne ikke laste ned loggene for diagnosekjøringen."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build persistent status report
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.diagnostic_run.outputs.run_id }}
+          RUN_NUMBER: ${{ steps.diagnostic_run.outputs.run_number }}
+          RUN_URL: ${{ steps.diagnostic_run.outputs.run_url }}
+          RUN_CONCLUSION: ${{ steps.diagnostic_run.outputs.run_conclusion }}
+          RUN_EVENT: ${{ steps.diagnostic_run.outputs.run_event }}
+          RUN_CREATED_AT: ${{ steps.diagnostic_run.outputs.run_created_at }}
+          RUN_UPDATED_AT: ${{ steps.diagnostic_run.outputs.run_updated_at }}
+          LOGS_AVAILABLE: ${{ steps.logs.outputs.available }}
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\S+\s+")
+          MARKERS = (
+              "# Cloudflare Workflow-diagnose",
+              "# D1 produksjonsdiagnose",
+          )
+
+          def clean_log_line(raw: str) -> str:
+              return PREFIX.sub("", raw.rstrip("\n"))
+
+          def extract_section(lines: list[str], marker: str) -> str | None:
+              collecting = False
+              output: list[str] = []
+              for raw in lines:
+                  line = clean_log_line(raw)
+                  if not collecting:
+                      if line.strip() == marker:
+                          collecting = True
+                          output.append(marker)
+                      continue
+                  if line.startswith("##[endgroup]") or line.startswith("##[group]"):
+                      break
+                  output.append(line)
+              while output and not output[-1].strip():
+                  output.pop()
+              return "\n".join(output) if output else None
+
+          all_lines: list[str] = []
+          if os.environ.get("LOGS_AVAILABLE") == "true":
+              for path in sorted(Path("diagnostic-logs").rglob("*.txt")):
+                  all_lines.extend(path.read_text(encoding="utf-8", errors="replace").splitlines(True))
+
+          sections = [section for marker in MARKERS if (section := extract_section(all_lines, marker))]
+          now = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+          run_url = os.environ.get("RUN_URL") or ""
+          run_number = os.environ.get("RUN_NUMBER") or "-"
+          run_link = f"[#{run_number}]({run_url})" if run_url else f"#{run_number}"
+
+          header = [
+              "# Siste automatiske Cloudflare-produksjonsdiagnose",
+              "",
+              f"- Publisert: `{now}`",
+              f"- Diagnosekjøring: {run_link}",
+              f"- Run-ID: `{os.environ.get('RUN_ID') or '-'}`",
+              f"- Trigger: `{os.environ.get('RUN_EVENT') or 'unknown'}`",
+              f"- GitHub Actions: **{(os.environ.get('RUN_CONCLUSION') or 'unknown').upper()}**",
+              f"- Opprettet: `{os.environ.get('RUN_CREATED_AT') or '-'}`",
+              f"- Ferdig/oppdatert: `{os.environ.get('RUN_UPDATED_AT') or '-'}`",
+              "",
+              "> Denne saken overskrives automatisk etter hver Cloudflare-produksjonsdiagnose. Den er det faste statuspunktet som kan leses uten å kjenne Actions run-ID.",
+          ]
+
+          if sections:
+              body = "\n".join(header) + "\n\n" + "\n\n".join(sections) + "\n"
+          else:
+              body = "\n".join(header) + (
+                  "\n\n## Diagnoserapport\n\n"
+                  "Selve rapportteksten kunne ikke trekkes ut av Actions-loggen. "
+                  "GitHub Actions-konklusjonen over er fortsatt lagret, og lenken peker til den aktuelle kjøringen.\n"
+              )
+
+          max_chars = 64000
+          if len(body) > max_chars:
+              body = body[: max_chars - 80] + "\n\n_Rapporten ble avkortet til GitHub sin grense._\n"
+          Path("status-issue-body.md").write_text(body, encoding="utf-8")
+          PY
+
+      - name: Update fixed production-status issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          body = Path("status-issue-body.md").read_text(encoding="utf-8")
+          Path("issue-payload.json").write_text(
+              json.dumps({"body": body}, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          PY
+          curl --fail --silent --show-error \
+            --request PATCH \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --header "Content-Type: application/json" \
+            --data-binary @issue-payload.json \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${STATUS_ISSUE_NUMBER}" \
+            --output /tmp/updated-issue.json
+
+      - name: Add status summary
+        if: always()
+        shell: bash
+        env:
+          RUN_URL: ${{ steps.diagnostic_run.outputs.run_url }}
+          RUN_CONCLUSION: ${{ steps.diagnostic_run.outputs.run_conclusion }}
+        run: |
+          {
+            echo "# Persistent Cloudflare status"
+            echo
+            echo "- Status issue: #${STATUS_ISSUE_NUMBER}"
+            echo "- Diagnostic conclusion: ${RUN_CONCLUSION:-unknown}"
+            echo "- Diagnostic run: ${RUN_URL:-unknown}"
+          } >> "$GITHUB_STEP_SUMMARY"
