@@ -12,14 +12,21 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 
 from job_lock import (  # noqa: E402
     LOCK_KEY,
+    LOCK_STALE_HEARTBEAT_SECONDS,
     ORPHANED_REFRESH_REASON,
     acquire_refresh_lock,
 )
 
 
 class FakeRepository:
-    def __init__(self, *, held_lock: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        held_lock: str | None = None,
+        held_updated_at: str | None = None,
+    ) -> None:
         self.lock = held_lock
+        self.updated_at = held_updated_at
         self.jobs = [
             {
                 "id": 1,
@@ -50,15 +57,18 @@ class FakeRepository:
     async def run(self, sql: str, parameters=()):
         normalized = " ".join(sql.split()).upper()
         if normalized.startswith("INSERT INTO RUNTIME_STATE"):
-            key, token, now_iso, owner_like = parameters
+            key, token, now_iso, stale_before_iso, owner_like = parameters
             assert key == LOCK_KEY
             clean_owner = owner_like.removesuffix("|%")
             if self.lock is None:
                 self.lock = token
+                self.updated_at = now_iso
             else:
                 held_owner, separator, held_until = self.lock.partition("|")
-                if not separator or held_until <= now_iso or held_owner == clean_owner:
+                stale = self.updated_at is None or self.updated_at <= stale_before_iso
+                if not separator or held_until <= now_iso or stale or held_owner == clean_owner:
                     self.lock = token
+                    self.updated_at = now_iso
             return None
 
         if normalized.startswith("UPDATE JOB_RUNS"):
@@ -83,7 +93,7 @@ class FakeRepository:
         assert parameters == (LOCK_KEY,)
         if self.lock is None:
             return None
-        return {"value": self.lock}
+        return {"value": self.lock, "updated_at": self.updated_at}
 
 
 def test_acquiring_writer_lock_reconciles_orphaned_writer_jobs() -> None:
@@ -111,7 +121,8 @@ def test_acquiring_writer_lock_reconciles_orphaned_writer_jobs() -> None:
 
 def test_failed_lock_acquisition_does_not_reconcile_writer_jobs() -> None:
     repository = FakeRepository(
-        held_lock="full:2026-08-21:existing-instance|2026-08-21T12:00:00Z"
+        held_lock="full:2026-08-21:existing-instance|2026-08-21T12:00:00Z",
+        held_updated_at="2026-08-21T09:20:00Z",
     )
     result = asyncio.run(
         acquire_refresh_lock(
@@ -126,3 +137,42 @@ def test_failed_lock_acquisition_does_not_reconcile_writer_jobs() -> None:
     assert result["orphan_reconciliation_error"] is None
     assert all(row["status"] == "RUNNING" for row in repository.jobs)
     assert all(row["finished_at"] is None for row in repository.jobs)
+
+
+def test_stale_heartbeat_can_recover_even_when_old_expiry_is_hours_away() -> None:
+    assert LOCK_STALE_HEARTBEAT_SECONDS == 30 * 60
+    repository = FakeRepository(
+        held_lock="full:2026-08-24:dead-instance|2026-08-24T07:56:00Z",
+        held_updated_at="2026-08-24T04:56:26Z",
+    )
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:2026-08-24T05:30:00Z",
+            ttl_seconds=20 * 60,
+            now=datetime(2026, 8, 24, 5, 30, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["held_by"] == "fast:2026-08-24T05:30:00Z"
+    assert repository.jobs[0]["status"] == "FAILED"
+    assert repository.jobs[0]["error_message"] == ORPHANED_REFRESH_REASON
+
+
+def test_fresh_heartbeat_keeps_unexpired_lock_exclusive() -> None:
+    repository = FakeRepository(
+        held_lock="full:2026-08-24:live-instance|2026-08-24T07:56:00Z",
+        held_updated_at="2026-08-24T05:10:00Z",
+    )
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:2026-08-24T05:30:00Z",
+            ttl_seconds=20 * 60,
+            now=datetime(2026, 8, 24, 5, 30, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is False
+    assert repository.jobs[0]["status"] == "RUNNING"
