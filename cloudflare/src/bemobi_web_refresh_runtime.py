@@ -37,6 +37,28 @@ _REQUIRED_FORWARD_METRICS = {
     "eps_brl",
     "net_debt_mbrl",
 }
+_SECONDARY_REFRESH_SLOTS = ("result_release", "consensus", "xp_preview")
+
+
+def _secondary_refresh_slot(target_date: str) -> str:
+    """Spread CPU-heavier secondary web sources deterministically across nights.
+
+    Official Bemobi IR remains daily. Result PDF parsing, MarketScreener and XP are all
+    last-good-preserved secondary sources, so each may safely wait at most two additional
+    nights. This bounds one Workflow step without silently dropping any source permanently.
+    """
+    ordinal = date.fromisoformat(target_date).toordinal()
+    return _SECONDARY_REFRESH_SLOTS[ordinal % len(_SECONDARY_REFRESH_SLOTS)]
+
+
+def _scheduled_skip(slot: str, active_slot: str) -> dict[str, Any]:
+    return {
+        "status": "skipped",
+        "reason": "rotating_cpu_budget",
+        "slot": slot,
+        "active_slot": active_slot,
+        "rows_written": 0,
+    }
 
 
 def parse_forward_consensus_html(
@@ -304,38 +326,49 @@ async def refresh_bemobi_web(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Refresh Bemobi facts with dynamic forward years and append-only consensus history."""
+    """Refresh official IR daily and rotate CPU-heavier last-good-preserved sources."""
     ir = await sync_bemobi_ir(
         repository,
         target_date=target_date,
         archive_bucket=archive_bucket,
         fetcher=fetcher,
     )
-    result = await sync_latest_result_release(
-        repository,
-        target_date=target_date,
-        archive_bucket=archive_bucket,
-        fetcher=fetcher,
-    )
-    event_rows = await _ensure_consensus_event(
-        repository,
-        result_refresh=result,
-        target_date=target_date,
-    )
-    if event_rows:
-        result = {**result, "consensus_event_rows_written": event_rows}
-    consensus = await sync_marketscreener_consensus(
-        repository,
-        target_date=target_date,
-        archive_bucket=archive_bucket,
-        fetcher=fetcher,
-    )
-    xp = await sync_xp_preview(
-        repository,
-        target_date=target_date,
-        archive_bucket=archive_bucket,
-        fetcher=fetcher,
-    )
+
+    active_slot = _secondary_refresh_slot(target_date)
+    result: dict[str, Any] = _scheduled_skip("result_release", active_slot)
+    consensus: dict[str, Any] = _scheduled_skip("consensus", active_slot)
+    xp: dict[str, Any] = _scheduled_skip("xp_preview", active_slot)
+    event_rows = 0
+
+    if active_slot == "result_release":
+        result = await sync_latest_result_release(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+        event_rows = await _ensure_consensus_event(
+            repository,
+            result_refresh=result,
+            target_date=target_date,
+        )
+        if event_rows:
+            result = {**result, "consensus_event_rows_written": event_rows}
+    elif active_slot == "consensus":
+        consensus = await sync_marketscreener_consensus(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+    else:
+        xp = await sync_xp_preview(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+
     secondary = [result, consensus, xp]
     degraded = any(item.get("status") == "not_available" for item in secondary)
     rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
@@ -346,5 +379,7 @@ async def refresh_bemobi_web(
         "result_release": result,
         "consensus": consensus,
         "xp_preview": xp,
-        "policy": "official-first-last-good-preserved",
+        "active_secondary_slot": active_slot,
+        "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
+        "policy": "official-ir-daily-rotating-secondary-last-good-preserved",
     }

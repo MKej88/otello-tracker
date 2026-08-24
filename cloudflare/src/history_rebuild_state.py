@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Any
 
 STATE_PREFIX = "norges_bank_nav_history_v1:"
+HISTORY_REBUILD_CHUNK_DAYS = 31
 
 
 def _key(year: int) -> str:
@@ -55,6 +56,45 @@ async def history_window_complete(repository, *, start_date: str, end_date: str)
     return bool(marker and marker[0] <= start_date and marker[1] >= end_date)
 
 
+async def next_history_rebuild_chunk(
+    repository,
+    *,
+    start_date: str,
+    end_date: str,
+    max_days: int = HISTORY_REBUILD_CHUNK_DAYS,
+) -> tuple[str, str] | None:
+    """Return the next contiguous, bounded part of one calendar-year rebuild.
+
+    The checkpoint is deliberately contiguous from ``start_date``. This lets a killed Worker
+    resume on the next full refresh without repeating a whole year and without letting a later
+    successful chunk accidentally bridge across an unprocessed gap.
+    """
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if start.year != end.year:
+        raise ValueError("next_history_rebuild_chunk krever ett kalenderår")
+    if start > end:
+        return None
+    days = max(1, int(max_days))
+    row = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
+        (_key(start.year),),
+    )
+    marker = _parse_marker((row or {}).get("value"))
+    next_start = start
+    if marker:
+        marker_start = date.fromisoformat(marker[0])
+        marker_end = date.fromisoformat(marker[1])
+        if marker_start <= start <= marker_end:
+            next_start = marker_end + timedelta(days=1)
+        elif marker_start > start:
+            raise ValueError("Historisk NAV-checkpoint er ikke sammenhengende fra vinduets start")
+    if next_start > end:
+        return None
+    next_end = min(end, next_start + timedelta(days=days - 1))
+    return next_start.isoformat(), next_end.isoformat()
+
+
 async def mark_history_window_complete(repository, *, start_date: str, end_date: str) -> None:
     year = date.fromisoformat(start_date).year
     if date.fromisoformat(end_date).year != year:
@@ -64,6 +104,13 @@ async def mark_history_window_complete(repository, *, start_date: str, end_date:
         (_key(year),),
     )
     existing = _parse_marker((row or {}).get("value"))
+    if existing:
+        existing_start = date.fromisoformat(existing[0])
+        existing_end = date.fromisoformat(existing[1])
+        incoming_start = date.fromisoformat(start_date)
+        incoming_end = date.fromisoformat(end_date)
+        if incoming_start > existing_end + timedelta(days=1) or incoming_end < existing_start - timedelta(days=1):
+            raise ValueError("Historisk NAV-checkpoint kan ikke slå sammen ikke-sammenhengende vinduer")
     covered_from = min(start_date, existing[0]) if existing else start_date
     covered_to = max(end_date, existing[1]) if existing else end_date
     value = json.dumps(

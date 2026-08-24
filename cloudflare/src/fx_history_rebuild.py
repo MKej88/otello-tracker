@@ -5,7 +5,12 @@ from decimal import Decimal
 from typing import Any
 
 try:
-    from .history_rebuild_state import history_window_complete, mark_history_window_complete
+    from .history_rebuild_state import (
+        HISTORY_REBUILD_CHUNK_DAYS,
+        history_window_complete,
+        mark_history_window_complete,
+        next_history_rebuild_chunk,
+    )
     from .nav_refresh import (
         CORE_CALCULATION_VERSION,
         FULL_CALCULATION_VERSION,
@@ -15,7 +20,12 @@ try:
         refresh_other_net_assets_if_dirty,
     )
 except ImportError:
-    from history_rebuild_state import history_window_complete, mark_history_window_complete
+    from history_rebuild_state import (
+        HISTORY_REBUILD_CHUNK_DAYS,
+        history_window_complete,
+        mark_history_window_complete,
+        next_history_rebuild_chunk,
+    )
     from nav_refresh import (
         CORE_CALCULATION_VERSION,
         FULL_CALCULATION_VERSION,
@@ -151,8 +161,9 @@ async def rebuild_existing_nav_with_norges_bank(
 
     Existing CORE dates are rebuilt. ONA/FULL are rebuilt only where a FULL snapshot
     already existed, so the job never manufactures additional historical model coverage.
-    Completed calendar-year windows are checkpointed so a failed ten-year bootstrap can
-    resume without spending the D1/subrequest budget on years already completed.
+    A single Workflow invocation only processes a small contiguous checkpointed chunk.
+    That bounds CPU/subrequests and lets a killed historical bootstrap resume instead of
+    repeating an entire calendar year.
     """
     if await history_window_complete(repository, start_date=start_date, end_date=end_date):
         return {
@@ -161,6 +172,10 @@ async def rebuild_existing_nav_with_norges_bank(
             "reason": "history_window_already_complete",
             "from": start_date,
             "to": end_date,
+            "requested_from": start_date,
+            "requested_to": end_date,
+            "continuation_required": False,
+            "history_complete": True,
             "dates_seen": 0,
             "full_dates_seen": 0,
             "dates_changed": 0,
@@ -177,12 +192,46 @@ async def rebuild_existing_nav_with_norges_bank(
             "fx_policy": "NORGES_BANK_DIRECT_NOK_PREFERRED_ECB_FALLBACK",
         }
 
-    normalized = await _normalize_fx_derived_cash(
+    chunk = await next_history_rebuild_chunk(
         repository,
         start_date=start_date,
         end_date=end_date,
+        max_days=HISTORY_REBUILD_CHUNK_DAYS,
     )
-    dates = await _existing_core_dates(repository, start_date=start_date, end_date=end_date)
+    if chunk is None:
+        return {
+            "status": "ok",
+            "skipped": True,
+            "reason": "history_window_checkpoint_exhausted",
+            "from": start_date,
+            "to": end_date,
+            "requested_from": start_date,
+            "requested_to": end_date,
+            "continuation_required": False,
+            "history_complete": True,
+            "dates_seen": 0,
+            "full_dates_seen": 0,
+            "dates_changed": 0,
+            "dates_unchanged": 0,
+            "dates_not_ready": 0,
+            "largest_changes": [],
+            "failures": [],
+            "cash_normalization": {
+                "cash_anchors_updated": 0,
+                "cash_movements_updated": 0,
+            },
+            "core_calculation_version": CORE_CALCULATION_VERSION,
+            "full_calculation_version": FULL_CALCULATION_VERSION,
+            "fx_policy": "NORGES_BANK_DIRECT_NOK_PREFERRED_ECB_FALLBACK",
+        }
+
+    chunk_start, chunk_end = chunk
+    normalized = await _normalize_fx_derived_cash(
+        repository,
+        start_date=chunk_start,
+        end_date=chunk_end,
+    )
+    dates = await _existing_core_dates(repository, start_date=chunk_start, end_date=chunk_end)
     failures: list[dict[str, Any]] = []
     changed = 0
     unchanged = 0
@@ -242,17 +291,28 @@ async def rebuild_existing_nav_with_norges_bank(
             )
 
     largest_changes.sort(key=lambda item: item["absolute_change_nok"], reverse=True)
-    status = "partial" if failures else "ok"
-    if status == "ok":
+    chunk_ok = not failures
+    if chunk_ok:
         await mark_history_window_complete(
             repository,
-            start_date=start_date,
-            end_date=end_date,
+            start_date=chunk_start,
+            end_date=chunk_end,
         )
+    continuation_required = chunk_ok and chunk_end < end_date
+    status = "partial" if failures else "ok"
+    next_from = None
+    if continuation_required:
+        next_from = (date.fromisoformat(chunk_end) + timedelta(days=1)).isoformat()
     return {
         "status": status,
-        "from": start_date,
-        "to": end_date,
+        "from": chunk_start,
+        "to": chunk_end,
+        "requested_from": start_date,
+        "requested_to": end_date,
+        "chunk_days": HISTORY_REBUILD_CHUNK_DAYS,
+        "continuation_required": continuation_required,
+        "history_complete": chunk_ok and not continuation_required,
+        "next_from": next_from,
         "dates_seen": len(dates),
         "full_dates_seen": full_dates_seen,
         "dates_changed": changed,
