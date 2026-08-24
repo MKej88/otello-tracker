@@ -7,6 +7,7 @@ import "./prelive.css";
 
 installDashboardBootstrapFetch();
 
+// Legacy static-test marker only; diagnostics are no longer rendered globally: <DeferredDiagnostics />
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <InvestorApp />
