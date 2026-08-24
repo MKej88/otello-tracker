@@ -33,3 +33,23 @@ def test_runtime_module_keeps_dynamic_forward_consensus_contract() -> None:
     """
     years = runtime.parse_forward_consensus_html(html, as_of_year=2028)
     assert [item["year"] for item in years] == [2028, 2029]
+
+
+def test_secondary_web_sources_are_rotated_across_three_nights() -> None:
+    slots = {
+        runtime._secondary_refresh_slot(day)
+        for day in ("2026-08-21", "2026-08-22", "2026-08-23")
+    }
+    assert slots == {"result_release", "consensus", "xp_preview"}
+    assert len(runtime._SECONDARY_REFRESH_SLOTS) == 3
+
+
+def test_scheduled_secondary_skip_is_not_a_source_failure() -> None:
+    skipped = runtime._scheduled_skip("consensus", "result_release")
+    assert skipped == {
+        "status": "skipped",
+        "reason": "rotating_cpu_budget",
+        "slot": "consensus",
+        "active_slot": "result_release",
+        "rows_written": 0,
+    }
