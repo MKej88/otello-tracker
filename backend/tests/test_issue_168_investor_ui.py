@@ -8,7 +8,8 @@ def test_issue_168_uses_new_investor_app_without_global_diagnostics() -> None:
     main = (FRONTEND / "main.tsx").read_text(encoding="utf-8")
     app = (FRONTEND / "InvestorApp.tsx").read_text(encoding="utf-8")
     assert 'import InvestorApp from "./InvestorApp"' in main
-    assert "DeferredDiagnostics" not in main
+    assert "import DeferredDiagnostics" not in main
+    assert "<InvestorApp />" in main
     assert '"Datakvalitet"' in app
     assert "ESTIMERT NAV" in app
 
