@@ -7,16 +7,48 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 
-try:
-    from .buyback_service import buyback_forecast
-    from .dashboard_service import dashboard_summary, enrich_dashboard_summary
-    from .economic_nav_investor import economic_nav_summary
-    from .quote_details import market_quote_details
-except ImportError:
-    from buyback_service import buyback_forecast
-    from dashboard_service import dashboard_summary, enrich_dashboard_summary
-    from economic_nav_investor import economic_nav_summary
-    from quote_details import market_quote_details
+# Keep the hot-snapshot read path intentionally light. These wrappers preserve the public
+# module names used by tests, but only import the expensive calculators if a snapshot really
+# has to be rebuilt. A normal first-page HIT therefore avoids importing the whole NAV stack.
+async def dashboard_summary(repository: Any) -> dict[str, Any]:
+    try:
+        from .dashboard_service import dashboard_summary as implementation
+    except ImportError:
+        from dashboard_service import dashboard_summary as implementation
+    return await implementation(repository)
+
+
+async def enrich_dashboard_summary(summary: dict[str, Any], repository: Any) -> dict[str, Any]:
+    try:
+        from .dashboard_service import enrich_dashboard_summary as implementation
+    except ImportError:
+        from dashboard_service import enrich_dashboard_summary as implementation
+    return await implementation(summary, repository)
+
+
+async def economic_nav_summary(repository: Any) -> dict[str, Any]:
+    try:
+        from .economic_nav_investor import economic_nav_summary as implementation
+    except ImportError:
+        from economic_nav_investor import economic_nav_summary as implementation
+    return await implementation(repository)
+
+
+async def market_quote_details(repository: Any) -> dict[str, Any]:
+    try:
+        from .quote_details import market_quote_details as implementation
+    except ImportError:
+        from quote_details import market_quote_details as implementation
+    return await implementation(repository)
+
+
+async def buyback_forecast(repository: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        from .buyback_service import buyback_forecast as implementation
+    except ImportError:
+        from buyback_service import buyback_forecast as implementation
+    return await implementation(repository, *args, **kwargs)
+
 
 # Persisted hot snapshots contain already-rendered API payloads. Bump both the key
 # and version whenever response semantics change so a newly deployed Worker cannot
