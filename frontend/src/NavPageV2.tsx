@@ -112,7 +112,6 @@ export default function NavPageV2() {
   const current = data?.current;
   const change = data?.change;
   const components = current?.composition ?? [];
-  const maxDriver = Math.max(0.01, ...(change?.drivers ?? []).map((item) => Math.abs(item.per_share_nok)));
 
   return (
     <div className="investorPage navV2">
@@ -168,21 +167,26 @@ export default function NavPageV2() {
             <div className="changeSummary">
               <div><span>Fra</span><strong>{value(change.start_nav_per_share)} kr</strong><small>{dateLabel(change.resolved_start)}</small></div>
               <div><span>Til</span><strong>{value(change.current_nav_per_share)} kr</strong><small>{dateLabel(change.current_date)}</small></div>
-              <div><span>Endring</span><strong className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
+              <div><span>Nettoendring</span><strong className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
             </div>
-            <div className="driverList">
-              {(change.drivers ?? []).map((driver) => {
-                const width = Math.max(2, Math.abs(driver.per_share_nok) / maxDriver * 100);
-                return (
-                  <div className="driverRow" key={driver.key}>
-                    <span>{driver.label}</span>
-                    <div className="driverBarTrack"><div className={`driverBar ${driver.per_share_nok >= 0 ? "positiveBar" : "negativeBar"}`} style={{ width: `${width}%` }} /></div>
-                    <strong className={driver.per_share_nok >= 0 ? "positive" : "negative"}>{signed(driver.per_share_nok)} kr</strong>
-                  </div>
-                );
-              })}
+            <div className="compositionTable driverNetTable">
+              <div className="compositionHead"><span>Komponent</span><span>Fra</span><span>Til</span><span>Nettoeffekt</span></div>
+              {(change.drivers ?? []).map((driver) => (
+                <div className="compositionRow" key={driver.key}>
+                  <strong>{driver.label}</strong>
+                  <span>{value(driver.start_per_share_nok)} kr/aksje</span>
+                  <span>{value(driver.current_per_share_nok)} kr/aksje</span>
+                  <span className={driver.per_share_nok >= 0 ? "positive" : "negative"}>{signed(driver.per_share_nok)} kr/aksje</span>
+                </div>
+              ))}
+              <div className="compositionTotal">
+                <strong>Estimert NAV</strong>
+                <span>{value(change.start_nav_per_share)} kr/aksje</span>
+                <span>{value(change.current_nav_per_share)} kr/aksje</span>
+                <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
+              </div>
             </div>
-            <p className="methodNote">Perioden bruker nærmeste tilgjengelige kildebelagte Estimert NAV-observasjon ved start og avstemmer komponentendringene til total endring per aksje.</p>
+            <p className="methodNote">Nettoeffekt er endringen i hver av de samme NAV-komponentene som vises over: Bemobi, estimert kontantbeholdning, øvrige nettoeiendeler, Life360 og opsjoner. Effekten per aksje er komponentverdien per aksje ved periodens slutt minus verdien ved periodens start, og inkluderer dermed også effekten av endret antall utestående aksjer fra tilbakekjøp.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske Estimert NAV-observasjoner for valgt periode.</p>
