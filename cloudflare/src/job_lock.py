@@ -6,6 +6,7 @@ from typing import Any
 LOCK_KEY = "cloudflare_refresh_writer_lock"
 FULL_REFRESH_JOB_NAME = "cloudflare_full_refresh"
 FAST_REFRESH_JOB_NAME = "cloudflare_fast_refresh"
+LOCK_STALE_HEARTBEAT_SECONDS = 30 * 60
 ORPHANED_REFRESH_REASON = (
     "Refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
     "became available"
@@ -60,8 +61,10 @@ async def acquire_refresh_lock(
     """Acquire one advisory writer lock using an atomic runtime_state upsert.
 
     The lock protects the 30-minute fast path and the daily Workflow from writing market/
-    NAV state at the same time. The expiry is embedded in a lexicographically sortable UTC
-    timestamp so a crashed Workflow cannot block the system indefinitely.
+    NAV state at the same time. Normal expiry remains the primary lease boundary. In addition,
+    a lock whose heartbeat has not moved for 30 minutes is treated as abandoned. Every healthy
+    full/fast path renews well inside that window, while a hard Worker CPU kill can therefore
+    self-heal without waiting for an older multi-hour expiry token.
     """
     clean_owner = owner.strip().replace("|", "-")[:160]
     if not clean_owner:
@@ -69,6 +72,7 @@ async def acquire_refresh_lock(
     current = (now or datetime.now(UTC)).astimezone(UTC)
     expires_iso = _lease_expiry(current, ttl_seconds)
     now_iso = _iso(current)
+    stale_before_iso = _iso(current - timedelta(seconds=LOCK_STALE_HEARTBEAT_SECONDS))
     token = f"{clean_owner}|{expires_iso}"
 
     await repository.run(
@@ -80,9 +84,10 @@ async def acquire_refresh_lock(
             updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE instr(runtime_state.value, '|') = 0
            OR substr(runtime_state.value, instr(runtime_state.value, '|') + 1) <= ?
+           OR COALESCE(runtime_state.updated_at, '') <= ?
            OR runtime_state.value LIKE ?
         """,
-        (LOCK_KEY, token, now_iso, f"{clean_owner}|%"),
+        (LOCK_KEY, token, now_iso, stale_before_iso, f"{clean_owner}|%"),
     )
     row = await repository.first(
         "SELECT value, updated_at FROM runtime_state WHERE key=? LIMIT 1",
