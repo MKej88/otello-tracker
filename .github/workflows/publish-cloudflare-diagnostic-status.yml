@@ -1,11 +1,9 @@
 name: Publish Cloudflare diagnostic status
 
 on:
-  workflow_run:
-    workflows:
-      - Cloudflare workflow diagnostics
-    types:
-      - completed
+  schedule:
+    # Diagnostics run at 04:30 UTC. Publish after a generous buffer.
+    - cron: "0 5 * * *"
   workflow_dispatch:
   push:
     branches:
@@ -37,43 +35,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-            python - <<'PY'
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-workflow-diagnostics.yml/runs?status=completed&per_page=10" \
+            --output latest-runs.json
+          python - <<'PY'
           import json
           import os
+          from datetime import UTC, datetime, timedelta
 
-          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-              run = json.load(handle)["workflow_run"]
-
-          values = {
-              "run_id": run["id"],
-              "run_number": run.get("run_number") or "-",
-              "run_url": run.get("html_url") or "",
-              "run_conclusion": run.get("conclusion") or "unknown",
-              "run_event": run.get("event") or "unknown",
-              "run_created_at": run.get("created_at") or "",
-              "run_updated_at": run.get("updated_at") or "",
-          }
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              for key, value in values.items():
-                  handle.write(f"{key}={value}\n")
-          PY
-          else
-            curl --fail --silent --show-error \
-              --header "Authorization: Bearer ${GH_TOKEN}" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-workflow-diagnostics.yml/runs?status=completed&per_page=1" \
-              --output latest-run.json
-            python - <<'PY'
-          import json
-          import os
-
-          with open("latest-run.json", encoding="utf-8") as handle:
+          with open("latest-runs.json", encoding="utf-8") as handle:
               runs = json.load(handle).get("workflow_runs") or []
           if not runs:
               raise SystemExit("Fant ingen ferdige Cloudflare-diagnosekjøringer")
+
           run = runs[0]
+          if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+              created_raw = run.get("created_at") or ""
+              try:
+                  created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+              except ValueError as exc:
+                  raise SystemExit("Kunne ikke tolke created_at for siste diagnosekjøring") from exc
+              age = datetime.now(UTC) - created.astimezone(UTC)
+              if age < timedelta(0) or age > timedelta(hours=3):
+                  raise SystemExit(
+                      f"Siste ferdige diagnosekjøring er for gammel for dagens publisering: {created_raw}"
+                  )
+
           values = {
               "run_id": run["id"],
               "run_number": run.get("run_number") or "-",
@@ -87,7 +77,6 @@ jobs:
               for key, value in values.items():
                   handle.write(f"{key}={value}\n")
           PY
-          fi
 
       - name: Download diagnostic logs
         id: logs
