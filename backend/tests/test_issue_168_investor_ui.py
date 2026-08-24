@@ -22,6 +22,11 @@ def test_issue_168_has_all_requested_periods_and_estimated_nav_views() -> None:
         assert label in periods
     assert "Hva består Estimert NAV av i dag?" in nav
     assert "Hva har flyttet Estimert NAV?" in nav
+    assert "Nettoeffekt" in nav
+    assert "start_per_share_nok" in nav
+    assert "current_per_share_nok" in nav
+    assert "driverNetTable" in nav
+    assert "driverBarTrack" not in nav
     assert "Rabatt til Estimert NAV" in history
     assert "axisLabel" in history
     assert "Rabatt / premie" in history
