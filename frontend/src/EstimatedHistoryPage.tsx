@@ -1,0 +1,162 @@
+import { useEffect, useMemo, useState } from "react";
+import { investorPeriods, type InvestorPeriod } from "./investorPeriods";
+
+type Point = { date: string; nav_per_share?: number | null; otec_price?: number | null; discount_pct?: number | null };
+type Statistics = {
+  count: number;
+  current_discount_pct?: number | null;
+  average_discount_pct?: number | null;
+  median_discount_pct?: number | null;
+  p10_discount_pct?: number | null;
+  p90_discount_pct?: number | null;
+  minimum_discount_pct?: number | null;
+  minimum_discount_date?: string | null;
+  maximum_discount_pct?: number | null;
+  maximum_discount_date?: string | null;
+  current_percentile?: number | null;
+};
+type EstimatedHistory = { ready: boolean; from?: string; to?: string; point_count?: number; points?: Point[]; statistics?: Statistics; note?: string };
+type Payload = { estimated?: EstimatedHistory };
+
+function value(input?: number | null, digits = 1) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return input.toLocaleString("nb-NO", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function dateLabel(input?: string | null) {
+  if (!input) return "–";
+  const [year, month, day] = input.slice(0, 10).split("-");
+  return year && month && day ? `${day}.${month}.${year}` : input;
+}
+
+function shortDate(input?: string | null) {
+  if (!input) return "–";
+  const [, month, day] = input.slice(0, 10).split("-");
+  return month && day ? `${day}.${month}` : input;
+}
+
+function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
+  return (
+    <div className="periodButtons" aria-label="Velg historikkperiode">
+      {investorPeriods().map((period) => (
+        <button type="button" key={period.key} className={period.key === selected.key ? "active" : ""} onClick={() => onChange(period)}>{period.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function DiscountChart({ points }: { points: Point[] }) {
+  const usable = points.filter((point) => point.discount_pct != null && Number.isFinite(point.discount_pct));
+  if (usable.length < 2) return <div className="dataNotice">Venter på nok Estimert NAV-observasjoner til grafen.</div>;
+  const values = usable.map((point) => Number(point.discount_pct));
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  const padding = Math.max(1, (max - min) * 0.12);
+  min = Math.floor((min - padding) / 5) * 5;
+  max = Math.ceil((max + padding) / 5) * 5;
+  if (min === max) max = min + 5;
+
+  const left = 78;
+  const right = 980;
+  const top = 20;
+  const bottom = 285;
+  const x = (index: number) => left + index / (usable.length - 1) * (right - left);
+  const y = (result: number) => bottom - (result - min) / (max - min) * (bottom - top);
+  const polyline = usable.map((point, index) => `${x(index).toFixed(1)},${y(Number(point.discount_pct)).toFixed(1)}`).join(" ");
+  const yTicks = Array.from({ length: 6 }, (_, index) => min + (max - min) * index / 5);
+  const xTickIndexes = Array.from(new Set([0, Math.round((usable.length - 1) * 0.25), Math.round((usable.length - 1) * 0.5), Math.round((usable.length - 1) * 0.75), usable.length - 1]));
+  const zeroInRange = min <= 0 && max >= 0;
+
+  return (
+    <div className="axisChart">
+      <svg viewBox="0 0 1000 330" role="img" aria-label="Historisk rabatt til Estimert NAV">
+        {yTicks.map((tick) => {
+          const py = y(tick);
+          return <g key={tick}><line className="axisGrid" x1={left} x2={right} y1={py} y2={py} /><text className="axisLabel" x={left - 12} y={py + 5} textAnchor="end">{value(tick, 0)} %</text></g>;
+        })}
+        {zeroInRange && <line className="axisZero" x1={left} x2={right} y1={y(0)} y2={y(0)} />}
+        <polyline className="estimatedDiscountLine" points={polyline} />
+        {xTickIndexes.map((index) => {
+          const px = x(index);
+          return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{shortDate(usable[index]?.date)}</text></g>;
+        })}
+        <text className="axisTitle" transform="rotate(-90 18 150)" x="18" y="150" textAnchor="middle">Rabatt / premie</text>
+        <text className="axisTitle" x={(left + right) / 2} y="326" textAnchor="middle">Dato</text>
+      </svg>
+    </div>
+  );
+}
+
+export default function EstimatedHistoryPage() {
+  const periods = useMemo(() => investorPeriods(), []);
+  const [period, setPeriod] = useState(periods[4]);
+  const [cache, setCache] = useState<Record<string, EstimatedHistory>>({});
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const data = cache[period.key];
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const load = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/dashboard/discount-history?days=${period.days}&max_points=72`, { signal: controller.signal });
+        if (!response.ok) throw new Error("Historikk API-feil");
+        const payload = await response.json() as Payload;
+        if (!active) return;
+        if (payload.estimated) setCache((current) => ({ ...current, [period.key]: payload.estimated! }));
+        setFailed(false);
+      } catch (error) {
+        if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
+        setFailed(true);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; controller.abort(); };
+  }, [period.key, period.days]);
+
+  const stats = data?.statistics;
+  const points = data?.points ?? [];
+
+  return (
+    <div className="investorPage historyV2">
+      <section className="card historyV2Header">
+        <div>
+          <span className="label">HISTORIKK</span>
+          <h2>Rabatt til Estimert NAV</h2>
+          <p>OTEC-kursen målt mot Estimert NAV gjennom valgt periode. Grafen viser faktiske prosentverdier på Y-aksen og datoer på X-aksen.</p>
+        </div>
+        <PeriodButtons selected={period} onChange={setPeriod} />
+      </section>
+
+      {failed && !data && <div className="dataNotice">Kunne ikke hente Estimert NAV-historikk.</div>}
+      {loading && !data && <div className="dataNotice">Beregner Estimert NAV-historikk …</div>}
+      {data && !data.ready && <div className="dataNotice">Det finnes foreløpig ikke nok kildebelagt historikk til denne perioden.</div>}
+
+      {data?.ready && stats && (
+        <>
+          <section className="historyKpiGrid">
+            <article className="card historyKpi"><span className="label">Dagens rabatt</span><strong>{value(stats.current_discount_pct)} %</strong><small>{dateLabel(data.to)}</small></article>
+            <article className="card historyKpi"><span className="label">Median</span><strong>{value(stats.median_discount_pct)} %</strong><small>{stats.count} observasjoner</small></article>
+            <article className="card historyKpi"><span className="label">Gjennomsnitt</span><strong>{value(stats.average_discount_pct)} %</strong><small>{dateLabel(data.from)}–{dateLabel(data.to)}</small></article>
+            <article className="card historyKpi"><span className="label">Dagens persentil</span><strong>{value(stats.current_percentile, 0)}.</strong><small>Høyere = større rabatt</small></article>
+          </section>
+
+          <section className="card historyAxisCard">
+            <div className="cardHeader"><div><span className="label">ESTIMERT NAV</span><h2>Rabatt / premie over tid</h2></div><span className="pill">{loading ? "OPPDATERER" : period.label}</span></div>
+            <DiscountChart points={points} />
+          </section>
+
+          <section className="historyDetailGrid">
+            <article className="card"><div className="cardHeader"><div><span className="label">Fordeling</span><h2>Historiske nivåer</h2></div></div><div className="placeholderRows"><div><span>10. persentil</span><strong>{value(stats.p10_discount_pct)} %</strong></div><div><span>Median</span><strong>{value(stats.median_discount_pct)} %</strong></div><div><span>90. persentil</span><strong>{value(stats.p90_discount_pct)} %</strong></div></div></article>
+            <article className="card"><div className="cardHeader"><div><span className="label">Ytterpunkter</span><h2>Historisk spenn</h2></div></div><div className="placeholderRows"><div><span>Største rabatt</span><strong>{value(stats.maximum_discount_pct)} %</strong><small>{dateLabel(stats.maximum_discount_date)}</small></div><div><span>Laveste rabatt / høyeste premie</span><strong>{value(stats.minimum_discount_pct)} %</strong><small>{dateLabel(stats.minimum_discount_date)}</small></div></div></article>
+          </section>
+          {data.note && <p className="methodNote">{data.note}</p>}
+        </>
+      )}
+    </div>
+  );
+}
