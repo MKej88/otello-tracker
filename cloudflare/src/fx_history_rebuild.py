@@ -175,6 +175,7 @@ async def rebuild_existing_nav_with_norges_bank(
             "requested_from": start_date,
             "requested_to": end_date,
             "continuation_required": False,
+            "history_complete": True,
             "dates_seen": 0,
             "full_dates_seen": 0,
             "dates_changed": 0,
@@ -207,6 +208,7 @@ async def rebuild_existing_nav_with_norges_bank(
             "requested_from": start_date,
             "requested_to": end_date,
             "continuation_required": False,
+            "history_complete": True,
             "dates_seen": 0,
             "full_dates_seen": 0,
             "dates_changed": 0,
@@ -297,7 +299,7 @@ async def rebuild_existing_nav_with_norges_bank(
             end_date=chunk_end,
         )
     continuation_required = chunk_ok and chunk_end < end_date
-    status = "partial" if failures or continuation_required else "ok"
+    status = "partial" if failures else "ok"
     next_from = None
     if continuation_required:
         next_from = (date.fromisoformat(chunk_end) + timedelta(days=1)).isoformat()
@@ -309,6 +311,7 @@ async def rebuild_existing_nav_with_norges_bank(
         "requested_to": end_date,
         "chunk_days": HISTORY_REBUILD_CHUNK_DAYS,
         "continuation_required": continuation_required,
+        "history_complete": chunk_ok and not continuation_required,
         "next_from": next_from,
         "dates_seen": len(dates),
         "full_dates_seen": full_dates_seen,
