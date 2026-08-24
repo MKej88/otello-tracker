@@ -2,22 +2,8 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from bemobi_consensus_investor import bemobi_consensus
-from bemobi_dashboard import bemobi_dashboard
-from bemobi_source_status import bemobi_source_status
-from buyback_dashboard import buyback_dashboard
-from buyback_service import buyback_forecast
 from dashboard_hot_snapshot import dashboard_bootstrap_payload, dashboard_hot_component
-from dashboard_service import dashboard_history, dashboard_summary, enrich_dashboard_summary
-from discount_history import discount_history
-from economic_nav_investor import economic_nav_summary
-from fx_backtest import fx_backtest_summary
-from nav_waterfall_attribution_enrich import enrich_nav_waterfall
-from nav_waterfall_settlement import nav_waterfall_summary
 from performance_repository import PerformanceD1Repository
-from quote_details import market_quote_details
-from report_status import report_status_summary
-from runtime_status import runtime_status_summary
 
 API_VERSION = "0.13.1"
 
@@ -99,17 +85,23 @@ async def get_dashboard_summary(request: Request) -> dict:
     cached = await dashboard_hot_component(repository, "summary")
     if cached is not None:
         return cached
+    from dashboard_service import dashboard_summary, enrich_dashboard_summary
+
     summary = await dashboard_summary(repository)
     return await enrich_dashboard_summary(summary, repository)
 
 
 @app.get("/api/dashboard/report-status")
 async def get_report_status(request: Request) -> dict:
+    from report_status import report_status_summary
+
     return await report_status_summary(_repository(request))
 
 
 @app.get("/api/dashboard/runtime-status")
 async def get_runtime_status(request: Request) -> dict:
+    from runtime_status import runtime_status_summary
+
     return await runtime_status_summary(_repository(request))
 
 
@@ -119,11 +111,16 @@ async def get_economic_nav(request: Request) -> dict:
     cached = await dashboard_hot_component(repository, "economic")
     if cached is not None:
         return cached
+    from economic_nav_investor import economic_nav_summary
+
     return await economic_nav_summary(repository)
 
 
 @app.get("/api/dashboard/waterfall")
 async def get_nav_waterfall(request: Request) -> dict:
+    from nav_waterfall_attribution_enrich import enrich_nav_waterfall
+    from nav_waterfall_settlement import nav_waterfall_summary
+
     repository = _repository(request)
     settled = await nav_waterfall_summary(repository)
     return await enrich_nav_waterfall(repository, settled)
@@ -131,6 +128,8 @@ async def get_nav_waterfall(request: Request) -> dict:
 
 @app.get("/api/dashboard/fx-backtest")
 async def get_fx_backtest(request: Request) -> dict:
+    from fx_backtest import fx_backtest_summary
+
     return await fx_backtest_summary(_repository(request))
 
 
@@ -140,6 +139,8 @@ async def get_dashboard_history(
     days: int = Query(default=365, ge=7, le=3650),
     max_points: int = Query(default=400, ge=50, le=1000),
 ) -> dict:
+    from dashboard_service import dashboard_history
+
     repository = _repository(request)
     return await dashboard_history(repository, days=days, max_points=max_points)
 
@@ -150,6 +151,8 @@ async def get_discount_history(
     days: int = Query(default=365, ge=30, le=3650),
     max_points: int = Query(default=600, ge=50, le=1000),
 ) -> dict:
+    from discount_history import discount_history
+
     return await discount_history(_repository(request), days=days, max_points=max_points)
 
 
@@ -159,6 +162,8 @@ async def get_market_quotes(request: Request) -> dict:
     cached = await dashboard_hot_component(repository, "quotes")
     if cached is not None:
         return cached
+    from quote_details import market_quote_details
+
     return await market_quote_details(repository)
 
 
@@ -173,6 +178,8 @@ async def get_buyback_forecast(
             cached = await dashboard_hot_component(repository, "forecast")
             if cached is not None:
                 return cached
+        from buyback_service import buyback_forecast
+
         return await buyback_forecast(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
@@ -183,6 +190,8 @@ async def get_buyback_dashboard(
     request: Request,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
+    from buyback_dashboard import buyback_dashboard
+
     repository = _repository(request)
     try:
         return await buyback_dashboard(repository, as_of_date=as_of_date)
@@ -192,14 +201,20 @@ async def get_buyback_dashboard(
 
 @app.get("/api/bemobi/dashboard")
 async def get_bemobi_dashboard(request: Request) -> dict:
+    from bemobi_dashboard import bemobi_dashboard
+
     return await bemobi_dashboard(_repository(request))
 
 
 @app.get("/api/bemobi/consensus")
 async def get_bemobi_consensus(request: Request) -> dict:
+    from bemobi_consensus_investor import bemobi_consensus
+
     return await bemobi_consensus(_repository(request))
 
 
 @app.get("/api/bemobi/source-status")
 async def get_bemobi_source_status(request: Request) -> dict:
+    from bemobi_source_status import bemobi_source_status
+
     return await bemobi_source_status(_repository(request))
