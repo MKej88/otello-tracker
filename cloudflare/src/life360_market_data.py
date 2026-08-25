@@ -15,11 +15,16 @@ except ImportError:
     from bounded_response import read_response_bytes
     from r2_archive import archive_bytes
 
-YAHOO_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+YAHOO_QUERY1_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+YAHOO_QUERY2_BASE = "https://query2.finance.yahoo.com/v8/finance/chart"
+YAHOO_CHART_BASES = (YAHOO_QUERY1_BASE, YAHOO_QUERY2_BASE)
+YAHOO_CHART_BASE = YAHOO_QUERY1_BASE
 SOURCE_CODE = "YAHOO_FINANCE"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 WRITE_BATCH_ROWS = 20
 RECENT_LOOKBACK_DAYS = 21
+LIFE360_REQUIRED_SYMBOL = "LIF"
+LIFE360_CONTROL_SYMBOLS = {"360.AX"}
 LIFE360_SERIES = {
     "360.AX": {
         "provider_symbol": "360.AX",
@@ -40,7 +45,34 @@ def _epoch(day: date) -> int:
     return int(datetime.combine(day, time.min, tzinfo=UTC).timestamp())
 
 
-def build_yahoo_chart_url(provider_symbol: str, start_date: str, end_date: str) -> str:
+def _provider_symbol(provider_symbol: str) -> str:
+    """Return only one of the two literal provider symbols we support."""
+    if provider_symbol == "LIF":
+        return "LIF"
+    if provider_symbol == "360.AX":
+        return "360.AX"
+    raise ValueError(f"Ikke tillatt Yahoo-symbol: {provider_symbol!r}")
+
+
+def _endpoint_base(endpoint: int) -> str:
+    """Map an internal endpoint id to a fixed Yahoo origin.
+
+    Keeping the network origins literal at the request boundary prevents callers from
+    turning the fallback helper into a generic URL fetcher.
+    """
+    if endpoint == 1:
+        return YAHOO_QUERY1_BASE
+    if endpoint == 2:
+        return YAHOO_QUERY2_BASE
+    raise ValueError(f"Ukjent Yahoo-endepunkt: {endpoint}")
+
+
+def _build_yahoo_chart_url(
+    endpoint: int,
+    provider_symbol: str,
+    start_date: str,
+    end_date: str,
+) -> str:
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date) + timedelta(days=1)
     query = urllib.parse.urlencode(
@@ -52,8 +84,13 @@ def build_yahoo_chart_url(provider_symbol: str, start_date: str, end_date: str) 
             "includeAdjustedClose": "false",
         }
     )
-    symbol = urllib.parse.quote(provider_symbol, safe="")
-    return f"{YAHOO_CHART_BASE}/{symbol}?{query}"
+    symbol = urllib.parse.quote(_provider_symbol(provider_symbol), safe="")
+    return f"{_endpoint_base(endpoint)}/{symbol}?{query}"
+
+
+def build_yahoo_chart_url(provider_symbol: str, start_date: str, end_date: str) -> str:
+    """Build the canonical query1 URL; callers cannot choose an arbitrary origin."""
+    return _build_yahoo_chart_url(1, provider_symbol, start_date, end_date)
 
 
 def parse_yahoo_chart(
@@ -143,15 +180,19 @@ def parse_yahoo_chart(
     }
 
 
-async def _download(
-    url: str,
+async def _download_chart_endpoint(
+    endpoint: int,
+    provider_symbol: str,
+    start_date: str,
+    end_date: str,
     *,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
-) -> bytes:
+) -> tuple[str, bytes, str]:
     if fetcher is None:
         from workers import fetch
 
         fetcher = fetch
+    url = _build_yahoo_chart_url(endpoint, provider_symbol, start_date, end_date)
     response = await fetcher(
         url,
         headers={
@@ -161,7 +202,35 @@ async def _download(
     )
     if not bool(getattr(response, "ok", False)):
         raise RuntimeError(f"Yahoo Finance feilet med HTTP {getattr(response, 'status', 'unknown')}")
-    return await read_response_bytes(response, max_bytes=MAX_RESPONSE_BYTES, label="Yahoo Finance chart JSON")
+    payload = await read_response_bytes(
+        response,
+        max_bytes=MAX_RESPONSE_BYTES,
+        label="Yahoo Finance chart JSON",
+    )
+    return url, payload, _endpoint_base(endpoint)
+
+
+async def _download_chart_with_host_fallback(
+    provider_symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[str, bytes, str]:
+    failures: list[str] = []
+    for endpoint in (1, 2):
+        try:
+            return await _download_chart_endpoint(
+                endpoint,
+                provider_symbol,
+                start_date,
+                end_date,
+                fetcher=fetcher,
+            )
+        except Exception as exc:
+            base_url = _endpoint_base(endpoint)
+            failures.append(f"{urllib.parse.urlsplit(base_url).netloc}: {str(exc)[:300]}")
+    raise RuntimeError("Yahoo Finance chart feilet på alle endepunkter: " + "; ".join(failures))
 
 
 async def _coverage(repository, symbol: str) -> dict[str, Any]:
@@ -263,8 +332,12 @@ async def _refresh_symbol(
     if start > target:
         start = target
 
-    url = build_yahoo_chart_url(str(config["provider_symbol"]), start.isoformat(), target_date)
-    payload = await _download(url, fetcher=fetcher)
+    url, payload, provider_base = await _download_chart_with_host_fallback(
+        str(config["provider_symbol"]),
+        start.isoformat(),
+        target_date,
+        fetcher=fetcher,
+    )
     parsed = parse_yahoo_chart(
         payload,
         expected_symbol=str(config["provider_symbol"]),
@@ -294,6 +367,8 @@ async def _refresh_symbol(
         metadata={
             "symbol": symbol,
             "provider_symbol": config["provider_symbol"],
+            "provider_endpoint": provider_base,
+            "provider_endpoints": list(YAHOO_CHART_BASES),
             "currency": config["currency"],
             "role": config["role"],
             "from": start.isoformat(),
@@ -305,6 +380,7 @@ async def _refresh_symbol(
             "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
             "r2_key": archived.get("r2_key") if archived else None,
             "control_sources": [
+                "https://investors.life360.com/stock-information/historic-price-lookup",
                 "https://investors.life360.com/stock-information/stock-quote-chart/nasdaq",
                 "https://www.nasdaq.com/market-activity/stocks/lif",
             ],
@@ -326,6 +402,7 @@ async def _refresh_symbol(
         "status": "ok",
         "symbol": symbol,
         "provider_symbol": config["provider_symbol"],
+        "provider_endpoint": provider_base,
         "currency": config["currency"],
         "from": start.isoformat(),
         "to": target_date,
@@ -348,10 +425,11 @@ async def refresh_life360_market_data(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     results: dict[str, dict[str, Any]] = {}
-    errors: list[dict[str, str]] = []
+    required_errors: list[dict[str, str]] = []
+    control_errors: list[dict[str, str]] = []
     total_written = 0
     history_backfill = False
-    for symbol in ("360.AX", "LIF"):
+    for symbol in (LIFE360_REQUIRED_SYMBOL, *sorted(LIFE360_CONTROL_SYMBOLS)):
         try:
             result = await _refresh_symbol(
                 repository,
@@ -367,20 +445,29 @@ async def refresh_life360_market_data(
                 "error": str(exc)[:1000],
                 "error_type": type(exc).__name__,
             }
-            errors.append({"symbol": symbol, "error": str(exc)[:1000]})
+            error = {"symbol": symbol, "error": str(exc)[:1000]}
+            if symbol == LIFE360_REQUIRED_SYMBOL:
+                required_errors.append(error)
+            else:
+                control_errors.append(error)
         results[symbol] = result
         total_written += int(result.get("rows_written") or 0)
         history_backfill = history_backfill or bool(result.get("history_backfill"))
 
-    ok_count = sum(1 for item in results.values() if item.get("status") == "ok")
-    status = "ok" if ok_count == len(results) else ("partial" if ok_count else "error")
+    lif_ready = results.get(LIFE360_REQUIRED_SYMBOL, {}).get("status") == "ok"
+    control_ready = all(results.get(symbol, {}).get("status") == "ok" for symbol in LIFE360_CONTROL_SYMBOLS)
     return {
-        "status": status,
+        "status": "ok" if lif_ready else "error",
         "provider": "Yahoo Finance",
+        "provider_endpoints": list(YAHOO_CHART_BASES),
         "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
         "target_date": target_date,
         "rows_written": total_written,
         "history_backfill": history_backfill,
+        "required_series": LIFE360_REQUIRED_SYMBOL,
+        "control_series": sorted(LIFE360_CONTROL_SYMBOLS),
+        "control_status": "ok" if control_ready else "degraded",
         "series": results,
-        "errors": errors,
+        "errors": required_errors,
+        "control_errors": control_errors,
     }
