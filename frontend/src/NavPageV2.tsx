@@ -19,6 +19,8 @@ type Driver = {
   per_share_nok: number;
   amount_mnok?: number | null;
   impact_kind?: string;
+  start_per_share_nok?: number | null;
+  current_per_share_nok?: number | null;
   details?: Record<string, unknown>;
 };
 
