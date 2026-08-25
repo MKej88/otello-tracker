@@ -295,9 +295,7 @@ async def download_bmob3_yahoo_quote(
                 },
             )
             if not bool(getattr(response, "ok", False)):
-                raise RuntimeError(
-                    f"HTTP {getattr(response, 'status', 'unknown')}"
-                )
+                raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
             payload = await read_response_bytes(
                 response,
                 max_bytes=MAX_YAHOO_BYTES,
@@ -396,7 +394,7 @@ async def _persist_yahoo_quote(
         currency="BRL",
         source_code="YAHOO_FINANCE",
         source_document_id=document_id,
-        quality="SECONDARY",
+        quality="DIRECT",
         metadata=metadata,
     )
 
@@ -491,7 +489,7 @@ async def refresh_bmob3_intraday_price(
         "feed_mode": "yahoo_intraday_fallback",
         "price_id": price_id,
         "price_type": "LAST",
-        "quality": "SECONDARY",
+        "quality": "DIRECT",
         "price_brl": format(yahoo_quote.price, "f"),
         "trading_date": yahoo_quote.trading_date,
         "observed_at": yahoo_quote.observed_at,
