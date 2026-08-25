@@ -267,7 +267,7 @@ async def refresh_bmob3_intraday_price(
 
 
 async def bmob3_eod_check_done(repository: D1WriteRepository, target_date: str) -> bool:
-    row = await repository.first(
+    marker = await repository.first(
         """
         SELECT 1 AS ok
         FROM source_documents sd
@@ -277,7 +277,56 @@ async def bmob3_eod_check_done(repository: D1WriteRepository, target_date: str) 
         """,
         (f"bmob3-eod-last-check-{target_date}",),
     )
-    return row is not None
+    if marker is not None:
+        return True
+    official_close = await repository.first(
+        """
+        SELECT 1 AS ok
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='BMOB3' AND s.code='B3'
+          AND mp.trading_date=? AND mp.price_type='CLOSE'
+        LIMIT 1
+        """,
+        (target_date,),
+    )
+    return official_close is not None
+
+
+async def _official_eod_fallback(
+    repository: D1WriteRepository,
+    *,
+    target_date: str,
+    fetcher: Callable[..., Awaitable[Any]] | None,
+    quote_error: str,
+) -> dict[str, Any]:
+    from b3_full_refresh import refresh_bmob3_close
+
+    fallback = await refresh_bmob3_close(
+        repository,
+        target_date=target_date,
+        max_lookback_days=0,
+        fetcher=fetcher,
+    )
+    if fallback.get("status") == "ok" and fallback.get("trading_date") == target_date:
+        return {
+            "status": "ok",
+            "feed_mode": "official_cotahist_fallback",
+            "target_date": target_date,
+            "price_id": fallback.get("price_id"),
+            "price_type": "CLOSE",
+            "quality": "DIRECT",
+            "price_brl": fallback.get("price_brl"),
+            "source_document_id": fallback.get("source_document_id"),
+            "fallback_from": "B3_PUBLIC_WEB_QUOTE",
+            "fallback_reason": quote_error[:700],
+            "attempted_dates": fallback.get("attempted_dates"),
+        }
+    raise RuntimeError(
+        "B3 BMOB3 EOD-kilde feilet og offisiell COTAHIST var ikke tilgjengelig for "
+        f"{target_date}: quote={quote_error[:400]}; cotahist={str(fallback)[:500]}"
+    )
 
 
 async def finalize_bmob3_eod_price(
@@ -289,15 +338,26 @@ async def finalize_bmob3_eod_price(
     if await bmob3_eod_check_done(repository, target_date):
         return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
 
-    url, payload = await download_bmob3_web_quote(fetcher=fetcher)
-    quote = parse_bmob3_web_quote(payload)
+    try:
+        url, payload = await download_bmob3_web_quote(fetcher=fetcher)
+        quote = parse_bmob3_web_quote(payload)
+    except Exception as exc:
+        return await _official_eod_fallback(
+            repository,
+            target_date=target_date,
+            fetcher=fetcher,
+            quote_error=str(exc),
+        )
+
     if quote.trading_date != target_date:
-        return {
-            "status": "stale",
-            "reason": "provider_date_mismatch",
-            "target_date": target_date,
-            "provider_date": quote.trading_date,
-        }
+        return await _official_eod_fallback(
+            repository,
+            target_date=target_date,
+            fetcher=fetcher,
+            quote_error=(
+                f"provider_date_mismatch: target={target_date}, provider={quote.trading_date}"
+            ),
+        )
     price_id = await _persist_quote(
         repository,
         quote,
