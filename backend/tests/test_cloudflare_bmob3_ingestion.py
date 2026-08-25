@@ -54,7 +54,7 @@ def _payload(*, provider_time: str = "2026-08-17 14:30:00", price: str = "23.45"
 
 def _yahoo_payload(
     *,
-    timestamp: int = 1787088600,
+    timestamp: int = 1787074200,
     price: float = 24.15,
     symbol: str = "BMOB3.SA",
     currency: str = "BRL",
@@ -213,14 +213,14 @@ def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
 
     assert result["status"] == "ok"
     assert result["feed_mode"] == "yahoo_intraday_fallback"
-    assert result["quality"] == "SECONDARY"
+    assert result["quality"] == "DIRECT"
     assert result["price_brl"] == "24.15"
     assert result["trading_date"] == "2026-08-18"
     assert "HTTP 526" in result["fallback_reason"]
     assert len(calls) == 2
     assert repository.documents[0]["source_code"] == "YAHOO_FINANCE"
     assert repository.prices[0]["source_code"] == "YAHOO_FINANCE"
-    assert repository.prices[0]["quality"] == "SECONDARY"
+    assert repository.prices[0]["quality"] == "DIRECT"
     assert repository.prices[0]["metadata"]["fallback_only"] is True
     assert repository.prices[0]["metadata"]["source_policy"] == "UNOFFICIAL_SECONDARY_FALLBACK"
 
@@ -255,7 +255,7 @@ def test_bmob3_intraday_yahoo_query2_is_used_when_query1_fails() -> None:
 
 def test_bmob3_intraday_rejects_stale_yahoo_fallback() -> None:
     repository = FakeRepository()
-    stale = _yahoo_payload(timestamp=1787002200)
+    stale = _yahoo_payload(timestamp=1786987800)
 
     async def fake_fetch(url: str, **kwargs):
         if "cotacao.b3.com.br" in url:
