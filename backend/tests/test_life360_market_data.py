@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -15,6 +16,8 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 from life360_market_data import (  # noqa: E402
     LIFE360_CONTROL_SYMBOLS,
     LIFE360_REQUIRED_SYMBOL,
+    YAHOO_QUERY1_BASE,
+    YAHOO_QUERY2_BASE,
     _download_chart_with_host_fallback,
     build_yahoo_chart_url,
     parse_yahoo_chart,
@@ -64,20 +67,17 @@ class FakeResponse:
 
 def test_yahoo_chart_url_requests_bounded_daily_history() -> None:
     url = build_yahoo_chart_url("360.AX", "2019-05-10", "2019-05-31")
-    assert "/360.AX?" in url
+    assert url.startswith(f"{YAHOO_QUERY1_BASE}/360.AX?")
     assert "interval=1d" in url
     assert "events=history" in url
     assert "includeAdjustedClose=false" in url
 
 
-def test_yahoo_chart_url_can_switch_provider_host() -> None:
-    url = build_yahoo_chart_url(
-        "LIF",
-        "2026-08-20",
-        "2026-08-24",
-        base_url="https://query2.finance.yahoo.com/v8/finance/chart",
-    )
-    assert url.startswith("https://query2.finance.yahoo.com/v8/finance/chart/LIF?")
+def test_public_yahoo_url_builder_does_not_accept_an_origin() -> None:
+    assert "base_url" not in inspect.signature(build_yahoo_chart_url).parameters
+    assert "endpoint" not in inspect.signature(build_yahoo_chart_url).parameters
+    with pytest.raises(ValueError, match="Ikke tillatt Yahoo-symbol"):
+        build_yahoo_chart_url("https://evil.example", "2026-08-20", "2026-08-24")
 
 
 def test_yahoo_chart_download_falls_back_to_second_endpoint() -> None:
@@ -85,7 +85,7 @@ def test_yahoo_chart_download_falls_back_to_second_endpoint() -> None:
 
     async def fake_fetch(url: str, **kwargs):
         calls.append(url)
-        if "query1.finance.yahoo.com" in url:
+        if url.startswith(YAHOO_QUERY1_BASE):
             return FakeResponse(status=503)
         return FakeResponse(_payload())
 
@@ -98,10 +98,10 @@ def test_yahoo_chart_download_falls_back_to_second_endpoint() -> None:
         )
     )
     assert len(calls) == 2
-    assert "query1.finance.yahoo.com" in calls[0]
-    assert "query2.finance.yahoo.com" in calls[1]
-    assert "query2.finance.yahoo.com" in url
-    assert provider == "https://query2.finance.yahoo.com/v8/finance/chart"
+    assert calls[0].startswith(YAHOO_QUERY1_BASE)
+    assert calls[1].startswith(YAHOO_QUERY2_BASE)
+    assert url.startswith(YAHOO_QUERY2_BASE)
+    assert provider == YAHOO_QUERY2_BASE
     assert payload == _payload()
 
 
