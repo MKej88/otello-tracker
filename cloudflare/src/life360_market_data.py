@@ -15,11 +15,10 @@ except ImportError:
     from bounded_response import read_response_bytes
     from r2_archive import archive_bytes
 
-YAHOO_CHART_BASES = (
-    "https://query1.finance.yahoo.com/v8/finance/chart",
-    "https://query2.finance.yahoo.com/v8/finance/chart",
-)
-YAHOO_CHART_BASE = YAHOO_CHART_BASES[0]
+YAHOO_QUERY1_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+YAHOO_QUERY2_BASE = "https://query2.finance.yahoo.com/v8/finance/chart"
+YAHOO_CHART_BASES = (YAHOO_QUERY1_BASE, YAHOO_QUERY2_BASE)
+YAHOO_CHART_BASE = YAHOO_QUERY1_BASE
 SOURCE_CODE = "YAHOO_FINANCE"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 WRITE_BATCH_ROWS = 20
@@ -46,12 +45,33 @@ def _epoch(day: date) -> int:
     return int(datetime.combine(day, time.min, tzinfo=UTC).timestamp())
 
 
-def build_yahoo_chart_url(
+def _provider_symbol(provider_symbol: str) -> str:
+    """Return only one of the two literal provider symbols we support."""
+    if provider_symbol == "LIF":
+        return "LIF"
+    if provider_symbol == "360.AX":
+        return "360.AX"
+    raise ValueError(f"Ikke tillatt Yahoo-symbol: {provider_symbol!r}")
+
+
+def _endpoint_base(endpoint: int) -> str:
+    """Map an internal endpoint id to a fixed Yahoo origin.
+
+    Keeping the network origins literal at the request boundary prevents callers from
+    turning the fallback helper into a generic URL fetcher.
+    """
+    if endpoint == 1:
+        return YAHOO_QUERY1_BASE
+    if endpoint == 2:
+        return YAHOO_QUERY2_BASE
+    raise ValueError(f"Ukjent Yahoo-endepunkt: {endpoint}")
+
+
+def _build_yahoo_chart_url(
+    endpoint: int,
     provider_symbol: str,
     start_date: str,
     end_date: str,
-    *,
-    base_url: str = YAHOO_CHART_BASE,
 ) -> str:
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date) + timedelta(days=1)
@@ -64,8 +84,13 @@ def build_yahoo_chart_url(
             "includeAdjustedClose": "false",
         }
     )
-    symbol = urllib.parse.quote(provider_symbol, safe="")
-    return f"{base_url.rstrip('/')}/{symbol}?{query}"
+    symbol = urllib.parse.quote(_provider_symbol(provider_symbol), safe="")
+    return f"{_endpoint_base(endpoint)}/{symbol}?{query}"
+
+
+def build_yahoo_chart_url(provider_symbol: str, start_date: str, end_date: str) -> str:
+    """Build the canonical query1 URL; callers cannot choose an arbitrary origin."""
+    return _build_yahoo_chart_url(1, provider_symbol, start_date, end_date)
 
 
 def parse_yahoo_chart(
@@ -155,15 +180,19 @@ def parse_yahoo_chart(
     }
 
 
-async def _download(
-    url: str,
+async def _download_chart_endpoint(
+    endpoint: int,
+    provider_symbol: str,
+    start_date: str,
+    end_date: str,
     *,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
-) -> bytes:
+) -> tuple[str, bytes, str]:
     if fetcher is None:
         from workers import fetch
 
         fetcher = fetch
+    url = _build_yahoo_chart_url(endpoint, provider_symbol, start_date, end_date)
     response = await fetcher(
         url,
         headers={
@@ -173,7 +202,12 @@ async def _download(
     )
     if not bool(getattr(response, "ok", False)):
         raise RuntimeError(f"Yahoo Finance feilet med HTTP {getattr(response, 'status', 'unknown')}")
-    return await read_response_bytes(response, max_bytes=MAX_RESPONSE_BYTES, label="Yahoo Finance chart JSON")
+    payload = await read_response_bytes(
+        response,
+        max_bytes=MAX_RESPONSE_BYTES,
+        label="Yahoo Finance chart JSON",
+    )
+    return url, payload, _endpoint_base(endpoint)
 
 
 async def _download_chart_with_host_fallback(
@@ -184,17 +218,17 @@ async def _download_chart_with_host_fallback(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> tuple[str, bytes, str]:
     failures: list[str] = []
-    for base_url in YAHOO_CHART_BASES:
-        url = build_yahoo_chart_url(
-            provider_symbol,
-            start_date,
-            end_date,
-            base_url=base_url,
-        )
+    for endpoint in (1, 2):
         try:
-            payload = await _download(url, fetcher=fetcher)
-            return url, payload, base_url
+            return await _download_chart_endpoint(
+                endpoint,
+                provider_symbol,
+                start_date,
+                end_date,
+                fetcher=fetcher,
+            )
         except Exception as exc:
+            base_url = _endpoint_base(endpoint)
             failures.append(f"{urllib.parse.urlsplit(base_url).netloc}: {str(exc)[:300]}")
     raise RuntimeError("Yahoo Finance chart feilet på alle endepunkter: " + "; ".join(failures))
 
