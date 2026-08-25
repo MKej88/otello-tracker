@@ -1,7 +1,9 @@
--- Life360 market-data reference identities. Yahoo Finance is a pragmatic secondary
--- machine-readable source; Life360 IR/Nasdaq remain the human control sources.
+-- Life360 market-data reference identities. Yahoo Finance is the ordinary machine-readable
+-- source. The LSEG-backed Life360 IR row is also present in the fresh-install seed; migration
+-- 0015 remains the upgrade path for already provisioned D1 databases.
 INSERT INTO sources(code, name, source_type, base_url, is_official, is_active, terms_notes) VALUES
-    ('YAHOO_FINANCE', 'Yahoo Finance', 'API', 'https://query1.finance.yahoo.com/', 0, 1, 'Sekundær, uoffisiell maskinlesbar kurskilde. Siste gode verdi beholdes ved kildefeil; rå svar arkiveres med proveniens.')
+    ('YAHOO_FINANCE', 'Yahoo Finance', 'API', 'https://query1.finance.yahoo.com/', 0, 1, 'Sekundær, uoffisiell maskinlesbar kurskilde. Siste gode verdi beholdes ved kildefeil; rå svar arkiveres med proveniens.'),
+    ('LIFE360_IR_LSEG', 'Life360 IR / LSEG', 'IR', 'https://investors.life360.com/', 0, 1, 'Uavhengig sekundær fallback for LIF-sluttkurs. Publiseres på Life360 Investor Relations med LSEG som datakilde. Brukes bare når begge Yahoo-endepunkter feiler; maks 7 dager gammel kurs.')
 ON CONFLICT(code) DO UPDATE SET
     name=excluded.name,
     source_type=excluded.source_type,

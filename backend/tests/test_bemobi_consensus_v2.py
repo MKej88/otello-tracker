@@ -44,10 +44,11 @@ def test_forward_parser_rolls_calendar_without_hardcoded_2026_2027() -> None:
 
 def test_consensus_history_migration_seeds_data_backed_baseline(tmp_path) -> None:
     database = str(tmp_path / "consensus-v2.db")
-    init_database(database)
+    applied = init_database(database)
 
+    assert "0022" in applied
     status = database_status(database)
-    assert status["latest_migration"] == "0023"
+    assert status["latest_migration"] == applied[-1]
     assert status["table_counts"]["bemobi_consensus_events"] == 3
     assert status["table_counts"]["bemobi_forward_consensus_snapshots"] == 1
 

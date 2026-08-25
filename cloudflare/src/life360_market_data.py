@@ -55,11 +55,7 @@ def _provider_symbol(provider_symbol: str) -> str:
 
 
 def _endpoint_base(endpoint: int) -> str:
-    """Map an internal endpoint id to a fixed Yahoo origin.
-
-    Keeping the network origins literal at the request boundary prevents callers from
-    turning the fallback helper into a generic URL fetcher.
-    """
+    """Map an internal endpoint id to a fixed Yahoo origin."""
     if endpoint == 1:
         return YAHOO_QUERY1_BASE
     if endpoint == 2:
@@ -233,6 +229,12 @@ async def _download_chart_with_host_fallback(
     raise RuntimeError("Yahoo Finance chart feilet på alle endepunkter: " + "; ".join(failures))
 
 
+def _is_yahoo_transport_failure(exc: Exception) -> bool:
+    return isinstance(exc, RuntimeError) and str(exc).startswith(
+        "Yahoo Finance chart feilet på alle endepunkter:"
+    )
+
+
 async def _coverage(repository, symbol: str) -> dict[str, Any]:
     row = await repository.first(
         """
@@ -387,7 +389,8 @@ async def _refresh_symbol(
         },
     )
     rows = [
-        row for row in parsed["rows"]
+        row
+        for row in parsed["rows"]
         if str(config["listing_date"]) <= row["trading_date"] <= target_date
     ]
     written = await _write_rows(
@@ -417,6 +420,43 @@ async def _refresh_symbol(
     }
 
 
+async def _refresh_lif_with_independent_fallback(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket: Any | None,
+    fetcher: Callable[..., Awaitable[Any]] | None,
+) -> dict[str, Any]:
+    try:
+        return await _refresh_symbol(
+            repository,
+            symbol=LIFE360_REQUIRED_SYMBOL,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+    except Exception as yahoo_exc:
+        if not _is_yahoo_transport_failure(yahoo_exc):
+            raise
+        try:
+            from .life360_ir_lseg import refresh_life360_ir_lif
+        except ImportError:
+            from life360_ir_lseg import refresh_life360_ir_lif
+
+        fallback = await refresh_life360_ir_lif(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+        return {
+            **fallback,
+            "fallback_used": True,
+            "fallback_from": SOURCE_CODE,
+            "fallback_reason": str(yahoo_exc)[:1000],
+        }
+
+
 async def refresh_life360_market_data(
     repository,
     *,
@@ -429,7 +469,29 @@ async def refresh_life360_market_data(
     control_errors: list[dict[str, str]] = []
     total_written = 0
     history_backfill = False
-    for symbol in (LIFE360_REQUIRED_SYMBOL, *sorted(LIFE360_CONTROL_SYMBOLS)):
+
+    try:
+        lif_result = await _refresh_lif_with_independent_fallback(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+    except Exception as exc:
+        lif_result = {
+            "status": "error",
+            "symbol": LIFE360_REQUIRED_SYMBOL,
+            "error": str(exc)[:1000],
+            "error_type": type(exc).__name__,
+        }
+        required_errors.append(
+            {"symbol": LIFE360_REQUIRED_SYMBOL, "error": str(exc)[:1000]}
+        )
+    results[LIFE360_REQUIRED_SYMBOL] = lif_result
+    total_written += int(lif_result.get("rows_written") or 0)
+    history_backfill = history_backfill or bool(lif_result.get("history_backfill"))
+
+    for symbol in sorted(LIFE360_CONTROL_SYMBOLS):
         try:
             result = await _refresh_symbol(
                 repository,
@@ -445,22 +507,26 @@ async def refresh_life360_market_data(
                 "error": str(exc)[:1000],
                 "error_type": type(exc).__name__,
             }
-            error = {"symbol": symbol, "error": str(exc)[:1000]}
-            if symbol == LIFE360_REQUIRED_SYMBOL:
-                required_errors.append(error)
-            else:
-                control_errors.append(error)
+            control_errors.append({"symbol": symbol, "error": str(exc)[:1000]})
         results[symbol] = result
         total_written += int(result.get("rows_written") or 0)
         history_backfill = history_backfill or bool(result.get("history_backfill"))
 
     lif_ready = results.get(LIFE360_REQUIRED_SYMBOL, {}).get("status") == "ok"
-    control_ready = all(results.get(symbol, {}).get("status") == "ok" for symbol in LIFE360_CONTROL_SYMBOLS)
+    control_ready = all(
+        results.get(symbol, {}).get("status") == "ok" for symbol in LIFE360_CONTROL_SYMBOLS
+    )
+    fallback_used = bool(results.get(LIFE360_REQUIRED_SYMBOL, {}).get("fallback_used"))
     return {
         "status": "ok" if lif_ready else "error",
-        "provider": "Yahoo Finance",
+        "provider": "Life360 IR/LSEG" if fallback_used else "Yahoo Finance",
         "provider_endpoints": list(YAHOO_CHART_BASES),
-        "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
+        "source_policy": (
+            "INDEPENDENT_SECONDARY_FALLBACK"
+            if fallback_used
+            else "UNOFFICIAL_SECONDARY_LAST_GOOD"
+        ),
+        "fallback_used": fallback_used,
         "target_date": target_date,
         "rows_written": total_written,
         "history_backfill": history_backfill,

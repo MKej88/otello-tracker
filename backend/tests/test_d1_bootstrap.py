@@ -25,6 +25,8 @@ D1_BEMOBI_WEB_PROVENANCE = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web
 D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_source.sql"
 D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
 D1_LIFE360 = ROOT / "cloudflare" / "migrations" / "0013_life360_market_data.sql"
+D1_LIFE360_IR_LSEG = ROOT / "cloudflare" / "migrations" / "0015_life360_ir_lseg_source.sql"
+D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
 
@@ -53,6 +55,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_NORGES_BANK.read_text(encoding="utf-8"))
         connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
         connection.executescript(D1_LIFE360.read_text(encoding="utf-8"))
+        connection.executescript(D1_LIFE360_IR_LSEG.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -82,6 +85,38 @@ def test_historical_bootstrap_round_trip_has_exact_logical_parity(tmp_path: Path
             assert connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_verify_cli_accepts_wrangler_state_directory(tmp_path: Path) -> None:
+    source = _build_fixture(tmp_path)
+    sql_path = tmp_path / "bootstrap.sql"
+    manifest_path = tmp_path / "manifest.json"
+    write_bootstrap_package(source, sql_path, manifest_path)
+
+    state_directory = tmp_path / "wrangler" / "state" / "v3" / "d1"
+    target = state_directory / "miniflare-D1DatabaseObject" / "fixture.sqlite"
+    target.parent.mkdir(parents=True)
+    _import_into_d1_shape(sql_path.read_text(encoding="utf-8"), target)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(D1_BOOTSTRAP_TOOL),
+            "verify",
+            "--database",
+            str(state_directory),
+            "--manifest",
+            str(manifest_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    result = json.loads(completed.stdout)
+    assert result["ok"] is True
+    assert result["foreign_key_violations"] == 0
 
 
 def test_bootstrap_export_is_deterministic_for_same_snapshot(tmp_path: Path) -> None:
