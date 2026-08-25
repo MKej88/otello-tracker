@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.parse
 from dataclasses import dataclass
 from datetime import UTC, datetime, time as dt_time, timedelta
 from decimal import Decimal, InvalidOperation
@@ -20,6 +21,11 @@ MAX_QUOTE_BYTES = 256 * 1024
 INTRADAY_START = dt_time(10, 15)
 ASH_WEDNESDAY_START = dt_time(13, 15)
 EOD_FINALIZE_AFTER = dt_time(19, 15)
+YAHOO_SYMBOL = "BMOB3.SA"
+YAHOO_QUERY1_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+YAHOO_QUERY2_BASE = "https://query2.finance.yahoo.com/v8/finance/chart"
+YAHOO_CHART_BASES = (YAHOO_QUERY1_BASE, YAHOO_QUERY2_BASE)
+MAX_YAHOO_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,25 @@ class Bmob3WebQuote:
     def observed_at(self) -> str:
         effective = self.provider_datetime - timedelta(minutes=B3_PUBLIC_DELAY_MINUTES)
         return effective.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class Bmob3YahooQuote:
+    price: Decimal
+    provider_datetime: datetime
+    exchange_timezone: str
+
+    @property
+    def trading_date(self) -> str:
+        return self.provider_datetime.astimezone(B3_TZ).date().isoformat()
+
+    @property
+    def provider_at(self) -> str:
+        return self.provider_datetime.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @property
+    def observed_at(self) -> str:
+        return self.provider_at
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -116,6 +141,78 @@ def parse_bmob3_web_quote(payload: bytes | str) -> Bmob3WebQuote:
     )
 
 
+def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
+    text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
+    if len(text.encode("utf-8")) > MAX_YAHOO_BYTES:
+        raise ValueError("Yahoo BMOB3 response overstiger Worker-grensen")
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("Yahoo BMOB3 response is not an object")
+    chart = data.get("chart")
+    if not isinstance(chart, dict):
+        raise ValueError("Yahoo BMOB3 response mangler chart")
+    if chart.get("error"):
+        raise ValueError(f"Yahoo BMOB3 response inneholder feil: {chart.get('error')}")
+    results = chart.get("result")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        raise ValueError("Yahoo BMOB3 response mangler én entydig resultatserie")
+
+    result = results[0]
+    meta = result.get("meta")
+    if not isinstance(meta, dict):
+        raise ValueError("Yahoo BMOB3 response mangler metadata")
+    if str(meta.get("symbol") or "") != YAHOO_SYMBOL:
+        raise ValueError(f"Yahoo BMOB3 symbol matcher ikke {YAHOO_SYMBOL}")
+    if str(meta.get("currency") or "") != "BRL":
+        raise ValueError("Yahoo BMOB3 valuta er ikke BRL")
+
+    timezone_name = str(meta.get("exchangeTimezoneName") or "America/Sao_Paulo")
+    try:
+        ZoneInfo(timezone_name)
+    except (KeyError, ValueError):
+        timezone_name = "America/Sao_Paulo"
+
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators")
+    quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
+    closes = (
+        quote_rows[0].get("close")
+        if isinstance(quote_rows, list) and len(quote_rows) == 1 and isinstance(quote_rows[0], dict)
+        else None
+    )
+    candidates: list[tuple[int, Decimal]] = []
+    if isinstance(timestamps, list) and isinstance(closes, list) and len(timestamps) == len(closes):
+        for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
+            if raw_close is None:
+                continue
+            try:
+                timestamp = int(raw_timestamp)
+                price = Decimal(str(raw_close))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+            if price.is_finite() and Decimal("0") < price < Decimal("100000"):
+                candidates.append((timestamp, price))
+
+    if candidates:
+        timestamp, price = max(candidates, key=lambda item: item[0])
+    else:
+        regular_market_time = meta.get("regularMarketTime")
+        price = _decimal(meta.get("regularMarketPrice"))
+        if regular_market_time is None or price is None or price <= 0:
+            raise ValueError("Yahoo BMOB3 response mangler tidsstemplet intradagkurs")
+        try:
+            timestamp = int(regular_market_time)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Yahoo BMOB3 regularMarketTime er ugyldig") from exc
+
+    provider_datetime = datetime.fromtimestamp(timestamp, tz=UTC)
+    return Bmob3YahooQuote(
+        price=price,
+        provider_datetime=provider_datetime,
+        exchange_timezone=timezone_name,
+    )
+
+
 def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
     return {
         "feed": "B3_PUBLIC_WEB_QUOTE",
@@ -136,6 +233,18 @@ def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
         "official_close_upgrade": "B3 daily COTAHIST CLOSE outranks same-day LAST when available",
         "payload_policy": "BOUNDED_JSON_RESPONSE",
     }
+
+
+def _yahoo_url(base: str) -> str:
+    query = urllib.parse.urlencode(
+        {
+            "interval": "1m",
+            "range": "1d",
+            "includePrePost": "false",
+            "events": "div,splits",
+        }
+    )
+    return f"{base}/{urllib.parse.quote(YAHOO_SYMBOL, safe='')}?{query}"
 
 
 async def download_bmob3_web_quote(
@@ -164,6 +273,41 @@ async def download_bmob3_web_quote(
     if not payload.lstrip().startswith(b"{"):
         raise ValueError("B3 quote endpoint returnerte ikke JSON")
     return B3_QUOTE_URL, payload
+
+
+async def download_bmob3_yahoo_quote(
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[str, bytes, Bmob3YahooQuote, str]:
+    if fetcher is None:
+        from workers import fetch
+
+        fetcher = fetch
+    failures: list[str] = []
+    for base in YAHOO_CHART_BASES:
+        url = _yahoo_url(base)
+        try:
+            response = await fetcher(
+                url,
+                headers={
+                    "User-Agent": "OtelloTracker/1.0 (+https://otellotracker.com)",
+                    "Accept": "application/json,*/*;q=0.8",
+                },
+            )
+            if not bool(getattr(response, "ok", False)):
+                raise RuntimeError(
+                    f"HTTP {getattr(response, 'status', 'unknown')}"
+                )
+            payload = await read_response_bytes(
+                response,
+                max_bytes=MAX_YAHOO_BYTES,
+                label="Yahoo BMOB3 chart JSON",
+            )
+            quote = parse_bmob3_yahoo_quote(payload)
+            return url, payload, quote, base
+        except Exception as exc:
+            failures.append(f"{urllib.parse.urlsplit(base).netloc}: {str(exc)[:300]}")
+    raise RuntimeError("Yahoo BMOB3 intradag feilet på alle endepunkter: " + "; ".join(failures))
 
 
 async def _persist_quote(
@@ -205,6 +349,58 @@ async def _persist_quote(
     )
 
 
+async def _persist_yahoo_quote(
+    repository: D1WriteRepository,
+    quote: Bmob3YahooQuote,
+    payload: bytes,
+    *,
+    source_url: str,
+    provider_base: str,
+    fallback_reason: str,
+) -> int:
+    digest = hashlib.sha256(payload).hexdigest()
+    metadata = {
+        "feed": "YAHOO_FINANCE_CHART",
+        "feed_mode": "SECONDARY_INTRADAY_FALLBACK",
+        "provider": "Yahoo Finance",
+        "provider_symbol": YAHOO_SYMBOL,
+        "provider_endpoint": provider_base,
+        "provider_endpoints": list(YAHOO_CHART_BASES),
+        "exchange_timezone": quote.exchange_timezone,
+        "price_semantics": "SECONDARY_INTRADAY_LAST_NOT_OFFICIAL_CLOSE",
+        "market_data_effective_at": quote.observed_at,
+        "provider_timestamp_utc": quote.provider_at,
+        "source_policy": "UNOFFICIAL_SECONDARY_FALLBACK",
+        "fallback_only": True,
+        "fallback_from": B3_QUOTE_URL,
+        "fallback_reason": fallback_reason[:700],
+        "official_close_upgrade": "B3 daily COTAHIST CLOSE outranks same-day LAST when available",
+        "payload_policy": "BOUNDED_JSON_RESPONSE",
+    }
+    document_id = await repository.create_source_document(
+        source_code="YAHOO_FINANCE",
+        external_id=f"bmob3-yahoo-intraday-{digest[:20]}",
+        document_type="API_RESPONSE",
+        title=f"BMOB3 Yahoo Finance intraday fallback {quote.provider_at}",
+        url=source_url,
+        published_at=quote.provider_at,
+        content_sha256=digest,
+        metadata=metadata,
+    )
+    return await repository.upsert_market_price(
+        symbol=BMOB3_SYMBOL,
+        observed_at=quote.observed_at,
+        trading_date=quote.trading_date,
+        price_type="LAST",
+        price=format(quote.price, "f"),
+        currency="BRL",
+        source_code="YAHOO_FINANCE",
+        source_document_id=document_id,
+        quality="SECONDARY",
+        metadata=metadata,
+    )
+
+
 async def refresh_bmob3_intraday_price(
     database: Any | None = None,
     *,
@@ -232,37 +428,78 @@ async def refresh_bmob3_intraday_price(
     if current.time().replace(tzinfo=None) >= EOD_FINALIZE_AFTER:
         return {"status": "skipped", "reason": "eod_window_has_priority", "target_date": target_date}
 
-    url, payload = await download_bmob3_web_quote(fetcher=fetcher)
-    quote = parse_bmob3_web_quote(payload)
-    if quote.trading_date != target_date:
+    b3_error: str | None = None
+    try:
+        url, payload = await download_bmob3_web_quote(fetcher=fetcher)
+        quote = parse_bmob3_web_quote(payload)
+        if quote.trading_date != target_date:
+            raise RuntimeError(
+                f"B3 provider_date_mismatch: target={target_date}, provider={quote.trading_date}"
+            )
+    except Exception as exc:
+        b3_error = str(exc)
+    else:
+        price_id = await _persist_quote(
+            repository,
+            quote,
+            payload,
+            source_url=url,
+            feed_mode="DELAYED_INTRADAY",
+            external_id="bmob3-web-quote-{digest:.20}",
+            document_type="API_RESPONSE",
+            title=f"B3 public BMOB3 delayed web quote {quote.provider_at}",
+        )
         return {
-            "status": "stale",
-            "reason": "provider_date_mismatch",
-            "target_date": target_date,
-            "provider_date": quote.trading_date,
+            "status": "ok",
+            "feed_mode": "delayed_intraday",
+            "price_id": price_id,
+            "price_type": "LAST",
+            "quality": "DIRECT",
+            "price_brl": format(quote.price, "f"),
+            "trading_date": quote.trading_date,
+            "observed_at": quote.observed_at,
+            "provider_at": quote.provider_at,
+            "delay_minutes": B3_PUBLIC_DELAY_MINUTES,
+            "source_url": url,
         }
-    price_id = await _persist_quote(
+
+    try:
+        yahoo_url, yahoo_payload, yahoo_quote, provider_base = await download_bmob3_yahoo_quote(
+            fetcher=fetcher
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"B3 BMOB3 intradag feilet: {b3_error}; Yahoo fallback feilet: {str(exc)[:700]}"
+        ) from exc
+    if yahoo_quote.trading_date != target_date:
+        raise RuntimeError(
+            "B3 BMOB3 intradag feilet: "
+            f"{b3_error}; Yahoo fallback var stale: target={target_date}, "
+            f"provider={yahoo_quote.trading_date}"
+        )
+
+    price_id = await _persist_yahoo_quote(
         repository,
-        quote,
-        payload,
-        source_url=url,
-        feed_mode="DELAYED_INTRADAY",
-        external_id="bmob3-web-quote-{digest:.20}",
-        document_type="API_RESPONSE",
-        title=f"B3 public BMOB3 delayed web quote {quote.provider_at}",
+        yahoo_quote,
+        yahoo_payload,
+        source_url=yahoo_url,
+        provider_base=provider_base,
+        fallback_reason=b3_error or "ukjent B3-feil",
     )
     return {
         "status": "ok",
-        "feed_mode": "delayed_intraday",
+        "feed_mode": "yahoo_intraday_fallback",
         "price_id": price_id,
         "price_type": "LAST",
-        "quality": "DIRECT",
-        "price_brl": format(quote.price, "f"),
-        "trading_date": quote.trading_date,
-        "observed_at": quote.observed_at,
-        "provider_at": quote.provider_at,
-        "delay_minutes": B3_PUBLIC_DELAY_MINUTES,
-        "source_url": url,
+        "quality": "SECONDARY",
+        "price_brl": format(yahoo_quote.price, "f"),
+        "trading_date": yahoo_quote.trading_date,
+        "observed_at": yahoo_quote.observed_at,
+        "provider_at": yahoo_quote.provider_at,
+        "source_url": yahoo_url,
+        "provider_endpoint": provider_base,
+        "fallback_from": "B3_PUBLIC_WEB_QUOTE",
+        "fallback_reason": b3_error,
     }
 
 
