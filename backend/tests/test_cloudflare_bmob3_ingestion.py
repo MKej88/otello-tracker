@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -78,6 +79,10 @@ def _yahoo_payload(
         }
     }
     return json.dumps(data).encode("utf-8")
+
+
+def _host(url: str) -> str:
+    return urllib.parse.urlsplit(url).hostname or ""
 
 
 class FakeRepository:
@@ -175,7 +180,7 @@ def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     assert result["quality"] == "DIRECT"
     assert result["price_brl"] == "23.45"
     assert len(calls) == 1
-    assert "cotacao.b3.com.br" in calls[0]
+    assert _host(calls[0]) == "cotacao.b3.com.br"
     assert len(repository.documents) == 1
     assert len(repository.prices) == 1
     document = repository.documents[0]
@@ -197,11 +202,12 @@ def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
 
     async def fake_fetch(url: str, **kwargs):
         calls.append(url)
-        if "cotacao.b3.com.br" in url:
+        host = _host(url)
+        if host == "cotacao.b3.com.br":
             return FakeResponse(status=526)
-        if "query1.finance.yahoo.com" in url:
+        if host == "query1.finance.yahoo.com":
             return FakeResponse(yahoo_payload)
-        raise AssertionError(f"unexpected URL: {url}")
+        raise AssertionError(f"unexpected host: {host}")
 
     result = asyncio.run(
         refresh_bmob3_intraday_price(
@@ -232,13 +238,14 @@ def test_bmob3_intraday_yahoo_query2_is_used_when_query1_fails() -> None:
 
     async def fake_fetch(url: str, **kwargs):
         calls.append(url)
-        if "cotacao.b3.com.br" in url:
+        host = _host(url)
+        if host == "cotacao.b3.com.br":
             return FakeResponse(status=526)
-        if "query1.finance.yahoo.com" in url:
+        if host == "query1.finance.yahoo.com":
             return FakeResponse(status=503)
-        if "query2.finance.yahoo.com" in url:
+        if host == "query2.finance.yahoo.com":
             return FakeResponse(yahoo_payload)
-        raise AssertionError(f"unexpected URL: {url}")
+        raise AssertionError(f"unexpected host: {host}")
 
     result = asyncio.run(
         refresh_bmob3_intraday_price(
@@ -249,7 +256,7 @@ def test_bmob3_intraday_yahoo_query2_is_used_when_query1_fails() -> None:
     )
 
     assert result["status"] == "ok"
-    assert result["provider_endpoint"].startswith("https://query2.finance.yahoo.com/")
+    assert _host(result["provider_endpoint"]) == "query2.finance.yahoo.com"
     assert len(calls) == 3
 
 
@@ -258,7 +265,7 @@ def test_bmob3_intraday_rejects_stale_yahoo_fallback() -> None:
     stale = _yahoo_payload(timestamp=1786987800)
 
     async def fake_fetch(url: str, **kwargs):
-        if "cotacao.b3.com.br" in url:
+        if _host(url) == "cotacao.b3.com.br":
             return FakeResponse(status=526)
         return FakeResponse(stale)
 
