@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0023"
+LATEST_SQLITE_MIGRATION = "0024"
 
 REFERENCE_TABLES = (
     "sources",
@@ -414,24 +414,21 @@ def compare_manifest(expected: dict[str, Any], actual: dict[str, Any]) -> dict[s
         "logical_hash_match": logical_hash_match,
         "key_metrics_match": key_metrics_match,
         "table_mismatches": mismatches,
-        "expected_logical_sha256": expected.get("logical_sha256"),
-        "actual_logical_sha256": actual.get("logical_sha256"),
     }
 
 
 def verify_database(database_path: str | Path, expected_manifest: dict[str, Any]) -> dict[str, Any]:
-    resolved = resolve_d1_local_database(database_path)
-    connection = _open_database(resolved, read_only=True)
+    path = Path(database_path)
+    connection = _open_database(path, read_only=True)
     try:
         foreign_key_rows = [tuple(row) for row in connection.execute("PRAGMA foreign_key_check")]
         actual = build_manifest(connection)
-        comparison = compare_manifest(expected_manifest, actual)
-        comparison["database"] = str(resolved)
-        comparison["foreign_key_violations"] = len(foreign_key_rows)
-        comparison["ok"] = comparison["ok"] and not foreign_key_rows
-        return comparison
     finally:
         connection.close()
+    comparison = compare_manifest(expected_manifest, actual)
+    comparison["foreign_key_violations"] = len(foreign_key_rows)
+    comparison["ok"] = comparison["ok"] and not foreign_key_rows
+    return comparison
 
 
 def load_manifest_file(path: str | Path) -> dict[str, Any]:
