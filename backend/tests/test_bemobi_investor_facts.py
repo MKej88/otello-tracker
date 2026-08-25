@@ -15,7 +15,7 @@ def test_bemobi_investor_facts_are_seeded_with_provenance(tmp_path: Path) -> Non
     database = str(tmp_path / "bemobi-facts.db")
     applied = init_database(database)
 
-    assert applied[-1] == "0023"
+    assert "0019" in applied
 
     with get_connection(database) as connection:
         rows = connection.execute(
