@@ -82,11 +82,15 @@ def test_renderer_uses_custom_domain_without_workers_dev() -> None:
         d1_database_name="otello-nav",
         r2_bucket_name="otello-source-archive",
         custom_domain="NAV.Example.com",
+        status_email_to="owner@example.net",
+        status_email_from="status@example.com",
+        public_url="https://nav.example.com/",
     )
     assert config["workers_dev"] is False
     assert config["routes"] == [
         {"pattern": "nav.example.com", "custom_domain": True}
     ]
+    assert config["send_email"][0]["name"] == "STATUS_EMAIL"
 
 
 def test_deploy_workflow_is_guarded_and_runs_remote_acceptance() -> None:

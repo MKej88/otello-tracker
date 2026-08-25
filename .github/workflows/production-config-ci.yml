@@ -45,6 +45,9 @@ jobs:
           CLOUDFLARE_D1_DATABASE_NAME: otello-nav
           CLOUDFLARE_R2_BUCKET_NAME: otello-source-archive
           CLOUDFLARE_CUSTOM_DOMAIN: nav.example.com
+          CLOUDFLARE_PUBLIC_URL: https://nav.example.com
+          CLOUDFLARE_STATUS_EMAIL_TO: owner@example.net
+          CLOUDFLARE_STATUS_EMAIL_FROM: status@nav.example.com
         run: python cloudflare/tools/render_production_config.py
 
       - name: Validate rendered fields and cost guards
@@ -75,6 +78,16 @@ jobs:
           assert config['triggers']['crons'] == ['*/30 * * * *']
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+          assert config['send_email'] == [
+              {
+                  'name': 'STATUS_EMAIL',
+                  'destination_address': 'owner@example.net',
+                  'allowed_sender_addresses': ['status@nav.example.com'],
+              }
+          ]
+          assert config['vars']['STATUS_EMAIL_TO'] == 'owner@example.net'
+          assert config['vars']['STATUS_EMAIL_FROM'] == 'status@nav.example.com'
+          assert config['vars']['PUBLIC_URL'] == 'https://nav.example.com'
           PY
 
       - name: Dry-run production Python Worker bundle

@@ -96,6 +96,10 @@ def render_config(
     email_from = (status_email_from or "").strip()
     if bool(email_to) != bool(email_from):
         raise ValueError("status_email_to og status_email_from må settes sammen")
+    if domain and not email_to:
+        raise ValueError(
+            "status_email_to og status_email_from er påkrevd for produksjon med custom_domain"
+        )
 
     if email_to:
         config["send_email"] = [

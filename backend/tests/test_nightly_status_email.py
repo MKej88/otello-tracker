@@ -31,6 +31,9 @@ def _render(**overrides) -> dict:
         "d1_database_name": "otello-nav",
         "r2_bucket_name": "otello-source-archive",
         "custom_domain": "nav.example.com",
+        "status_email_to": "owner@example.net",
+        "status_email_from": "status@nav.example.com",
+        "public_url": "https://nav.example.com/",
     }
     values.update(overrides)
     return render_config(_base_config(), **values)
@@ -92,25 +95,32 @@ def test_failure_email_surfaces_critical_error_without_nav() -> None:
     assert "Investor-NAV: ikke klar" in message["text"]
 
 
-def test_production_email_binding_is_optional_and_restricted() -> None:
-    without_email = _render()
-    assert "send_email" not in without_email
+def test_production_email_binding_is_required_and_restricted() -> None:
+    with pytest.raises(ValueError, match="påkrevd for produksjon"):
+        _render(status_email_to=None, status_email_from=None)
 
-    with_email = _render(
-        status_email_to="owner@example.net",
-        status_email_from="otello@example.com",
-        public_url="https://nav.example.com/",
-    )
-    assert with_email["send_email"] == [
+    config = _render()
+    assert config["send_email"] == [
         {
             "name": "STATUS_EMAIL",
             "destination_address": "owner@example.net",
-            "allowed_sender_addresses": ["otello@example.com"],
+            "allowed_sender_addresses": ["status@nav.example.com"],
         }
     ]
-    assert with_email["vars"]["STATUS_EMAIL_TO"] == "owner@example.net"
-    assert with_email["vars"]["STATUS_EMAIL_FROM"] == "otello@example.com"
-    assert with_email["vars"]["PUBLIC_URL"] == "https://nav.example.com"
+    assert config["vars"]["STATUS_EMAIL_TO"] == "owner@example.net"
+    assert config["vars"]["STATUS_EMAIL_FROM"] == "status@nav.example.com"
+    assert config["vars"]["PUBLIC_URL"] == "https://nav.example.com"
+
+
+def test_worker_dev_config_can_still_omit_status_email() -> None:
+    config = _render(
+        custom_domain=None,
+        status_email_to=None,
+        status_email_from=None,
+        public_url=None,
+    )
+    assert config["workers_dev"] is True
+    assert "send_email" not in config
 
 
 def test_production_worker_keeps_bounded_headroom_for_historical_rebuild() -> None:
@@ -121,10 +131,10 @@ def test_production_worker_keeps_bounded_headroom_for_historical_rebuild() -> No
 
 def test_production_email_configuration_requires_sender_and_recipient_together() -> None:
     with pytest.raises(ValueError, match="må settes sammen"):
-        _render(status_email_to="owner@example.net")
+        _render(status_email_to="owner@example.net", status_email_from=None)
 
     with pytest.raises(ValueError, match="må settes sammen"):
-        _render(status_email_from="otello@example.com")
+        _render(status_email_to=None, status_email_from="status@nav.example.com")
 
 
 def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch) -> None:
