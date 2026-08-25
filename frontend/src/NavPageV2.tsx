@@ -218,7 +218,7 @@ export default function NavPageV2() {
               <div><span>Nettoendring</span><strong className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
             </div>
             <div className="compositionTable driverNetTable">
-              <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>NAV/aksje-effekt</span></div>
+              <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>Nettoeffekt NAV/aksje</span></div>
               {(change.drivers ?? []).map((driver) => (
                 <div className="compositionRow" key={driver.key}>
                   <strong>{driver.label}</strong>
