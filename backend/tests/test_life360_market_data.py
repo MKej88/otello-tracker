@@ -13,6 +13,8 @@ CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
+import life360_ir_lseg  # noqa: E402
+import life360_market_data  # noqa: E402
 from life360_market_data import (  # noqa: E402
     LIFE360_CONTROL_SYMBOLS,
     LIFE360_REQUIRED_SYMBOL,
@@ -21,6 +23,7 @@ from life360_market_data import (  # noqa: E402
     _download_chart_with_host_fallback,
     build_yahoo_chart_url,
     parse_yahoo_chart,
+    refresh_life360_market_data,
 )
 
 
@@ -108,6 +111,72 @@ def test_yahoo_chart_download_falls_back_to_second_endpoint() -> None:
 def test_lif_is_required_while_asx_is_control_series() -> None:
     assert LIFE360_REQUIRED_SYMBOL == "LIF"
     assert LIFE360_CONTROL_SYMBOLS == {"360.AX"}
+
+
+def test_required_lif_uses_independent_ir_fallback_when_both_yahoo_hosts_fail(monkeypatch) -> None:
+    async def fake_refresh_symbol(repository, *, symbol, target_date, archive_bucket, fetcher):
+        if symbol == "LIF":
+            raise RuntimeError(
+                "Yahoo Finance chart feilet på alle endepunkter: query1: HTTP 503; query2: HTTP 503"
+            )
+        raise RuntimeError("ASX control unavailable")
+
+    async def fake_ir_fallback(repository, *, target_date, archive_bucket=None, fetcher=None):
+        return {
+            "status": "ok",
+            "symbol": "LIF",
+            "source_code": "LIFE360_IR_LSEG",
+            "provider": "LSEG via Life360 Investor Relations",
+            "price_date": target_date,
+            "price": "45.25",
+            "rows_written": 1,
+            "fallback_only": True,
+            "history_backfill": False,
+            "history_complete": False,
+        }
+
+    monkeypatch.setattr(life360_market_data, "_refresh_symbol", fake_refresh_symbol)
+    monkeypatch.setattr(life360_ir_lseg, "refresh_life360_ir_lif", fake_ir_fallback)
+
+    result = asyncio.run(
+        refresh_life360_market_data(
+            object(),
+            target_date="2026-08-25",
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["fallback_used"] is True
+    assert result["provider"] == "Life360 IR/LSEG"
+    assert result["rows_written"] == 1
+    assert result["series"]["LIF"]["fallback_from"] == "YAHOO_FINANCE"
+    assert result["series"]["LIF"]["source_code"] == "LIFE360_IR_LSEG"
+    assert result["control_status"] == "degraded"
+    assert result["control_errors"][0]["symbol"] == "360.AX"
+    assert result["errors"] == []
+
+
+def test_ir_fallback_does_not_hide_non_transport_errors(monkeypatch) -> None:
+    fallback_called = False
+
+    async def fake_refresh_symbol(repository, *, symbol, target_date, archive_bucket, fetcher):
+        if symbol == "LIF":
+            raise RuntimeError("D1 write failed")
+        return {"status": "ok", "symbol": symbol, "rows_written": 0}
+
+    async def fake_ir_fallback(repository, *, target_date, archive_bucket=None, fetcher=None):
+        nonlocal fallback_called
+        fallback_called = True
+        return {"status": "ok"}
+
+    monkeypatch.setattr(life360_market_data, "_refresh_symbol", fake_refresh_symbol)
+    monkeypatch.setattr(life360_ir_lseg, "refresh_life360_ir_lif", fake_ir_fallback)
+
+    result = asyncio.run(refresh_life360_market_data(object(), target_date="2026-08-25"))
+
+    assert result["status"] == "error"
+    assert fallback_called is False
+    assert result["errors"][0]["symbol"] == "LIF"
 
 
 def test_parser_accepts_lif_and_skips_null_close() -> None:
