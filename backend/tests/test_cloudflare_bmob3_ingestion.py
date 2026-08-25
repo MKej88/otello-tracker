@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
@@ -19,6 +22,7 @@ from bmob3_ingestion import (  # noqa: E402
     download_bmob3_web_quote,
     finalize_bmob3_eod_price,
     parse_bmob3_web_quote,
+    parse_bmob3_yahoo_quote,
     refresh_bmob3_intraday_price,
 )
 
@@ -47,6 +51,38 @@ def _payload(*, provider_time: str = "2026-08-17 14:30:00", price: str = "23.45"
         ],
     }
     return json.dumps(data).encode("utf-8")
+
+
+def _yahoo_payload(
+    *,
+    timestamp: int = 1787074200,
+    price: float = 24.15,
+    symbol: str = "BMOB3.SA",
+    currency: str = "BRL",
+) -> bytes:
+    data = {
+        "chart": {
+            "result": [
+                {
+                    "meta": {
+                        "symbol": symbol,
+                        "currency": currency,
+                        "exchangeTimezoneName": "America/Sao_Paulo",
+                        "regularMarketPrice": price,
+                        "regularMarketTime": timestamp,
+                    },
+                    "timestamp": [timestamp - 60, timestamp],
+                    "indicators": {"quote": [{"close": [price - 0.05, price]}]},
+                }
+            ],
+            "error": None,
+        }
+    }
+    return json.dumps(data).encode("utf-8")
+
+
+def _host(url: str) -> str:
+    return urllib.parse.urlsplit(url).hostname or ""
 
 
 class FakeRepository:
@@ -94,6 +130,19 @@ def test_bmob3_parser_preserves_15_minute_effective_timestamp() -> None:
     assert quote.total_trades == 4321
 
 
+def test_yahoo_parser_requires_bmob3_brl_and_uses_latest_timestamped_close() -> None:
+    quote = parse_bmob3_yahoo_quote(_yahoo_payload())
+
+    assert str(quote.price) == "24.15"
+    assert quote.trading_date == "2026-08-18"
+    assert quote.observed_at == "2026-08-18T17:30:00Z"
+
+    with pytest.raises(ValueError, match="symbol"):
+        parse_bmob3_yahoo_quote(_yahoo_payload(symbol="WRONG.SA"))
+    with pytest.raises(ValueError, match="valuta"):
+        parse_bmob3_yahoo_quote(_yahoo_payload(currency="USD"))
+
+
 def test_worker_fetch_does_not_send_forbidden_connection_header() -> None:
     captured: dict = {}
 
@@ -112,8 +161,10 @@ def test_worker_fetch_does_not_send_forbidden_connection_header() -> None:
 def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     payload = _payload()
     repository = FakeRepository()
+    calls: list[str] = []
 
     async def fake_fetch(url: str, **kwargs):
+        calls.append(url)
         return FakeResponse(payload)
 
     result = asyncio.run(
@@ -128,6 +179,8 @@ def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     assert result["price_type"] == "LAST"
     assert result["quality"] == "DIRECT"
     assert result["price_brl"] == "23.45"
+    assert len(calls) == 1
+    assert _host(calls[0]) == "cotacao.b3.com.br"
     assert len(repository.documents) == 1
     assert len(repository.prices) == 1
     document = repository.documents[0]
@@ -140,6 +193,92 @@ def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     assert price["quality"] == "DIRECT"
     assert price["metadata"]["public_delay_minutes"] == 15
     assert price["metadata"]["payload_policy"] == "BOUNDED_JSON_RESPONSE"
+
+
+def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
+    repository = FakeRepository()
+    yahoo_payload = _yahoo_payload()
+    calls: list[str] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        calls.append(url)
+        host = _host(url)
+        if host == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        if host == "query1.finance.yahoo.com":
+            return FakeResponse(yahoo_payload)
+        raise AssertionError(f"unexpected host: {host}")
+
+    result = asyncio.run(
+        refresh_bmob3_intraday_price(
+            repository=repository,
+            now=datetime(2026, 8, 18, 14, 45, tzinfo=B3_TZ),
+            fetcher=fake_fetch,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["feed_mode"] == "yahoo_intraday_fallback"
+    assert result["quality"] == "DIRECT"
+    assert result["price_brl"] == "24.15"
+    assert result["trading_date"] == "2026-08-18"
+    assert "HTTP 526" in result["fallback_reason"]
+    assert len(calls) == 2
+    assert repository.documents[0]["source_code"] == "YAHOO_FINANCE"
+    assert repository.prices[0]["source_code"] == "YAHOO_FINANCE"
+    assert repository.prices[0]["quality"] == "DIRECT"
+    assert repository.prices[0]["metadata"]["fallback_only"] is True
+    assert repository.prices[0]["metadata"]["source_policy"] == "UNOFFICIAL_SECONDARY_FALLBACK"
+
+
+def test_bmob3_intraday_yahoo_query2_is_used_when_query1_fails() -> None:
+    repository = FakeRepository()
+    yahoo_payload = _yahoo_payload()
+    calls: list[str] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        calls.append(url)
+        host = _host(url)
+        if host == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        if host == "query1.finance.yahoo.com":
+            return FakeResponse(status=503)
+        if host == "query2.finance.yahoo.com":
+            return FakeResponse(yahoo_payload)
+        raise AssertionError(f"unexpected host: {host}")
+
+    result = asyncio.run(
+        refresh_bmob3_intraday_price(
+            repository=repository,
+            now=datetime(2026, 8, 18, 14, 45, tzinfo=B3_TZ),
+            fetcher=fake_fetch,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert _host(result["provider_endpoint"]) == "query2.finance.yahoo.com"
+    assert len(calls) == 3
+
+
+def test_bmob3_intraday_rejects_stale_yahoo_fallback() -> None:
+    repository = FakeRepository()
+    stale = _yahoo_payload(timestamp=1786987800)
+
+    async def fake_fetch(url: str, **kwargs):
+        if _host(url) == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        return FakeResponse(stale)
+
+    with pytest.raises(RuntimeError, match="Yahoo fallback var stale"):
+        asyncio.run(
+            refresh_bmob3_intraday_price(
+                repository=repository,
+                now=datetime(2026, 8, 18, 14, 45, tzinfo=B3_TZ),
+                fetcher=fake_fetch,
+            )
+        )
+    assert not repository.documents
+    assert not repository.prices
 
 
 def test_bmob3_eod_is_idempotent_and_not_mislabeled_as_official_close() -> None:
