@@ -12,8 +12,10 @@ CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
+import b3_full_refresh  # noqa: E402
 from bmob3_ingestion import (  # noqa: E402
     B3_TZ,
+    bmob3_eod_check_done,
     download_bmob3_web_quote,
     finalize_bmob3_eod_price,
     parse_bmob3_web_quote,
@@ -48,14 +50,17 @@ def _payload(*, provider_time: str = "2026-08-17 14:30:00", price: str = "23.45"
 
 
 class FakeRepository:
-    def __init__(self, *, eod_done: bool = False) -> None:
+    def __init__(self, *, eod_done: bool = False, official_close_done: bool = False) -> None:
         self.eod_done = eod_done
+        self.official_close_done = official_close_done
         self.documents: list[dict] = []
         self.prices: list[dict] = []
 
     async def first(self, sql: str, parameters=()):
         if "bmob3-eod-last-check" in str(parameters):
             return {"ok": 1} if self.eod_done else None
+        if "mp.price_type='CLOSE'" in sql and self.official_close_done:
+            return {"ok": 1}
         return None
 
     async def create_source_document(self, **kwargs):
@@ -68,10 +73,10 @@ class FakeRepository:
 
 
 class FakeResponse:
-    def __init__(self, payload: bytes) -> None:
+    def __init__(self, payload: bytes = b"", *, status: int = 200) -> None:
         self.payload = payload
-        self.ok = True
-        self.status = 200
+        self.ok = 200 <= status < 300
+        self.status = status
         self.headers = {"content-length": str(len(payload))}
 
     async def text(self):
@@ -174,6 +179,55 @@ def test_bmob3_eod_is_idempotent_and_not_mislabeled_as_official_close() -> None:
     }
     assert not already_done.documents
     assert not already_done.prices
+
+
+def test_official_b3_close_also_counts_as_eod_finalized() -> None:
+    repository = FakeRepository(official_close_done=True)
+    assert asyncio.run(bmob3_eod_check_done(repository, "2026-08-17")) is True
+
+
+def test_eod_quote_http_failure_falls_back_to_exact_official_cotahist(monkeypatch) -> None:
+    repository = FakeRepository()
+    calls: list[dict] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        return FakeResponse(status=526)
+
+    async def fake_official_close(repository_arg, *, target_date, max_lookback_days, fetcher=None, **kwargs):
+        calls.append(
+            {
+                "repository": repository_arg,
+                "target_date": target_date,
+                "max_lookback_days": max_lookback_days,
+                "fetcher": fetcher,
+            }
+        )
+        return {
+            "status": "ok",
+            "trading_date": target_date,
+            "price_brl": "23.70",
+            "price_id": 701,
+            "source_document_id": 702,
+            "attempted_dates": [target_date],
+        }
+
+    monkeypatch.setattr(b3_full_refresh, "refresh_bmob3_close", fake_official_close)
+    result = asyncio.run(
+        finalize_bmob3_eod_price(
+            repository,
+            target_date="2026-08-17",
+            fetcher=fake_fetch,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["feed_mode"] == "official_cotahist_fallback"
+    assert result["price_type"] == "CLOSE"
+    assert result["price_brl"] == "23.70"
+    assert "HTTP 526" in result["fallback_reason"]
+    assert len(calls) == 1
+    assert calls[0]["target_date"] == "2026-08-17"
+    assert calls[0]["max_lookback_days"] == 0
 
 
 def test_bmob3_intraday_skips_outside_market_window_without_network() -> None:
