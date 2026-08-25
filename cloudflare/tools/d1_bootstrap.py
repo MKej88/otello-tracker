@@ -16,6 +16,7 @@ if str(BACKEND) not in sys.path:
 
 from app.db.d1_bootstrap_package import (  # noqa: E402
     load_manifest_file,
+    resolve_d1_local_database,
     verify_database,
     write_bootstrap_package,
 )
@@ -73,7 +74,8 @@ def _export(args: argparse.Namespace) -> int:
 
 def _verify(args: argparse.Namespace) -> int:
     expected = load_manifest_file(args.manifest)
-    result = verify_database(args.database, expected)
+    database = resolve_d1_local_database(args.database)
+    result = verify_database(database, expected)
     print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
     return 0 if result["ok"] else 1
 
