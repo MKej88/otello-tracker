@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
