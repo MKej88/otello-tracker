@@ -17,8 +17,9 @@ type Driver = {
   key: string;
   label: string;
   per_share_nok: number;
-  start_per_share_nok: number;
-  current_per_share_nok: number;
+  amount_mnok?: number | null;
+  impact_kind?: string;
+  details?: Record<string, unknown>;
 };
 
 type EstimatedHistory = {
@@ -43,6 +44,7 @@ type EstimatedHistory = {
     change_per_share_nok?: number;
     drivers?: Driver[];
     reconciliation_residual_nok?: number;
+    attribution_method?: string;
   };
 };
 
@@ -63,6 +65,52 @@ function dateLabel(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.slice(0, 10).split("-");
   return year && month && day ? `${day}.${month}.${year}` : input;
+}
+
+function detailNumber(driver: Driver, key: string) {
+  const raw = driver.details?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function driverMovement(driver: Driver) {
+  switch (driver.key) {
+    case "bemobi_price":
+      return `R$ ${value(detailNumber(driver, "start_price_brl"))} → R$ ${value(detailNumber(driver, "current_price_brl"))}`;
+    case "bemobi_fx":
+      return `BRL/NOK ${value(detailNumber(driver, "start_brl_nok"), 4)} → ${value(detailNumber(driver, "current_brl_nok"), 4)}`;
+    case "bemobi_receivable":
+      return `${value(detailNumber(driver, "start_mnok"), 1)} → ${value(detailNumber(driver, "current_mnok"), 1)} mill. kr til gode`;
+    case "bemobi_paid": {
+      const gross = detailNumber(driver, "gross_mnok");
+      const withholding = detailNumber(driver, "withholding_mnok");
+      const net = detailNumber(driver, "net_mnok");
+      if (gross != null && withholding != null) {
+        return `Netto ${signed(net, 1)} mill. kr (brutto ${signed(gross, 1)}, skatt ${signed(withholding, 1)})`;
+      }
+      return `Netto ${signed(net, 1)} mill. kr mottatt`;
+    }
+    case "buyback_cash":
+      return `${signed(detailNumber(driver, "cash_mnok"), 1)} mill. kr cash`;
+    case "buyback_shares": {
+      const start = detailNumber(driver, "start_shares");
+      const current = detailNumber(driver, "current_shares");
+      const reduced = detailNumber(driver, "shares_reduced");
+      return `${value(start == null ? null : start / 1_000_000, 2)} → ${value(current == null ? null : current / 1_000_000, 2)} mill. aksjer (${value(reduced, 0)} færre)`;
+    }
+    case "other_cash":
+    case "other_ona":
+    case "life360":
+    case "options": {
+      const start = detailNumber(driver, "start_amount_mnok");
+      const current = detailNumber(driver, "current_amount_mnok");
+      if (start != null && current != null) return `${value(start, 1)} → ${value(current, 1)} mill. kr`;
+      return `${signed(driver.amount_mnok, 1)} mill. kr`;
+    }
+    case "model_residual":
+      return "Avstemming mellom underkomponenter og total NAV";
+    default:
+      return driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`;
+  }
 }
 
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
@@ -170,23 +218,23 @@ export default function NavPageV2() {
               <div><span>Nettoendring</span><strong className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
             </div>
             <div className="compositionTable driverNetTable">
-              <div className="compositionHead"><span>Komponent</span><span>Fra</span><span>Til</span><span>Nettoeffekt</span></div>
+              <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>NAV/aksje-effekt</span></div>
               {(change.drivers ?? []).map((driver) => (
                 <div className="compositionRow" key={driver.key}>
                   <strong>{driver.label}</strong>
-                  <span>{value(driver.start_per_share_nok)} kr/aksje</span>
-                  <span>{value(driver.current_per_share_nok)} kr/aksje</span>
+                  <span>{driverMovement(driver)}</span>
+                  <span className={(driver.amount_mnok ?? 0) >= 0 ? "positive" : "negative"}>{driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`}</span>
                   <span className={driver.per_share_nok >= 0 ? "positive" : "negative"}>{signed(driver.per_share_nok)} kr/aksje</span>
                 </div>
               ))}
               <div className="compositionTotal">
                 <strong>Estimert NAV</strong>
-                <span>{value(change.start_nav_per_share)} kr/aksje</span>
-                <span>{value(change.current_nav_per_share)} kr/aksje</span>
+                <span>{dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}</span>
+                <span>–</span>
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Nettoeffekt er endringen i hver av de samme NAV-komponentene som vises over: Bemobi, estimert kontantbeholdning, øvrige nettoeiendeler, Life360 og opsjoner. Effekten per aksje er komponentverdien per aksje ved periodens slutt minus verdien ved periodens start, og inkluderer dermed også effekten av endret antall utestående aksjer fra tilbakekjøp.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/JCP og faktisk utbetalt utbytte/JCP. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i Estimert NAV.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske Estimert NAV-observasjoner for valgt periode.</p>
