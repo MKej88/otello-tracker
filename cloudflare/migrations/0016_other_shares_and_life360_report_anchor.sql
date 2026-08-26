@@ -12,9 +12,12 @@ SET other_shares_investment_reported = CASE as_of_date
 END
 WHERE as_of_date IN ('2025-06-30', '2025-12-31', '2026-06-30');
 
--- Ensure the 1H26 Life360 fair-value anchor is available even if Yahoo's historical
--- backfill was unavailable when the report was first applied. The close is the
--- 2026-06-30 LIF closing price from Life360 Investor Relations / LSEG.
+-- Existing populated production D1 needs the 1H26 Life360 report-date close even if
+-- the historical Yahoo/LSEG backfill was unavailable when the report was ingested.
+-- A fresh D1 that is about to receive the deterministic historical bootstrap must NOT
+-- seed this DATA_TABLE row here: the bootstrap carries the canonical source_document
+-- and market_price IDs from SQLite. Guarding on existing NAV data cleanly distinguishes
+-- an in-place production upgrade from a fresh schema/bootstrap target.
 INSERT OR IGNORE INTO source_documents(
     source_id, external_id, document_type, title, published_at, url, metadata_json
 )
@@ -26,7 +29,8 @@ SELECT id,
        'https://investors.life360.com/stock-information/historic-price-lookup',
        '{"provider":"LSEG via Life360 Investor Relations","price_type":"historical_closing_price","source_policy":"CURATED_REPORT_ANCHOR_BACKFILL","report_anchor":"2026-06-30"}'
 FROM sources
-WHERE code='LIFE360_IR_LSEG';
+WHERE code='LIFE360_IR_LSEG'
+  AND EXISTS (SELECT 1 FROM nav_snapshots LIMIT 1);
 
 INSERT OR IGNORE INTO market_prices(
     instrument_id, observed_at, trading_date, price_type, price, currency,
