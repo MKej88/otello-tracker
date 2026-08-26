@@ -61,6 +61,53 @@ def _state_details(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _confirmed_other_cash_display(
+    rows: list[dict[str, Any]],
+    expected_nok: Decimal,
+) -> tuple[bool, str, list[dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    total_nok = Decimal("0")
+    for row in rows:
+        amount_nok = _decimal(row.get("amount_nok"))
+        amount_original = _decimal(row.get("amount_original"))
+        total_nok += amount_nok
+        events.append(
+            {
+                "movement_date": str(row.get("movement_date") or ""),
+                "movement_type": str(row.get("movement_type") or ""),
+                "amount_nok": float(amount_nok),
+                "amount_original": float(amount_original),
+                "currency": str(row.get("currency") or ""),
+                "description": str(row.get("description") or ""),
+                "external_movement_id": str(row.get("external_movement_id") or ""),
+                "source_document_id": row.get("source_document_id"),
+            }
+        )
+
+    reconciles = bool(events) and abs(total_nok - expected_nok) <= TOLERANCE_NOK
+    if not reconciles:
+        return False, "Kjente kontantbevegelser utenom tilbakekjøp", events
+    if len(events) != 1:
+        return True, f"{len(events)} bekreftede kontantbevegelser siden siste rapport", events
+
+    event = events[0]
+    event_date = str(event["movement_date"])
+    try:
+        display_date = date.fromisoformat(event_date).strftime("%d.%m.%Y")
+    except ValueError:
+        display_date = event_date
+    external_id = str(event["external_movement_id"])
+    event_name = (
+        "Patentoppgjør"
+        if external_id.startswith("otello-report-post-cash:PATENT_SALE_FINAL_INSTALMENT:")
+        else "Bekreftet kontantbevegelse"
+    )
+    amount_original = _decimal(event["amount_original"])
+    amount_text = f"{amount_original / MILLION:.2f}".replace(".", ",").rstrip("0").rstrip(",")
+    currency = str(event["currency"] or "")
+    return True, f"{event_name} {display_date}: {currency} {amount_text}m", events
+
+
 async def _report_split_state(repository, report_date: str) -> dict[str, Any]:
     """Resolve the latest source-backed investment report anchor at or before cash report date."""
     if not report_date:
@@ -211,6 +258,27 @@ async def _split_current_composition(
     reported_cash_nok = _decimal(report["reported_cash_nok"])
     other_cash_nok = modeled_cash_nok - reported_cash_nok - buyback_nok
 
+    confirmed_other_rows: list[dict[str, Any]] = []
+    if hasattr(repository, "all"):
+        confirmed_other_rows = [
+            dict(row)
+            for row in await repository.all(
+                """
+                SELECT movement_date, movement_type, amount_nok, amount_original, currency,
+                       description, external_movement_id, source_document_id
+                FROM cash_movements
+                WHERE movement_date > ? AND movement_date <= ?
+                  AND movement_type='OTHER' AND confidence='CONFIRMED'
+                ORDER BY movement_date, id
+                """,
+                (cash_report_date, current_date),
+            )
+        ]
+    other_cash_confirmed, other_cash_formula, confirmed_other_events = _confirmed_other_cash_display(
+        confirmed_other_rows,
+        other_cash_nok,
+    )
+
     old_ona_nok = _decimal(ona.get("amount_mnok")) * MILLION
     old_life360_adjustment_nok = _decimal(life360.get("amount_mnok")) * MILLION
     alliance_report_nok = _decimal(report["alliance_report_nok"])
@@ -301,11 +369,20 @@ async def _split_current_composition(
         new_components.append(
             _component(
                 "other_cash_since_report",
-                "Andre kontantbevegelser siden siste rapport",
+                (
+                    "Bekreftede øvrige kontantbevegelser"
+                    if other_cash_confirmed
+                    else "Andre kontantbevegelser siden siste rapport"
+                ),
                 other_cash_nok,
                 shares,
-                "Kjente kontantbevegelser utenom tilbakekjøp",
-                {"report_date": cash_report_date, "current_date": current_date},
+                other_cash_formula,
+                {
+                    "report_date": cash_report_date,
+                    "current_date": current_date,
+                    "confirmed": other_cash_confirmed,
+                    "confirmed_events": confirmed_other_events,
+                },
             )
         )
     if abs(currency_effect_nok) > TOLERANCE_NOK:
