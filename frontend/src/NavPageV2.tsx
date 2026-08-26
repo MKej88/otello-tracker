@@ -74,7 +74,14 @@ function detailNumber(driver: Driver, key: string) {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
+function displayAvailable(details?: Record<string, unknown>) {
+  return details?.display_available !== false;
+}
+
 function driverMovement(driver: Driver) {
+  if (driver.key === "life360" && !displayAvailable(driver.details)) {
+    return "Datagrunnlag mangler";
+  }
   switch (driver.key) {
     case "bemobi_price":
       return `R$ ${value(detailNumber(driver, "start_price_brl"))} → R$ ${value(detailNumber(driver, "current_price_brl"))}`;
@@ -188,14 +195,17 @@ export default function NavPageV2() {
         {components.length > 0 && (
           <div className="compositionTable">
             <div className="compositionHead"><span>Komponent</span><span>Verdi</span><span>Per aksje</span><span>Beregning</span></div>
-            {components.map((item) => (
-              <div className="compositionRow" key={item.key}>
-                <strong>{item.label}</strong>
-                <span>{value(item.amount_mnok, 1)} mill. kr</span>
-                <span className={item.per_share_nok < 0 ? "negative" : ""}>{value(item.per_share_nok)} kr</span>
-                <small>{item.formula}</small>
-              </div>
-            ))}
+            {components.map((item) => {
+              const available = item.key !== "life360" || displayAvailable(item.details);
+              return (
+                <div className="compositionRow" key={item.key}>
+                  <strong>{item.label}</strong>
+                  <span>{available ? `${value(item.amount_mnok, 1)} mill. kr` : "–"}</span>
+                  <span className={available && item.per_share_nok < 0 ? "negative" : ""}>{available ? `${value(item.per_share_nok)} kr` : "–"}</span>
+                  <small>{available ? item.formula : "Mangler gyldig LIF-kurs og rapportanker"}</small>
+                </div>
+              );
+            })}
             <div className="compositionTotal">
               <strong>Estimert NAV</strong>
               <span>{value(current?.nav_total_mnok, 1)} mill. kr</span>
@@ -221,14 +231,17 @@ export default function NavPageV2() {
             </div>
             <div className="compositionTable driverNetTable">
               <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>Nettoeffekt NAV/aksje</span></div>
-              {(change.drivers ?? []).map((driver) => (
-                <div className="compositionRow" key={driver.key}>
-                  <strong>{driver.label}</strong>
-                  <span>{driverMovement(driver)}</span>
-                  <span className={(driver.amount_mnok ?? 0) >= 0 ? "positive" : "negative"}>{driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`}</span>
-                  <span className={driver.per_share_nok >= 0 ? "positive" : "negative"}>{signed(driver.per_share_nok)} kr/aksje</span>
-                </div>
-              ))}
+              {(change.drivers ?? []).map((driver) => {
+                const available = driver.key !== "life360" || displayAvailable(driver.details);
+                return (
+                  <div className="compositionRow" key={driver.key}>
+                    <strong>{driver.label}</strong>
+                    <span>{driverMovement(driver)}</span>
+                    <span className={available ? ((driver.amount_mnok ?? 0) >= 0 ? "positive" : "negative") : ""}>{available ? (driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`) : "–"}</span>
+                    <span className={available ? (driver.per_share_nok >= 0 ? "positive" : "negative") : ""}>{available ? `${signed(driver.per_share_nok)} kr/aksje` : "–"}</span>
+                  </div>
+                );
+              })}
               <div className="compositionTotal">
                 <strong>Estimert NAV</strong>
                 <span>{dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}</span>

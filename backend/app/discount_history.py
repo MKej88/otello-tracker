@@ -6,7 +6,7 @@ from typing import Any
 from app.dashboard import dashboard_history
 from app.db.connection import get_connection
 from app.economic_nav_investor import economic_nav_summary
-from app.estimated_nav_history import estimated_nav_history
+from app.estimated_nav_history_display import estimated_nav_history
 
 
 def _float(value: Decimal | str | int | float | None) -> float | None:
