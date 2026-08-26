@@ -171,6 +171,31 @@ def _source_group_detail(
     if source_code == "BEMOBI_IR" and any(status == "DEGRADED" for status in components.values()):
         return "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
     if source_code == "YAHOO_FINANCE" and any(status != "OK" for status in components.values()):
+        life360 = source_results.get("life360") or {}
+        series = life360.get("series") if isinstance(life360.get("series"), dict) else {}
+        lif = series.get("LIF") if isinstance(series.get("LIF"), dict) else {}
+        detail_parts: list[str] = []
+        lif_error = str(lif.get("error") or "").strip()
+        if lif_error:
+            detail_parts.append(f"LIF: {lif_error[:780]}")
+        last_good = (
+            life360.get("last_good_lif")
+            if isinstance(life360.get("last_good_lif"), dict)
+            else {}
+        )
+        if last_good.get("price") and last_good.get("trading_date"):
+            source_label = str(last_good.get("source_code") or "ukjent kilde")
+            detail_parts.append(
+                "Siste gode LIF-kurs: "
+                f"{last_good.get('price')} {last_good.get('currency') or 'USD'} "
+                f"({last_good.get('trading_date')}, {source_label})"
+            )
+        elif last_good.get("lookup_error"):
+            detail_parts.append(
+                f"Oppslag av siste gode LIF-kurs feilet: {str(last_good.get('lookup_error'))[:180]}"
+            )
+        if detail_parts:
+            return "; ".join(detail_parts)[:1000]
         return "Life360s sekundære markedskilde var helt eller delvis utilgjengelig; siste gode LIF-kurs beholdes i investor-NAV."
 
     reports = source_results.get("otello_reports") or {}
