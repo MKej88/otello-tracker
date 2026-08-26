@@ -102,20 +102,24 @@ def _report_state() -> dict:
     return {
         "ready": True,
         "report_date": "2026-03-31",
+        "resolved_report_anchor_date": "2026-03-31",
         "source_document_id": 90,
         "cash_source_document_id": 90,
         "reported_cash_nok": Decimal("50000000"),
         "reported_cash_original": Decimal("5000000"),
         "reported_cash_currency": "USD",
         "report_usd_nok": Decimal("10"),
-        "combined_other_shares_usd": Decimal("6500000"),
+        "base_other_net_assets_ex_option_usd": Decimal("6500000"),
+        "other_shares_investment_usd": Decimal("6000000"),
         "life360_report_price_usd": Decimal("94.52522361456249"),
         "life360_report_price_date": "2026-03-31",
         "life360_report_price_source": "YAHOO_FINANCE",
         "life360_report_usd": Decimal("3500000"),
         "life360_report_nok": Decimal("35000000"),
-        "alliance_report_usd": Decimal("3000000"),
-        "alliance_report_nok": Decimal("30000000"),
+        "alliance_report_usd": Decimal("2500000"),
+        "alliance_report_nok": Decimal("25000000"),
+        "residual_report_usd": Decimal("500000"),
+        "residual_report_nok": Decimal("5000000"),
     }
 
 
@@ -129,7 +133,7 @@ async def _cash_breakdown(*_args, **_kwargs) -> dict:
     }
 
 
-def test_report_cash_alliance_and_life360_are_split_without_changing_nav(monkeypatch) -> None:
+def test_report_cash_alliance_life360_and_residual_are_split_without_changing_nav(monkeypatch) -> None:
     async def base(_repository, *, days):
         assert days == 30
         return _base_result()
@@ -165,14 +169,16 @@ def test_report_cash_alliance_and_life360_are_split_without_changing_nav(monkeyp
     assert by_key["buybacks_since_report"]["amount_mnok"] == -12.0
     assert by_key["other_cash_since_report"]["amount_mnok"] == -3.0
     assert by_key["fx_since_report"]["amount_mnok"] == 2.0
-    assert by_key["alliance_venture_spring"]["amount_mnok"] == 30.0
+    assert by_key["alliance_venture_spring"]["amount_mnok"] == 25.0
     assert by_key["alliance_venture_spring"]["details"]["shares"] == 7_411_532
     assert by_key["alliance_venture_spring"]["details"]["display_policy"] == "FIXED_AT_LAST_REPORT"
+    assert by_key["other_reported_assets_liabilities"]["amount_mnok"] == 5.0
     assert by_key["life360"]["amount_mnok"] == 50.0
     assert by_key["life360"]["per_share_nok"] == 5.0
     assert by_key["life360"]["formula"] == "37 028 LIF-aksjer × siste LIF-kurs × USD/NOK"
     assert sum(item["amount_mnok"] for item in current["composition"]) == 150.0
     assert current["composition_split_status"]["ready"] is True
+    assert current["composition_split_status"]["anchor_fallback_used"] is False
 
     drivers = {item["key"]: item for item in result["change"]["drivers"]}
     assert drivers["life360"]["amount_mnok"] == 5.0
@@ -183,7 +189,7 @@ def test_report_cash_alliance_and_life360_are_split_without_changing_nav(monkeyp
     assert drivers["other_ona"]["per_share_nok"] == -0.5
     assert drivers["life360"]["amount_mnok"] + drivers["other_ona"]["amount_mnok"] == 0.0
     assert result["life360_display_policy"] == "GROSS_MARKET_VALUE_WITH_REPORTED_VALUE_FALLBACK"
-    assert result["composition_display_policy"] == "REPORT_CASH_AND_ALLIANCE_FIXED_WITH_EXPLICIT_MOVEMENTS_AND_FX"
+    assert result["composition_display_policy"] == "REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX"
 
 
 def test_missing_current_life360_quote_uses_last_report_value_instead_of_false_zero(monkeypatch) -> None:
@@ -222,7 +228,8 @@ def test_missing_current_life360_quote_uses_last_report_value_instead_of_false_z
 
     by_key = {item["key"]: item for item in result["current"]["composition"]}
     assert "ona" not in by_key
-    assert by_key["alliance_venture_spring"]["amount_mnok"] == 30.0
+    assert by_key["alliance_venture_spring"]["amount_mnok"] == 25.0
+    assert by_key["other_reported_assets_liabilities"]["amount_mnok"] == 5.0
     assert by_key["life360"]["amount_mnok"] == 35.0
     assert by_key["life360"]["label"] == "Life360 – siste rapportverdi"
     assert by_key["life360"]["details"]["active"] is False
@@ -231,3 +238,54 @@ def test_missing_current_life360_quote_uses_last_report_value_instead_of_false_z
     assert by_key["life360"]["details"]["reason"] == "missing_current_lif_price"
     assert by_key["fx_since_report"]["amount_mnok"] == 17.0
     assert sum(item["amount_mnok"] for item in result["current"]["composition"]) == 150.0
+
+
+class _AnchorRepository:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple]] = []
+
+    async def first(self, sql, parameters=()):
+        self.calls.append((sql, tuple(parameters)))
+        if "FROM cash_anchors" in sql:
+            return {
+                "id": 1,
+                "as_of_date": "2026-06-30",
+                "amount_nok": "100000000",
+                "reported_amount": "10632000",
+                "reported_currency": "USD",
+                "fx_rate_to_nok": "9.4055681",
+                "source_document_id": 11,
+            }
+        if "FROM other_net_assets_reported_anchors" in sql:
+            assert "r.as_of_date<=?" in sql
+            return {
+                "reported_anchor_id": 2,
+                "as_of_date": "2026-06-30",
+                "base_other_net_assets_ex_option_reported": "2933000",
+                "other_shares_investment_reported": "3936000",
+                "source_document_id": 11,
+                "fx_rate_to_nok": "9.4055681",
+            }
+        if "FROM market_prices" in sql:
+            assert parameters[0] == "2026-06-30"
+            return {
+                "trading_date": "2026-06-30",
+                "price": "55.36",
+                "quality": "DIRECT",
+                "source_code": "LIFE360_IR_LSEG",
+            }
+        raise AssertionError(sql)
+
+
+def test_report_split_state_uses_latest_valid_anchor_and_1h26_other_shares() -> None:
+    repository = _AnchorRepository()
+    result = asyncio.run(
+        estimated_nav_history_display._report_split_state(repository, "2026-06-30")
+    )
+
+    assert result["ready"] is True
+    assert result["resolved_report_anchor_date"] == "2026-06-30"
+    assert result["other_shares_investment_usd"] == Decimal("3936000")
+    assert result["life360_report_usd"] == Decimal("2049870.08")
+    assert result["alliance_report_usd"] == Decimal("1886129.92")
+    assert result["residual_report_usd"] == Decimal("-1003000")

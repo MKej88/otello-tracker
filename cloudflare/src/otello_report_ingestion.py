@@ -17,7 +17,7 @@ except ImportError:
     from newsweb_client import attachment_url, fetch_attachment, fetch_message
     from r2_archive import archive_bytes, archive_json
 
-REPORT_PARSER_VERSION = "otello-financial-report-v3"
+REPORT_PARSER_VERSION = "otello-financial-report-v4"
 AUTO_REPORT_START_DATE = "2026-08-19"
 MAX_REPORT_CANDIDATES = 8
 MAX_NAV_BACKFILL_DATES = 90
@@ -280,6 +280,13 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
             r"carrying (?:amount|value).*bemobi",
         ),
     )
+    other_shares_k = _row_current_value(
+        lines,
+        (
+            r"^investments? in other shares\b",
+            r"^other shares\b",
+        ),
+    )
 
     pnl_start = _line_index(lines, r"consolidated statement of (?:profit or loss|income)")
     if pnl_start is None:
@@ -313,6 +320,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         "total_equity": total_equity_k,
         "total_liabilities": total_liabilities_k,
         "bemobi_carrying": bemobi_k,
+        "other_shares_investment": other_shares_k,
         "employee_benefits": employee_k,
         "other_operating_expenses": other_opex_k,
     }
@@ -340,6 +348,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         "cash": cash_k,
         "total_assets": total_assets_k,
         "bemobi_carrying": bemobi_k,
+        "other_shares_investment": other_shares_k,
         "total_liabilities": total_liabilities_k,
         "option_liability": option_liability_k,
     }
@@ -351,12 +360,15 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         issues.append("cash_out_of_range")
     if bemobi_k is not None and bemobi_k > Decimal("1000000"):
         issues.append("bemobi_carrying_out_of_range")
+    if other_shares_k is not None and other_shares_k > Decimal("1000000"):
+        issues.append("other_shares_investment_out_of_range")
 
     cash_usd = _thousands_to_usd(cash_k)
     total_assets_usd = _thousands_to_usd(total_assets_k)
     total_equity_usd = _thousands_to_usd(total_equity_k)
     total_liabilities_usd = _thousands_to_usd(total_liabilities_k)
     bemobi_usd = _thousands_to_usd(bemobi_k)
+    other_shares_usd = _thousands_to_usd(other_shares_k)
     option_liability_usd = _thousands_to_usd(option_liability_k)
 
     ona_usd = None
@@ -385,6 +397,7 @@ def parse_otello_financial_report(text: str) -> dict[str, Any]:
         "total_equity_usd": total_equity_usd,
         "total_liabilities_usd": total_liabilities_usd,
         "bemobi_carrying_usd": bemobi_usd,
+        "other_shares_investment_usd": other_shares_usd,
         "option_liability_usd": option_liability_usd,
         "other_net_assets_usd": ona_usd,
         "employee_benefits_usd": _thousands_to_usd(abs(employee_k)) if employee_k is not None else None,
@@ -741,6 +754,7 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
     total_assets = Decimal(str(facts["total_assets_usd"]))
     cash = Decimal(str(facts["cash_usd"]))
     bemobi = Decimal(str(facts["bemobi_carrying_usd"]))
+    other_shares = Decimal(str(facts["other_shares_investment_usd"]))
     liabilities = Decimal(str(facts["total_liabilities_usd"]))
     option = Decimal(str(facts.get("option_liability_usd") or "0"))
     ona = total_assets - cash - bemobi - liabilities
@@ -755,8 +769,9 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
             total_liabilities_reported, reported_currency, other_net_assets_reported,
             precision_status, restated, source_document_id, source_locator, notes,
             associated_receivable_reported, base_other_net_assets_reported,
-            option_liability_reported, base_other_net_assets_ex_option_reported
-        ) VALUES (?, ?, ?, ?, ?, 'USD', ?, 'ROUNDED_1K', 0, ?, ?, ?, '0', ?, ?, ?)
+            option_liability_reported, base_other_net_assets_ex_option_reported,
+            other_shares_investment_reported
+        ) VALUES (?, ?, ?, ?, ?, 'USD', ?, 'ROUNDED_1K', 0, ?, ?, ?, '0', ?, ?, ?, ?)
         ON CONFLICT(as_of_date, source_document_id) DO UPDATE SET
             total_assets_reported=excluded.total_assets_reported,
             cash_reported=excluded.cash_reported,
@@ -769,7 +784,8 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
             associated_receivable_reported=excluded.associated_receivable_reported,
             base_other_net_assets_reported=excluded.base_other_net_assets_reported,
             option_liability_reported=excluded.option_liability_reported,
-            base_other_net_assets_ex_option_reported=excluded.base_other_net_assets_ex_option_reported
+            base_other_net_assets_ex_option_reported=excluded.base_other_net_assets_ex_option_reported,
+            other_shares_investment_reported=excluded.other_shares_investment_reported
         """,
         (
             report_date,
@@ -779,11 +795,12 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
             _decimal_text(liabilities),
             _decimal_text(ona),
             report_doc_id,
-            "Consolidated statement of financial position; Bemobi investment note",
+            "Consolidated statement of financial position; Bemobi and other-shares investment note",
             f"Auto-extracted by {REPORT_PARSER_VERSION}; associated Bemobi receivable verified as none at report date.",
             _decimal_text(base),
             _decimal_text(option),
             _decimal_text(base_ex_option),
+            _decimal_text(other_shares),
         ),
     )
     reported = await repository.first(
@@ -806,6 +823,7 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
         "base_other_net_assets_usd": _decimal_text(base),
         "option_liability_usd": _decimal_text(option),
         "base_ex_option_usd": _decimal_text(base_ex_option),
+        "other_shares_investment_usd": _decimal_text(other_shares),
         "usd_nok_rate": _decimal_text(usd_nok),
         "fx_rate_id": fx["id"],
         "fx_rate_date": fx["rate_date"],
@@ -820,7 +838,8 @@ async def _upsert_ona_anchor(repository, report_doc_id: int, facts: dict[str, An
     )
     notes = (
         f"Auto-extracted by {REPORT_PARSER_VERSION}; USD/NOK {_decimal_text(usd_nok)} from {fx['rate_date']}; "
-        f"option liability USD {_decimal_text(option)}; base ex option USD {_decimal_text(base_ex_option)}."
+        f"option liability USD {_decimal_text(option)}; base ex option USD {_decimal_text(base_ex_option)}; "
+        f"other shares USD {_decimal_text(other_shares)}."
     )
     values = (
         report_date,

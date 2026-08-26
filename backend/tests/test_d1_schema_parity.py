@@ -16,6 +16,8 @@ D1_BEMOBI_WEB = ROOT / "cloudflare" / "migrations" / "0010_bemobi_web_provenance
 D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_source.sql"
 D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
 D1_LIFE360 = ROOT / "cloudflare" / "migrations" / "0013_life360_market_data.sql"
+D1_LIFE360_IR_LSEG = ROOT / "cloudflare" / "migrations" / "0015_life360_ir_lseg_source.sql"
+D1_OTHER_SHARES = ROOT / "cloudflare" / "migrations" / "0016_other_shares_and_life360_report_anchor.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -37,6 +39,26 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_BEMOBI_WEB.read_text(encoding="utf-8"))
     connection.executescript(D1_NORGES_BANK.read_text(encoding="utf-8"))
     connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
+    connection.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+    return connection
+
+
+def _connect_d1_pre_0016() -> sqlite3.Connection:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    for migration in (
+        D1_SCHEMA,
+        D1_REFERENCE_DATA,
+        D1_OPTION_LIABILITY,
+        D1_BEMOBI_FACTS,
+        D1_BEMOBI_WEB,
+        D1_NORGES_BANK,
+        D1_BEMOBI_CONSENSUS,
+        D1_LIFE360,
+        D1_LIFE360_IR_LSEG,
+    ):
+        connection.executescript(migration.read_text(encoding="utf-8"))
     return connection
 
 
@@ -155,6 +177,83 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
         d1.close()
 
 
+def test_d1_0016_does_not_seed_data_on_fresh_bootstrap_target() -> None:
+    d1 = _connect_d1_pre_0016()
+    try:
+        assert d1.execute("SELECT COUNT(*) FROM nav_snapshots").fetchone()[0] == 0
+        d1.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+        document_count = d1.execute(
+            """
+            SELECT COUNT(*)
+            FROM source_documents
+            WHERE external_id='life360-ir-lseg:lif:2026-06-30:curated-report-anchor'
+            """
+        ).fetchone()[0]
+        price_count = d1.execute(
+            """
+            SELECT COUNT(*)
+            FROM market_prices mp
+            JOIN instruments i ON i.id=mp.instrument_id
+            JOIN sources s ON s.id=mp.source_id
+            WHERE i.symbol='LIF'
+              AND s.code='LIFE360_IR_LSEG'
+              AND mp.trading_date='2026-06-30'
+              AND mp.price='55.36'
+            """
+        ).fetchone()[0]
+        assert document_count == 0
+        assert price_count == 0
+    finally:
+        d1.close()
+
+
+def test_d1_0016_backfills_existing_production_database() -> None:
+    d1 = _connect_d1_pre_0016()
+    try:
+        d1.execute(
+            """
+            INSERT INTO nav_snapshots(
+                as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
+                cash_estimate_nok, other_net_assets_nok, shares_outstanding,
+                calculation_version, inputs_hash, status, nav_scope
+            ) VALUES (
+                '2026-06-30T23:59:59Z', '1000000', '1.00', '800000',
+                '150000', '50000', 1000000,
+                'migration-0016-regression', 'migration-0016-regression', 'OK', 'FULL'
+            )
+            """
+        )
+        d1.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+        document_count = d1.execute(
+            """
+            SELECT COUNT(*)
+            FROM source_documents
+            WHERE external_id='life360-ir-lseg:lif:2026-06-30:curated-report-anchor'
+            """
+        ).fetchone()[0]
+        price = d1.execute(
+            """
+            SELECT mp.price, mp.currency, mp.quality, s.code AS source_code
+            FROM market_prices mp
+            JOIN instruments i ON i.id=mp.instrument_id
+            JOIN sources s ON s.id=mp.source_id
+            WHERE i.symbol='LIF'
+              AND s.code='LIFE360_IR_LSEG'
+              AND mp.trading_date='2026-06-30'
+            ORDER BY mp.id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        assert document_count == 1
+        assert price is not None
+        assert price["price"] == "55.36"
+        assert price["currency"] == "USD"
+        assert price["quality"] == "DIRECT"
+        assert price["source_code"] == "LIFE360_IR_LSEG"
+    finally:
+        d1.close()
+
+
 def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
     combined = "\n".join(
         path.read_text(encoding="utf-8")
@@ -167,6 +266,8 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_NORGES_BANK,
             D1_BEMOBI_CONSENSUS,
             D1_LIFE360,
+            D1_LIFE360_IR_LSEG,
+            D1_OTHER_SHARES,
         )
     ).upper()
 
