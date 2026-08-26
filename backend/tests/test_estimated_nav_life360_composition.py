@@ -29,7 +29,18 @@ def _base_result() -> dict:
             "reconciliation_residual_mnok": 0.0,
             "composition": [
                 {"key": "bemobi", "label": "Bemobi", "amount_mnok": 40.0, "per_share_nok": 4.0},
-                {"key": "cash", "label": "Kontanter", "amount_mnok": 30.0, "per_share_nok": 3.0},
+                {
+                    "key": "cash",
+                    "label": "Estimert kontantbeholdning",
+                    "amount_mnok": 30.0,
+                    "per_share_nok": 3.0,
+                    "details": {
+                        "reported_cash_mnok": 35.0,
+                        "cash_fx_adjustment_mnok": 2.0,
+                        "operating_cost_mnok": 7.0,
+                        "cash_anchor_date": "2026-03-31",
+                    },
+                },
                 {"key": "ona", "label": "Øvrige nettoeiendeler", "amount_mnok": 70.0, "per_share_nok": 7.0, "details": {}},
                 {
                     "key": "life360",
@@ -87,7 +98,38 @@ def _state(*, market: str, embedded: str, day: str) -> dict:
     }
 
 
-def test_gross_life360_value_is_split_out_of_ona_without_changing_nav(monkeypatch) -> None:
+def _report_state() -> dict:
+    return {
+        "ready": True,
+        "report_date": "2026-03-31",
+        "source_document_id": 90,
+        "cash_source_document_id": 90,
+        "reported_cash_nok": Decimal("50000000"),
+        "reported_cash_original": Decimal("5000000"),
+        "reported_cash_currency": "USD",
+        "report_usd_nok": Decimal("10"),
+        "combined_other_shares_usd": Decimal("6500000"),
+        "life360_report_price_usd": Decimal("94.52522361456249"),
+        "life360_report_price_date": "2026-03-31",
+        "life360_report_price_source": "YAHOO_FINANCE",
+        "life360_report_usd": Decimal("3500000"),
+        "life360_report_nok": Decimal("35000000"),
+        "alliance_report_usd": Decimal("3000000"),
+        "alliance_report_nok": Decimal("30000000"),
+    }
+
+
+async def _cash_breakdown(*_args, **_kwargs) -> dict:
+    return {
+        "ready": True,
+        "buyback_cash_nok": Decimal("-12000000"),
+        "daily_buyback_rows": 4,
+        "weekly_buyback_rows": 0,
+        "weekly_buyback_rows_superseded": 1,
+    }
+
+
+def test_report_cash_alliance_and_life360_are_split_without_changing_nav(monkeypatch) -> None:
     async def base(_repository, *, days):
         assert days == 30
         return _base_result()
@@ -98,26 +140,39 @@ def test_gross_life360_value_is_split_out_of_ona_without_changing_nav(monkeypatc
         assert as_of_date == "2026-04-02"
         return _state(market="50000000", embedded="40000000", day=as_of_date)
 
+    async def report(_repository, report_date):
+        assert report_date == "2026-03-31"
+        return _report_state()
+
     monkeypatch.setattr(estimated_nav_history_display, "_estimated_nav_history", base)
     monkeypatch.setattr(estimated_nav_history_display, "life360_nav_adjustment", life360)
+    monkeypatch.setattr(estimated_nav_history_display, "_report_split_state", report)
+    monkeypatch.setattr(estimated_nav_history_display, "_cash_breakdown", _cash_breakdown)
 
     result = asyncio.run(
         estimated_nav_history_display.estimated_nav_history(Repository(), days=30)
     )
 
-    assert result["nav_total_mnok"] if "nav_total_mnok" in result else 150.0
     current = result["current"]
     by_key = {item["key"]: item for item in current["composition"]}
     assert current["nav_total_mnok"] == 150.0
     assert current["nav_per_share"] == 15.0
+    assert "cash" not in by_key
+    assert "ona" not in by_key
+    assert by_key["reported_cash"]["label"] == "Kontantbeholdning"
+    assert by_key["reported_cash"]["amount_mnok"] == 50.0
+    assert by_key["operating_cost_since_report"]["amount_mnok"] == -7.0
+    assert by_key["buybacks_since_report"]["amount_mnok"] == -12.0
+    assert by_key["other_cash_since_report"]["amount_mnok"] == -3.0
+    assert by_key["fx_since_report"]["amount_mnok"] == 2.0
+    assert by_key["alliance_venture_spring"]["amount_mnok"] == 30.0
+    assert by_key["alliance_venture_spring"]["details"]["shares"] == 7_411_532
+    assert by_key["alliance_venture_spring"]["details"]["display_policy"] == "FIXED_AT_LAST_REPORT"
     assert by_key["life360"]["amount_mnok"] == 50.0
     assert by_key["life360"]["per_share_nok"] == 5.0
     assert by_key["life360"]["formula"] == "37 028 LIF-aksjer × siste LIF-kurs × USD/NOK"
-    assert by_key["life360"]["details"]["embedded_value_mnok"] == 40.0
-    assert by_key["life360"]["details"]["adjustment_mnok"] == 10.0
-    assert by_key["ona"]["amount_mnok"] == 30.0
-    assert by_key["ona"]["details"]["life360_embedded_removed_mnok"] == 40.0
     assert sum(item["amount_mnok"] for item in current["composition"]) == 150.0
+    assert current["composition_split_status"]["ready"] is True
 
     drivers = {item["key"]: item for item in result["change"]["drivers"]}
     assert drivers["life360"]["amount_mnok"] == 5.0
@@ -127,17 +182,18 @@ def test_gross_life360_value_is_split_out_of_ona_without_changing_nav(monkeypatc
     assert drivers["other_ona"]["amount_mnok"] == -5.0
     assert drivers["other_ona"]["per_share_nok"] == -0.5
     assert drivers["life360"]["amount_mnok"] + drivers["other_ona"]["amount_mnok"] == 0.0
-    assert result["life360_display_policy"] == "GROSS_MARKET_VALUE_EX_EMBEDDED_ONA"
+    assert result["life360_display_policy"] == "GROSS_MARKET_VALUE_WITH_REPORTED_VALUE_FALLBACK"
+    assert result["composition_display_policy"] == "REPORT_CASH_AND_ALLIANCE_FIXED_WITH_EXPLICIT_MOVEMENTS_AND_FX"
 
 
-def test_unavailable_life360_is_flagged_instead_of_presented_as_real_zero(monkeypatch) -> None:
+def test_missing_current_life360_quote_uses_last_report_value_instead_of_false_zero(monkeypatch) -> None:
     base_result = _base_result()
     life_component = next(item for item in base_result["current"]["composition"] if item["key"] == "life360")
     life_component["amount_mnok"] = 0.0
     life_component["per_share_nok"] = 0.0
     ona_component = next(item for item in base_result["current"]["composition"] if item["key"] == "ona")
-    ona_component["amount_mnok"] = 70.0
-    ona_component["per_share_nok"] = 7.0
+    ona_component["amount_mnok"] = 80.0
+    ona_component["per_share_nok"] = 8.0
 
     async def base(_repository, *, days):
         assert days == 30
@@ -151,18 +207,27 @@ def test_unavailable_life360_is_flagged_instead_of_presented_as_real_zero(monkey
             "adjustment_nok": Decimal("0"),
         }
 
+    async def report(_repository, report_date):
+        assert report_date == "2026-03-31"
+        return _report_state()
+
     monkeypatch.setattr(estimated_nav_history_display, "_estimated_nav_history", base)
     monkeypatch.setattr(estimated_nav_history_display, "life360_nav_adjustment", life360)
+    monkeypatch.setattr(estimated_nav_history_display, "_report_split_state", report)
+    monkeypatch.setattr(estimated_nav_history_display, "_cash_breakdown", _cash_breakdown)
 
     result = asyncio.run(
         estimated_nav_history_display.estimated_nav_history(Repository(), days=30)
     )
 
     by_key = {item["key"]: item for item in result["current"]["composition"]}
-    assert by_key["life360"]["amount_mnok"] == 0.0
+    assert "ona" not in by_key
+    assert by_key["alliance_venture_spring"]["amount_mnok"] == 30.0
+    assert by_key["life360"]["amount_mnok"] == 35.0
+    assert by_key["life360"]["label"] == "Life360 – siste rapportverdi"
     assert by_key["life360"]["details"]["active"] is False
-    assert by_key["life360"]["details"]["display_available"] is False
+    assert by_key["life360"]["details"]["display_available"] is True
+    assert by_key["life360"]["details"]["mark_to_market_available"] is False
     assert by_key["life360"]["details"]["reason"] == "missing_current_lif_price"
-    assert by_key["ona"]["amount_mnok"] == 70.0
-    driver = next(item for item in result["change"]["drivers"] if item["key"] == "life360")
-    assert driver["details"]["display_available"] is False
+    assert by_key["fx_since_report"]["amount_mnok"] == 17.0
+    assert sum(item["amount_mnok"] for item in result["current"]["composition"]) == 150.0
