@@ -14,9 +14,16 @@ from life360_nav import life360_nav_adjustment  # noqa: E402
 
 
 class _Repository:
-    def __init__(self, *, current_shares: int = 37_028, missing_current_holding: bool = False):
+    def __init__(
+        self,
+        *,
+        current_shares: int = 37_028,
+        missing_current_holding: bool = False,
+        missing_current_price: bool = False,
+    ):
         self.current_shares = current_shares
         self.missing_current_holding = missing_current_holding
+        self.missing_current_price = missing_current_price
 
     async def first(self, sql: str, parameters=()):
         if "FROM other_net_assets_reported_anchors" in sql:
@@ -55,6 +62,8 @@ class _Repository:
                     "source_document_id": 10,
                     "source_code": "YAHOO_FINANCE",
                 }
+            if self.missing_current_price:
+                return None
             return {
                 "trading_date": "2026-08-21",
                 "observed_at": "2026-08-21T20:00:01Z",
@@ -118,6 +127,30 @@ def test_life360_fails_closed_when_current_holding_is_missing() -> None:
     )
     assert result["ready"] is False
     assert "current_life360_holding" in result["reason"]
+    assert result["adjustment_nok"] == Decimal("0")
+
+
+def test_life360_preserves_holding_provenance_when_current_price_is_missing() -> None:
+    result = asyncio.run(
+        life360_nav_adjustment(
+            _Repository(missing_current_price=True),
+            as_of_date="2026-08-21",
+        )
+    )
+
+    assert result["ready"] is False
+    assert result["reason"] == "missing_current_lif_price"
+    assert result["shares"] == 37_028
+    assert result["holding_effective_from"] == "2025-12-31"
+    assert result["holding_quality"] == "DERIVED_HIGH_CONFIDENCE"
+    assert result["holding_basis"] == "DERIVED_FROM_2025_FAIR_VALUE"
+    assert result["holding_source_document_id"] == 20
+    assert result["holding_source_locator"] == "Annual Report 2025, Note 4"
+    assert result["anchor_shares"] == 37_028
+    assert result["anchor_holding_effective_from"] == "2025-12-31"
+    assert result["anchor_holding_quality"] == "DERIVED_HIGH_CONFIDENCE"
+    assert result["anchor_holding_basis"] == "DERIVED_FROM_2025_FAIR_VALUE"
+    assert result["anchor_holding_source_document_id"] == 20
     assert result["adjustment_nok"] == Decimal("0")
 
 
