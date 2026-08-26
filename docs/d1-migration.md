@@ -24,7 +24,15 @@ Regler:
 4. Worker-rollback ruller ikke tilbake D1-migreringer;
 5. D1 Time Travel er recovery-mekanismen ved behov for full database-restore.
 
-Aksjonær-/Top 20-migreringene `0008`/`0018` er historisk brukt og permanent reservert. Bemobi-faktalaget bruker nå Cloudflare `0009_bemobi_investor_facts.sql` og SQLite `0019_bemobi_investor_facts.sql`. Neste nye migrering skal derfor minst være Cloudflare `0010_...` og SQLite `0020_...`.
+Aksjonær-/Top 20-migreringene `0008`/`0018` er historisk brukt og permanent reservert. Aktiv sekvens går nå til Cloudflare `0017_life360_holding_anchors.sql` og SQLite `0026_life360_holding_anchors.sql`. Neste nye migrering skal derfor minst være Cloudflare `0018_...` og SQLite `0027_...`.
+
+## Life360-beholdning som kildebelagt data
+
+`life360_holding_anchors` er det effektive, daterte grunnlaget for hvor mange LIF-aksjer investor-NAV priser. Runtime-koden skal ikke ha et hardkodet Life360-aksjeantall.
+
+Det første ankeret er 31.12.2025 med 37 028 common shares. Tallet er merket `DERIVED_HIGH_CONFIDENCE` og koblet til Otello Annual Report 2025; det er et sterkt utledet estimat, ikke et eksplisitt offentlig aksjonærregistertall. Når en nyere kildebelagt beholdning blir tilgjengelig, skal et nytt effektivt anker legges inn uten å omskrive historikken.
+
+Dagens Life360-markedsverdi bruker beholdningen som gjelder på NAV-datoen. Verdien som ligger innebygd i et tidligere rapportert ONA-anker bruker beholdningen som gjaldt på rapportdatoen. Dermed restaterer ikke en senere beholdningsendring historiske rapportankre.
 
 ## Bemobi-fakta som databaseinnhold
 
@@ -72,6 +80,8 @@ npx --yes wrangler@4.123.0 d1 execute DB \
 Produksjonsdeployen kjører remote D1-migreringer før Worker deployes og etterfølges av HTTP-akseptanse.
 
 Fordi en Worker-rollback ikke reverserer schemaendringer, må migreringen være kompatibel med både gammel og ny Worker i overgangsøyeblikket. Breaking schema-endringer skal derfor splittes i flere additive steg.
+
+Produksjonsakseptansen kontrollerer også at Life360-komponenten har et gyldig holdings-anker med kildeproveniens. Dermed skal en fremtidig regresjon tilbake til et hardkodet aksjeantall ikke passere produksjonsverifikasjonen.
 
 ## Data-paritet og recoveryverktøy
 
