@@ -70,6 +70,7 @@ jobs:
       CLOUDFLARE_STATUS_EMAIL_TO: ${{ vars.CLOUDFLARE_STATUS_EMAIL_TO }}
       CLOUDFLARE_STATUS_EMAIL_FROM: ${{ vars.CLOUDFLARE_STATUS_EMAIL_FROM }}
       CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
+      OTELLO_DEPLOYMENT_REVISION: ${{ inputs.tested_sha || github.sha }}
     steps:
       - name: Check out tested production revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -85,6 +86,10 @@ jobs:
           actual_sha="$(git rev-parse HEAD)"
           if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
             echo "::error::Checked out $actual_sha, but the tested deployment SHA is $EXPECTED_SHA."
+            exit 1
+          fi
+          if [ "$OTELLO_DEPLOYMENT_REVISION" != "$EXPECTED_SHA" ]; then
+            echo "::error::Worker revision binding $OTELLO_DEPLOYMENT_REVISION does not match tested SHA $EXPECTED_SHA."
             exit 1
           fi
           echo "Deploying tested revision: $actual_sha"
@@ -106,6 +111,7 @@ jobs:
           test -n "$CLOUDFLARE_WORKER_NAME"
           test -n "$CLOUDFLARE_D1_DATABASE_NAME"
           test -n "$CLOUDFLARE_R2_BUCKET_NAME"
+          test -n "$OTELLO_DEPLOYMENT_REVISION"
           if [ -z "$CLOUDFLARE_CUSTOM_DOMAIN" ]; then
             echo '::error::CLOUDFLARE_CUSTOM_DOMAIN is required for production so WAF can protect /api/* before Worker invocation.'
             exit 1
@@ -179,6 +185,8 @@ jobs:
           assert config['triggers']['crons'] == ['*/30 * * * *']
           workflows = {item['binding']: item for item in config['workflows']}
           assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+          variables = config['vars']
+          assert variables['DEPLOYMENT_REVISION'] == os.environ['OTELLO_DEPLOYMENT_REVISION']
 
           email_to = os.environ.get('CLOUDFLARE_STATUS_EMAIL_TO', '').strip()
           email_from = os.environ.get('CLOUDFLARE_STATUS_EMAIL_FROM', '').strip()
@@ -190,7 +198,6 @@ jobs:
                       'allowed_sender_addresses': [email_from],
                   }
               ]
-              variables = config['vars']
               assert variables['STATUS_EMAIL_TO'] == email_to
               assert variables['STATUS_EMAIL_FROM'] == email_from
               assert variables['PUBLIC_URL'] == os.environ['CLOUDFLARE_PUBLIC_URL'].rstrip('/')
@@ -236,10 +243,42 @@ jobs:
           base="${CLOUDFLARE_PUBLIC_URL%/}"
           acceptance_token="${EXPECTED_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           q="acceptance=${acceptance_token}"
+
+          revision_ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --show-error --silent \
+              "$base/api/health?${q}&revision_probe=${attempt}" \
+              -o /tmp/otello-health.json; then
+              active_revision="$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          try:
+              payload = json.loads(Path('/tmp/otello-health.json').read_text())
+          except Exception:
+              payload = {}
+          print(payload.get('revision') or '')
+          PY
+          )"
+              if [ "$active_revision" = "$EXPECTED_SHA" ]; then
+                revision_ready=1
+                echo "Expected Worker revision is live: $active_revision"
+                break
+              fi
+              echo "Waiting for expected Worker revision (attempt $attempt/60): got ${active_revision:-<missing>}, expected $EXPECTED_SHA"
+            else
+              echo "Health probe failed while waiting for Worker propagation (attempt $attempt/60)."
+            fi
+            sleep 2
+          done
+          if [ "$revision_ready" -ne 1 ]; then
+            echo "::error::Custom domain did not serve expected Worker revision $EXPECTED_SHA before acceptance timeout."
+            cat /tmp/otello-health.json 2>/dev/null || true
+            exit 1
+          fi
+
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             -D /tmp/otello-index.headers "$base/?${q}" -o /tmp/otello-index.html
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
-            "$base/api/health?${q}" -o /tmp/otello-health.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/bootstrap?${q}" -o /tmp/otello-bootstrap.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
@@ -272,6 +311,7 @@ jobs:
             "$base/api/market/quotes?${q}" -o /tmp/otello-quotes.json
           python - <<'PY'
           import json
+          import os
           from datetime import date, datetime
           from pathlib import Path
           from zoneinfo import ZoneInfo
@@ -305,6 +345,7 @@ jobs:
           assert 'x-content-type-options: nosniff' in index_headers, index_headers
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
+          assert health.get('revision') == os.environ['EXPECTED_SHA'], health
 
           assert bootstrap_summary.get('ready') is True, bootstrap
           assert bootstrap_economic.get('ready') is True, bootstrap
@@ -406,6 +447,7 @@ jobs:
               'Production HTTP acceptance passed:',
               summary.get('as_of_date'),
               summary.get('data_status'),
+              f"revision={health.get('revision')}",
               f"bootstrap_source={bootstrap_meta.get('source')}",
               f"bootstrap_server_ms={bootstrap_meta.get('server_ms')}",
               f"history_points={len(history.get('points') or [])}",
