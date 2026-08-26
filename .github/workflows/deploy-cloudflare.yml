@@ -247,6 +247,8 @@ jobs:
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/history?days=365&max_points=300&${q}" -o /tmp/otello-history.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/dashboard/discount-history?days=365&max_points=600&${q}" -o /tmp/otello-discount-history.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/economic?${q}" -o /tmp/otello-economic.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/dashboard/waterfall?${q}" -o /tmp/otello-waterfall.json
@@ -280,6 +282,7 @@ jobs:
           bootstrap = json.loads(Path('/tmp/otello-bootstrap.json').read_text())
           summary = json.loads(Path('/tmp/otello-summary.json').read_text())
           history = json.loads(Path('/tmp/otello-history.json').read_text())
+          discount_history = json.loads(Path('/tmp/otello-discount-history.json').read_text())
           economic = json.loads(Path('/tmp/otello-economic.json').read_text())
           waterfall = json.loads(Path('/tmp/otello-waterfall.json').read_text())
           report_status = json.loads(Path('/tmp/otello-report-status.json').read_text())
@@ -316,6 +319,35 @@ jobs:
               'summary': summary.get('as_of_date'),
           }
           assert history.get('ready') is True and history.get('points'), history
+          assert discount_history.get('ready') is True, discount_history
+          estimated = discount_history.get('estimated') or {}
+          assert estimated.get('composition_display_policy') == (
+              'REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX'
+          ), estimated
+          estimated_current = estimated.get('current') or {}
+          split_status = estimated_current.get('composition_split_status') or {}
+          assert split_status.get('ready') is True, estimated_current
+          composition = estimated_current.get('composition') or []
+          composition_keys = {str(item.get('key')) for item in composition}
+          required_composition = {
+              'reported_cash',
+              'operating_cost_since_report',
+              'buybacks_since_report',
+              'alliance_venture_spring',
+              'life360',
+          }
+          assert required_composition <= composition_keys, {
+              'missing': sorted(required_composition - composition_keys),
+              'keys': sorted(composition_keys),
+              'split_status': split_status,
+          }
+          assert 'cash' not in composition_keys, composition_keys
+          assert 'ona' not in composition_keys, composition_keys
+          alliance = next(item for item in composition if item.get('key') == 'alliance_venture_spring')
+          assert int((alliance.get('details') or {}).get('shares') or 0) == 7_411_532, alliance
+          life360 = next(item for item in composition if item.get('key') == 'life360')
+          assert float(life360.get('amount_mnok') or 0) > 0, life360
+
           assert economic.get('ready') is True, economic
           assert economic.get('as_of_date') == summary.get('as_of_date'), {
               'summary': summary.get('as_of_date'),
@@ -370,6 +402,8 @@ jobs:
               f"bootstrap_source={bootstrap_meta.get('source')}",
               f"bootstrap_server_ms={bootstrap_meta.get('server_ms')}",
               f"history_points={len(history.get('points') or [])}",
+              f"composition_keys={sorted(composition_keys)}",
+              f"life360_mnok={life360.get('amount_mnok')}",
               f"economic_nav={economic.get('nav_per_share')}",
               f"waterfall_components={len(waterfall.get('components') or [])}",
               f"report_status={report_status.get('status')}",
