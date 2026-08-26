@@ -249,6 +249,23 @@ async def _coverage(repository, symbol: str) -> dict[str, Any]:
     return dict(row or {"n": 0, "min_date": None, "max_date": None})
 
 
+async def _last_good_lif_price(repository) -> dict[str, Any] | None:
+    row = await repository.first(
+        """
+        SELECT mp.trading_date, mp.observed_at, mp.price, mp.currency,
+               s.code AS source_code
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol=? AND mp.price_type='CLOSE'
+        ORDER BY mp.trading_date DESC, mp.observed_at DESC, mp.id DESC
+        LIMIT 1
+        """,
+        (LIFE360_REQUIRED_SYMBOL,),
+    )
+    return dict(row) if row else None
+
+
 async def _write_rows(
     repository,
     *,
@@ -443,12 +460,20 @@ async def _refresh_lif_with_independent_fallback(
         except ImportError:
             from life360_ir_lseg import refresh_life360_ir_lif
 
-        fallback = await refresh_life360_ir_lif(
-            repository,
-            target_date=target_date,
-            archive_bucket=archive_bucket,
-            fetcher=fetcher,
-        )
+        try:
+            fallback = await refresh_life360_ir_lif(
+                repository,
+                target_date=target_date,
+                archive_bucket=archive_bucket,
+                fetcher=fetcher,
+            )
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                "Life360 LIF kunne ikke oppdateres. "
+                f"Yahoo Finance: {str(yahoo_exc)[:600]}; "
+                "Life360 IR/LSEG fallback: "
+                f"{type(fallback_exc).__name__}: {str(fallback_exc)[:300]}"
+            ) from fallback_exc
         return {
             **fallback,
             "fallback_used": True,
@@ -512,6 +537,11 @@ async def refresh_life360_market_data(
         total_written += int(result.get("rows_written") or 0)
         history_backfill = history_backfill or bool(result.get("history_backfill"))
 
+    try:
+        last_good_lif = await _last_good_lif_price(repository)
+    except Exception as exc:
+        last_good_lif = {"lookup_error": str(exc)[:500]}
+
     lif_ready = results.get(LIFE360_REQUIRED_SYMBOL, {}).get("status") == "ok"
     control_ready = all(
         results.get(symbol, {}).get("status") == "ok" for symbol in LIFE360_CONTROL_SYMBOLS
@@ -534,6 +564,7 @@ async def refresh_life360_market_data(
         "control_series": sorted(LIFE360_CONTROL_SYMBOLS),
         "control_status": "ok" if control_ready else "degraded",
         "series": results,
+        "last_good_lif": last_good_lif,
         "errors": required_errors,
         "control_errors": control_errors,
     }
