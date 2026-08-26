@@ -13,6 +13,7 @@ if str(CLOUDFLARE) not in sys.path:
 from src.otello_report_ingestion import (  # noqa: E402
     REPORT_PARSER_VERSION,
     _prepare_post_report_cash_events,
+    _upsert_ona_anchor,
     _upsert_post_report_cash_events,
     parse_otello_financial_report,
 )
@@ -149,6 +150,7 @@ def test_first_half_2025_real_layout_uses_current_not_comparison_column() -> Non
     assert facts["total_assets_usd"] == Decimal("133893000")
     assert facts["total_liabilities_usd"] == Decimal("1699000")
     assert facts["bemobi_carrying_usd"] == Decimal("117505000")
+    assert facts["other_shares_investment_usd"] == Decimal("820000")
     assert facts["option_liability_usd"] == Decimal("0")
     assert facts["other_net_assets_usd"] == Decimal("-5000")
     assert facts["employee_benefits_usd"] == Decimal("643000")
@@ -176,6 +178,7 @@ def test_second_half_2025_real_layout_uses_2h_not_ytd_column() -> None:
     assert facts["total_assets_usd"] == Decimal("132202000")
     assert facts["total_liabilities_usd"] == Decimal("6119000")
     assert facts["bemobi_carrying_usd"] == Decimal("114732000")
+    assert facts["other_shares_investment_usd"] == Decimal("820000")
     assert facts["option_liability_usd"] == Decimal("4408000")
     assert facts["other_net_assets_usd"] == Decimal("-4530000")
     assert facts["employee_benefits_usd"] == Decimal("5023000")
@@ -191,7 +194,7 @@ def test_second_half_2025_real_layout_uses_2h_not_ytd_column() -> None:
 def test_first_half_2026_real_layout_skips_note_column_and_extracts_patent_receipt() -> None:
     result = parse_otello_financial_report(FIRST_HALF_2026)
     assert result["valid"] is True, result["issues"]
-    assert result["parser_version"] == "otello-financial-report-v3"
+    assert result["parser_version"] == "otello-financial-report-v4"
     facts = result["facts"]
 
     assert facts["report_date"].isoformat() == "2026-06-30"
@@ -203,6 +206,7 @@ def test_first_half_2026_real_layout_skips_note_column_and_extracts_patent_recei
     assert facts["total_equity_usd"] == Decimal("131139000")
     assert facts["total_liabilities_usd"] == Decimal("2617000")
     assert facts["bemobi_carrying_usd"] == Decimal("118297000")
+    assert facts["other_shares_investment_usd"] == Decimal("3936000")
     assert facts["option_liability_usd"] == Decimal("722000")
     assert facts["other_net_assets_usd"] == Decimal("2211000")
     assert facts["employee_benefits_usd"] == Decimal("1105000")
@@ -222,6 +226,13 @@ def test_first_half_2026_real_layout_skips_note_column_and_extracts_patent_recei
             "description": "Final net instalment from the 2025 patent sale",
         }
     ]
+
+
+def test_report_parser_fails_closed_without_other_shares_investment() -> None:
+    broken = FIRST_HALF_2026.replace("Investments in other shares 3,936 819\n", "")
+    result = parse_otello_financial_report(broken)
+    assert result["valid"] is False
+    assert "missing_other_shares_investment" in result["issues"]
 
 
 class _PostReportCashRepository:
@@ -293,6 +304,43 @@ def test_first_half_2026_patent_receipt_is_idempotent_confirmed_cash_movement() 
     assert repository.insert_count == 1
 
 
+class _OnaRepository:
+    def __init__(self) -> None:
+        self.report_insert = None
+        self.converted_written = False
+
+    async def run(self, sql, parameters=()):
+        if "INSERT INTO other_net_assets_reported_anchors" in sql:
+            self.report_insert = (sql, tuple(parameters))
+            return None
+        if "INSERT INTO other_net_assets_anchors" in sql:
+            self.converted_written = True
+            return None
+        raise AssertionError(sql)
+
+    async def first(self, sql, parameters=()):
+        if "SELECT id FROM other_net_assets_reported_anchors" in sql:
+            return {"id": 7}
+        if "SELECT id FROM other_net_assets_anchors WHERE reported_anchor_id" in sql:
+            return {"id": 8} if self.converted_written else None
+        raise AssertionError(sql)
+
+
+def test_ona_anchor_persists_other_shares_investment_from_parser() -> None:
+    facts = parse_otello_financial_report(FIRST_HALF_2026)["facts"]
+    repository = _OnaRepository()
+    fx = {"id": 3, "rate": "10", "rate_date": "2026-06-30"}
+
+    reported_id, converted_id = asyncio.run(_upsert_ona_anchor(repository, 99, facts, fx))
+
+    assert reported_id == 7
+    assert converted_id == 8
+    assert repository.report_insert is not None
+    sql, parameters = repository.report_insert
+    assert "other_shares_investment_reported" in sql
+    assert parameters[-1] == "3936000"
+
+
 def test_report_parser_fails_closed_when_balance_sheet_does_not_reconcile() -> None:
     broken = FIRST_HALF_2025.replace("Total equity 132,194", "Total equity 120,000")
     result = parse_otello_financial_report(broken)
@@ -327,6 +375,7 @@ def test_worker_wiring_keeps_report_ingestion_zero_touch_and_fail_closed() -> No
     assert '"otello_reports": "NEWSWEB"' in full_refresh
     assert "STRICT_VALIDATION_FAIL_CLOSED" in report_ingestion
     assert "auto_apply_status" in report_ingestion
+    assert "other_shares_investment_reported" in report_ingestion
     assert "company_news.processing_status IN ('APPLIED','IGNORED','REVIEW_REQUIRED')" in newsweb
     assert '"first-half report"' in newsweb
     assert '"second-half report"' in newsweb
