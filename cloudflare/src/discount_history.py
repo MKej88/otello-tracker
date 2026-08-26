@@ -5,7 +5,7 @@ from typing import Any
 
 from dashboard_service import dashboard_history
 from economic_nav_investor import economic_nav_summary
-from estimated_nav_history import estimated_nav_history
+from estimated_nav_history_display import estimated_nav_history
 
 
 def _float(value: Decimal | str | int | float | None) -> float | None:
