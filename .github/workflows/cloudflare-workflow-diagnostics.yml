@@ -39,6 +39,7 @@ jobs:
       WORKFLOW_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_name || 'otello-full-refresh' }}
       REQUESTED_INSTANCE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.instance_id || 'latest' }}
       D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+
     steps:
       - name: Validate read-only configuration
         shell: bash
@@ -66,6 +67,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           base_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/${WORKFLOW_NAME}/instances"
+
           curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -94,6 +96,7 @@ jobs:
           )"
 
           echo "resolved_instance_id=$resolved_instance_id" >> "$GITHUB_OUTPUT"
+
           encoded_instance_id="$(python - "$resolved_instance_id" <<'PY'
           import sys
           from urllib.parse import quote
@@ -101,6 +104,7 @@ jobs:
           print(quote(sys.argv[1], safe=""))
           PY
           )"
+
           curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -132,7 +136,11 @@ jobs:
                   ).strip(": ") or json.dumps(value, ensure_ascii=False)
               text = str(value).replace("\r", " ").replace("\n", " ")
               text = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+", r"\1[REDACTED]", text)
-              text = re.sub(r"(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+", r"\1\2[REDACTED]", text)
+              text = re.sub(
+                  r"(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+",
+                  r"\1\2[REDACTED]",
+                  text,
+              )
               text = re.sub(r"([?&][^=&#\s]+)=([^&#\s]+)", r"\1=[REDACTED]", text)
               return text[:limit]
 
@@ -143,6 +151,7 @@ jobs:
 
           result = detail_payload.get("result") or {}
           recent = recent_payload.get("result") or []
+
           lines = [
               "# Cloudflare Workflow-diagnose",
               "",
@@ -169,8 +178,7 @@ jobs:
           retry_count = 0
           for index, step in enumerate(result.get("steps") or [], start=1):
               attempts = step.get("attempts") or []
-              retries = max(0, len(attempts) - 1)
-              retry_count += retries
+              retry_count += max(0, len(attempts) - 1)
               errors = []
               for attempt in attempts:
                   if attempt.get("success") is False:
@@ -179,8 +187,13 @@ jobs:
                       errors.append(clean(attempt["error"], 300))
               if step.get("error"):
                   errors.append(clean(step["error"], 300))
+
               success = step.get("success")
-              outcome = "OK" if success is True else "FEIL" if success is False else clean(step.get("type") or "-")
+              outcome = (
+                  "OK" if success is True
+                  else "FEIL" if success is False
+                  else clean(step.get("type") or "-")
+              )
               name = clean(step.get("name") or f"Trinn {index}", 120).replace("|", "\\|")
               error_text = "; ".join(dict.fromkeys(errors)).replace("|", "\\|") or "-"
               lines.append(
@@ -258,8 +271,12 @@ jobs:
               payload = json.load(handle)
           if payload.get("success") is not True:
               raise SystemExit("Cloudflare D1 list request failed")
+
           wanted = os.environ["D1_DATABASE_NAME"]
-          matches = [row for row in (payload.get("result") or []) if row.get("name") == wanted]
+          matches = [
+              row for row in (payload.get("result") or [])
+              if row.get("name") == wanted
+          ]
           if len(matches) != 1 or not matches[0].get("uuid"):
               raise SystemExit(f"Expected exactly one D1 database named {wanted!r}")
           print(matches[0]["uuid"])
@@ -269,12 +286,29 @@ jobs:
           python - <<'PY'
           import json
 
+          job_columns = """
+              SELECT id, job_name, started_at, finished_at, status,
+                     records_written, error_message, metadata_json
+              FROM job_runs
+          """
+
           batch = [
               {
-                  "sql": """
-                      SELECT id, job_name, started_at, finished_at, status,
-                             records_written, error_message, metadata_json
-                      FROM job_runs
+                  "sql": job_columns + """
+                      WHERE job_name = 'cloudflare_full_refresh'
+                      ORDER BY id DESC
+                      LIMIT 1
+                  """
+              },
+              {
+                  "sql": job_columns + """
+                      WHERE job_name = 'cloudflare_fast_refresh'
+                      ORDER BY id DESC
+                      LIMIT 1
+                  """
+              },
+              {
+                  "sql": job_columns + """
                       WHERE job_name IN ('cloudflare_full_refresh', 'cloudflare_fast_refresh')
                       ORDER BY id DESC
                       LIMIT 12
@@ -319,6 +353,7 @@ jobs:
                   """
               },
           ]
+
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -353,8 +388,16 @@ jobs:
                   return "-"
               text = str(value).replace("\r", " ").replace("\n", " ")
               text = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+", r"\1[REDACTED]", text)
-              text = re.sub(r"(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+", r"\1\2[REDACTED]", text)
-              text = re.sub(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[REDACTED_EMAIL]", text)
+              text = re.sub(
+                  r"(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+",
+                  r"\1\2[REDACTED]",
+                  text,
+              )
+              text = re.sub(
+                  r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+                  "[REDACTED_EMAIL]",
+                  text,
+              )
               text = re.sub(r"([?&][^=&#\s]+)=([^&#\s]+)", r"\1=[REDACTED]", text)
               return text[:limit]
 
@@ -385,7 +428,11 @@ jobs:
               if not row:
                   return None
               status = str(row.get("status") or "").upper()
-              value = row.get("started_at") if status == "RUNNING" else row.get("finished_at") or row.get("started_at")
+              value = (
+                  row.get("started_at")
+                  if status == "RUNNING"
+                  else row.get("finished_at") or row.get("started_at")
+              )
               parsed = parse_ts(value)
               return max(timedelta(0), now - parsed) if parsed else None
 
@@ -400,17 +447,20 @@ jobs:
               payload = json.load(handle)
           if payload.get("success") is not True:
               raise SystemExit("Cloudflare D1 query request failed")
+
           result = payload.get("result") or []
-          if len(result) != 4 or any(item.get("success") is False for item in result):
+          if len(result) != 6 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
-          jobs = result[0].get("results") or []
-          sources = result[1].get("results") or []
-          fx_rows = result[2].get("results") or []
-          nav_rows = result[3].get("results") or []
+          full_rows = result[0].get("results") or []
+          fast_rows = result[1].get("results") or []
+          jobs = result[2].get("results") or []
+          sources = result[3].get("results") or []
+          fx_rows = result[4].get("results") or []
+          nav_rows = result[5].get("results") or []
 
-          full = next((row for row in jobs if row.get("job_name") == "cloudflare_full_refresh"), None)
-          fast = next((row for row in jobs if row.get("job_name") == "cloudflare_fast_refresh"), None)
+          full = full_rows[0] if full_rows else None
+          fast = fast_rows[0] if fast_rows else None
           full_target = safe_json((full or {}).get("metadata_json")).get("target_date")
 
           latest_fx = {}
@@ -418,12 +468,22 @@ jobs:
               currency = row.get("base_currency")
               if currency in {"BRL", "USD"} and currency not in latest_fx:
                   latest_fx[currency] = row
-          fx_dates = [latest_fx[c].get("observed_date") for c in ("BRL", "USD") if c in latest_fx]
-          latest_common_fx = min(fx_dates) if len(fx_dates) == 2 and all(fx_dates) else None
+
+          fx_dates = [
+              latest_fx[c].get("observed_date")
+              for c in ("BRL", "USD")
+              if c in latest_fx
+          ]
+          latest_common_fx = (
+              min(fx_dates)
+              if len(fx_dates) == 2 and all(fx_dates)
+              else None
+          )
 
           now = datetime.now(UTC)
           expected_fx = expected_fx_date(now)
           fx_current = bool(latest_common_fx and latest_common_fx >= expected_fx)
+
           full_age = job_age(full, now)
           fast_age = job_age(fast, now)
           full_stale = full_age is None or full_age > FULL_MAX_AGE
@@ -431,20 +491,33 @@ jobs:
 
           nav = nav_rows[0] if nav_rows else {}
           components = safe_json(nav.get("components_json"))
-          bmob3 = components.get("bmob3") if isinstance(components.get("bmob3"), dict) else {}
+          bmob3 = (
+              components.get("bmob3")
+              if isinstance(components.get("bmob3"), dict)
+              else {}
+          )
           nav_brl_date = bmob3.get("brl_nok_date")
 
           full_status = (full or {}).get("status") or "MISSING"
           fast_status = (fast or {}).get("status") or "MISSING"
+
           d1_status = "OK"
           if full_status != "SUCCESS" or fast_status not in {"SUCCESS", "PARTIAL"}:
               d1_status = "AVVIK"
           if not fx_current or full_stale or fast_stale:
               d1_status = "AVVIK"
-          d1_unhealthy = d1_status != "OK"
 
-          full_age_minutes = int(full_age.total_seconds() // 60) if full_age is not None else None
-          fast_age_minutes = int(fast_age.total_seconds() // 60) if fast_age is not None else None
+          d1_unhealthy = d1_status != "OK"
+          full_age_minutes = (
+              int(full_age.total_seconds() // 60)
+              if full_age is not None
+              else None
+          )
+          fast_age_minutes = (
+              int(fast_age.total_seconds() // 60)
+              if fast_age is not None
+              else None
+          )
 
           lines = [
               "",
@@ -468,6 +541,7 @@ jobs:
               "| Jobb | Status | Start | Slutt | Rader | Mål-dato | Feil |",
               "|---|---|---|---|---:|---|---|",
           ]
+
           for row in jobs:
               target = safe_json(row.get("metadata_json")).get("target_date")
               lines.append(
