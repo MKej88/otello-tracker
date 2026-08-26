@@ -75,6 +75,7 @@ def test_renderer_produces_paid_guardrails_and_workers_dev_bootstrap() -> None:
 
 def test_renderer_uses_custom_domain_without_workers_dev() -> None:
     renderer = _load_renderer()
+    revision = "0123456789abcdef0123456789abcdef01234567"
     config = renderer.render_config(
         _base_config(),
         worker_name="otello-tracker",
@@ -85,12 +86,34 @@ def test_renderer_uses_custom_domain_without_workers_dev() -> None:
         status_email_to="owner@example.net",
         status_email_from="status@example.com",
         public_url="https://nav.example.com/",
+        deployment_revision=revision,
     )
     assert config["workers_dev"] is False
     assert config["routes"] == [
         {"pattern": "nav.example.com", "custom_domain": True}
     ]
     assert config["send_email"][0]["name"] == "STATUS_EMAIL"
+    assert config["vars"]["DEPLOYMENT_REVISION"] == revision
+
+
+def test_renderer_rejects_custom_domain_without_deployment_revision() -> None:
+    renderer = _load_renderer()
+    try:
+        renderer.render_config(
+            _base_config(),
+            worker_name="otello-tracker",
+            d1_database_id="11111111-2222-3333-4444-555555555555",
+            d1_database_name="otello-nav",
+            r2_bucket_name="otello-source-archive",
+            custom_domain="nav.example.com",
+            status_email_to="owner@example.net",
+            status_email_from="status@example.com",
+            public_url="https://nav.example.com/",
+        )
+    except ValueError as exc:
+        assert "deployment_revision" in str(exc)
+    else:
+        raise AssertionError("Custom-domain production config must require deployment_revision")
 
 
 def test_deploy_workflow_is_guarded_and_runs_remote_acceptance() -> None:
@@ -108,6 +131,7 @@ def test_deploy_workflow_is_guarded_and_runs_remote_acceptance() -> None:
     assert "CLOUDFLARE_R2_BUCKET_NAME" in workflow
     assert "CLOUDFLARE_CUSTOM_DOMAIN" in workflow
     assert "CLOUDFLARE_PUBLIC_URL" in workflow
+    assert "OTELLO_DEPLOYMENT_REVISION" in workflow
     assert "CLOUDFLARE_PUBLIC_URL is required so every production deploy runs HTTP acceptance" in workflow
     assert "does not match" in workflow
     assert "CLOUDFLARE_WAF_COST_GUARD_READY" in workflow
@@ -117,6 +141,8 @@ def test_deploy_workflow_is_guarded_and_runs_remote_acceptance() -> None:
     assert "pywrangler deploy --config wrangler.production.jsonc" in workflow
     assert "Production HTTP acceptance" in workflow
     assert "/api/health" in workflow
+    assert "revision_probe" in workflow
+    assert "health.get('revision') == os.environ['EXPECTED_SHA']" in workflow
     assert "/api/dashboard/summary" in workflow
     assert "/api/dashboard/history?days=365&max_points=300" in workflow
     assert "/api/dashboard/economic" in workflow
