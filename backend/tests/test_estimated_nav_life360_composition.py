@@ -133,6 +133,54 @@ async def _cash_breakdown(*_args, **_kwargs) -> dict:
     }
 
 
+def test_confirmed_other_cash_display_exposes_patent_settlement() -> None:
+    rows = [
+        {
+            "movement_date": "2026-07-22",
+            "movement_type": "OTHER",
+            "amount_nok": "6200000",
+            "amount_original": "650000",
+            "currency": "USD",
+            "description": "Final net instalment from the 2025 patent sale",
+            "external_movement_id": "otello-report-post-cash:PATENT_SALE_FINAL_INSTALMENT:2026-07-22",
+            "source_document_id": 99,
+        }
+    ]
+
+    confirmed, formula, events = estimated_nav_history_display._confirmed_other_cash_display(
+        rows,
+        Decimal("6200000"),
+    )
+
+    assert confirmed is True
+    assert formula == "Patentoppgjør 22.07.2026: USD 0,65m"
+    assert events[0]["amount_original"] == 650000.0
+    assert events[0]["source_document_id"] == 99
+
+
+def test_confirmed_other_cash_display_falls_back_if_events_do_not_reconcile() -> None:
+    rows = [
+        {
+            "movement_date": "2026-07-22",
+            "movement_type": "OTHER",
+            "amount_nok": "6200000",
+            "amount_original": "650000",
+            "currency": "USD",
+            "description": "Final net instalment from the 2025 patent sale",
+            "external_movement_id": "otello-report-post-cash:PATENT_SALE_FINAL_INSTALMENT:2026-07-22",
+            "source_document_id": 99,
+        }
+    ]
+
+    confirmed, formula, _events = estimated_nav_history_display._confirmed_other_cash_display(
+        rows,
+        Decimal("6000000"),
+    )
+
+    assert confirmed is False
+    assert formula == "Kjente kontantbevegelser utenom tilbakekjøp"
+
+
 def test_report_cash_alliance_life360_and_residual_are_split_without_changing_nav(monkeypatch) -> None:
     async def base(_repository, *, days):
         assert days == 30
@@ -168,6 +216,8 @@ def test_report_cash_alliance_life360_and_residual_are_split_without_changing_na
     assert by_key["operating_cost_since_report"]["amount_mnok"] == -7.0
     assert by_key["buybacks_since_report"]["amount_mnok"] == -12.0
     assert by_key["other_cash_since_report"]["amount_mnok"] == -3.0
+    assert by_key["other_cash_since_report"]["label"] == "Andre kontantbevegelser siden siste rapport"
+    assert by_key["other_cash_since_report"]["details"]["confirmed"] is False
     assert by_key["fx_since_report"]["amount_mnok"] == 2.0
     assert by_key["alliance_venture_spring"]["amount_mnok"] == 25.0
     assert by_key["alliance_venture_spring"]["details"]["shares"] == 7_411_532
