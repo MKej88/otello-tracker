@@ -15,6 +15,7 @@ CORE_TABLES = (
     "market_activity",
     "fx_rates",
     "bemobi_holdings",
+    "life360_holding_anchors",
     "bemobi_investor_facts",
     "bemobi_forward_consensus_snapshots",
     "bemobi_consensus_events",
