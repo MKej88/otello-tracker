@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 const baseUrl = process.argv[2] ?? "http://127.0.0.1:8787/";
 const chromeBin = process.env.CHROME_BIN ?? "google-chrome";
-const configuredDebugPort = Number(process.env.CHROME_DEBUG_PORT ?? 9222);
+const configuredDebugPort = Number(process.env.CHROME_DEBUG_PORT ?? 0);
 if (!Number.isInteger(configuredDebugPort) || configuredDebugPort < 0 || configuredDebugPort > 65535) {
   throw new Error(`Ugyldig CHROME_DEBUG_PORT: ${process.env.CHROME_DEBUG_PORT}`);
 }
@@ -21,6 +21,8 @@ const chrome = spawn(
     "--disable-default-apps",
     "--disable-extensions",
     "--disable-sync",
+    "--no-first-run",
+    "--no-default-browser-check",
     "--window-size=1440,1200",
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${configuredDebugPort}`,

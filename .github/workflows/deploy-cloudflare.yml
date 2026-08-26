@@ -346,7 +346,14 @@ jobs:
           alliance = next(item for item in composition if item.get('key') == 'alliance_venture_spring')
           assert int((alliance.get('details') or {}).get('shares') or 0) == 7_411_532, alliance
           life360 = next(item for item in composition if item.get('key') == 'life360')
-          assert float(life360.get('amount_mnok') or 0) > 0, life360
+          life360_details = life360.get('details') or {}
+          life360_shares = life360_details.get('shares')
+          assert isinstance(life360_shares, int) and life360_shares >= 0, life360
+          assert life360_details.get('holding_effective_from'), life360
+          assert life360_details.get('holding_quality'), life360
+          assert life360_details.get('holding_basis'), life360
+          assert life360_details.get('holding_source_document_id'), life360
+          assert life360_details.get('report_holding_source_document_id'), life360
 
           assert economic.get('ready') is True, economic
           assert economic.get('as_of_date') == summary.get('as_of_date'), {
@@ -404,6 +411,8 @@ jobs:
               f"history_points={len(history.get('points') or [])}",
               f"composition_keys={sorted(composition_keys)}",
               f"life360_mnok={life360.get('amount_mnok')}",
+              f"life360_shares={life360_shares}",
+              f"life360_holding_from={life360_details.get('holding_effective_from')}",
               f"economic_nav={economic.get('nav_per_share')}",
               f"waterfall_components={len(waterfall.get('components') or [])}",
               f"report_status={report_status.get('status')}",

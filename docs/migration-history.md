@@ -6,24 +6,30 @@ Migreringsnumre er en del av databasehistorikken. Et nummer som har vært brukt 
 
 ### SQLite-referanse
 
-Aktive migreringer i `backend/app/db/migrations/` går per 23.08.2026 til `0023_life360_market_data.sql`.
+Aktive migreringer i `backend/app/db/migrations/` går per 26.08.2026 til `0026_life360_holding_anchors.sql`.
 
-- `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts` for Bemobi-resultater, eierandel, TTM-verdsettelsesankre, analytikerdekning, forward-konsensus, beat/miss, referansemodell og neste rapportstatus.
-- `0020` kobler automatiske Bemobi-fakta til `source_documents` og registrerer de eksplisitte sekundærkildene MarketScreener og XP.
-- `0021` registrerer Norges Bank som ny autoritativ valutakilde for direkte BRL/NOK- og USD/NOK-kurser. Historiske ECB-rader beholdes som provenance/fallback og slettes ikke.
-- `0022` oppretter historikklagene `bemobi_forward_consensus_snapshots` og `bemobi_consensus_events` og migrerer den kuraterte konsensushistorikken inn i databasen.
+- `0019` oppretter den kildebelagte tabellen `bemobi_investor_facts`.
+- `0020` kobler automatiske Bemobi-fakta til `source_documents`.
+- `0021` registrerer Norges Bank som autoritativ valutakilde for direkte BRL/NOK- og USD/NOK-kurser.
+- `0022` oppretter historikklagene `bemobi_forward_consensus_snapshots` og `bemobi_consensus_events`.
 - `0023` legger til Life360-markedsdata som kildebelagt investorlag.
+- `0024` registrerer Life360 IR/LSEG-fallbacken.
+- `0025` legger til rapporterte `Investments in other shares` og Life360 rapportanker for Estimert NAV-splitten.
+- `0026` oppretter `life360_holding_anchors`, slik at Life360-aksjeantallet er kildebelagt og effektivt datert i stedet for hardkodet i NAV-koden.
 
 ### Cloudflare D1
 
-Aktive migreringer i `cloudflare/migrations/` går per 23.08.2026 til `0014_requeue_otello_1h26_report.sql`.
+Aktive migreringer i `cloudflare/migrations/` går per 26.08.2026 til `0017_life360_holding_anchors.sql`.
 
 - `0009` oppretter og seeder Bemobi-faktalaget i D1.
-- `0010` legger til samme webproveniens og kilderegistrering som SQLite `0020`.
+- `0010` legger til samme webproveniens som SQLite `0020`.
 - `0011` registrerer Norges Bank som samme nye FX-kilde som SQLite `0021`.
 - `0012` oppretter og seeder samme Bemobi-konsensushistorikk som SQLite `0022`.
 - `0013` legger til samme Life360-markedsdatalag som SQLite `0023`.
-- `0014` er en avgrenset datamigrering som setter kun Otello-resultatmeldinger som feilet lukket under `otello-financial-report-v2` tilbake til `PARSED`, slik at 1H26 kan forsøkes én gang på nytt med parser v3. Den endrer ikke databaseskjemaet.
+- `0014` er en avgrenset datamigrering som setter relevante Otello-resultatmeldinger tilbake til `PARSED` for ny parserkjøring.
+- `0015` registrerer Life360 IR/LSEG-fallbacken.
+- `0016` legger til rapporterte `Investments in other shares` og in-place backfill av Life360-rapportkurs for eksisterende produksjons-D1.
+- `0017` oppretter `life360_holding_anchors` og backfiller 31.12.2025-holdingen når eksisterende produksjons-D1 allerede har Annual Report 2025-kildedokumentet. Fersk bootstrap får holdingsraden fra den deterministiske SQLite-eksporten.
 
 SQLite og D1 skal fortsatt være strukturelt og logisk kompatible og inngår i den deterministiske paritetskontrollen.
 
@@ -38,8 +44,8 @@ Filene er ikke lenger del av aktiv kodebase, men nummerene regnes som historisk 
 
 **Neste nye migrering skal minst være:**
 
-- SQLite: `0024_...`
-- Cloudflare D1: `0015_...`
+- SQLite: `0027_...`
+- Cloudflare D1: `0018_...`
 
 ## Regel for nye migreringer
 

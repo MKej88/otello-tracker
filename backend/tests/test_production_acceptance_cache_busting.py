@@ -37,3 +37,16 @@ def test_production_acceptance_validates_bootstrap_payload() -> None:
     assert "bootstrap_economic['conservative_nav_per_share'] <= bootstrap_economic['nav_per_share']" in step
     assert "bootstrap_quotes.get('ready') is True" in step
     assert "bootstrap_meta.get('snapshot_version') == 2" in step
+
+
+def test_production_acceptance_requires_source_backed_life360_holding() -> None:
+    step = _acceptance_step()
+
+    assert "life360_details = life360.get('details') or {}" in step
+    assert "isinstance(life360_shares, int) and life360_shares >= 0" in step
+    assert "life360_details.get('holding_effective_from')" in step
+    assert "life360_details.get('holding_quality')" in step
+    assert "life360_details.get('holding_basis')" in step
+    assert "life360_details.get('holding_source_document_id')" in step
+    assert "life360_details.get('report_holding_source_document_id')" in step
+    assert "float(life360.get('amount_mnok') or 0) > 0" not in step

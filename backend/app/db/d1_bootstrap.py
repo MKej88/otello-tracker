@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0025"
+LATEST_SQLITE_MIGRATION = "0026"
 
 REFERENCE_TABLES = (
     "sources",
@@ -25,6 +25,7 @@ DATA_TABLES = (
     "market_activity",
     "fx_rates",
     "bemobi_holdings",
+    "life360_holding_anchors",
     "otello_share_counts",
     "cash_anchors",
     "other_net_assets_reported_anchors",
@@ -233,6 +234,10 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
         "bemobi_holding_latest": _latest_row(
             connection, "bemobi_holdings", "effective_from",
             ("effective_from", "effective_to", "shares", "ownership_pct"),
+        ),
+        "life360_holding_latest": _latest_row(
+            connection, "life360_holding_anchors", "effective_from",
+            ("effective_from", "effective_to", "shares", "quality", "basis", "source_document_id"),
         ),
     }
 

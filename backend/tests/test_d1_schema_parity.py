@@ -18,6 +18,7 @@ D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensu
 D1_LIFE360 = ROOT / "cloudflare" / "migrations" / "0013_life360_market_data.sql"
 D1_LIFE360_IR_LSEG = ROOT / "cloudflare" / "migrations" / "0015_life360_ir_lseg_source.sql"
 D1_OTHER_SHARES = ROOT / "cloudflare" / "migrations" / "0016_other_shares_and_life360_report_anchor.sql"
+D1_LIFE360_HOLDINGS = ROOT / "cloudflare" / "migrations" / "0017_life360_holding_anchors.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -40,6 +41,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_NORGES_BANK.read_text(encoding="utf-8"))
     connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
     connection.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+    connection.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
     return connection
 
 
@@ -254,6 +256,53 @@ def test_d1_0016_backfills_existing_production_database() -> None:
         d1.close()
 
 
+def test_d1_0017_does_not_seed_holding_on_fresh_bootstrap_target() -> None:
+    d1 = _connect_d1_pre_0016()
+    try:
+        d1.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+        d1.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
+        assert d1.execute("SELECT COUNT(*) FROM life360_holding_anchors").fetchone()[0] == 0
+    finally:
+        d1.close()
+
+
+def test_d1_0017_backfills_existing_production_holding() -> None:
+    d1 = _connect_d1_pre_0016()
+    try:
+        d1.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
+        otello_ir_id = d1.execute("SELECT id FROM sources WHERE code='OTELLO_IR'").fetchone()[0]
+        d1.execute(
+            """
+            INSERT INTO source_documents(
+                source_id, external_id, document_type, title, url
+            ) VALUES (?, 'otello-annual-2025', 'ANNUAL_REPORT',
+                      'Otello Corporation ASA - Annual Report 2025',
+                      'https://example.test/otello-annual-2025.pdf')
+            """,
+            (otello_ir_id,),
+        )
+        d1.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
+        row = d1.execute(
+            """
+            SELECT h.effective_from, h.effective_to, h.shares, h.quality, h.basis,
+                   sd.external_id, s.code AS source_code
+            FROM life360_holding_anchors h
+            JOIN source_documents sd ON sd.id=h.source_document_id
+            JOIN sources s ON s.id=sd.source_id
+            """
+        ).fetchone()
+        assert row is not None
+        assert row["effective_from"] == "2025-12-31"
+        assert row["effective_to"] is None
+        assert row["shares"] == 37_028
+        assert row["quality"] == "DERIVED_HIGH_CONFIDENCE"
+        assert row["basis"] == "DERIVED_FROM_2025_FAIR_VALUE"
+        assert row["external_id"] == "otello-annual-2025"
+        assert row["source_code"] == "OTELLO_IR"
+    finally:
+        d1.close()
+
+
 def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
     combined = "\n".join(
         path.read_text(encoding="utf-8")
@@ -268,6 +317,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_LIFE360,
             D1_LIFE360_IR_LSEG,
             D1_OTHER_SHARES,
+            D1_LIFE360_HOLDINGS,
         )
     ).upper()
 

@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from estimated_nav_history import _cash_breakdown, estimated_nav_history as _estimated_nav_history
-from life360_nav import LIFE360_COMMON_SHARES, life360_nav_adjustment
+from life360_nav import _life360_holding, life360_nav_adjustment
 from option_settlement import MILLION
 
 TOLERANCE_NOK = Decimal("1000")
@@ -15,6 +15,10 @@ ALLIANCE_VENTURE_SPRING_SHARES = 7_411_532
 
 def _decimal(value: Any) -> Decimal:
     return Decimal(str(value or "0"))
+
+
+def _format_share_count(value: Any) -> str:
+    return f"{int(value or 0):,}".replace(",", " ")
 
 
 def _item(items: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
@@ -46,6 +50,18 @@ def _state_details(state: dict[str, Any]) -> dict[str, Any]:
         "display_available": ready,
         "reason": state.get("reason"),
         "shares": state.get("shares"),
+        "anchor_shares": state.get("anchor_shares"),
+        "holding_effective_from": state.get("holding_effective_from"),
+        "holding_effective_to": state.get("holding_effective_to"),
+        "holding_quality": state.get("holding_quality"),
+        "holding_basis": state.get("holding_basis"),
+        "holding_source_document_id": state.get("holding_source_document_id"),
+        "holding_source_locator": state.get("holding_source_locator"),
+        "anchor_holding_effective_from": state.get("anchor_holding_effective_from"),
+        "anchor_holding_effective_to": state.get("anchor_holding_effective_to"),
+        "anchor_holding_quality": state.get("anchor_holding_quality"),
+        "anchor_holding_basis": state.get("anchor_holding_basis"),
+        "anchor_holding_source_document_id": state.get("anchor_holding_source_document_id"),
         "price_usd": None if state.get("price") is None else float(_decimal(state.get("price"))),
         "price_date": state.get("price_date"),
         "price_source": state.get("price_source"),
@@ -160,10 +176,18 @@ async def _report_split_state(repository, report_date: str) -> dict[str, Any]:
         """,
         (resolved_report_date, floor),
     )
+    holding = await _life360_holding(repository, resolved_report_date)
     if lif is None:
         return {
             "ready": False,
             "reason": "missing_report_date_lif_price",
+            "report_date": report_date,
+            "resolved_report_anchor_date": resolved_report_date,
+        }
+    if holding is None:
+        return {
+            "ready": False,
+            "reason": "missing_report_date_life360_holding",
             "report_date": report_date,
             "resolved_report_anchor_date": resolved_report_date,
         }
@@ -172,7 +196,8 @@ async def _report_split_state(repository, report_date: str) -> dict[str, Any]:
     base_ex_option_usd = _decimal(ona.get("base_other_net_assets_ex_option_reported"))
     other_shares_usd = _decimal(ona.get("other_shares_investment_reported"))
     life360_price_usd = _decimal(lif.get("price"))
-    life360_report_usd = Decimal(LIFE360_COMMON_SHARES) * life360_price_usd
+    life360_report_shares = int(holding.get("shares") or 0)
+    life360_report_usd = Decimal(life360_report_shares) * life360_price_usd
     alliance_report_usd = other_shares_usd - life360_report_usd
     residual_report_usd = base_ex_option_usd - other_shares_usd
     if report_fx <= 0:
@@ -201,6 +226,13 @@ async def _report_split_state(repository, report_date: str) -> dict[str, Any]:
         "report_usd_nok": report_fx,
         "base_other_net_assets_ex_option_usd": base_ex_option_usd,
         "other_shares_investment_usd": other_shares_usd,
+        "life360_report_shares": life360_report_shares,
+        "life360_holding_effective_from": str(holding.get("effective_from") or ""),
+        "life360_holding_effective_to": holding.get("effective_to"),
+        "life360_holding_quality": str(holding.get("quality") or ""),
+        "life360_holding_basis": str(holding.get("basis") or ""),
+        "life360_holding_source_document_id": holding.get("source_document_id"),
+        "life360_holding_source_locator": holding.get("source_locator"),
         "life360_report_price_usd": life360_price_usd,
         "life360_report_price_date": str(lif.get("trading_date") or ""),
         "life360_report_price_source": str(lif.get("source_code") or ""),
@@ -238,6 +270,15 @@ async def _split_current_composition(
     report = await _report_split_state(repository, cash_report_date)
     if not report.get("ready"):
         point["composition_split_status"] = report
+        return False
+
+    state_reason = str(life360_state.get("reason") or "")
+    if "life360_holding" in state_reason:
+        point["composition_split_status"] = {
+            "ready": False,
+            "reason": state_reason,
+            "current_date": current_date,
+        }
         return False
 
     investment_report_date = str(report["resolved_report_anchor_date"])
@@ -295,12 +336,17 @@ async def _split_current_composition(
             return False
         life360_nok = _decimal(life360_state.get("market_value_nok"))
         life360_label = "Life360 mark-to-market"
-        life360_formula = "37 028 LIF-aksjer × siste LIF-kurs × USD/NOK"
+        life360_formula = (
+            f"{_format_share_count(life360_state.get('shares'))} LIF-aksjer × siste LIF-kurs × USD/NOK"
+        )
         state_details["display_basis"] = "CURRENT_MARKET_VALUE"
     else:
         life360_nok = _decimal(report["life360_report_nok"])
         life360_label = "Life360 – siste rapportverdi"
-        life360_formula = "37 028 LIF-aksjer × LIF-kurs på rapportdato × rapportdatoens USD/NOK"
+        life360_formula = (
+            f"{_format_share_count(report['life360_report_shares'])} LIF-aksjer × "
+            "LIF-kurs på rapportdato × rapportdatoens USD/NOK"
+        )
         state_details.update(
             {
                 "active": False,
@@ -415,6 +461,9 @@ async def _split_current_composition(
                 "report_value_usd": float(_decimal(report["alliance_report_usd"])),
                 "report_usd_nok": float(_decimal(report["report_usd_nok"])),
                 "other_shares_investment_usd": float(_decimal(report["other_shares_investment_usd"])),
+                "life360_report_shares": report["life360_report_shares"],
+                "life360_holding_effective_from": report["life360_holding_effective_from"],
+                "life360_holding_source_document_id": report["life360_holding_source_document_id"],
                 "derivation": "REPORTED_OTHER_SHARES_MINUS_REPORT_DATE_LIFE360_VALUE",
                 "display_policy": "FIXED_AT_LAST_REPORT",
                 "source_document_id": report.get("source_document_id"),
@@ -448,6 +497,13 @@ async def _split_current_composition(
                 {
                     **state_details,
                     "report_date": investment_report_date,
+                    "report_shares": report["life360_report_shares"],
+                    "report_holding_effective_from": report["life360_holding_effective_from"],
+                    "report_holding_effective_to": report["life360_holding_effective_to"],
+                    "report_holding_quality": report["life360_holding_quality"],
+                    "report_holding_basis": report["life360_holding_basis"],
+                    "report_holding_source_document_id": report["life360_holding_source_document_id"],
+                    "report_holding_source_locator": report["life360_holding_source_locator"],
                     "report_value_mnok": float(_decimal(report["life360_report_nok"]) / MILLION),
                 },
             ),

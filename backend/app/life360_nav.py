@@ -6,7 +6,6 @@ from typing import Any
 
 from app.db.connection import get_connection
 
-LIFE360_COMMON_SHARES = 37_028
 LIFE360_FAIR_VALUE_POLICY_START = "2025-12-31"
 LIFE360_HISTORY_START = "2019-05-10"
 MAX_MARKET_LOOKBACK_DAYS = 7
@@ -72,6 +71,22 @@ def _report_anchor_date(connection, as_of_date: str) -> str | None:
     return None if row is None else str(row["as_of_date"])
 
 
+def _life360_holding(connection, as_of_date: str) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT id, effective_from, effective_to, shares, quality, basis,
+               source_document_id, source_locator, notes
+        FROM life360_holding_anchors
+        WHERE effective_from <= ?
+          AND (effective_to IS NULL OR effective_to >= ?)
+        ORDER BY effective_from DESC, id DESC
+        LIMIT 1
+        """,
+        (as_of_date, as_of_date),
+    ).fetchone()
+    return None if row is None else dict(row)
+
+
 def life360_nav_adjustment(
     *,
     as_of_date: str,
@@ -83,7 +98,7 @@ def life360_nav_adjustment(
             "ready": False,
             "reason": "life360_fair_value_policy_not_active",
             "as_of_date": as_of_date,
-            "shares": LIFE360_COMMON_SHARES,
+            "shares": None,
             "history_available_from": LIFE360_HISTORY_START,
             "adjustment_nok": Decimal("0"),
         }
@@ -95,16 +110,28 @@ def life360_nav_adjustment(
                 "ready": False,
                 "reason": "missing_life360_report_anchor",
                 "as_of_date": as_of_date,
-                "shares": LIFE360_COMMON_SHARES,
+                "shares": None,
                 "history_available_from": LIFE360_HISTORY_START,
                 "adjustment_nok": Decimal("0"),
             }
+        current_holding = _life360_holding(connection, as_of_date)
+        anchor_holding = _life360_holding(connection, anchor_date)
         current_price = _lif_price(connection, as_of_date)
         anchor_price = _lif_price(connection, anchor_date)
         usd_nok = _usd_nok(connection, as_of_date)
 
-    if current_price is None or anchor_price is None or usd_nok is None:
+    if (
+        current_holding is None
+        or anchor_holding is None
+        or current_price is None
+        or anchor_price is None
+        or usd_nok is None
+    ):
         missing = []
+        if current_holding is None:
+            missing.append("current_life360_holding")
+        if anchor_holding is None:
+            missing.append("anchor_life360_holding")
         if current_price is None:
             missing.append("current_lif_price")
         if anchor_price is None:
@@ -116,29 +143,46 @@ def life360_nav_adjustment(
             "reason": "missing_" + "_and_".join(missing),
             "as_of_date": as_of_date,
             "anchor_date": anchor_date,
-            "shares": LIFE360_COMMON_SHARES,
+            "shares": None if current_holding is None else int(current_holding["shares"]),
+            "anchor_shares": None if anchor_holding is None else int(anchor_holding["shares"]),
             "history_available_from": LIFE360_HISTORY_START,
             "adjustment_nok": Decimal("0"),
         }
 
-    shares = Decimal(LIFE360_COMMON_SHARES)
+    current_share_count = int(current_holding["shares"])
+    anchor_share_count = int(anchor_holding["shares"])
+    current_shares = Decimal(current_share_count)
+    anchor_shares = Decimal(anchor_share_count)
     current_price_usd = Decimal(str(current_price["price"]))
     anchor_price_usd = Decimal(str(anchor_price["price"]))
     fx = Decimal(str(usd_nok["rate"]))
-    current_value_usd = shares * current_price_usd
-    embedded_value_usd = shares * anchor_price_usd
+    current_value_usd = current_shares * current_price_usd
+    embedded_value_usd = anchor_shares * anchor_price_usd
     current_value_nok = current_value_usd * fx
     embedded_value_nok = embedded_value_usd * fx
     adjustment_nok = current_value_nok - embedded_value_nok
     price_date = str(current_price["trading_date"])
     price_age_days = max(0, (date.fromisoformat(as_of_date) - date.fromisoformat(price_date)).days)
+    formatted_shares = f"{current_share_count:,}".replace(",", " ")
 
     return {
         "ready": True,
         "quality": "MARK_TO_MARKET_SECONDARY",
         "as_of_date": as_of_date,
-        "shares": LIFE360_COMMON_SHARES,
-        "holding_basis": "DERIVED_HIGH_CONFIDENCE_2025_FAIR_VALUE",
+        "shares": current_share_count,
+        "anchor_shares": anchor_share_count,
+        "holding_effective_from": str(current_holding["effective_from"]),
+        "holding_effective_to": current_holding.get("effective_to"),
+        "holding_quality": str(current_holding["quality"]),
+        "holding_basis": str(current_holding["basis"]),
+        "holding_source_document_id": current_holding.get("source_document_id"),
+        "holding_source_locator": current_holding.get("source_locator"),
+        "holding_notes": current_holding.get("notes"),
+        "anchor_holding_effective_from": str(anchor_holding["effective_from"]),
+        "anchor_holding_effective_to": anchor_holding.get("effective_to"),
+        "anchor_holding_quality": str(anchor_holding["quality"]),
+        "anchor_holding_basis": str(anchor_holding["basis"]),
+        "anchor_holding_source_document_id": anchor_holding.get("source_document_id"),
         "history_available_from": LIFE360_HISTORY_START,
         "market_symbol": "LIF",
         "currency": "USD",
@@ -165,6 +209,7 @@ def life360_nav_adjustment(
         "method": "CURRENT_LIF_MINUS_REPORTED_LIF_FAIR_VALUE_IN_CARRIED_USD_ONA",
         "note": (
             "Investor-NAV erstatter Life360-verdien som ligger inne i siste rapporterte ONA-anker "
-            "med markedsverdien av 37 028 LIF-aksjer. Regnskapsmessig FULL NAV endres ikke."
+            f"med markedsverdien av {formatted_shares} LIF-aksjer fra siste gyldige holdings-anker. "
+            "Regnskapsmessig FULL NAV endres ikke."
         ),
     }

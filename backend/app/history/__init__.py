@@ -12,6 +12,10 @@ from app.history.economic_nav_inputs import (
     load_economic_nav_inputs_manifest,
     seed_economic_nav_inputs,
 )
+from app.history.life360_holdings import (
+    load_life360_holdings_manifest,
+    seed_life360_holdings,
+)
 from app.history.option_program import load_option_program_manifest
 from app.history.other_net_assets import (
     load_other_net_assets_manifest,
@@ -42,6 +46,7 @@ def curated_seed_fingerprint() -> str:
         "share_capital_2022": load_2022_share_capital_corrections(),
         "share_capital_2025": load_2025_share_capital_corrections(),
         "other_net_assets": load_other_net_assets_manifest(),
+        "life360_holdings": load_life360_holdings_manifest(),
         "option_program": load_option_program_manifest(),
         "economic_nav_inputs": load_economic_nav_inputs_manifest(),
     }
@@ -60,6 +65,7 @@ def seed_curated_history(database_path: str | None = None) -> dict:
     capital_2022 = seed_2022_share_capital_anchors(database_path)
     capital_2025 = seed_2025_share_capital_anchors(database_path)
     other_net_assets = seed_other_net_assets_reported(database_path)
+    life360_holdings = seed_life360_holdings(database_path)
     economic_nav_inputs = seed_economic_nav_inputs(database_path)
     result["manifest_version"] = capital_2022["manifest_version"]
     result["share_capital_corrections"] = {
@@ -67,6 +73,7 @@ def seed_curated_history(database_path: str | None = None) -> dict:
         "2025": capital_2025,
     }
     result["other_net_assets"] = other_net_assets
+    result["life360_holdings"] = life360_holdings
     result["economic_nav_inputs"] = economic_nav_inputs
     result["option_program_version"] = load_option_program_manifest()["version"]
     set_runtime_state(_CURATED_STATE_KEY, curated_seed_fingerprint(), database_path)
@@ -94,6 +101,7 @@ def history_status(database_path: str | None = None) -> dict:
     corrections_2025 = load_2025_share_capital_corrections()
     rows = [*corrections_2022["share_counts"], *corrections_2025["share_counts"]]
     ona_manifest = load_other_net_assets_manifest()
+    life360_manifest = load_life360_holdings_manifest()
     option_manifest = load_option_program_manifest()
     economic_manifest = load_economic_nav_inputs_manifest()
     result["manifest_version"] = corrections_2022["version"]
@@ -107,6 +115,13 @@ def history_status(database_path: str | None = None) -> dict:
         "from": ona_manifest["anchors"][0]["as_of_date"],
         "to": ona_manifest["anchors"][-1]["as_of_date"],
         "known_gaps": ona_manifest.get("known_gaps", []),
+    }
+    result["life360_holdings"] = {
+        "version": life360_manifest["version"],
+        "anchors": len(life360_manifest["holdings"]),
+        "latest_effective_from": life360_manifest["holdings"][-1]["effective_from"],
+        "latest_shares": life360_manifest["holdings"][-1]["shares"],
+        "latest_quality": life360_manifest["holdings"][-1]["quality"],
     }
     result["option_program"] = {
         "version": option_manifest["version"],
