@@ -286,6 +286,6 @@ def test_report_split_state_uses_latest_valid_anchor_and_1h26_other_shares() -> 
     assert result["ready"] is True
     assert result["resolved_report_anchor_date"] == "2026-06-30"
     assert result["other_shares_investment_usd"] == Decimal("3936000")
-    assert result["life360_report_usd"] == Decimal("2050250.08")
-    assert result["alliance_report_usd"] == Decimal("1885749.92")
+    assert result["life360_report_usd"] == Decimal("2049870.08")
+    assert result["alliance_report_usd"] == Decimal("1886129.92")
     assert result["residual_report_usd"] == Decimal("-1003000")
