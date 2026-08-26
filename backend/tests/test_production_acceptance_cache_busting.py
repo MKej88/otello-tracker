@@ -27,6 +27,18 @@ def test_production_acceptance_uses_unique_cache_buster_for_worker_api() -> None
     assert '"$base/api/dashboard/history?days=365&max_points=300&${q}"' in step
 
 
+def test_production_acceptance_waits_for_exact_worker_revision() -> None:
+    step = _acceptance_step()
+
+    assert "revision_ready=0" in step
+    assert "for attempt in $(seq 1 60)" in step
+    assert "revision_probe=${attempt}" in step
+    assert "payload.get('revision') or ''" in step
+    assert 'if [ "$active_revision" = "$EXPECTED_SHA" ]' in step
+    assert "Custom domain did not serve expected Worker revision" in step
+    assert "health.get('revision') == os.environ['EXPECTED_SHA']" in step
+
+
 def test_production_acceptance_validates_bootstrap_payload() -> None:
     step = _acceptance_step()
 
