@@ -19,7 +19,7 @@ CREATE INDEX idx_life360_holding_effective
     ON life360_holding_anchors(effective_from, effective_to);
 
 -- Existing production D1 already has the curated Annual Report 2025 source document.
--- Fresh bootstrap targets do not; their canonical row is imported from SQLite later.
+-- Fresh bootstrap targets do not; their canonical row and provenance are imported from SQLite later.
 INSERT OR IGNORE INTO life360_holding_anchors(
     effective_from, effective_to, shares, quality, basis,
     source_document_id, source_locator, notes
@@ -39,3 +39,29 @@ WHERE s.code='OTELLO_IR'
   AND sd.external_id='otello-annual-2025'
 ORDER BY sd.id DESC
 LIMIT 1;
+
+INSERT INTO provenance_records(
+    entity_table, entity_id, field_name, source_document_id,
+    source_locator, extraction_method, confidence, extracted_value
+)
+SELECT
+    'life360_holding_anchors',
+    h.id,
+    'shares',
+    h.source_document_id,
+    h.source_locator,
+    'CALCULATED',
+    'HIGH',
+    CAST(h.shares AS TEXT)
+FROM life360_holding_anchors h
+WHERE h.effective_from='2025-12-31'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM provenance_records p
+      WHERE p.entity_table='life360_holding_anchors'
+        AND p.entity_id=h.id
+        AND p.field_name='shares'
+        AND p.source_document_id=h.source_document_id
+        AND COALESCE(p.source_locator, '')=COALESCE(h.source_locator, '')
+        AND COALESCE(p.extracted_value, '')=CAST(h.shares AS TEXT)
+  );
