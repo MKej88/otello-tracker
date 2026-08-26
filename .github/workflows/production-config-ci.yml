@@ -48,6 +48,7 @@ jobs:
           CLOUDFLARE_PUBLIC_URL: https://nav.example.com
           CLOUDFLARE_STATUS_EMAIL_TO: owner@example.net
           CLOUDFLARE_STATUS_EMAIL_FROM: status@nav.example.com
+          OTELLO_DEPLOYMENT_REVISION: 0123456789abcdef0123456789abcdef01234567
         run: python cloudflare/tools/render_production_config.py
 
       - name: Validate rendered fields and cost guards
@@ -88,6 +89,7 @@ jobs:
           assert config['vars']['STATUS_EMAIL_TO'] == 'owner@example.net'
           assert config['vars']['STATUS_EMAIL_FROM'] == 'status@nav.example.com'
           assert config['vars']['PUBLIC_URL'] == 'https://nav.example.com'
+          assert config['vars']['DEPLOYMENT_REVISION'] == '0123456789abcdef0123456789abcdef01234567'
           PY
 
       - name: Dry-run production Python Worker bundle
