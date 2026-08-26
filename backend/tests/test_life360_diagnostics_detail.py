@@ -56,13 +56,13 @@ def test_lif_failure_preserves_yahoo_and_ir_lseg_details(monkeypatch) -> None:
     )
 
     assert result["status"] == "error"
-    error = result["series"]["LIF"]["error"]
-    assert "query1.finance.yahoo.com" in error
-    assert "HTTP 429" in error
-    assert "query2.finance.yahoo.com" in error
-    assert "HTTP 503" in error
-    assert "Life360 IR/LSEG fallback" in error
-    assert "HTTP 403" in error
+    assert result["series"]["LIF"]["error"] == (
+        "Life360 LIF kunne ikke oppdateres. Yahoo Finance: "
+        "Yahoo Finance chart feilet på alle endepunkter: "
+        "query1.finance.yahoo.com: Yahoo Finance feilet med HTTP 429; "
+        "query2.finance.yahoo.com: Yahoo Finance feilet med HTTP 503; "
+        "Life360 IR/LSEG fallback: RuntimeError: Life360 IR feilet med HTTP 403"
+    )
     assert result["last_good_lif"] == {
         "trading_date": "2026-08-24",
         "observed_at": "2026-08-24T20:00:00Z",
@@ -102,11 +102,9 @@ def test_source_health_detail_exposes_lif_failure_and_last_good_price() -> None:
         {"life360": "DOWN"},
     )
 
-    assert detail is not None
-    assert "LIF:" in detail
-    assert "query1.finance.yahoo.com" in detail
-    assert "query2.finance.yahoo.com" in detail
-    assert "Life360 IR/LSEG fallback" in detail
-    assert "Siste gode LIF-kurs: 45.25 USD" in detail
-    assert "2026-08-24" in detail
-    assert "YAHOO_FINANCE" in detail
+    assert detail == (
+        "LIF: Life360 LIF kunne ikke oppdateres. Yahoo Finance: "
+        "query1.finance.yahoo.com HTTP 429; query2.finance.yahoo.com HTTP 503; "
+        "Life360 IR/LSEG fallback: RuntimeError: HTTP 403; "
+        "Siste gode LIF-kurs: 45.25 USD (2026-08-24, YAHOO_FINANCE)"
+    )
