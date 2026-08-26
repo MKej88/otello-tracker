@@ -26,6 +26,7 @@ D1_NORGES_BANK = ROOT / "cloudflare" / "migrations" / "0011_norges_bank_fx_sourc
 D1_BEMOBI_CONSENSUS = ROOT / "cloudflare" / "migrations" / "0012_bemobi_consensus_history.sql"
 D1_LIFE360 = ROOT / "cloudflare" / "migrations" / "0013_life360_market_data.sql"
 D1_LIFE360_IR_LSEG = ROOT / "cloudflare" / "migrations" / "0015_life360_ir_lseg_source.sql"
+D1_OTHER_SHARES = ROOT / "cloudflare" / "migrations" / "0016_other_shares_and_life360_report_anchor.sql"
 D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
@@ -56,6 +57,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
         connection.executescript(D1_LIFE360.read_text(encoding="utf-8"))
         connection.executescript(D1_LIFE360_IR_LSEG.read_text(encoding="utf-8"))
+        connection.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
