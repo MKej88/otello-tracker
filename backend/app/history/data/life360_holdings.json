@@ -1,0 +1,25 @@
+{
+  "version": "2026-08-26.1",
+  "documents": [
+    {
+      "key": "otello_ar25",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2025",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2025",
+      "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf"
+    }
+  ],
+  "holdings": [
+    {
+      "effective_from": "2025-12-31",
+      "effective_to": null,
+      "shares": 37028,
+      "quality": "DERIVED_HIGH_CONFIDENCE",
+      "basis": "DERIVED_FROM_2025_FAIR_VALUE",
+      "source_key": "otello_ar25",
+      "source_locator": "Annual Report 2025, Note 4 / investments in other shares; share count derived from disclosed fair value and contemporaneous Life360 market value",
+      "notes": "37,028 common shares is a high-confidence derived holding, not an explicitly reported shareholder-register count. Replace or close this anchor when a newer source-backed holding becomes available."
+    }
+  ]
+}
