@@ -71,7 +71,15 @@ async def health(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=503, detail="D1 unavailable") from exc
     if row is None or int(row.get("ok", 0)) != 1:
         raise HTTPException(status_code=503, detail="D1 unavailable")
-    return {"status": "ok", "service": "otello-api", "environment": "cloudflare", "version": API_VERSION}
+    env = request.scope.get("env")
+    revision = str(getattr(env, "DEPLOYMENT_REVISION", "") or "local")
+    return {
+        "status": "ok",
+        "service": "otello-api",
+        "environment": "cloudflare",
+        "version": API_VERSION,
+        "revision": revision,
+    }
 
 
 @app.get("/api/dashboard/bootstrap")

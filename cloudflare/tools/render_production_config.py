@@ -30,6 +30,7 @@ def render_config(
     status_email_to: str | None = None,
     status_email_from: str | None = None,
     public_url: str | None = None,
+    deployment_revision: str | None = None,
 ) -> dict[str, Any]:
     config = json.loads(json.dumps(base))
     config["name"] = _required(worker_name, "worker_name")
@@ -92,6 +93,11 @@ def render_config(
         config["workers_dev"] = True
         config.pop("routes", None)
 
+    variables = config.setdefault("vars", {})
+    clean_revision = (deployment_revision or "").strip()
+    if clean_revision:
+        variables["DEPLOYMENT_REVISION"] = clean_revision
+
     email_to = (status_email_to or "").strip()
     email_from = (status_email_from or "").strip()
     if bool(email_to) != bool(email_from):
@@ -100,6 +106,8 @@ def render_config(
         raise ValueError(
             "status_email_to og status_email_from er påkrevd for produksjon med custom_domain"
         )
+    if domain and not clean_revision:
+        raise ValueError("deployment_revision er påkrevd for produksjon med custom_domain")
 
     if email_to:
         config["send_email"] = [
@@ -109,7 +117,6 @@ def render_config(
                 "allowed_sender_addresses": [email_from],
             }
         ]
-        variables = config.setdefault("vars", {})
         variables["STATUS_EMAIL_TO"] = email_to
         variables["STATUS_EMAIL_FROM"] = email_from
         clean_public_url = (public_url or "").strip().rstrip("/")
@@ -133,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--status-email-to", default=os.getenv("CLOUDFLARE_STATUS_EMAIL_TO"))
     parser.add_argument("--status-email-from", default=os.getenv("CLOUDFLARE_STATUS_EMAIL_FROM"))
     parser.add_argument("--public-url", default=os.getenv("CLOUDFLARE_PUBLIC_URL"))
+    parser.add_argument("--deployment-revision", default=os.getenv("OTELLO_DEPLOYMENT_REVISION"))
     return parser
 
 
@@ -149,6 +157,7 @@ def main() -> None:
         status_email_to=args.status_email_to,
         status_email_from=args.status_email_from,
         public_url=args.public_url,
+        deployment_revision=args.deployment_revision,
     )
     output = Path(args.output)
     output.write_text(json.dumps(rendered, indent=2) + "\n", encoding="utf-8")

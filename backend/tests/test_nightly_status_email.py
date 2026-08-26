@@ -34,6 +34,7 @@ def _render(**overrides) -> dict:
         "status_email_to": "owner@example.net",
         "status_email_from": "status@nav.example.com",
         "public_url": "https://nav.example.com/",
+        "deployment_revision": "0123456789abcdef0123456789abcdef01234567",
     }
     values.update(overrides)
     return render_config(_base_config(), **values)
@@ -110,6 +111,7 @@ def test_production_email_binding_is_required_and_restricted() -> None:
     assert config["vars"]["STATUS_EMAIL_TO"] == "owner@example.net"
     assert config["vars"]["STATUS_EMAIL_FROM"] == "status@nav.example.com"
     assert config["vars"]["PUBLIC_URL"] == "https://nav.example.com"
+    assert config["vars"]["DEPLOYMENT_REVISION"] == "0123456789abcdef0123456789abcdef01234567"
 
 
 def test_worker_dev_config_can_still_omit_status_email() -> None:
@@ -118,6 +120,7 @@ def test_worker_dev_config_can_still_omit_status_email() -> None:
         status_email_to=None,
         status_email_from=None,
         public_url=None,
+        deployment_revision=None,
     )
     assert config["workers_dev"] is True
     assert "send_email" not in config

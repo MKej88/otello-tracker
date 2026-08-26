@@ -19,6 +19,8 @@ def test_auto_deploy_is_called_only_after_complete_main_ci_and_uses_tested_sha()
     assert "inputs.tested_sha == github.sha" in deploy
     assert "ref: ${{ inputs.tested_sha || github.sha }}" in deploy
     assert "EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}" in deploy
+    assert "OTELLO_DEPLOYMENT_REVISION: ${{ inputs.tested_sha || github.sha }}" in deploy
+    assert "variables['DEPLOYMENT_REVISION'] == os.environ['OTELLO_DEPLOYMENT_REVISION']" in deploy
     assert "git rev-parse HEAD" in deploy
 
     assert "  deploy-production:" in ci
