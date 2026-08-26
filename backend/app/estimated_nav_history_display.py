@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from app.estimated_nav_history import estimated_nav_history as _estimated_nav_history
-from app.life360_nav import life360_nav_adjustment
+from app.db.connection import get_connection
+from app.estimated_nav_history import _cash_breakdown, estimated_nav_history as _estimated_nav_history
+from app.life360_nav import LIFE360_COMMON_SHARES, life360_nav_adjustment
 from app.option_settlement import MILLION
 
 TOLERANCE_NOK = Decimal("1000")
+ALLIANCE_VENTURE_SPRING_SHARES = 7_411_532
 
 
 def _decimal(value: Any) -> Decimal:
@@ -17,6 +20,24 @@ def _decimal(value: Any) -> Decimal:
 
 def _item(items: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
     return next((item for item in items if str(item.get("key")) == key), None)
+
+
+def _component(
+    key: str,
+    label: str,
+    amount_nok: Decimal,
+    shares: int,
+    formula: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "amount_mnok": float(amount_nok / MILLION),
+        "per_share_nok": float(amount_nok / Decimal(shares)),
+        "formula": formula,
+        "details": details or {},
+    }
 
 
 def _state_details(state: dict[str, Any]) -> dict[str, Any]:
@@ -41,61 +62,310 @@ def _state_details(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _enrich_current(point: dict[str, Any], state: dict[str, Any]) -> None:
+def _report_split_state(database_path: str | None, report_date: str) -> dict[str, Any]:
+    """Load the last report values needed for a source-backed presentation split.
+
+    Otello reports Life360 and Alliance Venture Spring inside the balance-sheet residual that
+    feeds base ONA. Alliance is not disclosed as a separate fair-value amount, so its report
+    value is derived conservatively as reported base ONA ex option minus the report-date
+    market value of the known 37,028 Life360 shares. The resulting NOK amount is frozen at
+    the report-date USD/NOK rate until a new report anchor is available.
+    """
+    if not report_date:
+        return {"ready": False, "reason": "missing_report_date"}
+    floor = (date.fromisoformat(report_date) - timedelta(days=7)).isoformat()
+    with get_connection(database_path) as connection:
+        cash = connection.execute(
+            """
+            SELECT id, as_of_date, amount_nok, reported_amount, reported_currency,
+                   fx_rate_to_nok, source_document_id
+            FROM cash_anchors
+            WHERE anchor_type='REPORTED' AND as_of_date=?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (report_date,),
+        ).fetchone()
+        ona = connection.execute(
+            """
+            SELECT r.id AS reported_anchor_id, r.as_of_date,
+                   r.base_other_net_assets_ex_option_reported,
+                   r.source_document_id, n.fx_rate_to_nok
+            FROM other_net_assets_reported_anchors r
+            JOIN other_net_assets_anchors n ON n.reported_anchor_id=r.id
+            WHERE r.as_of_date=?
+            ORDER BY r.id DESC, n.id DESC LIMIT 1
+            """,
+            (report_date,),
+        ).fetchone()
+        lif = connection.execute(
+            """
+            SELECT mp.trading_date, mp.price, mp.quality, s.code AS source_code
+            FROM market_prices mp
+            JOIN instruments i ON i.id=mp.instrument_id
+            JOIN sources s ON s.id=mp.source_id
+            WHERE i.symbol='LIF' AND mp.currency='USD'
+              AND mp.price_type IN ('CLOSE','LAST')
+              AND mp.trading_date<=? AND mp.trading_date>=?
+            ORDER BY mp.trading_date DESC,
+                     CASE s.code WHEN 'YAHOO_FINANCE' THEN 0 WHEN 'LIFE360_IR_LSEG' THEN 1 ELSE 5 END,
+                     CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
+                     mp.observed_at DESC, mp.id DESC
+            LIMIT 1
+            """,
+            (report_date, floor),
+        ).fetchone()
+
+    if cash is None:
+        return {"ready": False, "reason": "missing_reported_cash_anchor", "report_date": report_date}
+    if ona is None:
+        return {"ready": False, "reason": "missing_reported_ona_anchor", "report_date": report_date}
+    if lif is None:
+        return {"ready": False, "reason": "missing_report_date_lif_price", "report_date": report_date}
+
+    report_fx = _decimal(ona["fx_rate_to_nok"])
+    combined_usd = _decimal(ona["base_other_net_assets_ex_option_reported"])
+    life360_price_usd = _decimal(lif["price"])
+    life360_report_usd = Decimal(LIFE360_COMMON_SHARES) * life360_price_usd
+    alliance_report_usd = combined_usd - life360_report_usd
+    if report_fx <= 0:
+        return {"ready": False, "reason": "invalid_report_usd_nok", "report_date": report_date}
+    if alliance_report_usd < 0:
+        return {
+            "ready": False,
+            "reason": "alliance_report_residual_negative",
+            "report_date": report_date,
+            "combined_usd": str(combined_usd),
+            "life360_report_usd": str(life360_report_usd),
+        }
+
+    return {
+        "ready": True,
+        "report_date": report_date,
+        "source_document_id": ona["source_document_id"],
+        "cash_source_document_id": cash["source_document_id"],
+        "reported_cash_nok": _decimal(cash["amount_nok"]),
+        "reported_cash_original": _decimal(cash["reported_amount"]),
+        "reported_cash_currency": cash["reported_currency"],
+        "report_usd_nok": report_fx,
+        "combined_other_shares_usd": combined_usd,
+        "life360_report_price_usd": life360_price_usd,
+        "life360_report_price_date": str(lif["trading_date"]),
+        "life360_report_price_source": str(lif["source_code"]),
+        "life360_report_usd": life360_report_usd,
+        "life360_report_nok": life360_report_usd * report_fx,
+        "alliance_report_usd": alliance_report_usd,
+        "alliance_report_nok": alliance_report_usd * report_fx,
+    }
+
+
+def _split_current_composition(
+    database_path: str | None,
+    point: dict[str, Any],
+    life360_state: dict[str, Any],
+) -> bool:
     composition = point.get("composition") or []
     if not isinstance(composition, list):
-        return
-    life360 = _item(composition, "life360")
+        return False
+    cash = _item(composition, "cash")
     ona = _item(composition, "ona")
-    if life360 is None or ona is None:
-        return
-
-    details = _state_details(state)
-    life360["details"] = {**(life360.get("details") or {}), **details}
-    if not state.get("ready"):
-        life360["formula"] = "Life360-verdi er ikke tilgjengelig med gyldig markeds- og rapportgrunnlag"
-        return
-
-    market_nok = _decimal(state.get("market_value_nok"))
-    embedded_nok = _decimal(state.get("embedded_value_nok"))
-    adjustment_nok = _decimal(state.get("adjustment_nok"))
-    old_life360_nok = _decimal(life360.get("amount_mnok")) * MILLION
-    if abs(old_life360_nok - adjustment_nok) > TOLERANCE_NOK:
-        life360["details"] = {
-            **life360["details"],
-            "active": False,
-            "display_available": False,
-            "reason": "life360_adjustment_does_not_reconcile",
-        }
-        return
+    life360 = _item(composition, "life360")
+    bemobi = _item(composition, "bemobi")
+    options = _item(composition, "options")
+    if any(item is None for item in (cash, ona, life360, bemobi, options)):
+        return False
 
     shares = int(point.get("shares_outstanding") or 0)
     if shares <= 0:
-        life360["details"] = {
-            **life360["details"],
-            "active": False,
-            "display_available": False,
-            "reason": "invalid_share_count",
-        }
-        return
+        return False
+    current_date = str(point.get("date") or "")
+    cash_details = dict(cash.get("details") or {})
+    report_date = str(cash_details.get("cash_anchor_date") or "")
+    report = _report_split_state(database_path, report_date)
+    if not report.get("ready"):
+        point["composition_split_status"] = report
+        return False
+
+    modeled_cash_nok = _decimal(cash_details.get("reported_cash_mnok")) * MILLION
+    cash_fx_nok = _decimal(cash_details.get("cash_fx_adjustment_mnok")) * MILLION
+    operating_cost_nok = _decimal(cash_details.get("operating_cost_mnok")) * MILLION
+    old_cash_nok = _decimal(cash.get("amount_mnok")) * MILLION
+    if abs(old_cash_nok - (modeled_cash_nok + cash_fx_nok - operating_cost_nok)) > TOLERANCE_NOK:
+        point["composition_split_status"] = {"ready": False, "reason": "cash_split_does_not_reconcile"}
+        return False
+
+    with get_connection(database_path) as connection:
+        cash_movements = _cash_breakdown(
+            connection,
+            start_date=report_date,
+            current_date=current_date,
+        )
+    buyback_nok = _decimal(cash_movements.get("buyback_cash_nok"))
+    reported_cash_nok = _decimal(report["reported_cash_nok"])
+    other_cash_nok = modeled_cash_nok - reported_cash_nok - buyback_nok
 
     old_ona_nok = _decimal(ona.get("amount_mnok")) * MILLION
-    ona_nok = old_ona_nok - embedded_nok
-    ona["amount_mnok"] = float(ona_nok / MILLION)
-    ona["per_share_nok"] = float(ona_nok / Decimal(shares))
-    ona["formula"] = (
-        "Regnskapsmessig ONA + regnskapsført opsjonsforpliktelse − "
-        "Life360-verdi innebygd i siste rapporterte ONA"
-    )
-    ona["details"] = {
-        **(ona.get("details") or {}),
-        "life360_embedded_removed_mnok": float(embedded_nok / MILLION),
-        "life360_anchor_date": state.get("anchor_date"),
-    }
+    old_life360_adjustment_nok = _decimal(life360.get("amount_mnok")) * MILLION
+    alliance_report_nok = _decimal(report["alliance_report_nok"])
 
-    life360["amount_mnok"] = float(market_nok / MILLION)
-    life360["per_share_nok"] = float(market_nok / Decimal(shares))
-    life360["formula"] = "37 028 LIF-aksjer × siste LIF-kurs × USD/NOK"
+    state_details = _state_details(life360_state)
+    if life360_state.get("ready"):
+        expected_adjustment = _decimal(life360_state.get("adjustment_nok"))
+        if abs(old_life360_adjustment_nok - expected_adjustment) > TOLERANCE_NOK:
+            point["composition_split_status"] = {
+                "ready": False,
+                "reason": "life360_adjustment_does_not_reconcile",
+            }
+            return False
+        life360_nok = _decimal(life360_state.get("market_value_nok"))
+        life360_label = "Life360 mark-to-market"
+        life360_formula = "37 028 LIF-aksjer × siste LIF-kurs × USD/NOK"
+        state_details["display_basis"] = "CURRENT_MARKET_VALUE"
+    else:
+        # A source-backed report value is preferable to presenting a false zero when the
+        # current LIF quote is temporarily unavailable. It does not pretend to be current.
+        life360_nok = _decimal(report["life360_report_nok"])
+        life360_label = "Life360 – siste rapportverdi"
+        life360_formula = "37 028 LIF-aksjer × LIF-kurs på rapportdato × rapportdatoens USD/NOK"
+        state_details.update(
+            {
+                "active": False,
+                "display_available": True,
+                "mark_to_market_available": False,
+                "display_basis": "LAST_REPORTED_VALUE_FALLBACK",
+                "report_date": report_date,
+                "report_value_mnok": float(life360_nok / MILLION),
+                "report_price_usd": float(_decimal(report["life360_report_price_usd"])),
+                "report_price_date": report["life360_report_price_date"],
+                "report_price_source": report["life360_report_price_source"],
+            }
+        )
+
+    # The accounting ONA path carries the report residual in USD and therefore revalues it
+    # with USD/NOK. Alliance itself is shown frozen at the report-date NOK value; the
+    # difference is surfaced explicitly as currency effect instead of being hidden in ONA.
+    ona_and_life_nok = old_ona_nok + old_life360_adjustment_nok
+    ona_currency_effect_nok = ona_and_life_nok - alliance_report_nok - life360_nok
+    currency_effect_nok = cash_fx_nok + ona_currency_effect_nok
+
+    new_components: list[dict[str, Any]] = [dict(bemobi)]
+    new_components.extend(
+        [
+            _component(
+                "reported_cash",
+                "Kontantbeholdning",
+                reported_cash_nok,
+                shares,
+                f"Siste rapporterte kontantbeholdning ({report_date})",
+                {
+                    "report_date": report_date,
+                    "source_document_id": report.get("cash_source_document_id"),
+                    "reported_currency": report.get("reported_cash_currency"),
+                    "reported_amount": float(_decimal(report.get("reported_cash_original"))),
+                    "display_policy": "FIXED_AT_LAST_REPORT",
+                },
+            ),
+            _component(
+                "operating_cost_since_report",
+                "Estimert drift siden siste rapport",
+                -operating_cost_nok,
+                shares,
+                f"Estimert løpende drift fra {report_date} til {current_date}",
+                {"report_date": report_date, "current_date": current_date},
+            ),
+            _component(
+                "buybacks_since_report",
+                "Tilbakekjøp siden siste rapport",
+                buyback_nok,
+                shares,
+                f"Kontantbruk på egne aksjer etter {report_date}",
+                {
+                    "report_date": report_date,
+                    "current_date": current_date,
+                    "daily_rows": cash_movements.get("daily_buyback_rows"),
+                    "weekly_rows": cash_movements.get("weekly_buyback_rows"),
+                    "weekly_rows_superseded": cash_movements.get("weekly_buyback_rows_superseded"),
+                },
+            ),
+        ]
+    )
+    if abs(other_cash_nok) > TOLERANCE_NOK:
+        new_components.append(
+            _component(
+                "other_cash_since_report",
+                "Andre kontantbevegelser siden siste rapport",
+                other_cash_nok,
+                shares,
+                "Kjente kontantbevegelser utenom tilbakekjøp",
+                {"report_date": report_date, "current_date": current_date},
+            )
+        )
+    if abs(currency_effect_nok) > TOLERANCE_NOK:
+        new_components.append(
+            _component(
+                "fx_since_report",
+                "Valutaeffekt siden siste rapport",
+                currency_effect_nok,
+                shares,
+                "Valutaeffekt på rapportert cash og rapporterte USD-baserte verdier",
+                {
+                    "cash_fx_mnok": float(cash_fx_nok / MILLION),
+                    "other_shares_fx_mnok": float(ona_currency_effect_nok / MILLION),
+                    "report_date": report_date,
+                },
+            )
+        )
+
+    new_components.extend(
+        [
+            _component(
+                "alliance_venture_spring",
+                "Alliance Venture Spring AS",
+                alliance_report_nok,
+                shares,
+                "7 411 532 aksjer – fair value fra siste rapport, holdes fast til neste rapport",
+                {
+                    "shares": ALLIANCE_VENTURE_SPRING_SHARES,
+                    "report_date": report_date,
+                    "report_value_usd": float(_decimal(report["alliance_report_usd"])),
+                    "report_usd_nok": float(_decimal(report["report_usd_nok"])),
+                    "derivation": "REPORTED_OTHER_SHARES_MINUS_REPORT_DATE_LIFE360_VALUE",
+                    "display_policy": "FIXED_AT_LAST_REPORT",
+                    "source_document_id": report.get("source_document_id"),
+                },
+            ),
+            _component(
+                "life360",
+                life360_label,
+                life360_nok,
+                shares,
+                life360_formula,
+                {
+                    **state_details,
+                    "report_date": report_date,
+                    "report_value_mnok": float(_decimal(report["life360_report_nok"]) / MILLION),
+                },
+            ),
+            dict(options),
+        ]
+    )
+
+    old_total_nok = sum((_decimal(item.get("amount_mnok")) * MILLION for item in composition), Decimal("0"))
+    new_total_nok = sum((_decimal(item.get("amount_mnok")) * MILLION for item in new_components), Decimal("0"))
+    if abs(old_total_nok - new_total_nok) > TOLERANCE_NOK:
+        point["composition_split_status"] = {
+            "ready": False,
+            "reason": "display_composition_does_not_reconcile",
+            "residual_nok": float(old_total_nok - new_total_nok),
+        }
+        return False
+
+    point["composition"] = new_components
+    point["composition_split_status"] = {
+        "ready": True,
+        "report_date": report_date,
+        "policy": "REPORT_CASH_AND_ALLIANCE_FIXED_WITH_EXPLICIT_MOVEMENTS_AND_FX",
+    }
+    return True
 
 
 def _enrich_change(
@@ -170,7 +440,7 @@ def _enrich_change(
 
 
 def estimated_nav_history(database_path: str | None = None, *, days: int) -> dict[str, Any]:
-    """Reference-model equivalent of the Worker gross Life360 presentation."""
+    """Reference presentation for the investor-facing Estimert NAV composition."""
     result = deepcopy(_estimated_nav_history(database_path, days=days))
     if not result.get("ready"):
         return result
@@ -182,8 +452,9 @@ def estimated_nav_history(database_path: str | None = None, *, days: int) -> dic
         if current_date
         else {"ready": False, "reason": "missing_current_date"}
     )
+    split_ready = False
     if current:
-        _enrich_current(current, current_state)
+        split_ready = _split_current_composition(database_path, current, current_state)
 
     change = result.get("change") or {}
     if change.get("ready"):
@@ -201,5 +472,10 @@ def estimated_nav_history(database_path: str | None = None, *, days: int) -> dic
         )
         _enrich_change(change, start_state, end_state)
 
-    result["life360_display_policy"] = "GROSS_MARKET_VALUE_EX_EMBEDDED_ONA"
+    result["life360_display_policy"] = "GROSS_MARKET_VALUE_WITH_REPORTED_VALUE_FALLBACK"
+    result["composition_display_policy"] = (
+        "REPORT_CASH_AND_ALLIANCE_FIXED_WITH_EXPLICIT_MOVEMENTS_AND_FX"
+        if split_ready
+        else "LEGACY_COMPOSITION_FAIL_CLOSED"
+    )
     return result
