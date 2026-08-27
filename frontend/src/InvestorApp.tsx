@@ -16,14 +16,14 @@ const BemobiPage = lazy(loadBemobiPage);
 const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
 
-type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøp" | "Bemobi" | "Konsensus" | "Datakvalitet";
+type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøpsprogram" | "Bemobi" | "Konsensus" | "Datakvalitet";
 
-const menu: View[] = ["Oversikt", "NAV", "Historikk", "Tilbakekjøp", "Bemobi", "Konsensus", "Datakvalitet"];
+const menu: View[] = ["Oversikt", "NAV", "Historikk", "Tilbakekjøpsprogram", "Bemobi", "Konsensus", "Datakvalitet"];
 const titles: Record<View, string> = {
   Oversikt: "Otello investoroversikt",
   NAV: "Estimert NAV",
   Historikk: "Historisk NAV-rabatt",
-  Tilbakekjøp: "Tilbakekjøp",
+  Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
   Bemobi: "Bemobi",
   Konsensus: "Konsensus",
   Datakvalitet: "Datakvalitet",
@@ -36,7 +36,7 @@ function ViewFallback() {
 function preload(view: View) {
   if (view === "NAV") void loadNavPage();
   if (view === "Historikk") void loadHistoryPage();
-  if (view === "Tilbakekjøp") void loadBuybackPage();
+  if (view === "Tilbakekjøpsprogram") void loadBuybackPage();
   if (view === "Bemobi") void loadBemobiPage();
   if (view === "Konsensus") void loadConsensusPage();
   if (view === "Datakvalitet") void loadDataQualityPage();
@@ -66,7 +66,7 @@ export default function InvestorApp() {
           {activeView === "Oversikt" ? <OverviewPage />
             : activeView === "NAV" ? <NavPageV2 />
               : activeView === "Historikk" ? <EstimatedHistoryPage />
-                : activeView === "Tilbakekjøp" ? <BuybackPage />
+                : activeView === "Tilbakekjøpsprogram" ? <BuybackPage />
                   : activeView === "Bemobi" ? <div className="normalBemobiView"><BemobiPage /></div>
                     : activeView === "Konsensus" ? <ConsensusPage />
                       : <DataQualityPage />}

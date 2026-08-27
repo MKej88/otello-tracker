@@ -226,12 +226,12 @@ async function main() {
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
   await clickView(session, "NAV", "Estimert NAV", ".compositionTable");
   await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
-  await clickView(session, "Tilbakekjøp", "Tilbakekjøp", ".buybackPage");
+  await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
-  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøp, Bemobi, Konsensus og Datakvalitet.");
+  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus og Datakvalitet.");
   session.close();
 }
 

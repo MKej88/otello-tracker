@@ -76,7 +76,7 @@ export default function OverviewPage() {
 
       <section className="overviewGrid">
         <article className="card">
-          <div className="cardHeader"><div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div></div>
+          <div className="cardHeader"><div><span className="label">Kapitalallokering</span><h2>Tilbakekjøpsprogram</h2></div></div>
           <div className="placeholderRows">
             <div><span>Siste rapporterte kjøp</span><strong>{integer(summary?.latest_buyback?.shares)} aksjer</strong><small>{dateLabel(summary?.latest_buyback?.trade_date)}</small></div>
             <div><span>Neste uke – baseestimat</span><strong>{integer(forecast?.estimate?.base_case_shares)} aksjer</strong><small>{dateLabel(forecast?.forecast_week?.from)}–{dateLabel(forecast?.forecast_week?.to)}</small></div>

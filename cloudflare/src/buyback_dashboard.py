@@ -3,9 +3,13 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 from buyback_service import LOOKBACK_DAYS, SAFE_HARBOUR_SHARE, buyback_forecast
+
+
+FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 
 
 def _completion(
@@ -164,6 +168,24 @@ def _normalize_latest_numeric_fields(payload: dict[str, Any] | None) -> None:
         payload["avg_price_nok"] = round(float(average_price), 13)
 
 
+def _nav_effect(nav_snapshot, latest, shares) -> dict[str, float | None]:
+    if nav_snapshot is None or latest is None or shares is None:
+        return {"per_share_nok": None, "pct": None}
+    bought = Decimal(str(latest.get("cumulative_program_shares") or 0))
+    spent = Decimal(str(latest.get("cumulative_program_amount_nok") or 0))
+    outstanding = Decimal(str(shares.get("outstanding_shares") or 0))
+    nav_total = Decimal(str(nav_snapshot.get("nav_total_nok") or 0))
+    if bought <= 0 or outstanding <= 0 or nav_total <= 0:
+        return {"per_share_nok": None, "pct": None}
+    actual = nav_total / outstanding
+    without_program = (nav_total + spent) / (outstanding + bought)
+    effect = actual - without_program
+    return {
+        "per_share_nok": round(float(effect), 4),
+        "pct": round(float(effect / without_program * Decimal("100")), 4),
+    }
+
+
 async def buyback_dashboard(
     repository,
     *,
@@ -194,6 +216,17 @@ async def buyback_dashboard(
         ORDER BY effective_from DESC, id DESC LIMIT 1
         """,
         (as_of,),
+    )
+    nav_snapshot = await repository.first(
+        """
+        SELECT nav_total_nok
+        FROM nav_snapshots
+        WHERE calculation_version = ?
+          AND nav_scope = 'FULL'
+          AND substr(as_of_at, 1, 10) <= ?
+        ORDER BY as_of_at DESC, id DESC LIMIT 1
+        """,
+        (FULL_CALCULATION_VERSION, as_of),
     )
 
     raw_history = list(forecast.get("recent_program_weeks") or [])
@@ -289,6 +322,7 @@ async def buyback_dashboard(
         "program": program_summary,
         "latest_week": latest_payload,
         "shares": shares,
+        "nav_effect": _nav_effect(nav_snapshot, latest, shares),
         "forecast": forecast,
         "backtest": {
             "metrics": forecast.get("active_program_backtest") or {"weeks": 0},

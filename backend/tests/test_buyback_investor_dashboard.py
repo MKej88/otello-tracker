@@ -106,6 +106,32 @@ def _seed_current_program(database: str) -> None:
             """,
             (document_id,),
         )
+        connection.execute(
+            """
+            INSERT INTO nav_snapshots(
+                as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
+                cash_estimate_nok, other_net_assets_nok, shares_outstanding,
+                calculation_version, inputs_hash, status, nav_scope
+            ) VALUES (
+                '2026-08-17T16:30:00Z', '1700000000', '19.86', '1200000000',
+                '500000000', '0', 85599607, 'full-market-nav-daily-v2',
+                'full-nav-test', 'OK', 'FULL'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO nav_snapshots(
+                as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
+                cash_estimate_nok, other_net_assets_nok, shares_outstanding,
+                calculation_version, inputs_hash, status, nav_scope
+            ) VALUES (
+                '2026-08-17T16:30:00Z', '900000000', '10.51', '400000000',
+                '500000000', '0', 85599607, 'core-nav-daily-v1',
+                'core-nav-test', 'OK', 'CORE'
+            )
+            """
+        )
         connection.commit()
 
 
@@ -165,3 +191,18 @@ def test_latest_week_metrics_do_not_depend_on_forecast_history(tmp_path: Path) -
         worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-29")
     )
     assert actual == expected
+
+
+def test_nav_effect_uses_full_nav_snapshot(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+
+    reference = reference_dashboard(database, as_of_date="2026-08-17")
+    worker = asyncio.run(
+        worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-17")
+    )
+
+    assert reference["nav_effect"] == {
+        "per_share_nok": 0.0199,
+        "pct": 0.1004,
+    }
+    assert worker["nav_effect"] == reference["nav_effect"]
