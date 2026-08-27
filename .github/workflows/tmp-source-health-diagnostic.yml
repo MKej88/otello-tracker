@@ -6,116 +6,390 @@ on:
       - fix/source-health-degraded
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  apply:
+    if: github.event.head_commit.message == 'Apply source health production patch'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
-    env:
-      CF_API_BASE: https://api.cloudflare.com/client/v4
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/source-health-degraded
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Resolve official Bemobi 2Q26 presentation URL
+      - name: Apply fail-closed parser fixes
         shell: bash
         run: |
           set -Eeuo pipefail
-          databases_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database"
-          curl --fail-with-body --silent --show-error --get \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Accept: application/json" \
-            --data-urlencode "name=${D1_DATABASE_NAME}" --data-urlencode "per_page=10" \
-            "$databases_url" > databases.json
-          database_id="$(python - <<'PY'
-          import json, os
-          rows=[r for r in json.load(open('databases.json',encoding='utf-8')).get('result',[]) if r.get('name')==os.environ['D1_DATABASE_NAME']]
-          if len(rows)!=1: raise SystemExit('D1 database not uniquely resolved')
-          print(rows[0]['uuid'])
-          PY
-          )"
           python - <<'PY'
-          import json
-          sql="""
-          SELECT sd.id, sd.url, sd.title FROM company_news cn
-          JOIN instruments i ON i.id=cn.issuer_instrument_id
-          JOIN source_documents sd ON sd.id=cn.source_document_id
-          WHERE i.symbol='BMOB3' AND cn.category='RESULTS' AND sd.url IS NOT NULL
-          ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC LIMIT 6
-          """
-          json.dump({'sql':sql},open('query.json','w',encoding='utf-8'))
-          PY
-          query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
-          curl --fail-with-body --silent --show-error --request POST \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Content-Type: application/json" --data-binary @query.json \
-            "$query_url" > candidates.json
-          python - <<'PY' > bemobi_presentation_url.txt
-          import json
-          from urllib.parse import urlparse
-          rows=(json.load(open('candidates.json',encoding='utf-8')).get('result') or [{}])[0].get('results') or []
-          matches=[r for r in rows if 'apresenta' in str(r.get('title') or '').lower() and ('2t26' in str(r.get('title') or '').lower() or '2q26' in str(r.get('title') or '').lower())]
-          if len(matches)!=1: raise SystemExit(f'2Q26 presentation not uniquely resolved: {[(r.get("id"),r.get("title")) for r in rows]}')
-          url=str(matches[0].get('url') or '')
-          host=(urlparse(url).hostname or '').lower().rstrip('.')
-          allowed=('cvm.gov.br','bemobi.com.br','mziq.com','mzweb.com.br')
-          if not any(host==s or host.endswith('.'+s) for s in allowed): raise SystemExit(f'Unexpected host {host}')
-          print(url)
-          print('BEMOBI_PRESENTATION_SOURCE_ID=',matches[0].get('id'),file=__import__('sys').stderr)
-          PY
-
-      - name: Run production result fetcher against presentation and inspect metric labels
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          python -m pip install --disable-pip-version-check --quiet 'pypdf>=5,<7'
-          python - <<'PY'
-          import asyncio
-          import re
-          import sys
-          import urllib.request
           from pathlib import Path
-          from urllib.parse import urlparse
+          import re
 
-          sys.path.insert(0, str(Path('cloudflare/src').resolve()))
-          import bemobi_web_refresh as b
+          paths = [
+              Path('cloudflare/src/newsweb_daily_buybacks.py'),
+              Path('backend/app/newsweb/enrichment.py'),
+          ]
 
-          class Response:
-              def __init__(self, response, payload):
-                  self.status=getattr(response,'status',200)
-                  self.ok=200 <= self.status < 300
-                  self.headers={k.lower():v for k,v in response.headers.items()}
-                  self.payload=payload
-              async def arrayBuffer(self):
-                  return self.payload
+          helper = r'''
+          def _parse_undated_duplicate_time_line(line: str) -> BuybackTrade | None:
+              """Parse only the documented pypdf defect where the date cell repeats the time.
 
-          async def fetcher(url, **kwargs):
-              headers=dict(kwargs.get('headers') or {})
-              req=urllib.request.Request(str(url),headers=headers)
-              with urllib.request.urlopen(req,timeout=45) as response:
-                  payload=response.read(20*1024*1024)
-                  return Response(response,payload)
+              A date is intentionally not inferred here. The caller may assign one only when
+              the canonical weekly period leaves exactly one possible trading day and the
+              recovered block reconciles to exactly one missing ExecBuy total.
+              """
+              normalized = " ".join(line.replace("\u00a0", " ").split())
+              if not normalized:
+                  return None
+              if _SELL_RE.match(normalized):
+                  raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
+              if not normalized.upper().startswith("B OTEC ") or _DATE_RE.search(normalized):
+                  return None
+              time_matches = list(_TIME_RE.finditer(normalized))
+              if len(time_matches) != 2 or time_matches[0].group(0) != time_matches[1].group(0):
+                  return None
 
-          url=Path('bemobi_presentation_url.txt').read_text().strip()
-          payload,resolved,followed=asyncio.run(b._fetch_result_payload(url,fetcher=fetcher))
-          text=b._pdf_text(payload)
-          print('PRESENTATION_BYTES=',len(payload))
-          print('PRESENTATION_RESOLVED_HOST=',urlparse(resolved).hostname)
-          print('PRESENTATION_FOLLOWED_HTML=',followed)
-          try:
-              parsed=b.parse_bemobi_result_text(text,published_date='2026-08-12')
-              print('PRESENTATION_PARSE_OK=',parsed)
-          except Exception as exc:
-              print('PRESENTATION_PARSE_ERROR=',type(exc).__name__,str(exc))
-          for line_no,raw in enumerate(text.splitlines(),start=1):
-              line=' '.join(raw.replace('\u00a0',' ').split())
-              low=line.lower()
-              if any(token in low for token in ('receita','ebitda','lucro','capex','cash','caixa')):
-                  if len(line)>600: line=line[:600]
-                  print(f'PRESENTATION_LINE_{line_no}: {line}')
+              payload = normalized
+              for match in reversed(time_matches):
+                  payload = payload[: match.start()] + " " + payload[match.end() :]
+              tokens = " ".join(payload.split())[len("B OTEC ") :].split()
+              if len(tokens) < 3:
+                  return None
+
+              candidates: list[tuple[int, Decimal, Decimal]] = []
+              for price_index in range(1, len(tokens) - 1):
+                  try:
+                      shares = _integer("".join(tokens[:price_index]))
+                      price = _decimal(tokens[price_index])
+                      amount = _decimal("".join(tokens[price_index + 1 :]))
+                  except (ValueError, ArithmeticError):
+                      continue
+                  if shares <= 0 or price <= 0 or amount <= 0 or price > Decimal("500"):
+                      continue
+                  if abs(Decimal(shares) * price - amount) <= Decimal("0.01"):
+                      candidates.append((shares, price, amount))
+
+              punctuated: list[tuple[int, Decimal, Decimal]] = []
+              for price_index in range(1, len(tokens) - 1):
+                  if "," not in tokens[price_index] and "." not in tokens[price_index]:
+                      continue
+                  try:
+                      candidate = (
+                          _integer("".join(tokens[:price_index])),
+                          _decimal(tokens[price_index]),
+                          _decimal("".join(tokens[price_index + 1 :])),
+                      )
+                  except (ValueError, ArithmeticError):
+                      continue
+                  if candidate in candidates:
+                      punctuated.append(candidate)
+              selected_pool = punctuated or list(dict.fromkeys(candidates))
+              if len(selected_pool) != 1:
+                  raise ValueError(
+                      f"Tvetydig udaterte NewsWeb-handelslinje; krever kontroll: {normalized}"
+                  )
+              shares, price, amount = selected_pool[0]
+              return BuybackTrade(
+                  trade_date="",
+                  trade_time=time_matches[0].group(0),
+                  shares=shares,
+                  price_nok=price,
+                  amount_nok=amount,
+              )
+
+
+          def _recover_single_missing_trade_date(
+              text: str,
+              trades: list[BuybackTrade],
+              exec_buys: list[int],
+              *,
+              period_start: str,
+              period_end: str,
+          ) -> list[BuybackTrade]:
+              undated = [
+                  parsed
+                  for raw in text.splitlines()
+                  if (parsed := _parse_undated_duplicate_time_line(raw)) is not None
+              ]
+              if not undated:
+                  return trades
+
+              start = date.fromisoformat(period_start)
+              end = date.fromisoformat(period_end)
+              if end < start:
+                  raise ValueError("Ugyldig NewsWeb-ukesperiode for datoreparasjon")
+              weekdays: list[str] = []
+              current = start
+              while current <= end:
+                  if current.weekday() < 5:
+                      weekdays.append(current.isoformat())
+                  current += timedelta(days=1)
+
+              known_dates = {item.trade_date for item in trades}
+              missing_dates = [item for item in weekdays if item not in known_dates]
+              if len(missing_dates) != 1:
+                  raise ValueError(
+                      "NewsWeb manglende PDF-dato kan ikke utledes entydig fra ukesperioden"
+                  )
+
+              parsed_totals = [item.shares for item in aggregate_daily_buybacks(trades)]
+              parsed_counter = Counter(parsed_totals)
+              exec_counter = Counter(exec_buys)
+              if parsed_counter - exec_counter:
+                  raise ValueError("NewsWeb datoreparasjon avviser ukjent allerede-parset dagsum")
+              missing_exec = exec_counter - parsed_counter
+              if sum(missing_exec.values()) != 1:
+                  raise ValueError(
+                      "NewsWeb datoreparasjon krever nøyaktig én manglende ExecBuy-dagsum"
+                  )
+              expected_shares = next(missing_exec.elements())
+              recovered_shares = sum(item.shares for item in undated)
+              if recovered_shares != expected_shares:
+                  raise ValueError(
+                      "NewsWeb udaterte handler avstemmer ikke mot den manglende ExecBuy-dagsummen"
+                  )
+
+              inferred_date = missing_dates[0]
+              recovered = [
+                  BuybackTrade(
+                      trade_date=inferred_date,
+                      trade_time=item.trade_time,
+                      shares=item.shares,
+                      price_nok=item.price_nok,
+                      amount_nok=item.amount_nok,
+                  )
+                  for item in undated
+              ]
+              return [*trades, *recovered]
+          '''.strip('\n') + '\n\n'
+
+          replacement = r'''
+          def parse_buyback_transaction_text(
+              text: str,
+              *,
+              period_start: str | None = None,
+              period_end: str | None = None,
+          ) -> list[DailyBuybackTransaction]:
+              trades = parse_buyback_trade_lines(text)
+              daily = aggregate_daily_buybacks(trades)
+              exec_buys = [
+                  _integer(match.group(1))
+                  for raw in text.splitlines()
+                  if (match := _EXEC_BUY_RE.match(" ".join(raw.replace("\u00a0", " ").split())))
+              ]
+              parsed_totals = [item.shares for item in daily]
+              if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
+                  if period_start is not None and period_end is not None:
+                      trades = _recover_single_missing_trade_date(
+                          text,
+                          trades,
+                          exec_buys,
+                          period_start=period_start,
+                          period_end=period_end,
+                      )
+                      daily = aggregate_daily_buybacks(trades)
+                      parsed_totals = [item.shares for item in daily]
+              if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
+                  raise ValueError(
+                      f"NewsWeb ExecBuy-avstemming feilet: vedlegg={exec_buys}, parser={parsed_totals}"
+                  )
+              return daily
+          '''.strip('\n') + '\n\n'
+
+          for path in paths:
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('from collections import defaultdict', 'from collections import Counter, defaultdict')
+              marker = '\ndef parse_buyback_trade_lines(text: str) -> list[BuybackTrade]:\n'
+              if helper.strip() not in text:
+                  if marker not in text:
+                      raise SystemExit(f'helper insertion marker missing: {path}')
+                  text = text.replace(marker, '\n' + helper + marker.lstrip('\n'), 1)
+              pattern = re.compile(
+                  r'def parse_buyback_transaction_text\(text: str\) -> list\[DailyBuybackTransaction\]:\n.*?\n\ndef extract_pdf_text',
+                  re.S,
+              )
+              text, count = pattern.subn(replacement + 'def extract_pdf_text', text, count=1)
+              if count != 1:
+                  raise SystemExit(f'parser replacement count={count}: {path}')
+              old_call = 'daily = parse_buyback_transaction_text(extract_pdf_text(pdf))'
+              if path.name == 'enrichment.py':
+                  old_call = 'daily = parse_buyback_transaction_text(extract_pdf_text(pdf_bytes))'
+                  new_call = '''daily = parse_buyback_transaction_text(
+                      extract_pdf_text(pdf_bytes),
+                      period_start=weekly_for_validation.period_start,
+                      period_end=weekly_for_validation.period_end,
+                  )'''
+              else:
+                  new_call = '''daily = parse_buyback_transaction_text(
+                      extract_pdf_text(pdf),
+                      period_start=parsed.period_start,
+                      period_end=parsed.period_end,
+                  )'''
+              if old_call not in text:
+                  raise SystemExit(f'ingest call marker missing: {path}')
+              text = text.replace(old_call, new_call, 1)
+              path.write_text(text, encoding='utf-8')
+
+          worker = Path('cloudflare/src/newsweb_daily_buybacks.py')
+          text = worker.read_text(encoding='utf-8').replace(
+              'newsweb-otec-transactions-v4-worker-r2-content-fallback',
+              'newsweb-otec-transactions-v5-missing-date-recovery',
+          )
+          worker.write_text(text, encoding='utf-8')
+
+          backend = Path('backend/app/newsweb/enrichment.py')
+          text = backend.read_text(encoding='utf-8').replace(
+              'newsweb-otec-transactions-v2', 'newsweb-otec-transactions-v3-missing-date-recovery'
+          ).replace(
+              'pypdf + deterministic OTEC transaction parser v2',
+              'pypdf + deterministic OTEC transaction parser v3 missing-date recovery',
+          )
+          backend.write_text(text, encoding='utf-8')
+
+          # Bemobi: accept the label used in the official 2Q26 materials without relaxing payload limits.
+          bemobi = Path('cloudflare/src/bemobi_web_refresh.py')
+          text = bemobi.read_text(encoding='utf-8')
+          old = '(r"EBITDA Ajustad[oa]\\s*[-–]\\s*Capex", r"Adjusted EBITDA\\s*[-–]\\s*Capex"),'
+          new = '(r"EBITDA(?: Ajustad[oa])?\\s*[-–−]\\s*Capex", r"(?:Adjusted )?EBITDA\\s*[-–−]\\s*Capex"),'
+          if old not in text:
+              raise SystemExit('Bemobi cash-generation label marker missing')
+          bemobi.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Backend NewsWeb regression tests based on the exact 680519 failure mode.
+          test_path = Path('backend/tests/test_newsweb_enrichment.py')
+          test = test_path.read_text(encoding='utf-8')
+          if 'import pytest\n' not in test:
+              test = test.replace('from decimal import Decimal\n', 'from decimal import Decimal\n\nimport pytest\n', 1)
+          test += r'''
+
+
+def _missing_date_pdf_text() -> str:
+    return """
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 17.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 18.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 12 000 17,00 204 000,00 10:00:00 19.08.2026
+ExecBuy 12 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 20.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 8 000 17,00 136 000,00 10:42:30 10:42:30
+B OTEC 5 000 17,00 85 000,00 10:14:00 10:14:00
+ExecBuy 13 000
+"""
+
+
+def test_duplicate_time_missing_date_recovers_only_unambiguous_weekday() -> None:
+    rows = parse_buyback_transaction_text(
+        _missing_date_pdf_text(),
+        period_start="2026-08-17",
+        period_end="2026-08-21",
+    )
+    assert [row.trade_date for row in rows] == [
+        "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"
+    ]
+    assert [row.shares for row in rows] == [13_000, 13_000, 12_000, 13_000, 13_000]
+
+
+def test_duplicate_time_missing_date_stays_fail_closed_when_period_is_ambiguous() -> None:
+    with pytest.raises(ValueError, match="entydig"):
+        parse_buyback_transaction_text(
+            _missing_date_pdf_text(),
+            period_start="2026-08-17",
+            period_end="2026-08-24",
+        )
+
+
+def test_duplicate_time_missing_date_without_weekly_context_stays_fail_closed() -> None:
+    with pytest.raises(ValueError, match="ExecBuy-avstemming"):
+        parse_buyback_transaction_text(_missing_date_pdf_text())
+'''
+          test_path.write_text(test, encoding='utf-8')
+
+          # Worker parser gets the same production regression.
+          worker_test = Path('backend/tests/test_cloudflare_newsweb_ingestion.py')
+          test = worker_test.read_text(encoding='utf-8')
+          import_marker = 'from newsweb_ingestion import classify_newsweb_message, history_start_for_refresh  # noqa: E402\n'
+          addition = 'from newsweb_daily_buybacks import parse_buyback_transaction_text as parse_worker_transaction_text  # noqa: E402\n'
+          if addition not in test:
+              if import_marker not in test:
+                  raise SystemExit('Worker NewsWeb import marker missing')
+              test = test.replace(import_marker, import_marker + addition, 1)
+          test += r'''
+
+
+def test_worker_recovers_680519_duplicate_time_date_defect_fail_closed() -> None:
+    text = """
+B OTEC 13 000 17,00 221 000,00 10:00:00 17.08.2026
+ExecBuy 13 000
+B OTEC 13 000 17,00 221 000,00 10:00:00 18.08.2026
+ExecBuy 13 000
+B OTEC 12 000 17,00 204 000,00 10:00:00 19.08.2026
+ExecBuy 12 000
+B OTEC 13 000 17,00 221 000,00 10:00:00 20.08.2026
+ExecBuy 13 000
+B OTEC 8 000 17,00 136 000,00 10:42:30 10:42:30
+B OTEC 5 000 17,00 85 000,00 10:14:00 10:14:00
+ExecBuy 13 000
+"""
+    rows = parse_worker_transaction_text(
+        text, period_start="2026-08-17", period_end="2026-08-21"
+    )
+    assert [row.trade_date for row in rows][-1] == "2026-08-21"
+    assert [row.shares for row in rows] == [13_000, 13_000, 12_000, 13_000, 13_000]
+'''
+          worker_test.write_text(test, encoding='utf-8')
+
+          bemobi_test = Path('backend/tests/test_bemobi_web_refresh.py')
+          test = bemobi_test.read_text(encoding='utf-8')
+          test += r'''
+
+
+def test_result_parser_accepts_official_ebitda_capex_label_and_unicode_minus() -> None:
+    text = """
+    BEMOBI MOBILE TECH S.A. 2T26
+    Receita Líquida 227,3
+    EBITDA Ajustado 79,4
+    Lucro Líquido Ajustado 45,2
+    EBITDA−CAPEX 64,8
+    """
+    result = parse_bemobi_result_text(text, published_date="2026-08-11")
+    assert result["period"] == "2Q26"
+    assert result["ebitda_less_capex_mbrl"] == 64.8
+'''
+          bemobi_test.write_text(test, encoding='utf-8')
           PY
+
+      - name: Run targeted tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt
+          PYTHONPATH=backend pytest -q \
+            backend/tests/test_newsweb_enrichment.py \
+            backend/tests/test_cloudflare_newsweb_ingestion.py \
+            backend/tests/test_bemobi_web_refresh.py
+
+      - name: Commit production fixes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'MKej88'
+          git config user.email 'mads.kristensen2@gmail.com'
+          git add cloudflare/src/newsweb_daily_buybacks.py \
+                  backend/app/newsweb/enrichment.py \
+                  cloudflare/src/bemobi_web_refresh.py \
+                  backend/tests/test_newsweb_enrichment.py \
+                  backend/tests/test_cloudflare_newsweb_ingestion.py \
+                  backend/tests/test_bemobi_web_refresh.py
+          git diff --cached --check
+          git commit -m 'Rett degraderte Bemobi- og NewsWeb-kilder'
+          git push origin HEAD:fix/source-health-degraded
