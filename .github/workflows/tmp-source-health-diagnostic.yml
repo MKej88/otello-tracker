@@ -1,0 +1,81 @@
+name: Temporary source health diagnostic
+
+on:
+  push:
+    branches:
+      - fix/source-health-degraded
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+    steps:
+      - name: Read latest Bemobi and NewsWeb source metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          databases_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database"
+          curl --fail-with-body --silent --show-error \
+            --get \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --data-urlencode "name=${D1_DATABASE_NAME}" \
+            --data-urlencode "per_page=10" \
+            "$databases_url" > databases.json
+          database_id="$(python - <<'PY'
+          import json, os
+          payload=json.load(open('databases.json', encoding='utf-8'))
+          rows=[r for r in payload.get('result',[]) if r.get('name')==os.environ['D1_DATABASE_NAME']]
+          if len(rows)!=1:
+              raise SystemExit('D1 database not uniquely resolved')
+          print(rows[0]['uuid'])
+          PY
+          )"
+          python - <<'PY'
+          import json
+          sql="""
+          SELECT s.code, sh.checked_at, sh.status, sh.error_message, sh.metadata_json
+          FROM source_health sh
+          JOIN sources s ON s.id=sh.source_id
+          WHERE s.code IN ('BEMOBI_IR','NEWSWEB')
+            AND sh.id=(SELECT MAX(sh2.id) FROM source_health sh2 WHERE sh2.source_id=sh.source_id)
+          ORDER BY s.code
+          """
+          json.dump({'sql':sql}, open('query.json','w',encoding='utf-8'))
+          PY
+          query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --data-binary @query.json \
+            "$query_url" > result.json
+          python - <<'PY'
+          import json, re
+          payload=json.load(open('result.json',encoding='utf-8'))
+          rows=(payload.get('result') or [{}])[0].get('results') or []
+          def clean(value):
+              text=str(value or '')
+              text=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/-]+', r'\1[REDACTED]', text)
+              text=re.sub(r'(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+', r'\1\2[REDACTED]', text)
+              return text
+          for row in rows:
+              print(f"## {row.get('code')} {row.get('status')} @ {row.get('checked_at')}")
+              print('error_message:', clean(row.get('error_message')))
+              try:
+                  meta=json.loads(row.get('metadata_json') or '{}')
+              except Exception:
+                  meta={}
+              print(json.dumps(meta.get('result',{}), ensure_ascii=False, indent=2, sort_keys=True, default=str))
+          PY
