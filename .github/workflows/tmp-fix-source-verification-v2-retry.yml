@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Kjør kildeverifiseringsretting med korrekt testmiljø'
+    if: github.event.head_commit.message == 'Kjør ren kildeverifiseringscommit'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -34,6 +34,7 @@ jobs:
           Path('/tmp/apply.py').write_text(script, encoding='utf-8')
           PY
           python /tmp/apply.py
+          git checkout -- .github/workflows/verify-production-sources.yml
       - name: Run focused regression tests
         shell: bash
         run: |
@@ -42,16 +43,13 @@ jobs:
           PYTHONPATH=backend python -m pytest -q \
             backend/tests/test_workflow_target_date.py \
             backend/tests/test_bemobi_web_runtime_module.py
-      - name: Commit clean fix
+      - name: Commit production code only
         shell: bash
         run: |
           set -Eeuo pipefail
           git config user.name 'MKej88'
           git config user.email 'mads.kristensen2@gmail.com'
-          git rm .github/workflows/tmp-fix-source-verification-v2.yml \
-                 .github/workflows/tmp-fix-source-verification-v2-retry.yml
           git add cloudflare/src/entry.py cloudflare/src/bemobi_web_refresh_runtime.py \
-                  .github/workflows/verify-production-sources.yml \
                   backend/tests/test_workflow_target_date.py \
                   backend/tests/test_bemobi_web_runtime_module.py
           git diff --cached --check
