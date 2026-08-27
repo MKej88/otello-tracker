@@ -308,6 +308,8 @@ jobs:
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/bemobi/source-status?${q}" -o /tmp/otello-bemobi-source-status.json
           curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+            "$base/api/news-events?${q}" -o /tmp/otello-news-events.json
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
             "$base/api/market/quotes?${q}" -o /tmp/otello-quotes.json
           python - <<'PY'
           import json

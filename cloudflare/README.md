@@ -31,6 +31,7 @@ GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
 GET /api/bemobi/source-status
+GET /api/news-events
 ```
 
 ## Scheduling

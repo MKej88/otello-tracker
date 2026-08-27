@@ -30,6 +30,7 @@ CACHE_POLICIES = {
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/bemobi/source-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
+    "/api/news-events": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/market/quotes": ("public, max-age=30", "public, max-age=300, stale-while-revalidate=1800"),
 }
 
@@ -226,3 +227,21 @@ async def get_bemobi_source_status(request: Request) -> dict:
     from bemobi_source_status import bemobi_source_status
 
     return await bemobi_source_status(_repository(request))
+
+
+@app.get("/api/news-events")
+async def get_news_events(
+    request: Request,
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=60, ge=1, le=100),
+) -> dict:
+    from news_events import news_and_events
+
+    try:
+        return await news_and_events(
+            _repository(request),
+            as_of_date=as_of_date,
+            news_limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc

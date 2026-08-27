@@ -28,6 +28,7 @@ from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_
 from app.nav.core_nav import core_nav_status
 from app.nav_waterfall_attribution_enrich import enrich_nav_waterfall
 from app.nav_waterfall_settlement import nav_waterfall_summary
+from app.news_events import news_events_dashboard
 from app.settings import settings
 
 
@@ -146,6 +147,18 @@ def bemobi_news(
 @app.get("/api/bemobi/news/status")
 def bemobi_news_status() -> dict:
     return bemobi_cvm_news_status(settings.database_path)
+
+
+@app.get("/api/news-events")
+async def news_events(
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=60, ge=1, le=100),
+) -> dict:
+    return await news_events_dashboard(
+        settings.database_path,
+        as_of_date=as_of_date,
+        news_limit=limit,
+    )
 
 
 @app.get("/api/nav/core-anchors")

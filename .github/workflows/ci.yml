@@ -199,6 +199,7 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/consensus -o /tmp/worker-bemobi-consensus.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/source-status -o /tmp/worker-bemobi-source-status.json
+          curl -fsS 'http://127.0.0.1:8787/api/news-events?as_of_date=2026-08-27' -o /tmp/worker-news-events.json
           curl -fsS -D /tmp/worker-quotes.headers http://127.0.0.1:8787/api/market/quotes -o /tmp/worker-quotes.json
           curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
