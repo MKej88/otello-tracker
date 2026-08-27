@@ -19,8 +19,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          url='https://investors.life360.com/stock-information/historic-price-lookup'
-          curl --http1.1 -L --fail --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors \
+          url='https://life360.gcs-web.com/stock-information/historic-price-lookup'
+          curl --http1.1 -L --fail --silent --show-error --max-time 30 \
             -H 'User-Agent: Mozilla/5.0' \
             "$url" -o /tmp/lif.html
           python - <<'PY'
@@ -28,11 +28,11 @@ jobs:
           import re
           text=Path('/tmp/lif.html').read_text(errors='replace')
           print('bytes', len(text))
-          for pat in [r'<form[^>]*>', r'<input[^>]*>', r'<select[^>]*>', r'<option[^>]*>', r'historic.{0,300}', r'Date Requested.{0,300}']:
+          for pat in [r'<form[^>]*>', r'<input[^>]*>', r'<select[^>]*>', r'<option[^>]*>', r'historic.{0,500}', r'Date Requested.{0,500}']:
               print('\nPATTERN', pat)
               for m in re.finditer(pat, text, flags=re.I|re.S):
-                  print(' '.join(m.group(0).split())[:1200])
+                  print(' '.join(m.group(0).split())[:1600])
           print('\nURL-like candidates')
           for m in re.finditer(r"https?://[^\"'<> ]+|/[A-Za-z0-9_?&=./%:-]*historic[A-Za-z0-9_?&=./%:-]*", text, flags=re.I):
-              print(m.group(0)[:1200])
+              print(m.group(0)[:1600])
           PY
