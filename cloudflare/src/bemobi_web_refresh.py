@@ -427,7 +427,7 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     net_income = _extract_metric(normalized, net_income_labels)
     cash_generation = _extract_metric(
         normalized,
-        (r"EBITDA Ajustad[oa]\s*[-–]\s*Capex", r"Adjusted EBITDA\s*[-–]\s*Capex"),
+        (r"EBITDA(?: Ajustad[oa])?\s*[-–−]\s*Capex", r"(?:Adjusted )?EBITDA\s*[-–−]\s*Capex"),
     )
     if None in {revenue, ebitda, net_income, cash_generation}:
         raise ValueError("Bemobi-resultatet mangler ett eller flere obligatoriske nøkkeltall")

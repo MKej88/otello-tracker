@@ -321,3 +321,17 @@ def test_production_workflow_contains_bemobi_web_refresh_step() -> None:
     assert '"refresh Bemobi investor web facts"' in entry
     assert 'source_results["bemobi_web"]' in entry
     assert '"bemobi_web": "BEMOBI_IR"' in full_refresh
+
+
+
+def test_result_parser_accepts_official_ebitda_capex_label_and_unicode_minus() -> None:
+    text = """
+    BEMOBI MOBILE TECH S.A. 2T26
+    Receita Líquida 227,3
+    EBITDA Ajustado 79,4
+    Lucro Líquido Ajustado 45,2
+    EBITDA−CAPEX 64,8
+    """
+    result = parse_bemobi_result_text(text, published_date="2026-08-11")
+    assert result["period"] == "2Q26"
+    assert result["ebitda_less_capex_mbrl"] == 64.8
