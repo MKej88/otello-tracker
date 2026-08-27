@@ -22,83 +22,90 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
           databases_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database"
-          curl --fail-with-body --silent --show-error \
-            --get \
+          curl --fail-with-body --silent --show-error --get \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Accept: application/json" \
-            --data-urlencode "name=${D1_DATABASE_NAME}" \
-            --data-urlencode "per_page=10" \
+            --data-urlencode "name=${D1_DATABASE_NAME}" --data-urlencode "per_page=10" \
             "$databases_url" > databases.json
           database_id="$(python - <<'PY'
           import json, os
-          payload=json.load(open('databases.json', encoding='utf-8'))
-          rows=[r for r in payload.get('result',[]) if r.get('name')==os.environ['D1_DATABASE_NAME']]
-          if len(rows)!=1:
-              raise SystemExit('D1 database not uniquely resolved')
+          rows=[r for r in json.load(open('databases.json',encoding='utf-8')).get('result',[]) if r.get('name')==os.environ['D1_DATABASE_NAME']]
+          if len(rows)!=1: raise SystemExit('D1 database not uniquely resolved')
           print(rows[0]['uuid'])
           PY
           )"
           python - <<'PY'
           import json
           sql="""
-          SELECT sd.id, sd.url, sd.title, sd.published_at
-          FROM company_news cn
+          SELECT sd.id, sd.url, sd.title FROM company_news cn
           JOIN instruments i ON i.id=cn.issuer_instrument_id
           JOIN source_documents sd ON sd.id=cn.source_document_id
           WHERE i.symbol='BMOB3' AND cn.category='RESULTS' AND sd.url IS NOT NULL
-          ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
-          LIMIT 6
+          ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC LIMIT 6
           """
-          json.dump({'sql':sql}, open('query.json','w',encoding='utf-8'))
+          json.dump({'sql':sql},open('query.json','w',encoding='utf-8'))
           PY
           query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
-          curl --fail-with-body --silent --show-error \
-            --request POST \
+          curl --fail-with-body --silent --show-error --request POST \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Accept: application/json" \
-            --header "Content-Type: application/json" \
-            --data-binary @query.json \
+            --header "Content-Type: application/json" --data-binary @query.json \
             "$query_url" > candidates.json
           python - <<'PY' > bemobi_url.txt
           import json
           from urllib.parse import urlparse
-          payload=json.load(open('candidates.json',encoding='utf-8'))
-          rows=(payload.get('result') or [{}])[0].get('results') or []
+          rows=(json.load(open('candidates.json',encoding='utf-8')).get('result') or [{}])[0].get('results') or []
           matches=[r for r in rows if 'release 2t26' in str(r.get('title') or '').lower() or 'release 2q26' in str(r.get('title') or '').lower()]
-          if len(matches)!=1:
-              print('CANDIDATES:', [(r.get('id'), r.get('title')) for r in rows])
-              raise SystemExit('Release 2T26 not uniquely resolved')
-          row=matches[0]
-          url=str(row.get('url') or '')
-          parsed=urlparse(url)
+          if len(matches)!=1: raise SystemExit(f'Release 2T26 not uniquely resolved: {[(r.get("id"),r.get("title")) for r in rows]}')
+          url=str(matches[0].get('url') or '')
+          host=(urlparse(url).hostname or '').lower().rstrip('.')
           allowed=('cvm.gov.br','bemobi.com.br','mziq.com','mzweb.com.br')
-          host=(parsed.hostname or '').lower().rstrip('.')
-          if parsed.scheme!='https' or not any(host==s or host.endswith('.'+s) for s in allowed):
-              raise SystemExit(f'Unexpected result host: {host}')
+          if not any(host==s or host.endswith('.'+s) for s in allowed): raise SystemExit(f'Unexpected host {host}')
           print(url)
-          print(f"BEMOBI_TITLE={row.get('title')}", file=__import__('sys').stderr)
-          print(f"BEMOBI_SOURCE_ID={row.get('id')}", file=__import__('sys').stderr)
+          print('BEMOBI_SOURCE_ID=',matches[0].get('id'),file=__import__('sys').stderr)
           PY
 
-      - name: Measure Bemobi 2Q26 release payload
+      - name: Inspect partial CVM HTML instead of raising Worker limit
         shell: bash
         run: |
           set -Eeuo pipefail
           url="$(cat bemobi_url.txt)"
-          curl --location --fail-with-body --silent --show-error \
-            --max-filesize 41943040 \
+          set +e
+          curl --location --silent --show-error --max-time 45 --max-filesize 41943040 \
             --output bemobi_result.bin \
             --write-out 'BEMOBI_HTTP=%{http_code}\nBEMOBI_BYTES=%{size_download}\nBEMOBI_CONTENT_TYPE=%{content_type}\nBEMOBI_FINAL_URL=%{url_effective}\n' \
             "$url"
+          curl_rc=$?
+          set -e
+          echo "BEMOBI_CURL_RC=${curl_rc}"
           python - <<'PY'
+          import html, re
           from pathlib import Path
+          from urllib.parse import urljoin, urlparse
           p=Path('bemobi_result.bin')
-          raw=p.read_bytes()[:8]
-          print('BEMOBI_FILE_BYTES=', p.stat().st_size)
-          print('BEMOBI_MAGIC=', raw.hex())
+          raw=p.read_bytes()
+          print('BEMOBI_FILE_BYTES=',len(raw))
+          text=raw.decode('latin-1',errors='ignore')
+          plain=html.unescape(re.sub(r'<[^>]+>',' ',text))
+          plain=' '.join(plain.split())
+          for needle in ('Receita Líquida','EBITDA Ajustado','Lucro Líquido Ajustado','64,8'):
+              pos=plain.lower().find(needle.lower())
+              print(f'BEMOBI_NEEDLE_{needle}=',pos)
+              if pos>=0:
+                  print('BEMOBI_CONTEXT=',plain[max(0,pos-180):pos+500])
+          base='https://www.rad.cvm.gov.br/'
+          candidates=[]
+          for match in re.finditer(r'''(?:href|src)=["']([^"']+)["']''',text,re.I):
+              link=html.unescape(match.group(1)).strip()
+              absolute=urljoin(base,link)
+              parsed=urlparse(absolute)
+              host=(parsed.hostname or '').lower()
+              hay=f'{parsed.path} {parsed.query}'.lower()
+              if parsed.scheme=='https' and ('download' in hay or '.pdf' in hay or '.zip' in hay):
+                  candidates.append(absolute)
+          for link in list(dict.fromkeys(candidates))[:20]:
+              print('BEMOBI_LINK_CANDIDATE=',link)
+          print('BEMOBI_LINK_COUNT=',len(set(candidates)))
           PY
 
       - name: Inspect NewsWeb 680519 transaction PDF structure
@@ -114,27 +121,22 @@ jobs:
             --output newsweb-680519.pdf \
             'https://api3.oslo.oslobors.no/v1/newsreader/attachment?messageId=680519&attachmentId=331734'
           python - <<'PY'
-          import io, re
+          import io,re
           from pathlib import Path
           from pypdf import PdfReader
           payload=Path('newsweb-680519.pdf').read_bytes()
-          print('NEWSWEB_PDF_BYTES=', len(payload))
-          if not payload.startswith(b'%PDF'):
-              raise SystemExit('NewsWeb attachment is not PDF')
+          print('NEWSWEB_PDF_BYTES=',len(payload))
           text='\n'.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(payload)).pages)
           lines=text.splitlines()
           interesting=[]
-          for i, raw in enumerate(lines):
+          for i,raw in enumerate(lines):
               line=' '.join(raw.replace('\u00a0',' ').split())
-              if re.search(r'(^|\s)(ExecBuy|B\s+OTEC|S\s+OTEC)(\s|$)', line, re.I):
-                  interesting.append(i)
+              if re.search(r'ExecBuy|B\s+OTEC|S\s+OTEC',line,re.I): interesting.append(i)
           seen=set()
           for i in interesting:
-              for j in range(max(0,i-2), min(len(lines),i+3)):
-                  if j in seen:
-                      continue
+              for j in range(max(0,i-2),min(len(lines),i+3)):
+                  if j in seen: continue
                   seen.add(j)
-                  line=' '.join(lines[j].replace('\u00a0',' ').split())
-                  print(f'NW_LINE_{j+1}: {line}')
-          print('NEWSWEB_INTERESTING_LINES=', len(interesting))
+                  print(f'NW_LINE_{j+1}: {" ".join(lines[j].replace(chr(160)," ").split())}')
+          print('NEWSWEB_INTERESTING_LINES=',len(interesting))
           PY
