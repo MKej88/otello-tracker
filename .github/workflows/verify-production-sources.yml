@@ -1,0 +1,210 @@
+name: Verify production sources
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Dato som full refresh skal verifisere (YYYY-MM-DD); tom = gårsdagen UTC'
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/verify-production-sources.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-production-sources
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      WORKFLOW_NAME: otello-full-refresh
+      REQUESTED_TARGET_DATE: ${{ inputs.target_date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Resolve target date
+        id: target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          target="$(python - <<'PY'
+          import os
+          from datetime import UTC, datetime, timedelta
+          requested=os.environ.get('REQUESTED_TARGET_DATE','').strip()
+          if requested:
+              datetime.strptime(requested, '%Y-%m-%d')
+              print(requested)
+          else:
+              print((datetime.now(UTC).date()-timedelta(days=1)).isoformat())
+          PY
+          )"
+          echo "date=$target" >> "$GITHUB_OUTPUT"
+          echo "Verifying production sources with full-refresh target_date=$target"
+
+      - name: Start production full refresh
+        id: start
+        shell: bash
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.date }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_D1_DATABASE_ID"
+          python - <<'PY'
+          import json, os
+          body = {
+              'params': json.dumps({'target_date': os.environ['TARGET_DATE']}, separators=(',', ':')),
+              'instance_retention': {
+                  'success_retention': '1 day',
+                  'error_retention': '1 day',
+              },
+          }
+          json.dump(body, open('/tmp/workflow-create.json','w',encoding='utf-8'))
+          PY
+          url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/${WORKFLOW_NAME}/instances"
+          curl --fail-with-body --silent --show-error --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/workflow-create.json \
+            "$url" > /tmp/workflow-created.json
+          instance_id="$(python - <<'PY'
+          import json
+          payload=json.load(open('/tmp/workflow-created.json',encoding='utf-8'))
+          if payload.get('success') is not True:
+              raise SystemExit(payload)
+          result=payload.get('result') or {}
+          instance_id=str(result.get('id') or '')
+          if not instance_id:
+              raise SystemExit(f'Missing workflow instance id: {payload}')
+          print(instance_id)
+          print('Started production full refresh:', instance_id, 'status=', result.get('status'), file=__import__('sys').stderr)
+          PY
+          )"
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for full refresh completion
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ steps.start.outputs.instance_id }}
+        run: |
+          set -Eeuo pipefail
+          url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/workflows/${WORKFLOW_NAME}/instances/${INSTANCE_ID}"
+          final=""
+          for attempt in $(seq 1 120); do
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "$url" > /tmp/workflow-instance.json
+            status="$(python - <<'PY'
+          import json
+          payload=json.load(open('/tmp/workflow-instance.json',encoding='utf-8'))
+          print((payload.get('result') or {}).get('status') or '')
+          PY
+            )"
+            echo "Full refresh status: ${status:-unknown}"
+            case "$status" in
+              complete) final=complete; break ;;
+              errored|terminated) final="$status"; break ;;
+            esac
+            sleep 10
+          done
+          if [ "$final" != complete ]; then
+            echo 'Final workflow instance payload:'
+            python - <<'PY'
+          import json
+          payload=json.load(open('/tmp/workflow-instance.json',encoding='utf-8'))
+          result=payload.get('result') or {}
+          print(json.dumps({k:result.get(k) for k in ('id','status','created_on','started_on','ended_on')}, indent=2))
+          PY
+            curl --silent --show-error \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "${url}/step" > /tmp/workflow-step.json || true
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('/tmp/workflow-step.json')
+          if path.exists() and path.stat().st_size:
+              try:
+                  payload=json.loads(path.read_text())
+              except Exception:
+                  payload={}
+              print('Step diagnostic:', json.dumps(payload, ensure_ascii=False)[:10000])
+          PY
+            exit 1
+          fi
+          echo "Production full refresh completed: $INSTANCE_ID"
+
+      - name: Verify Bemobi and NewsWeb source health
+        shell: bash
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.date }}
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import json
+          sql = """
+          WITH ranked AS (
+            SELECT s.code, sh.checked_at, sh.status, sh.error_message, sh.metadata_json,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY s.code ORDER BY sh.checked_at DESC, sh.id DESC
+                   ) AS rn
+            FROM source_health sh
+            JOIN sources s ON s.id=sh.source_id
+            WHERE s.code IN ('BEMOBI_IR','NEWSWEB')
+          )
+          SELECT code, checked_at, status, error_message, metadata_json
+          FROM ranked WHERE rn=1 ORDER BY code
+          """
+          json.dump({'sql': sql}, open('/tmp/d1-query.json','w',encoding='utf-8'))
+          PY
+          url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${CLOUDFLARE_D1_DATABASE_ID}/query"
+          curl --fail-with-body --silent --show-error --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/d1-query.json \
+            "$url" > /tmp/d1-source-health.json
+          python - <<'PY'
+          import json, os
+          payload=json.load(open('/tmp/d1-source-health.json',encoding='utf-8'))
+          if payload.get('success') is not True:
+              raise SystemExit(payload)
+          blocks=payload.get('result') or []
+          rows=(blocks[0].get('results') if blocks else None) or []
+          by_code={str(row.get('code')): row for row in rows}
+          target=os.environ['TARGET_DATE']
+          failures={}
+          for code in ('BEMOBI_IR','NEWSWEB'):
+              row=by_code.get(code)
+              if row is None:
+                  raise SystemExit(f'Missing source_health row for {code}: {rows}')
+              metadata={}
+              try:
+                  metadata=json.loads(str(row.get('metadata_json') or '{}'))
+              except Exception:
+                  pass
+              metadata_target=str(metadata.get('target_date') or '')
+              print(f'{code}: status={row.get("status")} checked_at={row.get("checked_at")} target_date={metadata_target} error={row.get("error_message")}')
+              print(f'{code} result={json.dumps(metadata.get("result") or {}, ensure_ascii=False, sort_keys=True)[:14000]}')
+              if metadata_target != target:
+                  failures[code]=f'latest health target_date={metadata_target}, expected={target}'
+              elif row.get('status') != 'OK':
+                  failures[code]=str(row.get('status'))
+          if failures:
+              raise SystemExit(f'Production source health verification failed: {failures}')
+          print('Production source health passed: BEMOBI_IR=OK NEWSWEB=OK')
+          PY
