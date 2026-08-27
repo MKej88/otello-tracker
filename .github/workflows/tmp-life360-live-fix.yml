@@ -80,7 +80,7 @@ jobs:
       - name: Run focused tests
         shell: bash
         run: |
-          python -m pip install -r backend/requirements.txt
+          python -m pip install -r backend/requirements.txt pytest
           python -m pytest backend/tests/test_life360_market_data.py -q
           python -m py_compile cloudflare/src/life360_market_data.py cloudflare/src/scheduled.py
       - name: Commit clean implementation
