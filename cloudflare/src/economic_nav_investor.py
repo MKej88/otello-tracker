@@ -92,7 +92,7 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
     as_of_date = str(base.get("as_of_date") or "")
     row = await repository.first(
         """
-        SELECT nav_total_nok, nav_per_share_nok, otec_price_nok,
+        SELECT as_of_at, nav_total_nok, nav_per_share_nok, otec_price_nok,
                shares_outstanding, components_json
         FROM nav_snapshots
         WHERE calculation_version=? AND nav_scope='FULL'
@@ -192,6 +192,8 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
                 else "NAV_SETTLEMENT_SCENARIO"
             ),
             "nav_per_share": _float(economic_per_share),
+            "calculated_at": str(row["as_of_at"]),
+            "shares_outstanding": shares_outstanding,
             "discount_pct": _discount_pct(otec_price_nok, economic_per_share),
             "conservative_nav_per_share": _float(conservative_per_share),
             "conservative_discount_pct": _discount_pct(otec_price_nok, conservative_per_share),

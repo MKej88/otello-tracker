@@ -7,7 +7,7 @@
 .normalBemobiView .bemobiSourceStatus { display:none !important; }
 
 .estimatedHero { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(240px,.7fr); gap:28px; padding:28px; align-items:center; }
-.estimatedHero h2 { font-size:clamp(36px,5vw,64px); margin:6px 0 10px; letter-spacing:-.04em; }
+.estimatedHero h2 { font-size:clamp(32px,4vw,48px); margin:6px 0 10px; letter-spacing:-.035em; }
 .estimatedHero p { margin:0; max-width:760px; opacity:.76; line-height:1.55; }
 .estimatedHeroSide { display:grid; gap:12px; padding-left:24px; border-left:1px solid rgba(255,255,255,.09); }
 .estimatedHeroSide > div { display:flex; align-items:baseline; justify-content:space-between; gap:16px; }
@@ -34,9 +34,9 @@
 
 .driverHeader { gap:18px; align-items:flex-start; }
 .changeSummary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:18px 0 22px; }
-.changeSummary > div { border:1px solid rgba(255,255,255,.075); border-radius:12px; padding:15px; display:grid; gap:4px; }
+.changeSummary > div { border:1px solid rgba(255,255,255,.075); border-radius:12px; padding:12px 14px; display:grid; gap:3px; }
 .changeSummary span,.changeSummary small { opacity:.65; }
-.changeSummary strong { font-size:22px; }
+.changeSummary strong { font-size:19px; }
 .driverList { display:grid; gap:12px; }
 .driverRow { display:grid; grid-template-columns:minmax(150px,220px) minmax(120px,1fr) 100px; gap:14px; align-items:center; }
 .driverRow > span { font-size:13px; }

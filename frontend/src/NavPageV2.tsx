@@ -51,7 +51,14 @@ type EstimatedHistory = {
 };
 
 type Payload = { estimated?: EstimatedHistory };
-type EstimatedNav = { ready: boolean; as_of_date?: string; nav_per_share?: number | null; discount_pct?: number | null };
+type EstimatedNav = {
+  ready: boolean;
+  as_of_date?: string;
+  calculated_at?: string | null;
+  nav_per_share?: number | null;
+  discount_pct?: number | null;
+  shares_outstanding?: number | null;
+};
 
 function value(input?: number | null, digits = 2) {
   if (input == null || !Number.isFinite(input)) return "–";
@@ -67,6 +74,21 @@ function dateLabel(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.slice(0, 10).split("-");
   return year && month && day ? `${day}.${month}.${year}` : input;
+}
+
+function dateTimeLabel(input?: string | null) {
+  if (!input) return "–";
+  const parsed = new Date(input);
+  if (!Number.isFinite(parsed.getTime())) return input;
+  return parsed.toLocaleString("nb-NO", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo",
+  });
+}
+
+function integer(input?: number | null) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return Math.round(input).toLocaleString("nb-NO");
 }
 
 function detailNumber(driver: Driver, key: string) {
@@ -112,7 +134,7 @@ function compositionWithoutSeparateFxRow(components: Composition[]) {
       } else if (item.key === "other_reported_assets_liabilities") {
         embeddedFx = investmentFx;
         if (Math.abs(embeddedFx) > 1e-9) {
-          formula = "Rapportert verdi fra siste rapport, justert for valutaeffekt på øvrige USD-baserte poster";
+          formula = "Rapportert verdi fra siste rapport";
         }
       }
 
@@ -229,11 +251,12 @@ export default function NavPageV2() {
         <div>
           <span className="label">ESTIMERT NAV</span>
           <h2>{live?.ready ? `${value(live.nav_per_share)} kr per aksje` : "Laster …"}</h2>
-          <p>Dette er NAV-en som brukes i investorvisningen. Under ser du nøyaktig hvilke verdier som bygger den opp.</p>
+          <p>Beregnet på {integer(live?.shares_outstanding)} utestående aksjer.</p>
         </div>
         <div className="estimatedHeroSide">
           <div><span>Rabatt</span><strong>{value(live?.discount_pct, 1)} %</strong></div>
           <small>Datadato {dateLabel(live?.as_of_date)}</small>
+          <small>Beregnet {dateTimeLabel(live?.calculated_at)}</small>
         </div>
       </section>
 
@@ -252,7 +275,7 @@ export default function NavPageV2() {
               const available = item.key !== "life360" || displayAvailable(item.details);
               return (
                 <div className="compositionRow" key={item.key}>
-                  <strong>{item.label}</strong>
+                  <strong>{item.key === "life360" ? "Life360" : item.label}</strong>
                   <span>{available ? `${value(item.amount_mnok, 1)} mill. kr` : "–"}</span>
                   <span className={available && item.per_share_nok < 0 ? "negative" : ""}>{available ? `${value(item.per_share_nok)} kr` : "–"}</span>
                   <small>{available ? item.formula : "Mangler gyldig LIF-kurs og rapportanker"}</small>
