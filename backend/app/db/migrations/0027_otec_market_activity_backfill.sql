@@ -30,16 +30,16 @@ INSERT INTO market_activity(
     instrument_id, trading_date, volume_shares, last_price_nok,
     source_id, source_document_id, quality, metadata_json
 )
-SELECT i.id, v.trading_date, v.volume_shares, v.last_price_nok,
+SELECT i.id, v.trading_date, v.volume_shares, NULL,
        s.id, sd.id, 'HISTORICAL_EXPORT',
-       '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Volume","preferred_runtime_source":"EURONEXT"}'
+       '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Volume","price_semantics":"VOLUME_ONLY_NO_SECONDARY_PRICE","preferred_runtime_source":"EURONEXT"}'
 FROM (
-    SELECT '2026-08-17' AS trading_date, 53546 AS volume_shares, '17.50' AS last_price_nok
-    UNION ALL SELECT '2026-08-18', 31690, '17.36'
-    UNION ALL SELECT '2026-08-19', 59082, '17.20'
-    UNION ALL SELECT '2026-08-20', 37050, '17.00'
-    UNION ALL SELECT '2026-08-21', 76185, '17.04'
-    UNION ALL SELECT '2026-08-24', 61091, '16.94'
+    SELECT '2026-08-17' AS trading_date, 53546 AS volume_shares
+    UNION ALL SELECT '2026-08-18', 31690
+    UNION ALL SELECT '2026-08-19', 59082
+    UNION ALL SELECT '2026-08-20', 37050
+    UNION ALL SELECT '2026-08-21', 76185
+    UNION ALL SELECT '2026-08-24', 61091
 ) v
 JOIN instruments i ON i.symbol='OTEC' AND i.exchange_mic='XOSL'
 JOIN sources s ON s.code='FT_MARKETS'
