@@ -1,0 +1,93 @@
+name: Temporary source verification v2 patch
+
+on:
+  push:
+    branches:
+      - fix/production-source-verification-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Forbered retting av produksjonskildeverifisering'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/production-source-verification-v2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Apply production fixes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          entry = Path('cloudflare/src/entry.py')
+          text = entry.read_text(encoding='utf-8')
+          text = text.replace('import hashlib\nimport sys\n', 'import hashlib\nimport json\nimport sys\n', 1)
+          old = '''def _workflow_target_date(event) -> str:\n    payload = _event_value(event, "payload")\n    explicit = _nested_value(payload, "target_date")\n    if explicit:\n        return datetime.fromisoformat(str(explicit)).date().isoformat()\n\n    schedule = _event_value(event, "schedule")\n'''
+          new = '''def _workflow_payload(event):\n    """Normalize Cloudflare Workflow payloads from bindings and REST-created instances.\n\n    The REST create-instance API accepts ``params`` as a JSON-encoded string. Depending on\n    runtime shape, Python Workers can therefore receive ``event.payload`` as either a mapping\n    or that JSON string. Keep manual verification deterministic by accepting both forms.\n    """\n    payload = _event_value(event, "payload")\n    if payload is None:\n        payload = _event_value(event, "params")\n    if isinstance(payload, str):\n        try:\n            decoded = json.loads(payload)\n        except json.JSONDecodeError:\n            return None\n        return decoded if isinstance(decoded, dict) else None\n    return payload\n\n\ndef _workflow_target_date(event) -> str:\n    payload = _workflow_payload(event)\n    explicit = _nested_value(payload, "target_date")\n    if explicit:\n        return datetime.fromisoformat(str(explicit)).date().isoformat()\n\n    schedule = _event_value(event, "schedule")\n'''
+          if old not in text:
+              raise SystemExit('entry target-date marker missing')
+          entry.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          runtime = Path('cloudflare/src/bemobi_web_refresh_runtime.py')
+          text = runtime.read_text(encoding='utf-8')
+          old = '''    secondary = [result, consensus, xp]\n    degraded = any(item.get("status") == "not_available" for item in secondary)\n    rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows\n    return {\n        "status": "partial" if degraded else "ok",\n        "rows_written": rows_written,\n        "ir": ir,\n        "result_release": result,\n        "consensus": consensus,\n        "xp_preview": xp,\n        "active_secondary_slot": active_slot,\n        "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,\n        "policy": "official-ir-daily-rotating-secondary-last-good-preserved",\n    }\n'''
+          new = '''    secondary = [result, consensus, xp]\n    secondary_warnings = [\n        {\n            "source": name,\n            "status": str(item.get("status") or "unknown"),\n            "reason": item.get("reason"),\n            "error": item.get("error"),\n        }\n        for name, item in (("result_release", result), ("consensus", consensus), ("xp_preview", xp))\n        if item.get("status") == "not_available"\n    ]\n    # A new official result document that cannot be parsed is material and still degrades\n    # BEMOBI_IR. MarketScreener consensus and XP preview are explicitly best-effort external\n    # supplements: preserve last-good data and expose their failure as metadata, but do not\n    # mislabel the healthy official Bemobi IR source as DEGRADED.\n    result_release_degraded = result.get("status") == "not_available"\n    rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows\n    return {\n        "status": "partial" if result_release_degraded else "ok",\n        "rows_written": rows_written,\n        "ir": ir,\n        "result_release": result,\n        "consensus": consensus,\n        "xp_preview": xp,\n        "secondary_status": "degraded" if secondary_warnings else "ok",\n        "secondary_warnings": secondary_warnings,\n        "active_secondary_slot": active_slot,\n        "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,\n        "policy": "official-ir-daily-result-release-health-best-effort-consensus-xp-last-good-preserved",\n    }\n'''
+          if old not in text:
+              raise SystemExit('runtime aggregation marker missing')
+          runtime.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          verify = Path('.github/workflows/verify-production-sources.yml')
+          text = verify.read_text(encoding='utf-8')
+          marker = "          python - <<'PY'\n          import json, os\n          body = {\n"
+          replacement = "          # Cloudflare REST params is JSON-encoded; entry.py normalizes string payloads.\n" + marker
+          if replacement not in text:
+              if marker not in text:
+                  raise SystemExit('verification params marker missing')
+              text = text.replace(marker, replacement, 1)
+          verify.write_text(text, encoding='utf-8')
+
+          target_test = Path('backend/tests/test_workflow_target_date.py')
+          target_test.write_text('''from __future__ import annotations\n\nimport ast\nimport json\nfrom datetime import UTC, datetime, timedelta\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parents[2]\nENTRY = ROOT / "cloudflare" / "src" / "entry.py"\n\n\ndef _helpers():\n    source = ENTRY.read_text(encoding="utf-8")\n    tree = ast.parse(source)\n    names = {"_event_value", "_nested_value", "_workflow_payload", "_workflow_target_date"}\n    nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]\n    module = ast.Module(body=nodes, type_ignores=[])\n    namespace = {"json": json, "datetime": datetime, "UTC": UTC, "timedelta": timedelta}\n    exec(compile(module, str(ENTRY), "exec"), namespace)\n    return namespace\n\n\ndef test_workflow_target_date_accepts_mapping_payload() -> None:\n    helper = _helpers()["_workflow_target_date"]\n    assert helper({"payload": {"target_date": "2026-08-26"}}) == "2026-08-26"\n\n\ndef test_workflow_target_date_accepts_rest_json_string_payload() -> None:\n    helper = _helpers()["_workflow_target_date"]\n    assert helper({"payload": '{"target_date":"2026-08-26"}'}) == "2026-08-26"\n\n\ndef test_workflow_target_date_accepts_params_fallback() -> None:\n    helper = _helpers()["_workflow_target_date"]\n    assert helper({"params": '{"target_date":"2026-08-26"}'}) == "2026-08-26"\n''', encoding='utf-8')
+
+          runtime_test = Path('backend/tests/test_bemobi_web_runtime_module.py')
+          text = runtime_test.read_text(encoding='utf-8')
+          if 'import asyncio\n' not in text:
+              text = text.replace('from __future__ import annotations\n\n', 'from __future__ import annotations\n\nimport asyncio\n', 1)
+          addition = '''\n\ndef test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation(monkeypatch) -> None:\n    async def ok_ir(*args, **kwargs):\n        return {"status": "ok", "rows_written": 5}\n\n    async def blocked_consensus(*args, **kwargs):\n        return {"status": "not_available", "error": "HTTP 403", "rows_written": 0}\n\n    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)\n    monkeypatch.setattr(runtime, "sync_marketscreener_consensus", blocked_consensus)\n    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "consensus")\n\n    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-27"))\n    assert result["status"] == "ok"\n    assert result["secondary_status"] == "degraded"\n    assert result["secondary_warnings"] == [\n        {"source": "consensus", "status": "not_available", "reason": None, "error": "HTTP 403"}\n    ]\n\n\ndef test_unparseable_official_result_still_degrades_bemobi_ir(monkeypatch) -> None:\n    async def ok_ir(*args, **kwargs):\n        return {"status": "ok", "rows_written": 5}\n\n    async def bad_result(*args, **kwargs):\n        return {"status": "not_available", "error": "new result not parseable", "rows_written": 0}\n\n    async def no_event(*args, **kwargs):\n        return 0\n\n    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)\n    monkeypatch.setattr(runtime, "sync_latest_result_release", bad_result)\n    monkeypatch.setattr(runtime, "_ensure_consensus_event", no_event)\n    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")\n\n    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-26"))\n    assert result["status"] == "partial"\n    assert result["secondary_status"] == "degraded"\n    assert result["secondary_warnings"][0]["source"] == "result_release"\n'''
+          if 'test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation' not in text:
+              text += addition
+          runtime_test.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Run targeted tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt pytest
+          PYTHONPATH=backend python -m pytest -q \
+            backend/tests/test_workflow_target_date.py \
+            backend/tests/test_bemobi_web_runtime_module.py \
+            backend/tests/test_workflow_robustness.py
+
+      - name: Commit clean fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'MKej88'
+          git config user.email 'mads.kristensen2@gmail.com'
+          git rm .github/workflows/tmp-fix-source-verification-v2.yml
+          git add cloudflare/src/entry.py cloudflare/src/bemobi_web_refresh_runtime.py \
+                  .github/workflows/verify-production-sources.yml \
+                  backend/tests/test_workflow_target_date.py \
+                  backend/tests/test_bemobi_web_runtime_module.py
+          git diff --cached --check
+          git commit -m 'Rett produksjonsverifisering og Bemobi-kildestatus'
+          git push origin HEAD:fix/production-source-verification-v2
