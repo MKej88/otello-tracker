@@ -368,7 +368,7 @@ def test_worker_wiring_keeps_report_ingestion_zero_touch_and_fail_closed() -> No
         encoding="utf-8"
     )
 
-    assert 'PHASE = "16.1"' in scheduled
+    assert 'PHASE = "16.2"' in scheduled
     assert "process_pending_otello_reports" in scheduled
     assert "archive_bucket=bindings.SOURCE_ARCHIVE" in entry
     assert '"ingest Otello financial reports"' in entry

@@ -29,7 +29,7 @@ def test_euronext_activity_seed_has_current_20_day_history(tmp_path) -> None:
     assert result["rows"] > 500
     assert status["status"] == "ok"
     assert status["from"] == "2024-08-19"
-    assert status["to"] == "2026-08-14"
+    assert status["to"] == "2026-08-24"
     assert status["positive_days"] >= 490
 
 
