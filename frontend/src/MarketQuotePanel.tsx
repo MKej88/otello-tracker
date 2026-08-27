@@ -53,8 +53,14 @@ const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 function price(value: number | null | undefined, currency?: string | null) {
   if (value == null || !Number.isFinite(value)) return "–";
-  const formatted = value.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return currency === "BRL" ? `R$ ${formatted}` : currency === "NOK" ? `${formatted} kr` : formatted;
+  const formatted = value.toLocaleString("nb-NO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  if (currency === "BRL") return `R$ ${formatted}`;
+  if (currency === "NOK") return `${formatted} kr`;
+  if (currency === "USD") return `US$ ${formatted}`;
+  return formatted;
 }
 
 function volume(value: number | null | undefined) {
@@ -77,13 +83,14 @@ function updated(input?: string | null) {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Oslo"
+    timeZone: "Europe/Oslo",
   });
 }
 
 function sessionBasisLabel(quote: Quote) {
   if (quote.session?.basis === "EXCHANGE_SESSION_SUMMARY") return "Børssammendrag";
   if (quote.session?.basis === "OBSERVED_TRADES") return "Observerte Euronext-handler";
+  if (quote.session?.basis === "CLOSE_ONLY") return "Kun sluttkurs lagret";
   return "Lagrede markedsdata";
 }
 
@@ -104,7 +111,10 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
         <div>
           <span className="label">{title}</span>
           <div className="marketQuotePrice">{price(quote.last, currency)}</div>
-          <small>{quote.last_price_type === "CLOSE" ? "Siste sluttkurs" : "Siste handel"} · {quote.source ?? "–"}</small>
+          <small>
+            {quote.last_price_type === "CLOSE" ? "Siste sluttkurs" : "Siste handel"} ·{" "}
+            {quote.source ?? "–"}
+          </small>
         </div>
         <div className="marketQuoteUpdated">
           <span>Sist oppdatert</span>
@@ -114,9 +124,18 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
       </div>
 
       <div className="marketQuoteStats">
-        <div><span>Åpning</span><strong>{price(quote.session?.open, currency)}</strong></div>
-        <div><span>Dagens lav</span><strong>{price(quote.session?.low, currency)}</strong></div>
-        <div><span>Dagens høy</span><strong>{price(quote.session?.high, currency)}</strong></div>
+        <div>
+          <span>Åpning</span>
+          <strong>{price(quote.session?.open, currency)}</strong>
+        </div>
+        <div>
+          <span>Dagens lav</span>
+          <strong>{price(quote.session?.low, currency)}</strong>
+        </div>
+        <div>
+          <span>Dagens høy</span>
+          <strong>{price(quote.session?.high, currency)}</strong>
+        </div>
         <div>
           <span>Siste sluttkurs</span>
           <strong>{price(quote.last_close?.price, currency)}</strong>
@@ -134,18 +153,25 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
         </div>
         <div className="marketQuoteRange">
           <span>52-ukers lav / høy</span>
-          <strong>{price(quote.range_52w?.low, currency)} <i>→</i> {price(quote.range_52w?.high, currency)}</strong>
+          <strong>
+            {price(quote.range_52w?.low, currency)} <i>→</i>{" "}
+            {price(quote.range_52w?.high, currency)}
+          </strong>
           <small>{quote.range_52w?.sessions ?? 0} handelssesjoner</small>
         </div>
       </div>
 
       <div className="marketQuoteFootnote">
         <span>{sessionBasisLabel(quote)}</span>
-        {quote.symbol === "OTEC" && quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
-          <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
-        )}
+        {quote.symbol === "OTEC" &&
+          quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
+            <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
+          )}
         {quote.symbol === "BMOB3" && (quote.volume?.average_sessions ?? 0) < 20 && (
           <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
+        )}
+        {quote.symbol === "LIF" && (
+          <span>Life360 bruker lagret NASDAQ-sluttkurs fra Yahoo Finance.</span>
         )}
       </div>
     </article>
@@ -185,14 +211,20 @@ export default function MarketQuotePanel() {
   return (
     <section className="marketQuoteSection">
       <div className="marketQuoteSectionHeader">
-        <div><span className="label">Markedsdata</span><h2>Kurser og handelsdata</h2></div>
+        <div>
+          <span className="label">Markedsdata</span>
+          <h2>Kurser og handelsdata</h2>
+        </div>
         {failed && <span className="pill muted">Viser sist hentet</span>}
       </div>
       <div className="marketQuoteGrid">
         <QuoteCard quote={data?.symbols?.OTEC} title="OTEC" />
         <QuoteCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" />
+        <QuoteCard quote={data?.symbols?.LIF} title="Life360 / LIF" />
       </div>
-      {data?.methodology?.range_52w && <p className="marketQuoteMethod">{data.methodology.range_52w}</p>}
+      {data?.methodology?.range_52w && (
+        <p className="marketQuoteMethod">{data.methodology.range_52w}</p>
+      )}
     </section>
   );
 }
