@@ -1,0 +1,394 @@
+name: Temporary Life360 historical patch
+
+on:
+  push:
+    branches:
+      - fix/life360-historical-mark-to-market
+    paths:
+      - .github/workflows/tmp-life360-historical-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/life360-historical-mark-to-market
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply Life360 history fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) Yahoo repair window: repair enough history for the 1M investor view.
+          path = Path('cloudflare/src/life360_market_data.py')
+          text = path.read_text()
+          old = 'RECENT_LOOKBACK_DAYS = 21'
+          assert text.count(old) == 1, 'Yahoo lookback constant changed unexpectedly'
+          path.write_text(text.replace(old, 'RECENT_LOOKBACK_DAYS = 45'))
+
+          # 2) Life360 IR/LSEG: persist every valid row returned, while retaining
+          # the 7-day freshness check solely for choosing the current fallback quote.
+          path = Path('cloudflare/src/life360_ir_lseg.py')
+          text = path.read_text()
+          old_constants = 'MAX_RESPONSE_BYTES = 2 * 1024 * 1024\nMAX_FALLBACK_AGE_DAYS = 7\n'
+          new_constants = (
+              'MAX_RESPONSE_BYTES = 2 * 1024 * 1024\n'
+              'MAX_FALLBACK_AGE_DAYS = 7\n'
+              'D1_MAX_BOUND_PARAMETERS = 100\n'
+              'BOUND_PARAMETERS_PER_ROW = 7\n'
+              'WRITE_BATCH_ROWS = D1_MAX_BOUND_PARAMETERS // BOUND_PARAMETERS_PER_ROW\n'
+          )
+          assert text.count(old_constants) == 1, 'IR constants changed unexpectedly'
+          text = text.replace(old_constants, new_constants)
+
+          old_write = '''    await repository.run(
+              """
+              INSERT INTO market_prices(
+                  instrument_id, observed_at, trading_date, price_type, price, currency,
+                  source_id, source_document_id, quality, metadata_json
+              ) VALUES (?, ?, ?, 'CLOSE', ?, 'USD', ?, ?, 'DIRECT', ?)
+              ON CONFLICT(instrument_id, observed_at, price_type, source_id)
+              DO UPDATE SET
+                  trading_date=excluded.trading_date,
+                  price=excluded.price,
+                  currency=excluded.currency,
+                  source_document_id=excluded.source_document_id,
+                  quality=excluded.quality,
+                  metadata_json=excluded.metadata_json
+              """,
+              (
+                  instrument_id,
+                  selected["observed_at"],
+                  selected["trading_date"],
+                  selected["price"],
+                  source_id,
+                  document_id,
+                  metadata_json,
+              ),
+          )
+          '''
+          new_write = '''    eligible_rows = [row for row in rows if row["trading_date"] <= target_date]
+              written = 0
+              for offset in range(0, len(eligible_rows), WRITE_BATCH_ROWS):
+                  chunk = eligible_rows[offset : offset + WRITE_BATCH_ROWS]
+                  values_sql = ",".join(
+                      "(?, ?, ?, 'CLOSE', ?, 'USD', ?, ?, 'DIRECT', ?)" for _ in chunk
+                  )
+                  parameters: list[Any] = []
+                  for row in chunk:
+                      parameters.extend(
+                          (
+                              instrument_id,
+                              row["observed_at"],
+                              row["trading_date"],
+                              row["price"],
+                              source_id,
+                              document_id,
+                              metadata_json,
+                          )
+                      )
+                  await repository.run(
+                      f"""
+                      INSERT INTO market_prices(
+                          instrument_id, observed_at, trading_date, price_type, price, currency,
+                          source_id, source_document_id, quality, metadata_json
+                      ) VALUES {values_sql}
+                      ON CONFLICT(instrument_id, observed_at, price_type, source_id)
+                      DO UPDATE SET
+                          trading_date=excluded.trading_date,
+                          price=excluded.price,
+                          currency=excluded.currency,
+                          source_document_id=excluded.source_document_id,
+                          quality=excluded.quality,
+                          metadata_json=excluded.metadata_json
+                      """,
+                      tuple(parameters),
+                  )
+                  written += len(chunk)
+          '''
+          assert text.count(old_write) == 1, 'IR single-row write block changed unexpectedly'
+          text = text.replace(old_write, new_write)
+          assert text.count('"rows_written": 1,') == 1, 'IR rows_written return changed unexpectedly'
+          text = text.replace('"rows_written": 1,', '"rows_written": written,')
+          path.write_text(text)
+
+          # 3) Tests: keep the current 7-day freshness rule, but verify broad repair
+          # and D1-safe persistence of all IR rows.
+          path = Path('backend/tests/test_life360_market_data.py')
+          text = path.read_text()
+          old_import = '    LIFE360_REQUIRED_SYMBOL,\n    YAHOO_QUERY1_BASE,'
+          new_import = '    LIFE360_REQUIRED_SYMBOL,\n    RECENT_LOOKBACK_DAYS,\n    YAHOO_QUERY1_BASE,'
+          assert text.count(old_import) == 1
+          text = text.replace(old_import, new_import)
+          anchor = 'def test_lif_is_required_while_asx_is_control_series() -> None:\n    assert LIFE360_REQUIRED_SYMBOL == "LIF"\n    assert LIFE360_CONTROL_SYMBOLS == {"360.AX"}\n\n\n'
+          addition = anchor + 'def test_yahoo_repair_window_covers_more_than_one_month() -> None:\n    assert RECENT_LOOKBACK_DAYS == 45\n\n\n'
+          assert text.count(anchor) == 1
+          path.write_text(text.replace(anchor, addition))
+
+          path = Path('backend/tests/test_life360_ir_lseg.py')
+          text = path.read_text()
+          text = text.replace(
+              'import asyncio\nimport sys\n',
+              'import asyncio\nimport sys\nfrom datetime import date, timedelta\n',
+              1,
+          )
+          old_import = '''    LIFE360_IR_HISTORY_URL,
+              MAX_FALLBACK_AGE_DAYS,
+              parse_life360_ir_history,
+          '''
+          new_import = '''    BOUND_PARAMETERS_PER_ROW,
+              D1_MAX_BOUND_PARAMETERS,
+              LIFE360_IR_HISTORY_URL,
+              MAX_FALLBACK_AGE_DAYS,
+              WRITE_BATCH_ROWS,
+              parse_life360_ir_history,
+          '''
+          assert text.count(old_import) == 1
+          text = text.replace(old_import, new_import)
+          old_asserts = '''    assert result["history_complete"] is False
+              assert repository.documents[0]["url"] == LIFE360_IR_HISTORY_URL
+              assert "LSEG" in repository.documents[0]["title"]
+              assert len(repository.runs) == 1
+              assert "'DIRECT'" in repository.runs[0][0]
+          '''
+          new_asserts = '''    assert result["history_complete"] is False
+              assert result["rows_written"] == 2
+              assert repository.documents[0]["url"] == LIFE360_IR_HISTORY_URL
+              assert "LSEG" in repository.documents[0]["title"]
+              assert len(repository.runs) == 1
+              assert "'DIRECT'" in repository.runs[0][0]
+              assert len(repository.runs[0][1]) == 14
+              assert "44.66" in repository.runs[0][1]
+              assert "45.25" in repository.runs[0][1]
+          '''
+          assert text.count(old_asserts) == 1
+          text = text.replace(old_asserts, new_asserts)
+          text += '''
+
+          def test_ir_history_writes_are_batched_below_d1_parameter_limit() -> None:
+              start = date(2026, 8, 1)
+              body = [
+                  "<html><body><table>",
+                  "<tr><th>Date Requested</th><th>Closing Price</th></tr>",
+              ]
+              for offset in range(30):
+                  day = start + timedelta(days=offset)
+                  body.append(
+                      f"<tr><td>{day.strftime('%B %d, %Y')}</td>"
+                      f"<td>${50 + offset / 100:.2f}</td></tr>"
+                  )
+              body.extend(["</table>", "<p>Data provided by LSEG.</p>", "</body></html>"])
+              payload = "".join(body).encode()
+              repository = FakeRepository()
+
+              async def fake_fetch(url: str, **kwargs):
+                  assert url == LIFE360_IR_HISTORY_URL
+                  return FakeResponse(payload)
+
+              result = asyncio.run(
+                  refresh_life360_ir_lif(
+                      repository,
+                      target_date="2026-08-30",
+                      fetcher=fake_fetch,
+                  )
+              )
+
+              assert BOUND_PARAMETERS_PER_ROW == 7
+              assert WRITE_BATCH_ROWS == 14
+              assert WRITE_BATCH_ROWS * BOUND_PARAMETERS_PER_ROW <= D1_MAX_BOUND_PARAMETERS
+              assert result["rows_written"] == 30
+              assert [len(parameters) for _, parameters in repository.runs] == [98, 98, 14]
+              assert max(len(parameters) for _, parameters in repository.runs) <= D1_MAX_BOUND_PARAMETERS
+          '''
+          path.write_text(text)
+
+          # 4) One-time, source-backed late-July LIF backfill. This is deliberately
+          # production-data gated: fresh bootstrap databases gain the source identity
+          # but not historical market rows.
+          backend_migration = Path('backend/app/db/migrations/0028_life360_price_backfill.sql')
+          cloudflare_migration = Path('cloudflare/migrations/0020_life360_price_backfill.sql')
+          migration = r'''-- Backfill the late-July LIF closes needed by the 1M investor NAV view.
+          -- Values were manually verified against FinanceCharts and independently cross-checked
+          -- against StockAnalysis. Runtime repair remains Yahoo-first and Life360 IR/LSEG fallback.
+
+          INSERT INTO sources(code, name, source_type, base_url, is_official, is_active, terms_notes)
+          SELECT 'FINANCECHARTS', 'FinanceCharts historical market data', 'OTHER',
+                 'https://www.financecharts.com/', 0, 1,
+                 'Sekundær offentlig historikktabell brukt kun til eksplisitt kontrollert LIF-kursbackfill; ingen automatisert scraping.'
+          WHERE NOT EXISTS (SELECT 1 FROM sources WHERE code='FINANCECHARTS');
+
+          INSERT INTO source_documents(
+              source_id, external_id, document_type, title, published_at, url, metadata_json
+          )
+          SELECT s.id,
+                 'lif-financecharts-history-2026-07-27-2026-07-31',
+                 'MARKET_DATA_DERIVED_FILE',
+                 'Life360 LIF historical closes 27-31 July 2026',
+                 '2026-08-27T00:00:00Z',
+                 'https://www.financecharts.com/stocks/LIF/summary/price',
+                 '{"scope":"ONE_TIME_GAP_BACKFILL","source_quality":"SECONDARY_PUBLIC_HISTORY","symbol":"LIF","source_field":"Close","crosscheck":"https://stockanalysis.com/stocks/lif/history/"}'
+          FROM sources s
+          WHERE s.code='FINANCECHARTS'
+            AND EXISTS (
+                SELECT 1
+                FROM market_prices mp
+                JOIN instruments i ON i.id=mp.instrument_id
+                WHERE i.symbol='LIF'
+                  AND i.exchange_mic='XNAS'
+                  AND mp.trading_date < '2026-07-27'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM source_documents sd
+                WHERE sd.source_id=s.id
+                  AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+            );
+
+          INSERT INTO market_prices(
+              instrument_id, observed_at, trading_date, price_type, price, currency,
+              source_id, source_document_id, quality, metadata_json
+          )
+          SELECT i.id, '2026-07-27T20:00:00Z', '2026-07-27', 'CLOSE', '53.83', 'USD',
+                 s.id, sd.id, 'RECONSTRUCTED',
+                 '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Close","crosscheck":"STOCKANALYSIS","price_semantics":"DAILY_CLOSE"}'
+          FROM instruments i
+          JOIN sources s ON s.code='FINANCECHARTS'
+          JOIN source_documents sd ON sd.source_id=s.id
+              AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+          WHERE i.symbol='LIF' AND i.exchange_mic='XNAS'
+            AND NOT EXISTS (
+                SELECT 1 FROM market_prices existing
+                WHERE existing.instrument_id=i.id
+                  AND existing.trading_date='2026-07-27'
+                  AND existing.source_id=s.id
+                  AND existing.price_type='CLOSE'
+            );
+
+          INSERT INTO market_prices(
+              instrument_id, observed_at, trading_date, price_type, price, currency,
+              source_id, source_document_id, quality, metadata_json
+          )
+          SELECT i.id, '2026-07-28T20:00:00Z', '2026-07-28', 'CLOSE', '56.68', 'USD',
+                 s.id, sd.id, 'RECONSTRUCTED',
+                 '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Close","crosscheck":"STOCKANALYSIS","price_semantics":"DAILY_CLOSE"}'
+          FROM instruments i
+          JOIN sources s ON s.code='FINANCECHARTS'
+          JOIN source_documents sd ON sd.source_id=s.id
+              AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+          WHERE i.symbol='LIF' AND i.exchange_mic='XNAS'
+            AND NOT EXISTS (
+                SELECT 1 FROM market_prices existing
+                WHERE existing.instrument_id=i.id
+                  AND existing.trading_date='2026-07-28'
+                  AND existing.source_id=s.id
+                  AND existing.price_type='CLOSE'
+            );
+
+          INSERT INTO market_prices(
+              instrument_id, observed_at, trading_date, price_type, price, currency,
+              source_id, source_document_id, quality, metadata_json
+          )
+          SELECT i.id, '2026-07-29T20:00:00Z', '2026-07-29', 'CLOSE', '55.29', 'USD',
+                 s.id, sd.id, 'RECONSTRUCTED',
+                 '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Close","crosscheck":"STOCKANALYSIS","price_semantics":"DAILY_CLOSE"}'
+          FROM instruments i
+          JOIN sources s ON s.code='FINANCECHARTS'
+          JOIN source_documents sd ON sd.source_id=s.id
+              AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+          WHERE i.symbol='LIF' AND i.exchange_mic='XNAS'
+            AND NOT EXISTS (
+                SELECT 1 FROM market_prices existing
+                WHERE existing.instrument_id=i.id
+                  AND existing.trading_date='2026-07-29'
+                  AND existing.source_id=s.id
+                  AND existing.price_type='CLOSE'
+            );
+
+          INSERT INTO market_prices(
+              instrument_id, observed_at, trading_date, price_type, price, currency,
+              source_id, source_document_id, quality, metadata_json
+          )
+          SELECT i.id, '2026-07-30T20:00:00Z', '2026-07-30', 'CLOSE', '55.68', 'USD',
+                 s.id, sd.id, 'RECONSTRUCTED',
+                 '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Close","crosscheck":"STOCKANALYSIS","price_semantics":"DAILY_CLOSE"}'
+          FROM instruments i
+          JOIN sources s ON s.code='FINANCECHARTS'
+          JOIN source_documents sd ON sd.source_id=s.id
+              AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+          WHERE i.symbol='LIF' AND i.exchange_mic='XNAS'
+            AND NOT EXISTS (
+                SELECT 1 FROM market_prices existing
+                WHERE existing.instrument_id=i.id
+                  AND existing.trading_date='2026-07-30'
+                  AND existing.source_id=s.id
+                  AND existing.price_type='CLOSE'
+            );
+
+          INSERT INTO market_prices(
+              instrument_id, observed_at, trading_date, price_type, price, currency,
+              source_id, source_document_id, quality, metadata_json
+          )
+          SELECT i.id, '2026-07-31T20:00:00Z', '2026-07-31', 'CLOSE', '54.05', 'USD',
+                 s.id, sd.id, 'RECONSTRUCTED',
+                 '{"backfill":"MANUALLY_VERIFIED_SECONDARY_HISTORY","source_field":"Close","crosscheck":"STOCKANALYSIS","price_semantics":"DAILY_CLOSE"}'
+          FROM instruments i
+          JOIN sources s ON s.code='FINANCECHARTS'
+          JOIN source_documents sd ON sd.source_id=s.id
+              AND sd.external_id='lif-financecharts-history-2026-07-27-2026-07-31'
+          WHERE i.symbol='LIF' AND i.exchange_mic='XNAS'
+            AND NOT EXISTS (
+                SELECT 1 FROM market_prices existing
+                WHERE existing.instrument_id=i.id
+                  AND existing.trading_date='2026-07-31'
+                  AND existing.source_id=s.id
+                  AND existing.price_type='CLOSE'
+            );
+          '''
+          # Strip workflow indentation before writing SQL files.
+          migration = '\n'.join(line[10:] if line.startswith('          ') else line for line in migration.splitlines()).lstrip()
+          backend_migration.write_text(migration)
+          cloudflare_migration.write_text(migration)
+
+          test_path = Path('backend/tests/test_life360_price_backfill_migration.py')
+          test_path.write_text('''from pathlib import Path\n\n\nROOT = Path(__file__).resolve().parents[2]\nBACKEND = ROOT / "backend/app/db/migrations/0028_life360_price_backfill.sql"\nD1 = ROOT / "cloudflare/migrations/0020_life360_price_backfill.sql"\n\nEXPECTED = {\n    "2026-07-27": "53.83",\n    "2026-07-28": "56.68",\n    "2026-07-29": "55.29",\n    "2026-07-30": "55.68",\n    "2026-07-31": "54.05",\n}\n\n\ndef test_life360_price_backfill_is_source_backed_and_parity_matched() -> None:\n    backend = BACKEND.read_text()\n    d1 = D1.read_text()\n    assert backend == d1\n    assert "FINANCECHARTS" in d1\n    assert "financecharts.com/stocks/LIF/summary/price" in d1\n    assert "stockanalysis.com/stocks/lif/history/" in d1\n    assert "RECONSTRUCTED" in d1\n    assert "mp.trading_date < '2026-07-27'" in d1\n    for trading_date, close in EXPECTED.items():\n        assert trading_date in d1\n        assert f"'{close}'" in d1\n\n\ndef test_life360_price_backfill_is_idempotent_by_source_and_day() -> None:\n    sql = D1.read_text()\n    assert sql.count("AND NOT EXISTS (\\n        SELECT 1 FROM market_prices existing") == len(EXPECTED)\n    assert "existing.source_id=s.id" in sql\n    assert "existing.price_type='CLOSE'" in sql\n''')
+          PY
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt pytest
+
+      - name: Run Life360 regression tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=backend python -m pytest -q \
+            backend/tests/test_life360_market_data.py \
+            backend/tests/test_life360_ir_lseg.py \
+            backend/tests/test_life360_nav.py \
+            backend/tests/test_estimated_nav_life360_composition.py \
+            backend/tests/test_life360_price_backfill_migration.py
+
+      - name: Commit production patch and remove temporary workflows
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/tmp-life360-historical-patch.yml
+          rm -f .github/workflows/tmp-lif-form-diagnostic.yml
+          git add -A
+          git diff --cached --check
+          git commit -m 'Reparer historisk Life360 mark-to-market'
+          git push origin HEAD:fix/life360-historical-mark-to-market
