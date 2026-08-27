@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 _DATE_RE = re.compile(r"\d{2}\.\d{2}\.\d{4}")
@@ -43,24 +43,7 @@ def _date(value: str) -> str:
     return date(int(year), int(month), int(day)).isoformat()
 
 
-def _parse_trade_line(line: str) -> BuybackTrade | None:
-    normalized = " ".join(line.replace("\u00a0", " ").split())
-    if not normalized:
-        return None
-    if _SELL_RE.match(normalized):
-        raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
-    if not normalized.upper().startswith("B OTEC "):
-        return None
-
-    date_match = _DATE_RE.search(normalized)
-    time_match = _TIME_RE.search(normalized)
-    if date_match is None or time_match is None:
-        return None
-
-    payload = normalized
-    for match in sorted((date_match, time_match), key=lambda item: item.start(), reverse=True):
-        payload = payload[: match.start()] + " " + payload[match.end() :]
-    tokens = " ".join(payload.split())[len("B OTEC ") :].split()
+def _economic_tuple(tokens: list[str], normalized: str) -> tuple[int, Decimal, Decimal] | None:
     if len(tokens) < 3:
         return None
 
@@ -79,10 +62,8 @@ def _parse_trade_line(line: str) -> BuybackTrade | None:
 
     if not candidates:
         raise ValueError(f"Kunne ikke avstemme NewsWeb-handelslinje: {normalized}")
-    # Decimal punctuation makes the price-token boundary explicit and is preferred when
-    # more than one arithmetic partition can technically balance. Otherwise require one
-    # unique economic tuple; ambiguity must never be silently guessed.
-    punctuated = []
+
+    punctuated: list[tuple[int, Decimal, Decimal]] = []
     for price_index in range(1, len(tokens) - 1):
         if "," not in tokens[price_index] and "." not in tokens[price_index]:
             continue
@@ -96,13 +77,74 @@ def _parse_trade_line(line: str) -> BuybackTrade | None:
             continue
         if candidate in candidates:
             punctuated.append(candidate)
+
     selected_pool = punctuated or list(dict.fromkeys(candidates))
     if len(selected_pool) != 1:
         raise ValueError(f"Tvetydig NewsWeb-handelslinje; krever kontroll: {normalized}")
-    shares, price, amount = selected_pool[0]
+    return selected_pool[0]
+
+
+def _parse_trade_line(line: str) -> BuybackTrade | None:
+    normalized = " ".join(line.replace("\u00a0", " ").split())
+    if not normalized:
+        return None
+    if _SELL_RE.match(normalized):
+        raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
+    if not normalized.upper().startswith("B OTEC "):
+        return None
+
+    date_match = _DATE_RE.search(normalized)
+    time_match = _TIME_RE.search(normalized)
+    if date_match is None or time_match is None:
+        return None
+
+    payload = normalized
+    for match in sorted((date_match, time_match), key=lambda item: item.start(), reverse=True):
+        payload = payload[: match.start()] + " " + payload[match.end() :]
+    tokens = " ".join(payload.split())[len("B OTEC ") :].split()
+    economic = _economic_tuple(tokens, normalized)
+    if economic is None:
+        return None
+    shares, price, amount = economic
     return BuybackTrade(
         trade_date=_date(date_match.group(0)),
         trade_time=time_match.group(0),
+        shares=shares,
+        price_nok=price,
+        amount_nok=amount,
+    )
+
+
+def _parse_undated_duplicate_time_line(line: str) -> BuybackTrade | None:
+    """Recognize the pypdf defect where the date cell repeats the trade time.
+
+    This function deliberately leaves the date blank. A date is assigned only by
+    ``_recover_single_missing_trade_date`` when the canonical weekly period and the
+    ExecBuy totals make the missing date unique.
+    """
+    normalized = " ".join(line.replace("\u00a0", " ").split())
+    if not normalized:
+        return None
+    if _SELL_RE.match(normalized):
+        raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
+    if not normalized.upper().startswith("B OTEC ") or _DATE_RE.search(normalized):
+        return None
+
+    time_matches = list(_TIME_RE.finditer(normalized))
+    if len(time_matches) != 2 or time_matches[0].group(0) != time_matches[1].group(0):
+        return None
+
+    payload = normalized
+    for match in reversed(time_matches):
+        payload = payload[: match.start()] + " " + payload[match.end() :]
+    tokens = " ".join(payload.split())[len("B OTEC ") :].split()
+    economic = _economic_tuple(tokens, normalized)
+    if economic is None:
+        return None
+    shares, price, amount = economic
+    return BuybackTrade(
+        trade_date="",
+        trade_time=time_matches[0].group(0),
         shares=shares,
         price_nok=price,
         amount_nok=amount,
@@ -137,14 +179,96 @@ def aggregate_daily_buybacks(trades: list[BuybackTrade]) -> list[DailyBuybackTra
     return result
 
 
-def parse_buyback_transaction_text(text: str) -> list[DailyBuybackTransaction]:
-    daily = aggregate_daily_buybacks(parse_buyback_trade_lines(text))
+def _recover_single_missing_trade_date(
+    text: str,
+    trades: list[BuybackTrade],
+    exec_buys: list[int],
+    *,
+    period_start: str,
+    period_end: str,
+) -> list[BuybackTrade]:
+    undated = [
+        parsed
+        for raw in text.splitlines()
+        if (parsed := _parse_undated_duplicate_time_line(raw)) is not None
+    ]
+    if not undated:
+        return trades
+
+    start = date.fromisoformat(period_start)
+    end = date.fromisoformat(period_end)
+    if end < start:
+        raise ValueError("Ugyldig NewsWeb-ukesperiode for datoreparasjon")
+
+    weekdays: list[str] = []
+    current = start
+    while current <= end:
+        if current.weekday() < 5:
+            weekdays.append(current.isoformat())
+        current += timedelta(days=1)
+
+    known_dates = {item.trade_date for item in trades}
+    missing_dates = [item for item in weekdays if item not in known_dates]
+    if len(missing_dates) != 1:
+        raise ValueError("NewsWeb manglende PDF-dato kan ikke utledes entydig fra ukesperioden")
+
+    parsed_totals = [item.shares for item in aggregate_daily_buybacks(trades)]
+    parsed_counter = Counter(parsed_totals)
+    exec_counter = Counter(exec_buys)
+    if parsed_counter - exec_counter:
+        raise ValueError("NewsWeb datoreparasjon avviser ukjent allerede-parset dagsum")
+
+    missing_exec = exec_counter - parsed_counter
+    if sum(missing_exec.values()) != 1:
+        raise ValueError("NewsWeb datoreparasjon krever nøyaktig én manglende ExecBuy-dagsum")
+    expected_shares = next(missing_exec.elements())
+    recovered_shares = sum(item.shares for item in undated)
+    if recovered_shares != expected_shares:
+        raise ValueError(
+            "NewsWeb udaterte handler avstemmer ikke mot den manglende ExecBuy-dagsummen"
+        )
+
+    inferred_date = missing_dates[0]
+    recovered = [
+        BuybackTrade(
+            trade_date=inferred_date,
+            trade_time=item.trade_time,
+            shares=item.shares,
+            price_nok=item.price_nok,
+            amount_nok=item.amount_nok,
+        )
+        for item in undated
+    ]
+    return [*trades, *recovered]
+
+
+def parse_buyback_transaction_text(
+    text: str,
+    *,
+    period_start: str | None = None,
+    period_end: str | None = None,
+) -> list[DailyBuybackTransaction]:
+    trades = parse_buyback_trade_lines(text)
+    daily = aggregate_daily_buybacks(trades)
     exec_buys = [
         _integer(match.group(1))
         for raw in text.splitlines()
         if (match := _EXEC_BUY_RE.match(" ".join(raw.replace("\u00a0", " ").split())))
     ]
     parsed_totals = [item.shares for item in daily]
+
+    if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
+        if period_start is not None and period_end is not None:
+            trades = _recover_single_missing_trade_date(
+                text,
+                trades,
+                exec_buys,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            daily = aggregate_daily_buybacks(trades)
+            parsed_totals = [item.shares for item in daily]
+
     if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
         raise ValueError(
             f"NewsWeb ExecBuy-avstemming feilet: vedlegg={exec_buys}, parser={parsed_totals}"
