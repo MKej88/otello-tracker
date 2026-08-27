@@ -212,3 +212,52 @@ def test_parser_rejects_wrong_identity(expected_symbol: str, expected_currency: 
             expected_symbol=expected_symbol,
             expected_currency=expected_currency,
         )
+
+
+def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
+    class RecordingRepository:
+        def __init__(self) -> None:
+            self.parameter_counts: list[int] = []
+
+        async def source_id(self, source_code: str) -> int:
+            assert source_code == "YAHOO_FINANCE"
+            return 7
+
+        async def instrument_id(self, symbol: str) -> int:
+            assert symbol == "LIF"
+            return 9
+
+        async def run(self, sql: str, parameters=()):
+            assert "INSERT INTO market_prices" in sql
+            self.parameter_counts.append(len(parameters))
+
+    repository = RecordingRepository()
+    rows = [
+        {
+            "observed_at": f"2026-08-{day:02d}T20:00:00Z",
+            "trading_date": f"2026-08-{day:02d}",
+            "price": f"{44 + day / 100:.2f}",
+        }
+        for day in range(1, 26)
+    ]
+
+    written = asyncio.run(
+        life360_market_data._write_rows(
+            repository,
+            symbol="LIF",
+            currency="USD",
+            rows=rows,
+            document_id=42,
+            role="NASDAQ_COMMON",
+        )
+    )
+
+    assert life360_market_data.BOUND_PARAMETERS_PER_ROW == 8
+    assert life360_market_data.WRITE_BATCH_ROWS == 12
+    assert (
+        life360_market_data.WRITE_BATCH_ROWS * life360_market_data.BOUND_PARAMETERS_PER_ROW
+        <= life360_market_data.D1_MAX_BOUND_PARAMETERS
+    )
+    assert written == 25
+    assert repository.parameter_counts == [96, 96, 8]
+    assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS
