@@ -50,21 +50,22 @@ jobs:
           t = t.replace('payload["table_counts"]["sources"] == 18', 'payload["table_counts"]["sources"] == 19')
           p.write_text(t)
 
-          p = Path('backend/tests/test_d1_schema_parity.py')
-          t = p.read_text()
-          anchor = 'D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"\n'
-          assert t.count(anchor) == 1
-          t = t.replace(
-              anchor,
-              anchor + 'D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"\n',
-          )
-          anchor2 = '        d1.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))\n'
-          assert t.count(anchor2) == 1
-          t = t.replace(
-              anchor2,
-              anchor2 + '        d1.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))\n',
-          )
-          p.write_text(t)
+          for filename in ('backend/tests/test_d1_schema_parity.py', 'backend/tests/test_d1_bootstrap.py'):
+              p = Path(filename)
+              t = p.read_text()
+              anchor = 'D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"\n'
+              assert t.count(anchor) == 1, filename
+              t = t.replace(
+                  anchor,
+                  anchor + 'D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"\n',
+              )
+              anchor2 = '        d1.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))\n'
+              assert t.count(anchor2) == 1, filename
+              t = t.replace(
+                  anchor2,
+                  anchor2 + '        d1.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))\n',
+              )
+              p.write_text(t)
           PY
 
       - name: Install backend dependencies
