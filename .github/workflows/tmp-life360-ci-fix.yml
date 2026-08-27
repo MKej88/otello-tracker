@@ -31,40 +31,41 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def ensure_once(text: str, old: str, new: str, label: str) -> str:
+              if new in text:
+                  return text
+              if old not in text:
+                  raise RuntimeError(f"marker not found: {label}")
+              return text.replace(old, new, 1)
+
           p = Path('backend/app/db/d1_bootstrap.py')
           t = p.read_text()
-          assert t.count('LATEST_SQLITE_MIGRATION = "0027"') == 1
-          p.write_text(t.replace('LATEST_SQLITE_MIGRATION = "0027"', 'LATEST_SQLITE_MIGRATION = "0028"'))
+          t = ensure_once(
+              t,
+              'LATEST_SQLITE_MIGRATION = "0027"',
+              'LATEST_SQLITE_MIGRATION = "0028"',
+              'latest sqlite migration',
+          )
+          p.write_text(t)
 
           p = Path('backend/tests/test_database.py')
           t = p.read_text()
-          assert t.count('"0025", "0026", "0027",\n') == 1
-          t = t.replace('"0025", "0026", "0027",\n', '"0025", "0026", "0027", "0028",\n')
-          assert t.count('status["latest_migration"] == "0027"') == 1
-          t = t.replace('status["latest_migration"] == "0027"', 'status["latest_migration"] == "0028"')
-          assert t.count('payload["latest_migration"] == "0027"') == 1
-          t = t.replace('payload["latest_migration"] == "0027"', 'payload["latest_migration"] == "0028"')
-          assert t.count('status["table_counts"]["sources"] == 18') == 1
-          t = t.replace('status["table_counts"]["sources"] == 18', 'status["table_counts"]["sources"] == 19')
-          assert t.count('payload["table_counts"]["sources"] == 18') == 1
-          t = t.replace('payload["table_counts"]["sources"] == 18', 'payload["table_counts"]["sources"] == 19')
+          t = ensure_once(t, '"0025", "0026", "0027",', '"0025", "0026", "0027", "0028",', 'migration list')
+          t = ensure_once(t, 'status["latest_migration"] == "0027"', 'status["latest_migration"] == "0028"', 'status latest migration')
+          t = ensure_once(t, 'payload["latest_migration"] == "0027"', 'payload["latest_migration"] == "0028"', 'payload latest migration')
+          t = ensure_once(t, 'status["table_counts"]["sources"] == 18', 'status["table_counts"]["sources"] == 19', 'status source count')
+          t = ensure_once(t, 'payload["table_counts"]["sources"] == 18', 'payload["table_counts"]["sources"] == 19', 'payload source count')
           p.write_text(t)
 
           for filename in ('backend/tests/test_d1_schema_parity.py', 'backend/tests/test_d1_bootstrap.py'):
               p = Path(filename)
               t = p.read_text()
-              anchor = 'D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"\n'
-              assert t.count(anchor) == 1, filename
-              t = t.replace(
-                  anchor,
-                  anchor + 'D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"\n',
-              )
-              anchor2 = '        d1.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))\n'
-              assert t.count(anchor2) == 1, filename
-              t = t.replace(
-                  anchor2,
-                  anchor2 + '        d1.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))\n',
-              )
+              old_const = 'D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"'
+              new_const = old_const + '\nD1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"'
+              t = ensure_once(t, old_const, new_const, f'{filename} migration constant')
+              old_exec = 'connection.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))' if filename.endswith('test_d1_bootstrap.py') else 'd1.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))'
+              new_exec = old_exec + '\n        ' + ('connection' if filename.endswith('test_d1_bootstrap.py') else 'd1') + '.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))'
+              t = ensure_once(t, old_exec, new_exec, f'{filename} migration execution')
               p.write_text(t)
           PY
 
