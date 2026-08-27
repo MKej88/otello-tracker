@@ -86,31 +86,13 @@ function compositionWithoutSeparateFxRow(components: Composition[]) {
   const cashFx = compositionDetailNumber(fx, "cash_fx_mnok");
   const investmentFx = compositionDetailNumber(fx, "investment_fx_mnok");
   const cash = components.find((item) => item.key === "reported_cash");
-  const alliance = components.find((item) => item.key === "alliance_venture_spring");
   const residual = components.find((item) => item.key === "other_reported_assets_liabilities");
 
-  // Only hide the aggregate row when its full amount can be embedded back into the
-  // components that generated it. This keeps the displayed rows reconciled to NAV.
+  // Alliance Venture Spring AS is a Norwegian AS and its NOK fair value is fixed
+  // at the latest report. Never allocate running USD/NOK effects to Alliance.
   if (cashFx == null || investmentFx == null) return components;
   if (Math.abs(cashFx) > 1e-9 && !cash) return components;
-  if (Math.abs(investmentFx) > 1e-9 && !alliance && !residual) return components;
-
-  const allianceUsd = compositionDetailNumber(alliance, "report_value_usd") ?? 0;
-  const residualUsd = compositionDetailNumber(residual, "report_value_usd") ?? 0;
-  const totalInvestmentUsd = allianceUsd + residualUsd;
-  let allianceFx = 0;
-  let residualFx = 0;
-
-  if (Math.abs(investmentFx) > 1e-9) {
-    if (alliance && residual && Math.abs(totalInvestmentUsd) > 1e-9) {
-      allianceFx = investmentFx * (allianceUsd / totalInvestmentUsd);
-      residualFx = investmentFx - allianceFx;
-    } else if (alliance) {
-      allianceFx = investmentFx;
-    } else {
-      residualFx = investmentFx;
-    }
-  }
+  if (Math.abs(investmentFx) > 1e-9 && !residual) return components;
 
   const fxPerShare = (extraM: number) => (
     Math.abs(fx.amount_mnok) > 1e-12 ? fx.per_share_nok * (extraM / fx.amount_mnok) : 0
@@ -127,15 +109,10 @@ function compositionWithoutSeparateFxRow(components: Composition[]) {
         if (Math.abs(embeddedFx) > 1e-9) {
           formula = `${item.formula ?? "Siste rapporterte kontantbeholdning"} + valutaeffekt på dokumentert valutaeksponering`;
         }
-      } else if (item.key === "alliance_venture_spring") {
-        embeddedFx = allianceFx;
-        if (Math.abs(embeddedFx) > 1e-9) {
-          formula = "Fair value fra siste rapport, omregnet med løpende USD/NOK";
-        }
       } else if (item.key === "other_reported_assets_liabilities") {
-        embeddedFx = residualFx;
+        embeddedFx = investmentFx;
         if (Math.abs(embeddedFx) > 1e-9) {
-          formula = "Rapportert verdi fra siste rapport, omregnet med løpende USD/NOK";
+          formula = "Rapportert verdi fra siste rapport, justert for valutaeffekt på øvrige USD-baserte poster";
         }
       }
 
