@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from app.buybacks.euronext import parse_euronext_buyback_status
 from app.newsweb.enrichment import (
     _normalize_weekly_body,
@@ -91,3 +93,51 @@ ExecBuy 200
     rows = parse_buyback_transaction_text(text)
     assert [row.trade_date for row in rows] == ["2026-05-27", "2026-05-28"]
     assert [row.shares for row in rows] == [200, 100]
+
+
+
+def _missing_date_pdf_text() -> str:
+    return """
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 17.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 18.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 12 000 17,00 204 000,00 10:00:00 19.08.2026
+ExecBuy 12 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 13 000 17,00 221 000,00 10:00:00 20.08.2026
+ExecBuy 13 000
+B/S Symbol Qty Price Total Consideration Time Date
+B OTEC 8 000 17,00 136 000,00 10:42:30 10:42:30
+B OTEC 5 000 17,00 85 000,00 10:14:00 10:14:00
+ExecBuy 13 000
+"""
+
+
+def test_duplicate_time_missing_date_recovers_only_unambiguous_weekday() -> None:
+    rows = parse_buyback_transaction_text(
+        _missing_date_pdf_text(),
+        period_start="2026-08-17",
+        period_end="2026-08-21",
+    )
+    assert [row.trade_date for row in rows] == [
+        "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"
+    ]
+    assert [row.shares for row in rows] == [13_000, 13_000, 12_000, 13_000, 13_000]
+
+
+def test_duplicate_time_missing_date_stays_fail_closed_when_period_is_ambiguous() -> None:
+    with pytest.raises(ValueError, match="entydig"):
+        parse_buyback_transaction_text(
+            _missing_date_pdf_text(),
+            period_start="2026-08-17",
+            period_end="2026-08-24",
+        )
+
+
+def test_duplicate_time_missing_date_without_weekly_context_stays_fail_closed() -> None:
+    with pytest.raises(ValueError, match="ExecBuy-avstemming"):
+        parse_buyback_transaction_text(_missing_date_pdf_text())

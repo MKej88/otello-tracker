@@ -32,6 +32,7 @@ from newsweb_client import (  # noqa: E402
     fetch_message,
 )
 from newsweb_ingestion import classify_newsweb_message, history_start_for_refresh  # noqa: E402
+from newsweb_daily_buybacks import parse_buyback_transaction_text as parse_worker_transaction_text  # noqa: E402
 
 FIRST_WEEK_2023 = """
 Reference is made to the stock exchange notices from 20 June 2023 announcing the initiation
@@ -517,3 +518,25 @@ def test_worker_newsweb_does_not_overwrite_stronger_euronext_buyback_fact() -> N
         assert shares == 662_601
     finally:
         repository.connection.close()
+
+
+
+def test_worker_recovers_680519_duplicate_time_date_defect_fail_closed() -> None:
+    text = """
+B OTEC 13 000 17,00 221 000,00 10:00:00 17.08.2026
+ExecBuy 13 000
+B OTEC 13 000 17,00 221 000,00 10:00:00 18.08.2026
+ExecBuy 13 000
+B OTEC 12 000 17,00 204 000,00 10:00:00 19.08.2026
+ExecBuy 12 000
+B OTEC 13 000 17,00 221 000,00 10:00:00 20.08.2026
+ExecBuy 13 000
+B OTEC 8 000 17,00 136 000,00 10:42:30 10:42:30
+B OTEC 5 000 17,00 85 000,00 10:14:00 10:14:00
+ExecBuy 13 000
+"""
+    rows = parse_worker_transaction_text(
+        text, period_start="2026-08-17", period_end="2026-08-21"
+    )
+    assert [row.trade_date for row in rows][-1] == "2026-08-21"
+    assert [row.shares for row in rows] == [13_000, 13_000, 12_000, 13_000, 13_000]
