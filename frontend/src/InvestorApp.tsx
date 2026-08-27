@@ -8,6 +8,7 @@ const loadBuybackPage = () => import("./BuybackPage");
 const loadBemobiPage = () => import("./BemobiPage");
 const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
+const loadNewsEventsPage = () => import("./NewsEventsPage");
 
 const NavPageV2 = lazy(loadNavPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
@@ -15,10 +16,11 @@ const BuybackPage = lazy(loadBuybackPage);
 const BemobiPage = lazy(loadBemobiPage);
 const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
+const NewsEventsPage = lazy(loadNewsEventsPage);
 
-type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøpsprogram" | "Bemobi" | "Konsensus" | "Datakvalitet";
+type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøpsprogram" | "Bemobi" | "Konsensus" | "Nyheter" | "Datakvalitet";
 
-const menu: View[] = ["Oversikt", "NAV", "Historikk", "Tilbakekjøpsprogram", "Bemobi", "Konsensus", "Datakvalitet"];
+const menu: View[] = ["Oversikt", "NAV", "Historikk", "Tilbakekjøpsprogram", "Bemobi", "Konsensus", "Nyheter", "Datakvalitet"];
 const titles: Record<View, string> = {
   Oversikt: "Otello investoroversikt",
   NAV: "Estimert NAV",
@@ -26,6 +28,7 @@ const titles: Record<View, string> = {
   Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
   Bemobi: "Bemobi",
   Konsensus: "Konsensus",
+  Nyheter: "Nyheter og hendelser",
   Datakvalitet: "Datakvalitet",
 };
 
@@ -40,6 +43,7 @@ function preload(view: View) {
   if (view === "Bemobi") void loadBemobiPage();
   if (view === "Konsensus") void loadConsensusPage();
   if (view === "Datakvalitet") void loadDataQualityPage();
+  if (view === "Nyheter") void loadNewsEventsPage();
 }
 
 export default function InvestorApp() {
@@ -69,7 +73,8 @@ export default function InvestorApp() {
                 : activeView === "Tilbakekjøpsprogram" ? <BuybackPage />
                   : activeView === "Bemobi" ? <div className="normalBemobiView"><BemobiPage /></div>
                     : activeView === "Konsensus" ? <ConsensusPage />
-                      : <DataQualityPage />}
+                      : activeView === "Nyheter" ? <NewsEventsPage />
+                        : <DataQualityPage />}
         </Suspense>
       </main>
     </div>

@@ -229,9 +229,10 @@ async function main() {
   await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
+  await clickView(session, "Nyheter", "Nyheter og hendelser", ".newsEventsPage");
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
-  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus og Datakvalitet.");
+  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
   session.close();
 }
 

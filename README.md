@@ -30,8 +30,12 @@ Aktive visninger:
 - Tilbakekjøp
 - Bemobi
 - Konsensus
+- Nyheter og hendelseskalender
+- Datakvalitet
 
-Nyheter og Innstillinger er fortsatt inaktive områder i navigasjonen.
+Nyhetssiden samler offentlige Otello- og Bemobi-meldinger, originalkilder og kjente
+kommende datoer. Forventede datoer merkes tydelig som ubekreftet. Innstillinger er
+fortsatt et inaktivt område.
 
 ## Arkitektur
 
@@ -81,6 +85,7 @@ GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
 GET /api/bemobi/source-status
+GET /api/news-events
 ```
 
 Aktive frontend-API-er inngår i Worker-smoke og/eller produksjonsakseptanse. `runtime-status` inngår i produksjonsakseptansen og viser kun kompakt, sanitert driftstatus; detaljerte feil beholdes i den private GitHub-diagnostikken.
