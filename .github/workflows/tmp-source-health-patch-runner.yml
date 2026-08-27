@@ -109,6 +109,21 @@ jobs:
           compile(text, str(path), 'exec')
           path.write_text(text, encoding='utf-8')
           PY
+      - name: Verify backend import target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PYTHONPATH=backend python - <<'PY'
+          import inspect
+          import app.newsweb.enrichment as enrichment
+          from pathlib import Path
+          print('MODULE_FILE=', enrichment.__file__)
+          print('SIGNATURE=', inspect.signature(enrichment.parse_buyback_transaction_text))
+          source = Path(enrichment.__file__).read_text(encoding='utf-8')
+          print('SOURCE_HAS_PERIOD_START=', 'period_start: str | None = None' in source)
+          print('SOURCE_DEF_COUNT=', source.count('def parse_buyback_transaction_text'))
+          assert 'period_start' in inspect.signature(enrichment.parse_buyback_transaction_text).parameters
+          PY
       - name: Run targeted tests
         shell: bash
         run: |
