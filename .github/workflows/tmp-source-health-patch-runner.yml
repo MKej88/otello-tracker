@@ -1,0 +1,65 @@
+name: Temporary source health patch runner
+
+on:
+  push:
+    branches:
+      - fix/source-health-degraded
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/source-health-degraded
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Recover and run corrected patch script
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/tmp-source-health-diagnostic.yml').read_text(encoding='utf-8')
+          line = next(line for line in workflow.splitlines() if line.lstrip().startswith('PATCH_B64:'))
+          payload = line.split('PATCH_B64:', 1)[1].strip()
+          script = base64.b64decode(payload).decode('utf-8')
+          old = 'pattern.subn(replacement + "def extract_pdf_text", text, count=1)'
+          new = 'pattern.subn(lambda _match: replacement + "def extract_pdf_text", text, count=1)'
+          if old not in script:
+              raise SystemExit('Expected regex replacement marker not found')
+          Path('/tmp/apply.py').write_text(script.replace(old, new, 1), encoding='utf-8')
+          PY
+          python /tmp/apply.py
+      - name: Run targeted tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt
+          PYTHONPATH=backend pytest -q \
+            backend/tests/test_newsweb_enrichment.py \
+            backend/tests/test_cloudflare_newsweb_ingestion.py \
+            backend/tests/test_bemobi_web_refresh.py
+      - name: Commit fixes and remove temporary workflows
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'MKej88'
+          git config user.email 'mads.kristensen2@gmail.com'
+          git rm .github/workflows/tmp-source-health-diagnostic.yml .github/workflows/tmp-source-health-patch-runner.yml
+          git add cloudflare/src/newsweb_daily_buybacks.py \
+                  backend/app/newsweb/enrichment.py \
+                  cloudflare/src/bemobi_web_refresh.py \
+                  backend/tests/test_newsweb_enrichment.py \
+                  backend/tests/test_cloudflare_newsweb_ingestion.py \
+                  backend/tests/test_bemobi_web_refresh.py
+          git diff --cached --check
+          git commit -m 'Rett degraderte Bemobi- og NewsWeb-kilder'
+          git push origin HEAD:fix/source-health-degraded
