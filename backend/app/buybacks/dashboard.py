@@ -5,7 +5,7 @@ import statistics
 from datetime import date, timedelta
 from typing import Any
 
-from app.buybacks.forecast import buyback_forecast
+from app.buybacks.forecast import LOOKBACK_DAYS, SAFE_HARBOUR_SHARE, buyback_forecast
 from app.db.connection import get_connection
 
 
@@ -113,6 +113,67 @@ def _enrich_history(
     return result
 
 
+def _latest_week_metrics(connection, latest) -> dict[str, int | float | None]:
+    empty = {
+        "market_volume_shares": None,
+        "volume_share_pct": None,
+        "safe_harbour_capacity_shares": None,
+        "safe_harbour_utilization_pct": None,
+    }
+    if latest is None or not latest["period_start"] or not latest["trade_date"]:
+        return empty
+
+    start = str(latest["period_start"])
+    end = str(latest["trade_date"])
+    period_activity = connection.execute(
+        """
+        SELECT ma.trading_date, ma.volume_shares
+        FROM market_activity ma
+        JOIN instruments i ON i.id=ma.instrument_id
+        WHERE i.symbol='OTEC' AND ma.trading_date BETWEEN ? AND ? AND ma.volume_shares > 0
+        ORDER BY ma.trading_date
+        """,
+        (start, end),
+    ).fetchall()
+    market_volume = sum(int(row["volume_shares"]) for row in period_activity)
+    actual = int(latest["shares"] or 0)
+    result = {
+        **empty,
+        "market_volume_shares": market_volume or None,
+        "volume_share_pct": round(actual / market_volume * 100, 2) if market_volume else None,
+    }
+
+    lookback = connection.execute(
+        """
+        SELECT ma.volume_shares
+        FROM market_activity ma
+        JOIN instruments i ON i.id=ma.instrument_id
+        WHERE i.symbol='OTEC' AND ma.trading_date < ? AND ma.volume_shares > 0
+        ORDER BY ma.trading_date DESC, ma.id DESC
+        LIMIT ?
+        """,
+        (start, LOOKBACK_DAYS),
+    ).fetchall()
+    if len(lookback) < LOOKBACK_DAYS or not period_activity:
+        return result
+
+    adv20 = sum(int(row["volume_shares"]) for row in lookback) / LOOKBACK_DAYS
+    max_shares = int(latest["max_shares"] or 0)
+    cumulative = int(latest["cumulative_program_shares"] or 0)
+    previous_cumulative = max(0, cumulative - actual)
+    raw_capacity = float(SAFE_HARBOUR_SHARE) * adv20 * len(period_activity)
+    capacity = (
+        min(raw_capacity, float(max(0, max_shares - previous_cumulative)))
+        if max_shares
+        else raw_capacity
+    )
+    if capacity <= 0:
+        return result
+    result["safe_harbour_capacity_shares"] = round(capacity)
+    result["safe_harbour_utilization_pct"] = round(actual / capacity * 100, 1)
+    return result
+
+
 def _normalize_latest_numeric_fields(payload: dict[str, Any] | None) -> None:
     """Keep SQLite/D1 JSON stable despite sub-cent binary-float representation noise."""
     if payload is None:
@@ -160,36 +221,13 @@ def buyback_dashboard(
             raw_history,
             _market_volumes(connection, raw_history),
         )
+        latest_metrics = _latest_week_metrics(connection, latest)
 
     latest_payload = dict(latest) if latest is not None else None
     _normalize_latest_numeric_fields(latest_payload)
     if latest_payload is not None:
-        matching = next(
-            (
-                item
-                for item in reversed(history)
-                if item.get("period_end") == latest_payload.get("trade_date")
-            ),
-            None,
-        )
-        latest_payload.update(
-            {
-                "market_volume_shares": (
-                    matching.get("market_volume_shares") if matching else None
-                ),
-                "volume_share_pct": (
-                    matching.get("actual_volume_share_pct") if matching else None
-                ),
-                "safe_harbour_capacity_shares": (
-                    matching.get("week_start_capacity_estimate_shares")
-                    if matching
-                    else None
-                ),
-                "safe_harbour_utilization_pct": (
-                    matching.get("safe_harbour_utilization_pct") if matching else None
-                ),
-            }
-        )
+        latest_payload.update(latest_metrics)
+
 
     shares = None
     if share_count is not None or latest_payload is not None:

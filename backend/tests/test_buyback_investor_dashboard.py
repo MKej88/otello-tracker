@@ -150,3 +150,18 @@ def test_worker_buyback_dashboard_matches_reference_exactly(tmp_path: Path) -> N
         worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-17")
     )
     assert actual == expected
+
+
+def test_latest_week_metrics_do_not_depend_on_forecast_history(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    expected = reference_dashboard(database, as_of_date="2026-08-29")
+    latest = expected["latest_week"]
+    assert latest["market_volume_shares"] is not None
+    assert latest["volume_share_pct"] is not None
+    assert latest["safe_harbour_capacity_shares"] is not None
+    assert latest["safe_harbour_utilization_pct"] is not None
+
+    actual = asyncio.run(
+        worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-29")
+    )
+    assert actual == expected

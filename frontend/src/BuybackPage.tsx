@@ -138,10 +138,10 @@ function statusLabel(input?: string | null) {
     MEDIUM: "MIDDELS",
     LOW: "LAV",
     OK: "AKTIVT",
-    PRICE_CAP_BLOCKED: "PRISGRENSE",
+    PRICE_CAP_BLOCKED: "MAKS KJØPSPRIS",
     OPEN: "ÅPEN",
-    TIGHT: "NÆR PRISGRENSE",
-    ABOVE_CAP: "OVER PRISGRENSE",
+    TIGHT: "NÆR MAKS KJØPSPRIS",
+    ABOVE_CAP: "OVER MAKS KJØPSPRIS",
     UNKNOWN: "UKJENT"
   };
   return input ? labels[input.toUpperCase()] ?? input : "–";
@@ -150,10 +150,10 @@ function statusLabel(input?: string | null) {
 function warningLabel(input?: string | null) {
   if (!input) return null;
   if (input.includes("above the program price cap")) {
-    return "Siste sluttkurs er over programmets prisgrense. Kjøp krever at kursen kommer under grensen eller at mandatet endres.";
+    return "Siste sluttkurs er over programmets maksimale kjøpspris. Kjøp krever at kursen kommer under grensen eller at mandatet endres.";
   }
   if (input.includes("within 3% of the program price cap")) {
-    return "Kursen er mindre enn 3 % under programmets prisgrense. Gjennomføringen kan bli begrenset.";
+    return "Kursen er mindre enn 3 % under programmets maksimale kjøpspris. Gjennomføringen kan bli begrenset.";
   }
   return input;
 }
@@ -350,8 +350,8 @@ export default function BuybackPage() {
             <div><span>ADV20</span><strong>{count(volume?.adv20_shares)}</strong></div>
             <div><span>Safe Harbour-kapasitet</span><strong>{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
             <div><span>Siste OTEC-kurs i modellen</span><strong>{value(price?.latest_close_nok, 2)} kr</strong></div>
-            <div><span>Prisgrense</span><strong>{value(price?.program_cap_nok, 2)} kr</strong></div>
-            <div><span>Avstand til prisgrense</span><strong>{value(price?.headroom_pct, 1)} %</strong></div>
+            <div><span>Maks kjøpspris</span><strong>{value(price?.program_cap_nok, 2)} kr</strong></div>
+            <div><span>Avstand til maks kjøpspris</span><strong>{value(price?.headroom_pct, 1)} %</strong></div>
           </div>
         </article>
       </section>

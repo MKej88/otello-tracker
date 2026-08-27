@@ -540,3 +540,55 @@ ExecBuy 13 000
     )
     assert [row.trade_date for row in rows][-1] == "2026-08-21"
     assert [row.shares for row in rows] == [13_000, 13_000, 12_000, 13_000, 13_000]
+
+
+def test_worker_newsweb_persists_disclosed_maximum_purchase_price_with_provenance() -> None:
+    repository = SqliteD1Repository()
+    try:
+        seed_document = asyncio.run(
+            repository.create_source_document(
+                source_code="NEWSWEB",
+                document_type="REGULATORY_NEWS",
+                title="Share-count test fixture",
+                url="https://newsweb.oslobors.no/message/share-count-fixture",
+            )
+        )
+        repository.connection.execute(
+            """
+            INSERT INTO otello_share_counts(
+                effective_from, total_shares, treasury_shares, outstanding_shares,
+                source_document_id, notes
+            ) VALUES ('2023-06-20', 91099711, 0, 91099711, ?, 'test fixture')
+            """,
+            (seed_document,),
+        )
+        repository.connection.commit()
+
+        body = FIRST_WEEK_2023.replace("NOK 15 per share", "NOK 20 per share")
+        message = _message(990001, "Otello Corporation share buyback program status", body=body)
+        parsed = parse_newsweb_weekly_status(body)
+        asyncio.run(ingest_weekly_buyback(repository, message, parsed))
+
+        program = repository.connection.execute(
+            "SELECT id, max_price_nok FROM buyback_programs WHERE external_program_id=?",
+            (parsed.program_external_id,),
+        ).fetchone()
+        assert program is not None
+        assert str(program["max_price_nok"]) == "20"
+        provenance = repository.connection.execute(
+            """
+            SELECT pr.extracted_value, pr.extraction_method, pr.confidence, sd.url
+            FROM provenance_records pr
+            JOIN source_documents sd ON sd.id=pr.source_document_id
+            WHERE pr.entity_table='buyback_programs' AND pr.entity_id=?
+              AND pr.field_name='max_price_nok'
+            """,
+            (int(program["id"]),),
+        ).fetchone()
+        assert provenance is not None
+        assert provenance["extracted_value"] == "20"
+        assert provenance["extraction_method"] == "PARSER"
+        assert provenance["confidence"] == "HIGH"
+        assert provenance["url"] == message.public_url
+    finally:
+        repository.connection.close()
