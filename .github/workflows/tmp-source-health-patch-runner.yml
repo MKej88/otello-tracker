@@ -42,8 +42,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt
-          PYTHONPATH=backend pytest -q \
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt pytest
+          PYTHONPATH=backend python -m pytest -q \
             backend/tests/test_newsweb_enrichment.py \
             backend/tests/test_cloudflare_newsweb_ingestion.py \
             backend/tests/test_bemobi_web_refresh.py
