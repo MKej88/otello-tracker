@@ -370,16 +370,32 @@ async def refresh_bemobi_web(
         )
 
     secondary = [result, consensus, xp]
-    degraded = any(item.get("status") == "not_available" for item in secondary)
+    secondary_warnings = [
+        {
+            "source": name,
+            "status": str(item.get("status") or "unknown"),
+            "reason": item.get("reason"),
+            "error": item.get("error"),
+        }
+        for name, item in (("result_release", result), ("consensus", consensus), ("xp_preview", xp))
+        if item.get("status") == "not_available"
+    ]
+    # A new official result document that cannot be parsed is material and still degrades
+    # BEMOBI_IR. MarketScreener consensus and XP preview are explicitly best-effort external
+    # supplements: preserve last-good data and expose their failure as metadata, but do not
+    # mislabel the healthy official Bemobi IR source as DEGRADED.
+    result_release_degraded = result.get("status") == "not_available"
     rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
     return {
-        "status": "partial" if degraded else "ok",
+        "status": "partial" if result_release_degraded else "ok",
         "rows_written": rows_written,
         "ir": ir,
         "result_release": result,
         "consensus": consensus,
         "xp_preview": xp,
+        "secondary_status": "degraded" if secondary_warnings else "ok",
+        "secondary_warnings": secondary_warnings,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
-        "policy": "official-ir-daily-rotating-secondary-last-good-preserved",
+        "policy": "official-ir-daily-result-release-health-best-effort-consensus-xp-last-good-preserved",
     }
