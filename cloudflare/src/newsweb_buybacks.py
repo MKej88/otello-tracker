@@ -73,6 +73,16 @@ def _decimal(value: str) -> Decimal:
     return Decimal(value.replace(",", "").strip())
 
 
+def _parse_max_program_price(text: str) -> Decimal | None:
+    clean = normalize_weekly_body(text)
+    match = re.search(
+        r"maximum consideration to be paid for shares acquired under (?:this |the )?buyback program is NOK ([\d.,]+) per share",
+        clean,
+        re.I,
+    )
+    return _decimal(match.group(1)) if match is not None else None
+
+
 def normalize_weekly_body(text: str) -> str:
     """Mirror the documented SQLite normalization without changing financial values."""
     clean = " ".join(text.split())
@@ -344,7 +354,12 @@ async def ingest_weekly_buyback(
     message: NewsWebMessage,
     parsed: BuybackStatus,
 ) -> dict[str, Any]:
-    metadata = {"parser": "otec-buyback-status-v1", **_message_metadata(message)}
+    max_price = _parse_max_program_price(message.body)
+    metadata = {
+        "parser": "otec-buyback-status-v2-program-cap",
+        **_message_metadata(message),
+        "max_price_nok": decimal_text(max_price) if max_price is not None else None,
+    }
     document_id = await repository.create_source_document(
         source_code="NEWSWEB",
         external_id=message.public_url,
@@ -357,33 +372,43 @@ async def ingest_weekly_buyback(
     )
 
     program = await repository.first(
-        "SELECT id, max_shares, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
+        "SELECT id, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
         (parsed.program_external_id,),
     )
     if program is None:
         await repository.run(
             """
             INSERT INTO buyback_programs(
-                external_program_id, announced_at, start_date, max_shares,
+                external_program_id, announced_at, start_date, max_shares, max_price_nok,
                 status, source_document_id, notes
-            ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
             """,
             (
                 parsed.program_external_id,
                 f"{parsed.program_reference_date}T00:00:00Z",
                 parsed.program_reference_date,
                 parsed.max_program_shares,
+                decimal_text(max_price) if max_price is not None else None,
                 document_id,
                 "Program reconstructed from NEWSWEB mirror of Oslo Bors status; initiation document can supersede this source later.",
             ),
         )
         program = await repository.first(
-            "SELECT id, max_shares, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
+            "SELECT id, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
             (parsed.program_external_id,),
         )
         if program is None:
             raise RuntimeError("Buyback-program ble skrevet, men kunne ikke leses tilbake")
     else:
+        stored_max_price = (
+            Decimal(str(program["max_price_nok"]))
+            if program.get("max_price_nok") is not None
+            else None
+        )
+        if max_price is not None and stored_max_price is not None and stored_max_price != max_price:
+            raise ValueError(
+                f"NewsWeb max_price_nok avviker fra lagret programvilkår: lagret={stored_max_price}, kandidat={max_price}"
+            )
         old_priority = await _source_priority(repository, int(program["source_document_id"]))
         new_priority = await _source_priority(repository, document_id)
         same_document = int(program["source_document_id"]) == document_id
@@ -397,11 +422,46 @@ async def ingest_weekly_buyback(
             )
         if same_document or new_priority < old_priority:
             await repository.run(
-                "UPDATE buyback_programs SET max_shares=?, source_document_id=? WHERE id=?",
-                (parsed.max_program_shares, document_id, int(program["id"])),
+                "UPDATE buyback_programs SET max_shares=?, max_price_nok=COALESCE(?, max_price_nok), source_document_id=? WHERE id=?",
+                (
+                    parsed.max_program_shares,
+                    decimal_text(max_price) if max_price is not None else None,
+                    document_id,
+                    int(program["id"]),
+                ),
+            )
+        elif max_price is not None and program.get("max_price_nok") is None:
+            await repository.run(
+                "UPDATE buyback_programs SET max_price_nok=? WHERE id=?",
+                (decimal_text(max_price), int(program["id"])),
             )
 
     program_id = int(program["id"])
+    if max_price is not None:
+        existing_provenance = await repository.first(
+            """
+            SELECT 1 FROM provenance_records
+            WHERE entity_table='buyback_programs' AND entity_id=?
+              AND field_name='max_price_nok' AND source_document_id=?
+            LIMIT 1
+            """,
+            (program_id, document_id),
+        )
+        if existing_provenance is None:
+            await repository.run(
+                """
+                INSERT INTO provenance_records(
+                    entity_table, entity_id, field_name, source_document_id,
+                    source_locator, extraction_method, confidence, extracted_value
+                ) VALUES ('buyback_programs', ?, 'max_price_nok', ?, ?, 'PARSER', 'HIGH', ?)
+                """,
+                (
+                    program_id,
+                    document_id,
+                    "Maximum consideration sentence in weekly NewsWeb status",
+                    decimal_text(max_price),
+                ),
+            )
     existing = await repository.first(
         """
         SELECT id, period_start, shares, avg_price_nok, amount_nok,
