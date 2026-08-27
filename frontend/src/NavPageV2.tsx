@@ -74,6 +74,82 @@ function detailNumber(driver: Driver, key: string) {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
+function compositionDetailNumber(item: Composition | undefined, key: string) {
+  const raw = item?.details?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function compositionWithoutSeparateFxRow(components: Composition[]) {
+  const fx = components.find((item) => item.key === "fx_since_report");
+  if (!fx) return components;
+
+  const cashFx = compositionDetailNumber(fx, "cash_fx_mnok");
+  const investmentFx = compositionDetailNumber(fx, "investment_fx_mnok");
+  const cash = components.find((item) => item.key === "reported_cash");
+  const alliance = components.find((item) => item.key === "alliance_venture_spring");
+  const residual = components.find((item) => item.key === "other_reported_assets_liabilities");
+
+  // Only hide the aggregate row when its full amount can be embedded back into the
+  // components that generated it. This keeps the displayed rows reconciled to NAV.
+  if (cashFx == null || investmentFx == null) return components;
+  if (Math.abs(cashFx) > 1e-9 && !cash) return components;
+  if (Math.abs(investmentFx) > 1e-9 && !alliance && !residual) return components;
+
+  const allianceUsd = compositionDetailNumber(alliance, "report_value_usd") ?? 0;
+  const residualUsd = compositionDetailNumber(residual, "report_value_usd") ?? 0;
+  const totalInvestmentUsd = allianceUsd + residualUsd;
+  let allianceFx = 0;
+  let residualFx = 0;
+
+  if (Math.abs(investmentFx) > 1e-9) {
+    if (alliance && residual && Math.abs(totalInvestmentUsd) > 1e-9) {
+      allianceFx = investmentFx * (allianceUsd / totalInvestmentUsd);
+      residualFx = investmentFx - allianceFx;
+    } else if (alliance) {
+      allianceFx = investmentFx;
+    } else {
+      residualFx = investmentFx;
+    }
+  }
+
+  const fxPerShare = (extraM: number) => (
+    Math.abs(fx.amount_mnok) > 1e-12 ? fx.per_share_nok * (extraM / fx.amount_mnok) : 0
+  );
+
+  return components
+    .filter((item) => item.key !== "fx_since_report")
+    .map((item) => {
+      let embeddedFx = 0;
+      let formula = item.formula;
+
+      if (item.key === "reported_cash") {
+        embeddedFx = cashFx;
+        if (Math.abs(embeddedFx) > 1e-9) {
+          formula = `${item.formula ?? "Siste rapporterte kontantbeholdning"} + valutaeffekt på dokumentert valutaeksponering`;
+        }
+      } else if (item.key === "alliance_venture_spring") {
+        embeddedFx = allianceFx;
+        if (Math.abs(embeddedFx) > 1e-9) {
+          formula = "Fair value fra siste rapport, omregnet med løpende USD/NOK";
+        }
+      } else if (item.key === "other_reported_assets_liabilities") {
+        embeddedFx = residualFx;
+        if (Math.abs(embeddedFx) > 1e-9) {
+          formula = "Rapportert verdi fra siste rapport, omregnet med løpende USD/NOK";
+        }
+      }
+
+      if (Math.abs(embeddedFx) <= 1e-9) return item;
+      return {
+        ...item,
+        amount_mnok: item.amount_mnok + embeddedFx,
+        per_share_nok: item.per_share_nok + fxPerShare(embeddedFx),
+        formula,
+        details: { ...item.details, display_fx_embedded_mnok: embeddedFx },
+      };
+    });
+}
+
 function displayAvailable(details?: Record<string, unknown>) {
   return details?.display_available !== false;
 }
@@ -168,7 +244,7 @@ export default function NavPageV2() {
 
   const current = data?.current;
   const change = data?.change;
-  const components = current?.composition ?? [];
+  const components = compositionWithoutSeparateFxRow(current?.composition ?? []);
 
   return (
     <div className="investorPage navV2">
