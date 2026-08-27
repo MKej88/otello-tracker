@@ -11,14 +11,14 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
     steps:
-      - name: Read latest Bemobi and NewsWeb source metadata
+      - name: Resolve Bemobi 2Q26 result URL from production D1
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -44,12 +44,13 @@ jobs:
           python - <<'PY'
           import json
           sql="""
-          SELECT s.code, sh.checked_at, sh.status, sh.error_message, sh.metadata_json
-          FROM source_health sh
-          JOIN sources s ON s.id=sh.source_id
-          WHERE s.code IN ('BEMOBI_IR','NEWSWEB')
-            AND sh.id=(SELECT MAX(sh2.id) FROM source_health sh2 WHERE sh2.source_id=sh.source_id)
-          ORDER BY s.code
+          SELECT sd.id, sd.url, sd.title, sd.published_at
+          FROM company_news cn
+          JOIN instruments i ON i.id=cn.issuer_instrument_id
+          JOIN source_documents sd ON sd.id=cn.source_document_id
+          WHERE i.symbol='BMOB3' AND cn.category='RESULTS' AND sd.url IS NOT NULL
+          ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
+          LIMIT 6
           """
           json.dump({'sql':sql}, open('query.json','w',encoding='utf-8'))
           PY
@@ -60,22 +61,80 @@ jobs:
             --header "Accept: application/json" \
             --header "Content-Type: application/json" \
             --data-binary @query.json \
-            "$query_url" > result.json
-          python - <<'PY'
-          import json, re
-          payload=json.load(open('result.json',encoding='utf-8'))
+            "$query_url" > candidates.json
+          python - <<'PY' > bemobi_url.txt
+          import json
+          from urllib.parse import urlparse
+          payload=json.load(open('candidates.json',encoding='utf-8'))
           rows=(payload.get('result') or [{}])[0].get('results') or []
-          def clean(value):
-              text=str(value or '')
-              text=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/-]+', r'\1[REDACTED]', text)
-              text=re.sub(r'(?i)(token|secret|password|api[_ -]?key)(\s*[:=]\s*)[^&\s]+', r'\1\2[REDACTED]', text)
-              return text
-          for row in rows:
-              print(f"## {row.get('code')} {row.get('status')} @ {row.get('checked_at')}")
-              print('error_message:', clean(row.get('error_message')))
-              try:
-                  meta=json.loads(row.get('metadata_json') or '{}')
-              except Exception:
-                  meta={}
-              print(json.dumps(meta.get('result',{}), ensure_ascii=False, indent=2, sort_keys=True, default=str))
+          matches=[r for r in rows if 'release 2t26' in str(r.get('title') or '').lower() or 'release 2q26' in str(r.get('title') or '').lower()]
+          if len(matches)!=1:
+              print('CANDIDATES:', [(r.get('id'), r.get('title')) for r in rows])
+              raise SystemExit('Release 2T26 not uniquely resolved')
+          row=matches[0]
+          url=str(row.get('url') or '')
+          parsed=urlparse(url)
+          allowed=('cvm.gov.br','bemobi.com.br','mziq.com','mzweb.com.br')
+          host=(parsed.hostname or '').lower().rstrip('.')
+          if parsed.scheme!='https' or not any(host==s or host.endswith('.'+s) for s in allowed):
+              raise SystemExit(f'Unexpected result host: {host}')
+          print(url)
+          print(f"BEMOBI_TITLE={row.get('title')}", file=__import__('sys').stderr)
+          print(f"BEMOBI_SOURCE_ID={row.get('id')}", file=__import__('sys').stderr)
+          PY
+
+      - name: Measure Bemobi 2Q26 release payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url="$(cat bemobi_url.txt)"
+          curl --location --fail-with-body --silent --show-error \
+            --max-filesize 41943040 \
+            --output bemobi_result.bin \
+            --write-out 'BEMOBI_HTTP=%{http_code}\nBEMOBI_BYTES=%{size_download}\nBEMOBI_CONTENT_TYPE=%{content_type}\nBEMOBI_FINAL_URL=%{url_effective}\n' \
+            "$url"
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('bemobi_result.bin')
+          raw=p.read_bytes()[:8]
+          print('BEMOBI_FILE_BYTES=', p.stat().st_size)
+          print('BEMOBI_MAGIC=', raw.hex())
+          PY
+
+      - name: Inspect NewsWeb 680519 transaction PDF structure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet 'pypdf>=5,<7'
+          curl --fail-with-body --silent --show-error \
+            --header 'Accept: application/pdf,application/octet-stream,*/*;q=0.8' \
+            --header 'Origin: https://newsweb.oslobors.no' \
+            --header 'Referer: https://newsweb.oslobors.no/message/680519' \
+            --header 'User-Agent: otello-tracker/1.0 private-investor-dashboard' \
+            --output newsweb-680519.pdf \
+            'https://api3.oslo.oslobors.no/v1/newsreader/attachment?messageId=680519&attachmentId=331734'
+          python - <<'PY'
+          import io, re
+          from pathlib import Path
+          from pypdf import PdfReader
+          payload=Path('newsweb-680519.pdf').read_bytes()
+          print('NEWSWEB_PDF_BYTES=', len(payload))
+          if not payload.startswith(b'%PDF'):
+              raise SystemExit('NewsWeb attachment is not PDF')
+          text='\n'.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(payload)).pages)
+          lines=text.splitlines()
+          interesting=[]
+          for i, raw in enumerate(lines):
+              line=' '.join(raw.replace('\u00a0',' ').split())
+              if re.search(r'(^|\s)(ExecBuy|B\s+OTEC|S\s+OTEC)(\s|$)', line, re.I):
+                  interesting.append(i)
+          seen=set()
+          for i in interesting:
+              for j in range(max(0,i-2), min(len(lines),i+3)):
+                  if j in seen:
+                      continue
+                  seen.add(j)
+                  line=' '.join(lines[j].replace('\u00a0',' ').split())
+                  print(f'NW_LINE_{j+1}: {line}')
+          print('NEWSWEB_INTERESTING_LINES=', len(interesting))
           PY
