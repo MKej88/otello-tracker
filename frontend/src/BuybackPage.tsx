@@ -107,6 +107,10 @@ type Dashboard = {
     price_cap_blocked?: boolean;
   };
   methodology_note?: string;
+  nav_effect?: {
+    per_share_nok?: number | null;
+    pct?: number | null;
+  };
 };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
@@ -170,6 +174,10 @@ function sourceLabel(input?: string | null) {
   return input === "LATEST_BUYBACK" ? "Siste buyback-melding" : "Rapportert aksjetall";
 }
 
+function percentage(input: number | null | undefined, digits = 1) {
+  return input == null || !Number.isFinite(input) ? "–" : `${value(input, digits)} %`;
+}
+
 export default function BuybackPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [failed, setFailed] = useState(false);
@@ -212,6 +220,15 @@ export default function BuybackPage() {
   const progress = Math.max(0, Math.min(100, program?.progress_pct ?? 0));
   const completionWarning = data?.completion?.extends_beyond_program_end;
   const forecastWarning = warningLabel(estimate?.warning);
+  const headroom = price?.headroom_pct ?? (
+    price?.program_cap_nok != null && price.latest_close_nok != null && price.latest_close_nok > 0
+      ? (price.program_cap_nok / price.latest_close_nok - 1) * 100
+      : null
+  );
+  const rangeSpan = (estimate?.high_shares ?? 0) - (estimate?.low_shares ?? 0);
+  const basePosition = rangeSpan > 0
+    ? Math.max(0, Math.min(100, ((estimate?.base_case_shares ?? 0) - (estimate?.low_shares ?? 0)) / rangeSpan * 100))
+    : 50;
 
   if (data == null && !failed) {
     return <div className="buybackLoading">Laster tilbakekjøpsdata …</div>;
@@ -288,6 +305,11 @@ export default function BuybackPage() {
       )}
 
       <section className="buybackKpis">
+        <article className="card buybackKpi navEffectKpi">
+          <span className="label">Netto NAV-økning fra programmet</span>
+          <strong>{data.nav_effect?.per_share_nok == null ? "–" : `${value(data.nav_effect.per_share_nok, 2)} kr`}</strong>
+          <small>{percentage(data.nav_effect?.pct, 2)} per aksje siden {dateLabel(program?.start_date)}</small>
+        </article>
         <article className="card buybackKpi">
           <span className="label">Kjøpt siste uke</span>
           <strong>{count(latest?.shares)}</strong>
@@ -343,15 +365,17 @@ export default function BuybackPage() {
           </div>
           <div className="forecastRange">
             <span>Lav</span><strong>{count(estimate?.low_shares)}</strong>
-            <div className="rangeLine"><span /></div>
+            <div className="rangeLine">
+              <span className="rangeEstimate" />
+              <span className="rangeBase" style={{ left: `${basePosition}%` }} aria-label="Baseestimat" />
+            </div>
             <span>Høy</span><strong>{count(estimate?.high_shares)}</strong>
           </div>
           <div className="buybackRows compactRows">
             <div><span>ADV20</span><strong>{count(volume?.adv20_shares)}</strong></div>
             <div><span>Safe Harbour-kapasitet</span><strong>{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
-            <div><span>Siste OTEC-kurs i modellen</span><strong>{value(price?.latest_close_nok, 2)} kr</strong></div>
             <div><span>Maks kjøpspris</span><strong>{value(price?.program_cap_nok, 2)} kr</strong></div>
-            <div><span>Avstand til maks kjøpspris</span><strong>{value(price?.headroom_pct, 1)} %</strong></div>
+            <div><span>Avstand til maks kjøpspris</span><strong>{percentage(headroom, 1)}</strong></div>
           </div>
         </article>
       </section>
@@ -360,8 +384,8 @@ export default function BuybackPage() {
         <article className="card buybackDetail">
           <div className="cardHeader"><div><span className="label">Programstatus</span><h2>Kapitalallokering</h2></div></div>
           <div className="buybackRows">
-            <div><span>Kumulativt kjøpt</span><strong>{count(program?.cumulative_shares)}</strong></div>
-            <div><span>Kumulativt brukt</span><strong>{value(Number(latest?.cumulative_program_amount_nok ?? 0) / 1_000_000, 1)} mill. kr</strong></div>
+            <div><span>Kjøpt hittil</span><strong>{count(program?.cumulative_shares)}</strong></div>
+            <div><span>Brukt hittil</span><strong>{value(Number(latest?.cumulative_program_amount_nok ?? 0) / 1_000_000, 1)} mill. kr</strong></div>
             <div><span>Gjenstående kapasitet</span><strong>{count(program?.remaining_shares)}</strong></div>
             <div><span>Program fremdrift</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
             <div><span>Prisgrense</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
@@ -371,7 +395,7 @@ export default function BuybackPage() {
         </article>
 
         <article className="card buybackDetail accuracyCard">
-          <div className="cardHeader"><div><span className="label">Walk-forward</span><h2>Hvor godt treffer prognosen?</h2></div></div>
+          <div className="cardHeader"><div><h2>Hvor godt treffer prognosen?</h2></div></div>
           <div className="accuracyGrid">
             <div><span>Uker testet</span><strong>{metrics?.weeks ?? 0}</strong></div>
             <div><span>Medianfeil</span><strong>{value(metrics?.median_ape_pct, 1)} %</strong></div>

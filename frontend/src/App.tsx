@@ -121,7 +121,7 @@ type History = {
   points: HistoryPoint[];
 };
 
-type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøp" | "Bemobi" | "Konsensus";
+type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøpsprogram" | "Bemobi" | "Konsensus";
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const initialSummary: Summary = { ready: false, data_status: "loading" };
@@ -132,7 +132,7 @@ const menu: Array<{ label: string; enabled: boolean }> = [
   { label: "Oversikt", enabled: true },
   { label: "NAV", enabled: true },
   { label: "Historikk", enabled: true },
-  { label: "Tilbakekjøp", enabled: true },
+  { label: "Tilbakekjøpsprogram", enabled: true },
   { label: "Bemobi", enabled: true },
   { label: "Konsensus", enabled: true },
   { label: "Nyheter", enabled: false },
@@ -302,7 +302,7 @@ function DiscountChart({ points, average }: { points: HistoryPoint[]; average?: 
 
 function preloadView(view: View) {
   if (view === "Historikk") void loadHistoryPage();
-  else if (view === "Tilbakekjøp") void loadBuybackPage();
+  else if (view === "Tilbakekjøpsprogram") void loadBuybackPage();
   else if (view === "Bemobi") void loadBemobiPage();
   else if (view === "Konsensus") void loadConsensusPage();
   else if (view === "NAV") void loadNavWaterfallPanel();
@@ -463,8 +463,8 @@ export default function App() {
     ? "NAV og verdsettelse"
     : activeView === "Historikk"
       ? "Historisk NAV-rabatt"
-      : activeView === "Tilbakekjøp"
-        ? "Tilbakekjøp"
+      : activeView === "Tilbakekjøpsprogram"
+        ? "Tilbakekjøpsprogram"
         : activeView === "Bemobi"
           ? "Bemobi"
           : activeView === "Konsensus"
@@ -554,7 +554,7 @@ export default function App() {
             <section className="overviewGrid">
               <article className="card">
                 <div className="cardHeader">
-                  <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøp</h2></div>
+                  <div><span className="label">Kapitalallokering</span><h2>Tilbakekjøpsprogram</h2></div>
                   <span className="pill muted">
                     {forecast.status === "FETCH_STALE"
                       ? "PROGNOSE UTDATERT"
@@ -594,7 +594,7 @@ export default function App() {
           </>
         ) : activeView === "Historikk" ? (
           <Suspense fallback={<ViewFallback />}><HistoryPage /></Suspense>
-        ) : activeView === "Tilbakekjøp" ? (
+        ) : activeView === "Tilbakekjøpsprogram" ? (
           <Suspense fallback={<ViewFallback />}><BuybackPage /></Suspense>
         ) : activeView === "Bemobi" ? (
           <Suspense fallback={<ViewFallback />}><BemobiPage /></Suspense>

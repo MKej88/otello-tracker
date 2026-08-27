@@ -26,10 +26,12 @@
 .buybackAlert.neutralAlert { border-color: #293d5d; background: rgba(25, 49, 82, .28); color: #8ba5c9; }
 .buybackAlert.neutralAlert strong { color: #b9cef0; }
 
-.buybackKpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.buybackKpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .buybackKpi { min-height: 124px; }
 .buybackKpi > strong { display: block; font-size: 26px; letter-spacing: -.03em; margin-top: 13px; }
 .buybackKpi > small { display: block; color: #71839e; margin-top: 8px; font-size: 11px; line-height: 1.4; }
+.navEffectKpi { border-color: #286d62; background: linear-gradient(145deg, rgba(28, 116, 94, .22), #0c182a 72%); }
+.navEffectKpi > strong { color: #4addb4; }
 
 .buybackTwoCol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .buybackDetail { min-width: 0; }
@@ -48,7 +50,8 @@
 .forecastRange { display: grid; grid-template-columns: auto auto minmax(60px, 1fr) auto auto; gap: 8px; align-items: center; margin: 18px 0 4px; color: #6f819b; font-size: 11px; }
 .forecastRange strong { color: #b9c8dd; }
 .rangeLine { height: 3px; background: #263850; border-radius: 999px; position: relative; }
-.rangeLine span { position: absolute; left: 25%; right: 25%; top: -2px; height: 7px; border-radius: 999px; background: #3e85ef; }
+.rangeLine .rangeEstimate { position: absolute; left: 0; right: 0; top: -2px; height: 7px; border-radius: 999px; background: #3e85ef; }
+.rangeLine .rangeBase { position: absolute; top: -6px; width: 3px; height: 15px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 3px rgba(74, 221, 180, .3); transform: translateX(-50%); }
 
 .accuracyGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
 .accuracyGrid > div { padding: 12px 9px; background: #0b1728; border: 1px solid #1a2a42; border-radius: 10px; min-width: 0; }
