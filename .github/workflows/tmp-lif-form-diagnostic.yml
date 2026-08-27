@@ -20,8 +20,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           url='https://investors.life360.com/stock-information/historic-price-lookup'
-          curl -L --fail --silent --show-error \
-            -H 'User-Agent: OtelloTracker/1.0 (+https://otellotracker.com)' \
+          curl --http1.1 -L --fail --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors \
+            -H 'User-Agent: Mozilla/5.0' \
             "$url" -o /tmp/lif.html
           python - <<'PY'
           from pathlib import Path
@@ -33,6 +33,6 @@ jobs:
               for m in re.finditer(pat, text, flags=re.I|re.S):
                   print(' '.join(m.group(0).split())[:1200])
           print('\nURL-like candidates')
-          for m in re.finditer(r'https?://[^\"\'<> ]+|/[A-Za-z0-9_?&=./%:-]*historic[A-Za-z0-9_?&=./%:-]*', text, flags=re.I):
+          for m in re.finditer(r"https?://[^\"'<> ]+|/[A-Za-z0-9_?&=./%:-]*historic[A-Za-z0-9_?&=./%:-]*", text, flags=re.I):
               print(m.group(0)[:1200])
           PY
