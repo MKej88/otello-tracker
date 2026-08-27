@@ -1,17 +1,20 @@
 import { lazy, Suspense, useState } from "react";
 import OverviewPage from "./OverviewPage";
-import NavPageV2 from "./NavPageV2";
-import EstimatedHistoryPage from "./EstimatedHistoryPage";
-import DataQualityPage from "./DataQualityPage";
 import "./investor-v2.css";
 
+const loadNavPage = () => import("./NavPageV2");
+const loadHistoryPage = () => import("./EstimatedHistoryPage");
 const loadBuybackPage = () => import("./BuybackPage");
 const loadBemobiPage = () => import("./BemobiPage");
 const loadConsensusPage = () => import("./ConsensusPage");
+const loadDataQualityPage = () => import("./DataQualityPage");
 
+const NavPageV2 = lazy(loadNavPage);
+const EstimatedHistoryPage = lazy(loadHistoryPage);
 const BuybackPage = lazy(loadBuybackPage);
 const BemobiPage = lazy(loadBemobiPage);
 const ConsensusPage = lazy(loadConsensusPage);
+const DataQualityPage = lazy(loadDataQualityPage);
 
 type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøp" | "Bemobi" | "Konsensus" | "Datakvalitet";
 
@@ -31,9 +34,12 @@ function ViewFallback() {
 }
 
 function preload(view: View) {
+  if (view === "NAV") void loadNavPage();
+  if (view === "Historikk") void loadHistoryPage();
   if (view === "Tilbakekjøp") void loadBuybackPage();
   if (view === "Bemobi") void loadBemobiPage();
   if (view === "Konsensus") void loadConsensusPage();
+  if (view === "Datakvalitet") void loadDataQualityPage();
 }
 
 export default function InvestorApp() {
@@ -56,13 +62,15 @@ export default function InvestorApp() {
           <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>{titles[activeView]}</h1></div>
           {activeView !== "Datakvalitet" && <span className="investorModelBadge">ESTIMERT NAV</span>}
         </header>
-        {activeView === "Oversikt" ? <OverviewPage />
-          : activeView === "NAV" ? <NavPageV2 />
-            : activeView === "Historikk" ? <EstimatedHistoryPage />
-              : activeView === "Tilbakekjøp" ? <Suspense fallback={<ViewFallback />}><BuybackPage /></Suspense>
-                : activeView === "Bemobi" ? <div className="normalBemobiView"><Suspense fallback={<ViewFallback />}><BemobiPage /></Suspense></div>
-                  : activeView === "Konsensus" ? <Suspense fallback={<ViewFallback />}><ConsensusPage /></Suspense>
-                    : <DataQualityPage />}
+        <Suspense fallback={<ViewFallback />}>
+          {activeView === "Oversikt" ? <OverviewPage />
+            : activeView === "NAV" ? <NavPageV2 />
+              : activeView === "Historikk" ? <EstimatedHistoryPage />
+                : activeView === "Tilbakekjøp" ? <BuybackPage />
+                  : activeView === "Bemobi" ? <div className="normalBemobiView"><BemobiPage /></div>
+                    : activeView === "Konsensus" ? <ConsensusPage />
+                      : <DataQualityPage />}
+        </Suspense>
       </main>
     </div>
   );
