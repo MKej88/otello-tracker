@@ -218,6 +218,7 @@ def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
     class RecordingRepository:
         def __init__(self) -> None:
             self.parameter_counts: list[int] = []
+            self.sql_texts: list[str] = []
 
         async def source_id(self, source_code: str) -> int:
             assert source_code == "YAHOO_FINANCE"
@@ -229,6 +230,7 @@ def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
 
         async def run(self, sql: str, parameters=()):
             assert "INSERT INTO market_prices" in sql
+            self.sql_texts.append(sql)
             self.parameter_counts.append(len(parameters))
 
     repository = RecordingRepository()
@@ -261,6 +263,79 @@ def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
     assert written == 25
     assert repository.parameter_counts == [96, 96, 8]
     assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS
+    assert all("'DIRECT'" in sql for sql in repository.sql_texts)
+    assert all("'SECONDARY'" not in sql for sql in repository.sql_texts)
+
+
+def test_stale_lif_price_triggers_bounded_repair(monkeypatch) -> None:
+    class Repository:
+        def __init__(self) -> None:
+            self.latest = "2026-07-31"
+
+        async def first(self, sql: str, parameters=()):
+            if "ORDER BY mp.trading_date DESC" in sql:
+                return {
+                    "trading_date": self.latest,
+                    "observed_at": f"{self.latest}T20:00:00Z",
+                    "price": 54.05,
+                    "currency": "USD",
+                    "source_code": "FINANCECHARTS",
+                }
+            raise AssertionError(sql)
+
+    repository = Repository()
+    calls = 0
+
+    async def fake_refresh(repository_arg, *, target_date, archive_bucket, fetcher):
+        nonlocal calls
+        assert repository_arg is repository
+        assert target_date == "2026-08-27"
+        calls += 1
+        repository.latest = "2026-08-26"
+        return {"status": "ok", "rows_written": 18}
+
+    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", fake_refresh)
+    result = asyncio.run(
+        life360_market_data.repair_life360_lif_if_stale(
+            repository,
+            target_date="2026-08-27",
+        )
+    )
+    assert calls == 1
+    assert result["status"] == "ok"
+    assert result["repaired"] is True
+    assert result["previous_price_date"] == "2026-07-31"
+    assert result["latest_price_date"] == "2026-08-26"
+    assert result["age_days"] == 1
+    assert result["rows_written"] == 18
+
+
+def test_fresh_lif_price_skips_network_repair(monkeypatch) -> None:
+    class Repository:
+        async def first(self, sql: str, parameters=()):
+            assert "ORDER BY mp.trading_date DESC" in sql
+            return {
+                "trading_date": "2026-08-26",
+                "observed_at": "2026-08-26T20:00:00Z",
+                "price": 43.42,
+                "currency": "USD",
+                "source_code": "YAHOO_FINANCE",
+            }
+
+    async def forbidden_refresh(*args, **kwargs):
+        raise AssertionError("network refresh must be skipped for fresh LIF")
+
+    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", forbidden_refresh)
+    result = asyncio.run(
+        life360_market_data.repair_life360_lif_if_stale(
+            Repository(),
+            target_date="2026-08-27",
+        )
+    )
+    assert result["status"] == "skipped"
+    assert result["reason"] == "lif_price_fresh"
+    assert result["network_fetches_avoided"] is True
+    assert result["rows_written"] == 0
 
 
 def test_yahoo_repair_window_covers_one_month_history() -> None:

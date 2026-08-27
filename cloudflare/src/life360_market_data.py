@@ -25,6 +25,7 @@ D1_MAX_BOUND_PARAMETERS = 100
 BOUND_PARAMETERS_PER_ROW = 8
 WRITE_BATCH_ROWS = D1_MAX_BOUND_PARAMETERS // BOUND_PARAMETERS_PER_ROW
 RECENT_LOOKBACK_DAYS = 45
+LIFE360_MAX_PRICE_AGE_DAYS = 7
 LIFE360_REQUIRED_SYMBOL = "LIF"
 LIFE360_CONTROL_SYMBOLS = {"360.AX"}
 LIFE360_SERIES = {
@@ -268,6 +269,59 @@ async def _last_good_lif_price(repository) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+async def repair_life360_lif_if_stale(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket: Any | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Repair LIF only when the latest usable close is too old for mark-to-market."""
+    target = date.fromisoformat(target_date)
+    before = await _last_good_lif_price(repository)
+    before_date_raw = str((before or {}).get("trading_date") or "")
+    before_date = date.fromisoformat(before_date_raw) if before_date_raw else None
+    age_days = (target - before_date).days if before_date is not None else None
+    if age_days is not None and 0 <= age_days <= LIFE360_MAX_PRICE_AGE_DAYS:
+        return {
+            "status": "skipped",
+            "reason": "lif_price_fresh",
+            "target_date": target_date,
+            "latest_price_date": before_date_raw,
+            "age_days": age_days,
+            "network_fetches_avoided": True,
+            "rows_written": 0,
+            "repaired": False,
+        }
+
+    result = await _refresh_lif_with_independent_fallback(
+        repository,
+        target_date=target_date,
+        archive_bucket=archive_bucket,
+        fetcher=fetcher,
+    )
+    after = await _last_good_lif_price(repository)
+    after_date_raw = str((after or {}).get("trading_date") or "")
+    after_date = date.fromisoformat(after_date_raw) if after_date_raw else None
+    after_age_days = (target - after_date).days if after_date is not None else None
+    repaired = bool(
+        after_age_days is not None
+        and 0 <= after_age_days <= LIFE360_MAX_PRICE_AGE_DAYS
+    )
+    return {
+        "status": "ok" if repaired else "partial",
+        "reason": None if repaired else "lif_price_still_stale",
+        "target_date": target_date,
+        "previous_price_date": before_date_raw or None,
+        "latest_price_date": after_date_raw or None,
+        "age_days": after_age_days,
+        "network_fetches_avoided": False,
+        "rows_written": int(result.get("rows_written") or 0),
+        "repaired": repaired,
+        "source_result": result,
+    }
+
+
 async def _write_rows(
     repository,
     *,
@@ -282,7 +336,7 @@ async def _write_rows(
     written = 0
     for offset in range(0, len(rows), WRITE_BATCH_ROWS):
         chunk = rows[offset : offset + WRITE_BATCH_ROWS]
-        values_sql = ",".join("(?, ?, ?, 'CLOSE', ?, ?, ?, ?, 'SECONDARY', ?)" for _ in chunk)
+        values_sql = ",".join("(?, ?, ?, 'CLOSE', ?, ?, ?, ?, 'DIRECT', ?)" for _ in chunk)
         parameters: list[Any] = []
         for row in chunk:
             metadata = json.dumps(
