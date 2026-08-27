@@ -33,6 +33,7 @@ type EstimatedHistory = {
     nav_total_mnok: number;
     nav_per_share: number;
     discount_pct?: number | null;
+    shares_outstanding?: number | null;
     composition?: Composition[];
     reconciliation_residual_mnok?: number;
   };
@@ -244,18 +245,22 @@ export default function NavPageV2() {
   const current = data?.current;
   const change = data?.change;
   const components = compositionWithoutSeparateFxRow(current?.composition ?? []);
+  const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
+  const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
+  const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
+  const displayedAsOfDate = current?.date ?? live?.as_of_date;
 
   return (
     <div className="investorPage navV2">
       <section className="estimatedHero card">
         <div>
           <span className="label">ESTIMERT NAV</span>
-          <h2>{live?.ready ? `${value(live.nav_per_share)} kr per aksje` : "Laster …"}</h2>
-          <p>Beregnet på {integer(live?.shares_outstanding)} utestående aksjer.</p>
+          <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : "Laster …"}</h2>
+          <p>Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.</p>
         </div>
         <div className="estimatedHeroSide">
-          <div><span>Rabatt</span><strong>{value(live?.discount_pct, 1)} %</strong></div>
-          <small>Datadato {dateLabel(live?.as_of_date)}</small>
+          <div><span>Rabatt</span><strong>{value(displayedDiscountPct, 1)} %</strong></div>
+          <small>Datadato {dateLabel(displayedAsOfDate)}</small>
           <small>Beregnet {dateTimeLabel(live?.calculated_at)}</small>
         </div>
       </section>
