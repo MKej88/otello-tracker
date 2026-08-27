@@ -261,3 +261,7 @@ def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
     assert written == 25
     assert repository.parameter_counts == [96, 96, 8]
     assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS
+
+
+def test_yahoo_repair_window_covers_one_month_history() -> None:
+    assert life360_market_data.RECENT_LOOKBACK_DAYS == 45
