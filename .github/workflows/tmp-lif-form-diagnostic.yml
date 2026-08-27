@@ -1,0 +1,38 @@
+name: Temporary Life360 IR form diagnostic
+
+on:
+  push:
+    branches:
+      - fix/life360-historical-mark-to-market
+    paths:
+      - .github/workflows/tmp-lif-form-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect historic price form
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          url='https://investors.life360.com/stock-information/historic-price-lookup'
+          curl -L --fail --silent --show-error \
+            -H 'User-Agent: OtelloTracker/1.0 (+https://otellotracker.com)' \
+            "$url" -o /tmp/lif.html
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path('/tmp/lif.html').read_text(errors='replace')
+          print('bytes', len(text))
+          for pat in [r'<form[^>]*>', r'<input[^>]*>', r'<select[^>]*>', r'<option[^>]*>', r'historic.{0,300}', r'Date Requested.{0,300}']:
+              print('\nPATTERN', pat)
+              for m in re.finditer(pat, text, flags=re.I|re.S):
+                  print(' '.join(m.group(0).split())[:1200])
+          print('\nURL-like candidates')
+          for m in re.finditer(r'https?://[^\"\'<> ]+|/[A-Za-z0-9_?&=./%:-]*historic[A-Za-z0-9_?&=./%:-]*', text, flags=re.I):
+              print(m.group(0)[:1200])
+          PY
