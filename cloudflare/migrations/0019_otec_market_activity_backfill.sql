@@ -2,6 +2,7 @@
 -- Requires 0018_otec_market_activity_source.sql. Runtime activity comes from official Euronext delayed trade files.
 -- Keep the historical volume inserts as separate statements: D1/Wrangler can hit SQLite's
 -- compound-SELECT term limit when migrations are executed through its migration runner.
+-- Data-side effects are gated on production rows so a fresh bootstrap target remains empty.
 
 INSERT INTO source_documents(
     source_id, external_id, document_type, title, published_at, url, metadata_json
@@ -15,6 +16,14 @@ SELECT s.id,
        '{"scope":"ONE_TIME_GAP_BACKFILL","source_quality":"SECONDARY_PUBLIC_HISTORY","symbol":"OTEC","volume_field":"Volume"}'
 FROM sources s
 WHERE s.code='FT_MARKETS'
+  AND EXISTS (
+      SELECT 1
+      FROM market_activity ma
+      JOIN instruments mi ON mi.id=ma.instrument_id
+      WHERE mi.symbol='OTEC'
+        AND mi.exchange_mic='XOSL'
+        AND ma.trading_date <= '2026-08-14'
+  )
   AND NOT EXISTS (
       SELECT 1 FROM source_documents sd
       WHERE sd.source_id=s.id AND sd.external_id='otec-ft-history-2026-08-17-2026-08-24'
@@ -134,6 +143,11 @@ SELECT s.id,
        '{"field":"max_price_nok","value":"20","source_quality":"OFFICIAL_EURONEXT_DISCLOSURE"}'
 FROM sources s
 WHERE s.code='EURONEXT'
+  AND EXISTS (
+      SELECT 1 FROM buyback_programs p
+      WHERE p.start_date='2026-06-08'
+        AND p.max_shares=2192046
+  )
   AND NOT EXISTS (
       SELECT 1 FROM source_documents sd
       WHERE sd.source_id=s.id AND sd.external_id='otec-buyback-program-2026-06-08-max-price'
