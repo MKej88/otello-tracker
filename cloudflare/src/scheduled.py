@@ -10,6 +10,7 @@ try:
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
     from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
+    from .life360_market_data import repair_life360_lif_if_stale
     from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_fast_refresh import collect_newsweb_fast
     from .oslo_calendar import is_oslo_bors_trading_day
@@ -28,6 +29,7 @@ except ImportError:
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
     from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
+    from life360_market_data import repair_life360_lif_if_stale
     from nav_refresh import refresh_dirty_nav_layers
     from newsweb_fast_refresh import collect_newsweb_fast
     from oslo_calendar import is_oslo_bors_trading_day
@@ -363,6 +365,34 @@ async def run_fast_refresh(
 
     if renew_lock is not None:
         await renew_lock("after Norges Bank FX")
+
+    life360_repair = await _safe_async_step(
+        "life360_lif_repair",
+        lambda: repair_life360_lif_if_stale(
+            repository,
+            target_date=newsweb_date,
+            archive_bucket=archive_bucket,
+        ),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+    if isinstance(life360_repair, dict):
+        records_written += int(life360_repair.get("rows_written") or 0)
+        if life360_repair.get("status") == "partial":
+            errors.append(
+                {
+                    "step": "life360_lif_repair",
+                    "error": (
+                        "Life360 LIF-kurs er fortsatt for gammel etter reparasjon; "
+                        f"siste kursdato={life360_repair.get('latest_price_date') or 'ukjent'}"
+                    ),
+                    "error_type": "Life360PriceFreshnessPartial",
+                }
+            )
+
+    if renew_lock is not None:
+        await renew_lock("after Life360 LIF repair")
 
     dirty_nav = await _safe_async_step(
         "dirty_nav",
