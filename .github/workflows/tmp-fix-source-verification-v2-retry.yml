@@ -1,0 +1,59 @@
+name: Temporary source verification v2 retry
+
+on:
+  push:
+    branches:
+      - fix/production-source-verification-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Kjør kildeverifiseringsretting med korrekt testmiljø'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/production-source-verification-v2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Apply the reviewed patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/tmp-fix-source-verification-v2.yml').read_text(encoding='utf-8')
+          start = workflow.index("          python - <<'PY'\n") + len("          python - <<'PY'\n")
+          end = workflow.index("\n          PY\n", start)
+          lines = workflow[start:end].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          Path('/tmp/apply.py').write_text(script, encoding='utf-8')
+          PY
+          python /tmp/apply.py
+      - name: Run focused regression tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet -r backend/requirements.txt pytest
+          PYTHONPATH=backend python -m pytest -q \
+            backend/tests/test_workflow_target_date.py \
+            backend/tests/test_bemobi_web_runtime_module.py
+      - name: Commit clean fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'MKej88'
+          git config user.email 'mads.kristensen2@gmail.com'
+          git rm .github/workflows/tmp-fix-source-verification-v2.yml \
+                 .github/workflows/tmp-fix-source-verification-v2-retry.yml
+          git add cloudflare/src/entry.py cloudflare/src/bemobi_web_refresh_runtime.py \
+                  .github/workflows/verify-production-sources.yml \
+                  backend/tests/test_workflow_target_date.py \
+                  backend/tests/test_bemobi_web_runtime_module.py
+          git diff --cached --check
+          git commit -m 'Rett produksjonsverifisering og Bemobi-kildestatus'
+          git push origin HEAD:fix/production-source-verification-v2
