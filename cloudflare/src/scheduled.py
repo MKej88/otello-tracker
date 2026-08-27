@@ -13,6 +13,7 @@ try:
     from .nav_refresh import refresh_dirty_nav_layers
     from .newsweb_fast_refresh import collect_newsweb_fast
     from .oslo_calendar import is_oslo_bors_trading_day
+    from .otec_activity import refresh_otec_daily_activity
     from .otec_ingestion import (
         EOD_FINALIZE_AFTER as OTEC_EOD_FINALIZE_AFTER,
         INTRADAY_BOOTSTRAP_AFTER as OTEC_BOOTSTRAP_AFTER,
@@ -30,6 +31,7 @@ except ImportError:
     from nav_refresh import refresh_dirty_nav_layers
     from newsweb_fast_refresh import collect_newsweb_fast
     from oslo_calendar import is_oslo_bors_trading_day
+    from otec_activity import refresh_otec_daily_activity
     from otec_ingestion import (
         EOD_FINALIZE_AFTER as OTEC_EOD_FINALIZE_AFTER,
         INTRADAY_BOOTSTRAP_AFTER as OTEC_BOOTSTRAP_AFTER,
@@ -43,7 +45,7 @@ except ImportError:
 FAST_REFRESH_CRON = "*/30 * * * *"
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
-PHASE = "16.1"
+PHASE = "16.2"
 FAST_LOCK_TTL_SECONDS = 20 * 60
 
 
@@ -231,6 +233,16 @@ async def run_fast_refresh(
         }
         timings_ms["otec_delayed"] = 0.0
         timings_ms["otec_eod"] = 0.0
+
+    otec_activity = await _safe_async_step(
+        "otec_activity",
+        lambda: refresh_otec_daily_activity(repository, now=scheduled_at),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+    if isinstance(otec_activity, dict):
+        records_written += int(otec_activity.get("written") or 0)
 
     if renew_lock is not None:
         await renew_lock("after OTEC")
