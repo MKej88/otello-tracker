@@ -18,6 +18,9 @@ LIFE360_IR_HISTORY_URL = "https://investors.life360.com/stock-information/histor
 SOURCE_CODE = "LIFE360_IR_LSEG"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_FALLBACK_AGE_DAYS = 7
+D1_MAX_BOUND_PARAMETERS = 100
+BOUND_PARAMETERS_PER_ROW = 7
+WRITE_BATCH_ROWS = D1_MAX_BOUND_PARAMETERS // BOUND_PARAMETERS_PER_ROW
 
 
 class _TableParser(HTMLParser):
@@ -221,31 +224,44 @@ async def refresh_life360_ir_lif(
         sort_keys=True,
         separators=(",", ":"),
     )
-    await repository.run(
-        """
-        INSERT INTO market_prices(
-            instrument_id, observed_at, trading_date, price_type, price, currency,
-            source_id, source_document_id, quality, metadata_json
-        ) VALUES (?, ?, ?, 'CLOSE', ?, 'USD', ?, ?, 'DIRECT', ?)
-        ON CONFLICT(instrument_id, observed_at, price_type, source_id)
-        DO UPDATE SET
-            trading_date=excluded.trading_date,
-            price=excluded.price,
-            currency=excluded.currency,
-            source_document_id=excluded.source_document_id,
-            quality=excluded.quality,
-            metadata_json=excluded.metadata_json
-        """,
-        (
-            instrument_id,
-            selected["observed_at"],
-            selected["trading_date"],
-            selected["price"],
-            source_id,
-            document_id,
-            metadata_json,
-        ),
-    )
+    eligible_rows = [row for row in rows if row["trading_date"] <= target_date]
+    written = 0
+    for offset in range(0, len(eligible_rows), WRITE_BATCH_ROWS):
+        chunk = eligible_rows[offset : offset + WRITE_BATCH_ROWS]
+        values_sql = ",".join(
+            "(?, ?, ?, 'CLOSE', ?, 'USD', ?, ?, 'DIRECT', ?)" for _ in chunk
+        )
+        parameters: list[Any] = []
+        for row in chunk:
+            parameters.extend(
+                (
+                    instrument_id,
+                    row["observed_at"],
+                    row["trading_date"],
+                    row["price"],
+                    source_id,
+                    document_id,
+                    metadata_json,
+                )
+            )
+        await repository.run(
+            f"""
+            INSERT INTO market_prices(
+                instrument_id, observed_at, trading_date, price_type, price, currency,
+                source_id, source_document_id, quality, metadata_json
+            ) VALUES {values_sql}
+            ON CONFLICT(instrument_id, observed_at, price_type, source_id)
+            DO UPDATE SET
+                trading_date=excluded.trading_date,
+                price=excluded.price,
+                currency=excluded.currency,
+                source_document_id=excluded.source_document_id,
+                quality=excluded.quality,
+                metadata_json=excluded.metadata_json
+            """,
+            tuple(parameters),
+        )
+        written += len(chunk)
     age_days = (
         date.fromisoformat(target_date) - date.fromisoformat(selected["trading_date"])
     ).days
@@ -259,7 +275,7 @@ async def refresh_life360_ir_lif(
         "price": selected["price"],
         "price_date": selected["trading_date"],
         "price_age_days": age_days,
-        "rows_written": 1,
+        "rows_written": written,
         "fallback_only": True,
         "history_backfill": False,
         "history_complete": False,

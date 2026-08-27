@@ -129,3 +129,43 @@ def test_refresh_uses_only_fixed_life360_ir_url_and_persists_lif_close() -> None
     assert "LSEG" in repository.documents[0]["title"]
     assert len(repository.runs) == 1
     assert "'DIRECT'" in repository.runs[0][0]
+
+
+def test_ir_history_persists_all_rows_in_d1_safe_batches() -> None:
+    import life360_ir_lseg as ir
+    from datetime import date, timedelta
+
+    start = date(2026, 8, 1)
+    body = [
+        "<html><body><table>",
+        "<tr><th>Date Requested</th><th>Closing Price</th></tr>",
+    ]
+    for offset in range(30):
+        day = start + timedelta(days=offset)
+        body.append(
+            f"<tr><td>{day.strftime('%B %d, %Y')}</td>"
+            f"<td>${50 + offset / 100:.2f}</td></tr>"
+        )
+    body.extend(["</table>", "<p>Data provided by LSEG.</p>", "</body></html>"])
+    payload = "".join(body).encode()
+    repository = FakeRepository()
+
+    async def fake_fetch(url: str, **kwargs):
+        assert url == LIFE360_IR_HISTORY_URL
+        return FakeResponse(payload)
+
+    result = asyncio.run(
+        refresh_life360_ir_lif(
+            repository,
+            target_date="2026-08-30",
+            fetcher=fake_fetch,
+        )
+    )
+
+    assert ir.MAX_FALLBACK_AGE_DAYS == 7
+    assert ir.BOUND_PARAMETERS_PER_ROW == 7
+    assert ir.WRITE_BATCH_ROWS == 14
+    assert ir.WRITE_BATCH_ROWS * ir.BOUND_PARAMETERS_PER_ROW <= ir.D1_MAX_BOUND_PARAMETERS
+    assert result["rows_written"] == 30
+    assert [len(parameters) for _, parameters in repository.runs] == [98, 98, 14]
+    assert max(len(parameters) for _, parameters in repository.runs) <= ir.D1_MAX_BOUND_PARAMETERS

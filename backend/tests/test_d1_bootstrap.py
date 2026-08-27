@@ -29,6 +29,7 @@ D1_LIFE360_IR_LSEG = ROOT / "cloudflare" / "migrations" / "0015_life360_ir_lseg_
 D1_OTHER_SHARES = ROOT / "cloudflare" / "migrations" / "0016_other_shares_and_life360_report_anchor.sql"
 D1_LIFE360_HOLDINGS = ROOT / "cloudflare" / "migrations" / "0017_life360_holding_anchors.sql"
 D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"
+D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"
 D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
@@ -62,6 +63,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
         connection.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
         connection.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))
+        connection.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
