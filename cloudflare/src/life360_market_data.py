@@ -26,6 +26,7 @@ BOUND_PARAMETERS_PER_ROW = 8
 WRITE_BATCH_ROWS = D1_MAX_BOUND_PARAMETERS // BOUND_PARAMETERS_PER_ROW
 RECENT_LOOKBACK_DAYS = 45
 LIFE360_MAX_PRICE_AGE_DAYS = 7
+LIFE360_HISTORY_ANCHOR_DAYS = 31
 LIFE360_REQUIRED_SYMBOL = "LIF"
 LIFE360_CONTROL_SYMBOLS = {"360.AX"}
 LIFE360_SERIES = {
@@ -269,6 +270,29 @@ async def _last_good_lif_price(repository) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+async def _lif_price_for_history_anchor(repository, as_of_date: str) -> dict[str, Any] | None:
+    floor = (date.fromisoformat(as_of_date) - timedelta(days=LIFE360_MAX_PRICE_AGE_DAYS)).isoformat()
+    row = await repository.first(
+        """
+        SELECT mp.trading_date, mp.observed_at, mp.price, mp.currency,
+               s.code AS source_code
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol=? AND mp.currency='USD'
+          AND mp.price_type IN ('CLOSE','LAST')
+          AND mp.trading_date <= ? AND mp.trading_date >= ?
+        ORDER BY mp.trading_date DESC,
+                 CASE s.code WHEN 'YAHOO_FINANCE' THEN 0 WHEN 'LIFE360_IR_LSEG' THEN 1 ELSE 5 END,
+                 CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
+                 mp.observed_at DESC, mp.id DESC
+        LIMIT 1
+        """,
+        (LIFE360_REQUIRED_SYMBOL, as_of_date, floor),
+    )
+    return dict(row) if row else None
+
+
 async def repair_life360_lif_if_stale(
     repository,
     *,
@@ -276,19 +300,25 @@ async def repair_life360_lif_if_stale(
     archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Repair LIF only when the latest usable close is too old for mark-to-market."""
+    """Repair LIF when current mark-to-market or the 1M history anchor is missing."""
     target = date.fromisoformat(target_date)
+    history_anchor_date = (target - timedelta(days=LIFE360_HISTORY_ANCHOR_DAYS)).isoformat()
     before = await _last_good_lif_price(repository)
+    before_anchor = await _lif_price_for_history_anchor(repository, history_anchor_date)
     before_date_raw = str((before or {}).get("trading_date") or "")
     before_date = date.fromisoformat(before_date_raw) if before_date_raw else None
     age_days = (target - before_date).days if before_date is not None else None
-    if age_days is not None and 0 <= age_days <= LIFE360_MAX_PRICE_AGE_DAYS:
+    latest_fresh = age_days is not None and 0 <= age_days <= LIFE360_MAX_PRICE_AGE_DAYS
+    history_anchor_ready = before_anchor is not None
+    if latest_fresh and history_anchor_ready:
         return {
             "status": "skipped",
             "reason": "lif_price_fresh",
             "target_date": target_date,
             "latest_price_date": before_date_raw,
             "age_days": age_days,
+            "history_anchor_date": history_anchor_date,
+            "history_anchor_price_date": str(before_anchor.get("trading_date") or "") or None,
             "network_fetches_avoided": True,
             "rows_written": 0,
             "repaired": False,
@@ -301,20 +331,35 @@ async def repair_life360_lif_if_stale(
         fetcher=fetcher,
     )
     after = await _last_good_lif_price(repository)
+    after_anchor = await _lif_price_for_history_anchor(repository, history_anchor_date)
     after_date_raw = str((after or {}).get("trading_date") or "")
     after_date = date.fromisoformat(after_date_raw) if after_date_raw else None
     after_age_days = (target - after_date).days if after_date is not None else None
-    repaired = bool(
+    latest_repaired = (
         after_age_days is not None
         and 0 <= after_age_days <= LIFE360_MAX_PRICE_AGE_DAYS
     )
+    history_anchor_repaired = after_anchor is not None
+    repaired = bool(latest_repaired and history_anchor_repaired)
+    reason = None
+    if not latest_repaired:
+        reason = "lif_price_still_stale"
+    elif not history_anchor_repaired:
+        reason = "lif_1m_anchor_still_missing"
     return {
         "status": "ok" if repaired else "partial",
-        "reason": None if repaired else "lif_price_still_stale",
+        "reason": reason,
         "target_date": target_date,
         "previous_price_date": before_date_raw or None,
         "latest_price_date": after_date_raw or None,
         "age_days": after_age_days,
+        "history_anchor_date": history_anchor_date,
+        "previous_history_anchor_price_date": (
+            str(before_anchor.get("trading_date") or "") or None if before_anchor else None
+        ),
+        "history_anchor_price_date": (
+            str(after_anchor.get("trading_date") or "") or None if after_anchor else None
+        ),
         "network_fetches_avoided": False,
         "rows_written": int(result.get("rows_written") or 0),
         "repaired": repaired,
