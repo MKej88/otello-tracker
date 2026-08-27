@@ -38,6 +38,77 @@ jobs:
           Path('/tmp/apply.py').write_text(script.replace(old, new, 1), encoding='utf-8')
           PY
           python /tmp/apply.py
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('backend/app/newsweb/enrichment.py')
+          text = path.read_text(encoding='utf-8')
+          if 'def _recover_single_missing_trade_date(' not in text:
+              raise SystemExit('Backend recovery helper was not inserted')
+          text = text.replace(
+              'from collections import defaultdict',
+              'from collections import Counter, defaultdict',
+              1,
+          )
+          replacement = '''def parse_buyback_transaction_text(
+              text: str,
+              *,
+              period_start: str | None = None,
+              period_end: str | None = None,
+          ) -> list[DailyBuybackTransaction]:
+              trades = parse_buyback_trade_lines(text)
+              daily = aggregate_daily_buybacks(trades)
+              exec_buys = [
+                  _integer(match.group(1))
+                  for raw in text.splitlines()
+                  if (match := _EXEC_BUY_RE.match(" ".join(raw.replace("\\u00a0", " ").split())))
+              ]
+              parsed_totals = [item.shares for item in daily]
+              if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
+                  if period_start is not None and period_end is not None:
+                      trades = _recover_single_missing_trade_date(
+                          text,
+                          trades,
+                          exec_buys,
+                          period_start=period_start,
+                          period_end=period_end,
+                      )
+                      daily = aggregate_daily_buybacks(trades)
+                      parsed_totals = [item.shares for item in daily]
+              if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
+                  raise ValueError(
+                      f"NewsWeb ExecBuy-avstemming feilet: vedlegg={exec_buys}, parser={parsed_totals}"
+                  )
+              return daily
+          '''
+          pattern = re.compile(
+              r'def parse_buyback_transaction_text\(.*?\n\ndef extract_pdf_text',
+              re.S,
+          )
+          text, count = pattern.subn(
+              lambda _m: replacement + '\n\ndef extract_pdf_text',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'Backend parser replacement count={count}')
+
+          old_call = 'daily = parse_buyback_transaction_text(extract_pdf_text(pdf_bytes))'
+          new_call = '''daily = parse_buyback_transaction_text(
+              extract_pdf_text(pdf_bytes),
+              period_start=weekly_for_validation.period_start,
+              period_end=weekly_for_validation.period_end,
+          )'''
+          if old_call in text:
+              text = text.replace(old_call, new_call, 1)
+          if 'period_start=weekly_for_validation.period_start' not in text:
+              raise SystemExit('Backend ingest did not receive weekly period context')
+
+          compile(text, str(path), 'exec')
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Run targeted tests
         shell: bash
         run: |
