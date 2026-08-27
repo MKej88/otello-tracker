@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -53,3 +54,43 @@ def test_scheduled_secondary_skip_is_not_a_source_failure() -> None:
         "active_slot": "result_release",
         "rows_written": 0,
     }
+
+
+def test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation(monkeypatch) -> None:
+    async def ok_ir(*args, **kwargs):
+        return {"status": "ok", "rows_written": 5}
+
+    async def blocked_consensus(*args, **kwargs):
+        return {"status": "not_available", "error": "HTTP 403", "rows_written": 0}
+
+    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
+    monkeypatch.setattr(runtime, "sync_marketscreener_consensus", blocked_consensus)
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "consensus")
+
+    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-27"))
+    assert result["status"] == "ok"
+    assert result["secondary_status"] == "degraded"
+    assert result["secondary_warnings"] == [
+        {"source": "consensus", "status": "not_available", "reason": None, "error": "HTTP 403"}
+    ]
+
+
+def test_unparseable_official_result_still_degrades_bemobi_ir(monkeypatch) -> None:
+    async def ok_ir(*args, **kwargs):
+        return {"status": "ok", "rows_written": 5}
+
+    async def bad_result(*args, **kwargs):
+        return {"status": "not_available", "error": "new result not parseable", "rows_written": 0}
+
+    async def no_event(*args, **kwargs):
+        return 0
+
+    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
+    monkeypatch.setattr(runtime, "sync_latest_result_release", bad_result)
+    monkeypatch.setattr(runtime, "_ensure_consensus_event", no_event)
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")
+
+    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-26"))
+    assert result["status"] == "partial"
+    assert result["secondary_status"] == "degraded"
+    assert result["secondary_warnings"][0]["source"] == "result_release"

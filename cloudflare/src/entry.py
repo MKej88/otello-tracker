@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import types
 from datetime import UTC, date, datetime, timedelta
@@ -38,8 +39,27 @@ def _nested_value(value, key: str):
         return None
 
 
-def _workflow_target_date(event) -> str:
+def _workflow_payload(event):
+    """Normalize Cloudflare Workflow payloads from bindings and REST-created instances.
+
+    The REST create-instance API accepts ``params`` as a JSON-encoded string. Depending on
+    runtime shape, Python Workers can therefore receive ``event.payload`` as either a mapping
+    or that JSON string. Keep manual verification deterministic by accepting both forms.
+    """
     payload = _event_value(event, "payload")
+    if payload is None:
+        payload = _event_value(event, "params")
+    if isinstance(payload, str):
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        return decoded if isinstance(decoded, dict) else None
+    return payload
+
+
+def _workflow_target_date(event) -> str:
+    payload = _workflow_payload(event)
     explicit = _nested_value(payload, "target_date")
     if explicit:
         return datetime.fromisoformat(str(explicit)).date().isoformat()
