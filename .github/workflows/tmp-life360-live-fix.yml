@@ -1,0 +1,95 @@
+name: Temporary Life360 live price fix
+
+on:
+  push:
+    branches:
+      - fix/life360-live-price-ingestion
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Patch implementation and tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('cloudflare/src/life360_market_data.py')
+          s = p.read_text()
+          s = s.replace(
+              'RECENT_LOOKBACK_DAYS = 45\nLIFE360_REQUIRED_SYMBOL = "LIF"',
+              'RECENT_LOOKBACK_DAYS = 45\nLIFE360_MAX_PRICE_AGE_DAYS = 7\nLIFE360_REQUIRED_SYMBOL = "LIF"',
+          )
+          s = s.replace(
+              'values_sql = ",".join("(?, ?, ?, \'CLOSE\', ?, ?, ?, ?, \'SECONDARY\', ?)" for _ in chunk)',
+              'values_sql = ",".join("(?, ?, ?, \'CLOSE\', ?, ?, ?, ?, \'DIRECT\', ?)" for _ in chunk)',
+          )
+          needle = '''async def _write_rows(\n'''
+          helper = '''async def repair_life360_lif_if_stale(\n    repository,\n    *,\n    target_date: str,\n    archive_bucket: Any | None = None,\n    fetcher: Callable[..., Awaitable[Any]] | None = None,\n) -> dict[str, Any]:\n    """Repair LIF only when the latest usable close is too old for mark-to-market."""\n    target = date.fromisoformat(target_date)\n    before = await _last_good_lif_price(repository)\n    before_date_raw = str((before or {}).get("trading_date") or "")\n    before_date = date.fromisoformat(before_date_raw) if before_date_raw else None\n    age_days = (target - before_date).days if before_date is not None else None\n    if age_days is not None and 0 <= age_days <= LIFE360_MAX_PRICE_AGE_DAYS:\n        return {\n            "status": "skipped",\n            "reason": "lif_price_fresh",\n            "target_date": target_date,\n            "latest_price_date": before_date_raw,\n            "age_days": age_days,\n            "network_fetches_avoided": True,\n            "rows_written": 0,\n            "repaired": False,\n        }\n\n    result = await _refresh_lif_with_independent_fallback(\n        repository,\n        target_date=target_date,\n        archive_bucket=archive_bucket,\n        fetcher=fetcher,\n    )\n    after = await _last_good_lif_price(repository)\n    after_date_raw = str((after or {}).get("trading_date") or "")\n    after_date = date.fromisoformat(after_date_raw) if after_date_raw else None\n    after_age_days = (target - after_date).days if after_date is not None else None\n    repaired = bool(\n        after_age_days is not None\n        and 0 <= after_age_days <= LIFE360_MAX_PRICE_AGE_DAYS\n    )\n    return {\n        "status": "ok" if repaired else "partial",\n        "reason": None if repaired else "lif_price_still_stale",\n        "target_date": target_date,\n        "previous_price_date": before_date_raw or None,\n        "latest_price_date": after_date_raw or None,\n        "age_days": after_age_days,\n        "network_fetches_avoided": False,\n        "rows_written": int(result.get("rows_written") or 0),\n        "repaired": repaired,\n        "source_result": result,\n    }\n\n\n'''
+          if 'async def repair_life360_lif_if_stale(' not in s:
+              if needle not in s:
+                  raise SystemExit('life360 helper insertion point not found')
+              s = s.replace(needle, helper + needle, 1)
+          p.write_text(s)
+
+          p = Path('cloudflare/src/scheduled.py')
+          s = p.read_text()
+          s = s.replace(
+              '    from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock\n    from .nav_refresh import refresh_dirty_nav_layers',
+              '    from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock\n    from .life360_market_data import repair_life360_lif_if_stale\n    from .nav_refresh import refresh_dirty_nav_layers',
+          )
+          s = s.replace(
+              '    from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock\n    from nav_refresh import refresh_dirty_nav_layers',
+              '    from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock\n    from life360_market_data import repair_life360_lif_if_stale\n    from nav_refresh import refresh_dirty_nav_layers',
+          )
+          insertion = '''\n    life360_repair = await _safe_async_step(\n        "life360_lif_repair",\n        lambda: repair_life360_lif_if_stale(\n            repository,\n            target_date=newsweb_date,\n            archive_bucket=archive_bucket,\n        ),\n        steps=steps,\n        errors=errors,\n        timings_ms=timings_ms,\n    )\n    if isinstance(life360_repair, dict):\n        records_written += int(life360_repair.get("rows_written") or 0)\n        if life360_repair.get("status") == "partial":\n            errors.append(\n                {\n                    "step": "life360_lif_repair",\n                    "error": (\n                        "Life360 LIF-kurs er fortsatt for gammel etter reparasjon; "\n                        f"siste kursdato={life360_repair.get('latest_price_date') or 'ukjent'}"\n                    ),\n                    "error_type": "Life360PriceFreshnessPartial",\n                }\n            )\n\n    if renew_lock is not None:\n        await renew_lock("after Life360 LIF repair")\n'''
+          marker = '''\n    dirty_nav = await _safe_async_step(\n'''
+          if '"life360_lif_repair"' not in s:
+              if marker not in s:
+                  raise SystemExit('scheduled insertion point not found')
+              s = s.replace(marker, insertion + marker, 1)
+          p.write_text(s)
+
+          p = Path('backend/tests/test_life360_market_data.py')
+          s = p.read_text()
+          s = s.replace(
+              '        def __init__(self) -> None:\n            self.parameter_counts: list[int] = []',
+              '        def __init__(self) -> None:\n            self.parameter_counts: list[int] = []\n            self.sql_texts: list[str] = []',
+          )
+          s = s.replace(
+              '            assert "INSERT INTO market_prices" in sql\n            self.parameter_counts.append(len(parameters))',
+              '            assert "INSERT INTO market_prices" in sql\n            self.sql_texts.append(sql)\n            self.parameter_counts.append(len(parameters))',
+          )
+          s = s.replace(
+              '    assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS\n\n\ndef test_yahoo_repair_window_covers_one_month_history()',
+              '''    assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS\n    assert all("'DIRECT'" in sql for sql in repository.sql_texts)\n    assert all("'SECONDARY'" not in sql for sql in repository.sql_texts)\n\n\ndef test_stale_lif_price_triggers_bounded_repair(monkeypatch) -> None:\n    class Repository:\n        def __init__(self) -> None:\n            self.latest = "2026-07-31"\n\n        async def first(self, sql: str, parameters=()):\n            if "ORDER BY mp.trading_date DESC" in sql:\n                return {\n                    "trading_date": self.latest,\n                    "observed_at": f"{self.latest}T20:00:00Z",\n                    "price": 54.05,\n                    "currency": "USD",\n                    "source_code": "FINANCECHARTS",\n                }\n            raise AssertionError(sql)\n\n    repository = Repository()\n    calls = 0\n\n    async def fake_refresh(repository_arg, *, target_date, archive_bucket, fetcher):\n        nonlocal calls\n        assert repository_arg is repository\n        assert target_date == "2026-08-27"\n        calls += 1\n        repository.latest = "2026-08-26"\n        return {"status": "ok", "rows_written": 18}\n\n    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", fake_refresh)\n    result = asyncio.run(\n        life360_market_data.repair_life360_lif_if_stale(\n            repository,\n            target_date="2026-08-27",\n        )\n    )\n    assert calls == 1\n    assert result["status"] == "ok"\n    assert result["repaired"] is True\n    assert result["previous_price_date"] == "2026-07-31"\n    assert result["latest_price_date"] == "2026-08-26"\n    assert result["age_days"] == 1\n    assert result["rows_written"] == 18\n\n\ndef test_fresh_lif_price_skips_network_repair(monkeypatch) -> None:\n    class Repository:\n        async def first(self, sql: str, parameters=()):\n            assert "ORDER BY mp.trading_date DESC" in sql\n            return {\n                "trading_date": "2026-08-26",\n                "observed_at": "2026-08-26T20:00:00Z",\n                "price": 43.42,\n                "currency": "USD",\n                "source_code": "YAHOO_FINANCE",\n            }\n\n    async def forbidden_refresh(*args, **kwargs):\n        raise AssertionError("network refresh must be skipped for fresh LIF")\n\n    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", forbidden_refresh)\n    result = asyncio.run(\n        life360_market_data.repair_life360_lif_if_stale(\n            Repository(),\n            target_date="2026-08-27",\n        )\n    )\n    assert result["status"] == "skipped"\n    assert result["reason"] == "lif_price_fresh"\n    assert result["network_fetches_avoided"] is True\n    assert result["rows_written"] == 0\n\n\ndef test_yahoo_repair_window_covers_one_month_history()''',
+          )
+          p.write_text(s)
+          PY
+      - name: Run focused tests
+        shell: bash
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m pytest backend/tests/test_life360_market_data.py -q
+          python -m py_compile cloudflare/src/life360_market_data.py cloudflare/src/scheduled.py
+      - name: Commit clean implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/tmp-life360-live-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cloudflare/src/life360_market_data.py cloudflare/src/scheduled.py backend/tests/test_life360_market_data.py
+          git commit -m "Rett Life360 live-kurs og automatisk reparasjon"
+          git push origin HEAD:fix/life360-live-price-ingestion
