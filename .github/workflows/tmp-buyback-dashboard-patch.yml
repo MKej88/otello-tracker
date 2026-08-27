@@ -21,7 +21,9 @@ jobs:
           python-version: '3.12'
       - name: Apply patch
         if: github.event.head_commit.message == 'Kjør buyback-patch fra script'
-        run: python scripts/tmp_apply_buyback_dashboard_patch.py
+        run: |
+          python scripts/tmp_apply_buyback_dashboard_patch.py
+          python scripts/tmp_fix_buyback_patch_fixture.py
       - name: Run focused tests
         if: github.event.head_commit.message == 'Kjør buyback-patch fra script'
         run: |
