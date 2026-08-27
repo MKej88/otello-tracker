@@ -8,6 +8,7 @@ from typing import Any
 _SYMBOLS = {
     "OTEC": {"currency": "NOK", "source": "EURONEXT"},
     "BMOB3": {"currency": "BRL", "source": "B3"},
+    "LIF": {"currency": "USD", "source": "YAHOO_FINANCE"},
 }
 
 
@@ -38,7 +39,9 @@ def _meta_number(metadata: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
-def _preferred_daily_rows(rows: list[dict[str, Any]], symbol: str) -> list[dict[str, Any]]:
+def _preferred_daily_rows(
+    rows: list[dict[str, Any]], symbol: str
+) -> list[dict[str, Any]]:
     by_date: dict[str, dict[str, Any]] = {}
     preferred_source = _SYMBOLS[symbol]["source"]
     for row in rows:
@@ -47,7 +50,10 @@ def _preferred_daily_rows(rows: list[dict[str, Any]], symbol: str) -> list[dict[
         priority = (
             int(row.get("series_priority") or 0),
             0 if row.get("source_code") == preferred_source else 1,
-            0 if row.get("quality") in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"} else 1,
+            0
+            if row.get("quality")
+            in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"}
+            else 1,
             -int(row.get("id") or 0),
         )
         if current is None or priority < current["_priority"]:
@@ -120,7 +126,9 @@ async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
     return market
 
 
-async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, Any]:
+async def _day_stats(
+    repository, symbol: str, trading_date: str
+) -> dict[str, Any]:
     rows = await repository.all(
         """
         SELECT mp.id, mp.price_type, mp.price, mp.observed_at, mp.metadata_json,
@@ -147,11 +155,28 @@ async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, An
     open_value = low_value = high_value = None
     for row in preferred:
         meta = _metadata(row.get("metadata_json"))
-        open_value = open_value if open_value is not None else _meta_number(meta, "open_price", "open")
-        low_value = low_value if low_value is not None else _meta_number(meta, "min_price", "low", "day_low")
-        high_value = high_value if high_value is not None else _meta_number(meta, "max_price", "high", "day_high")
+        open_value = (
+            open_value
+            if open_value is not None
+            else _meta_number(meta, "open_price", "open")
+        )
+        low_value = (
+            low_value
+            if low_value is not None
+            else _meta_number(meta, "min_price", "low", "day_low")
+        )
+        high_value = (
+            high_value
+            if high_value is not None
+            else _meta_number(meta, "max_price", "high", "day_high")
+        )
         if open_value is not None and low_value is not None and high_value is not None:
-            return {"open": open_value, "low": low_value, "high": high_value, "basis": "EXCHANGE_SESSION_SUMMARY"}
+            return {
+                "open": open_value,
+                "low": low_value,
+                "high": high_value,
+                "basis": "EXCHANGE_SESSION_SUMMARY",
+            }
 
     explicit: dict[str, float] = {}
     observed_prices: list[float] = []
@@ -165,9 +190,21 @@ async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, An
             explicit[str(row["price_type"])] = price
         if row["price_type"] == "LAST":
             last_rows.append(row)
+
     open_value = open_value if open_value is not None else explicit.get("OPEN")
     low_value = low_value if low_value is not None else explicit.get("LOW")
     high_value = high_value if high_value is not None else explicit.get("HIGH")
+
+    if symbol == "LIF":
+        return {
+            "open": open_value,
+            "low": low_value,
+            "high": high_value,
+            "basis": "STORED_SESSION_DATA"
+            if any(value is not None for value in (open_value, low_value, high_value))
+            else "CLOSE_ONLY",
+        }
+
     if open_value is None and last_rows:
         open_value = _number(last_rows[0].get("price"))
     if low_value is None and observed_prices:
@@ -182,7 +219,9 @@ async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, An
     }
 
 
-async def _daily_history(repository, symbol: str, as_of_date: str) -> list[dict[str, Any]]:
+async def _daily_history(
+    repository, symbol: str, as_of_date: str
+) -> list[dict[str, Any]]:
     start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
     market_rows = [
         {**dict(row), "series_priority": 1 if symbol == "OTEC" else 0}
@@ -222,7 +261,9 @@ async def _daily_history(repository, symbol: str, as_of_date: str) -> list[dict[
     return _preferred_daily_rows([*market_rows, *activity_rows], symbol)
 
 
-async def _volume_stats(repository, symbol: str, history: list[dict[str, Any]]) -> dict[str, Any]:
+async def _volume_stats(
+    repository, symbol: str, history: list[dict[str, Any]]
+) -> dict[str, Any]:
     if symbol == "OTEC":
         try:
             rows = await repository.all(
@@ -272,7 +313,9 @@ async def _volume_stats(repository, symbol: str, history: list[dict[str, Any]]) 
         "average_20d": sum(values) / len(values) if values else None,
         "average_sessions": len(values),
         "unit": "shares",
-        "basis": "B3_COTAHIST_QUANTITY",
+        "basis": "B3_COTAHIST_QUANTITY"
+        if symbol == "BMOB3"
+        else "STORED_MARKET_PRICE_METADATA",
     }
 
 
@@ -294,7 +337,9 @@ def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
         "low": min(lows) if lows else None,
         "high": max(highs) if highs else None,
         "sessions": len(lows),
-        "basis": "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK" if used_session_range else "DAILY_CLOSE",
+        "basis": "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK"
+        if used_session_range
+        else "DAILY_CLOSE",
     }
 
 
@@ -334,9 +379,26 @@ async def market_quote_details(repository) -> dict[str, Any]:
         "ready": any(item.get("ready") for item in quotes.values()),
         "symbols": quotes,
         "methodology": {
-            "average_volume": "Gjennomsnitt av inntil 20 siste tilgjengelige handelssesjoner.",
-            "range_52w": "52-ukers intervallet bruker offisiell dags høy/lav når den finnes i lagret kilde, ellers verifisert fullført-dags slutt-/sistehandel.",
-            "otec_session": "OTEC dagens åpning/lav/høy er basert på direkte Euronext-handler lagret av den forsinkede feeden når full offisiell sesjonssummering ikke finnes.",
-            "otec_close": "OTEC siste sluttkurs bruker den nyeste av eksplisitt CLOSE og siste handel fra fullført Euronext-dagsserie.",
+            "average_volume": (
+                "Gjennomsnitt av inntil 20 siste tilgjengelige handelssesjoner."
+            ),
+            "range_52w": (
+                "52-ukers intervallet bruker offisiell dags høy/lav når den finnes "
+                "i lagret kilde, ellers verifisert fullført-dags slutt-/sistehandel."
+            ),
+            "otec_session": (
+                "OTEC dagens åpning/lav/høy er basert på direkte Euronext-handler "
+                "lagret av den forsinkede feeden når full offisiell "
+                "sesjonssummering ikke finnes."
+            ),
+            "otec_close": (
+                "OTEC siste sluttkurs bruker den nyeste av eksplisitt CLOSE og "
+                "siste handel fra fullført Euronext-dagsserie."
+            ),
+            "life360": (
+                "Life360/LIF bruker lagrede NASDAQ-sluttkurser i USD fra Yahoo "
+                "Finance. Intradag åpning/lav/høy og volum vises bare når slike "
+                "data faktisk er lagret."
+            ),
         },
     }
