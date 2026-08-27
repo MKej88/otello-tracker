@@ -10,6 +10,9 @@ from app.buybacks.forecast import LOOKBACK_DAYS, SAFE_HARBOUR_SHARE, buyback_for
 from app.db.connection import get_connection
 
 
+FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
+
+
 def _completion(
     forecast: dict[str, Any],
     history: list[dict[str, Any]],
@@ -238,10 +241,12 @@ def buyback_dashboard(
             """
             SELECT nav_total_nok
             FROM nav_snapshots
-            WHERE substr(as_of_at, 1, 10) <= ?
+            WHERE calculation_version = ?
+              AND nav_scope = 'FULL'
+              AND substr(as_of_at, 1, 10) <= ?
             ORDER BY as_of_at DESC, id DESC LIMIT 1
             """,
-            (as_of,),
+            (FULL_CALCULATION_VERSION, as_of),
         ).fetchone()
 
         raw_history = list(forecast.get("recent_program_weeks") or [])
