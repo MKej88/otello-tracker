@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend/app/db/migrations/0028_life360_price_backfill.sql"
 D1 = ROOT / "cloudflare/migrations/0020_life360_price_backfill.sql"
+# Keep the explicitly source-verified closes visible in the regression contract.
 EXPECTED = {
     "2026-07-27": "53.83",
     "2026-07-28": "56.68",
