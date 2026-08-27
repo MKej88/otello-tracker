@@ -196,9 +196,13 @@ def test_latest_week_metrics_do_not_depend_on_forecast_history(tmp_path: Path) -
 def test_nav_effect_uses_full_nav_snapshot(tmp_path: Path) -> None:
     database = _database(tmp_path)
 
-    dashboard = reference_dashboard(database, as_of_date="2026-08-17")
+    reference = reference_dashboard(database, as_of_date="2026-08-17")
+    worker = asyncio.run(
+        worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-17")
+    )
 
-    assert dashboard["nav_effect"] == {
+    assert reference["nav_effect"] == {
         "per_share_nok": 0.0199,
         "pct": 0.1004,
     }
+    assert worker["nav_effect"] == reference["nav_effect"]
