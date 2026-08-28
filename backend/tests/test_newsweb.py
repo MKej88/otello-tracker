@@ -77,6 +77,15 @@ def test_newsweb_parser_rejects_sell_or_broken_execbuy() -> None:
         parse_buyback_transaction_text(broken)
 
 
+def test_newsweb_parser_rejects_trade_outside_weekly_period() -> None:
+    with pytest.raises(ValueError, match="utenfor ukesperioden"):
+        parse_buyback_transaction_text(
+            TRANSACTION_TEXT,
+            period_start="2025-07-01",
+            period_end="2025-07-04",
+        )
+
+
 def test_newsweb_message_and_list_payload_validate_otec() -> None:
     raw_message = {
         "messageId": 678028,
