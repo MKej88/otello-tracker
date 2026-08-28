@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from decimal import Decimal
 from pathlib import Path
 
 from app.economic_nav import _option_values
@@ -9,6 +10,7 @@ from app.history.economic_nav_inputs import load_economic_nav_inputs_manifest
 from app.option_settlement import settlement_inputs_from_components
 
 
+ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_BASE_ANCHORS = {
     "2023-06-30": ("1673000", 181),
     "2023-12-31": ("1400000", 184),
@@ -34,8 +36,8 @@ def test_source_backed_base_cost_anchors_cover_all_investor_periods() -> None:
 
 
 def test_d1_migration_repairs_pregrant_history_for_estimated_nav() -> None:
-    migration = Path(
-        "cloudflare/migrations/0021_estimated_nav_history_cost_anchors.sql"
+    migration = (
+        ROOT / "cloudflare/migrations/0021_estimated_nav_history_cost_anchors.sql"
     ).read_text(encoding="utf-8")
 
     connection = sqlite3.connect(":memory:")
@@ -131,8 +133,11 @@ def test_d1_migration_repairs_pregrant_history_for_estimated_nav() -> None:
     assert row is not None
     repaired = json.loads(row["components_json"])
 
-    assert _option_values(repaired) == (0, 0)
-    assert settlement_inputs_from_components(repaired) == (0, 12.5637)
+    assert _option_values(repaired) == (Decimal("0"), Decimal("0"))
+    assert settlement_inputs_from_components(repaired) == (
+        0,
+        Decimal("12.5637"),
+    )
 
     daily = connection.execute(
         "SELECT option_inputs_json FROM other_net_assets_daily_estimates"
