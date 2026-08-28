@@ -312,6 +312,29 @@ def aggregate_daily_buybacks(trades: list[BuybackTrade]) -> list[DailyBuybackTra
     return result
 
 
+def _validate_trade_period(
+    daily: list[DailyBuybackTransaction],
+    *,
+    period_start: str,
+    period_end: str,
+) -> None:
+    start = date.fromisoformat(period_start)
+    end = date.fromisoformat(period_end)
+    if end < start:
+        raise ValueError("Ugyldig NewsWeb-ukesperiode")
+
+    outside_period = [
+        item.trade_date
+        for item in daily
+        if not start <= date.fromisoformat(item.trade_date) <= end
+    ]
+    if outside_period:
+        raise ValueError(
+            "NewsWeb-handelsdato er utenfor ukesperioden: "
+            + ", ".join(outside_period)
+        )
+
+
 def parse_buyback_transaction_text(
     text: str,
     *,
@@ -337,6 +360,12 @@ def parse_buyback_transaction_text(
     if exec_buys and sorted(exec_buys) != sorted(parsed_totals):
         raise ValueError(
             f"NewsWeb ExecBuy-avstemming feilet: vedlegg={exec_buys}, parser={parsed_totals}"
+        )
+    if period_start is not None and period_end is not None:
+        _validate_trade_period(
+            daily,
+            period_start=period_start,
+            period_end=period_end,
         )
     return daily
 
