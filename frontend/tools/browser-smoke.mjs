@@ -223,8 +223,37 @@ async function main() {
     "vellykket innlasting av Estimert NAV"
   );
 
+  const accessibility = await session.evaluate(`(() => ({
+    skipTarget: document.querySelector('.skipLink')?.getAttribute('href'),
+    mainFocusable: document.querySelector('#main-content')?.getAttribute('tabindex'),
+    activePage: document.querySelector('[aria-current="page"]')?.textContent?.trim()
+  }))()`);
+  if (accessibility.skipTarget !== "#main-content" || accessibility.mainFocusable !== "-1") {
+    throw new Error(`Hoppelenken peker ikke til fokuserbart hovedinnhold: ${JSON.stringify(accessibility)}`);
+  }
+  if (accessibility.activePage !== "Oversikt") {
+    throw new Error(`Aktiv meny er ikke tilgjengelig markert: ${JSON.stringify(accessibility)}`);
+  }
+
+  await session.send("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+    mobile: true
+  });
+  const mobileNavigationVisible = await session.evaluate(`(() => {
+    const navigation = document.querySelector('.sidebar nav');
+    return navigation && getComputedStyle(navigation).display !== 'none' && navigation.getBoundingClientRect().height > 0;
+  })()`);
+  if (!mobileNavigationVisible) throw new Error("Hovedmenyen er skjult på mobil.");
+  await session.send("Emulation.clearDeviceMetricsOverride");
+
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
   await clickView(session, "NAV", "Estimert NAV", ".compositionTable");
+  const navRoute = await session.evaluate("({ hash: location.hash, title: document.title })");
+  if (navRoute.hash !== "#nav" || navRoute.title !== "Estimert NAV | Otello") {
+    throw new Error(`NAV-rute eller sidetittel er feil: ${JSON.stringify(navRoute)}`);
+  }
   await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
   await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");

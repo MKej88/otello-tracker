@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import "./consensus-page.css";
 
@@ -171,8 +172,8 @@ export default function ConsensusPage() {
     };
   }, []);
 
-  if (data == null && !failed) return <div className="consensusNotice">Laster konsensus …</div>;
-  if (failed && data == null) return <div className="consensusNotice"><strong>Kunne ikke hente konsensusdata.</strong></div>;
+  if (data == null && !failed) return <ResourceNotice>Laster konsensus …</ResourceNotice>;
+  if (failed && data == null) return <ResourceNotice kind="error">Kunne ikke hente konsensusdata.</ResourceNotice>;
   if (!data?.ready) return <div className="consensusNotice"><strong>Konsensus er ikke klar.</strong><span>{data?.reason}</span></div>;
 
   const coverage = data.coverage;

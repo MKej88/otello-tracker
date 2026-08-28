@@ -1,5 +1,6 @@
 import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
 import { usePollingResource } from "./usePollingResource";
+import { formatDate, formatDateTime } from "./uiFormat";
 
 const REFRESH_MS = 60_000;
 
@@ -34,19 +35,6 @@ function statusLabel(input?: string | null) {
   return labels[value] ?? input ?? "UKJENT";
 }
 
-function timeLabel(input?: string | null) {
-  if (!input) return "–";
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) return input;
-  return parsed.toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function dateLabel(input?: string | null) {
-  if (!input) return "–";
-  const [year, month, day] = input.slice(0, 10).split("-");
-  return year && month && day ? `${day}.${month}.${year}` : input;
-}
-
 function Step({ label, done }: { label: string; done?: boolean }) {
   return <div className="qualityStep"><span className={done ? "qualityDot ok" : "qualityDot"} /><span>{label}</span><strong>{done ? "OK" : "VENTER"}</strong></div>;
 }
@@ -67,11 +55,11 @@ export default function DataQualityPage() {
       <section className="card">
         <div className="cardHeader"><div><span className="label">DRIFT</span><h2>Automatiske jobber og ferskhet</h2></div><span className="pill">{runtimeFailed ? "SISTE GODE" : statusLabel(runtime?.status)}</span></div>
         <div className="qualityMetricGrid">
-          <div><span>Full oppdatering</span><strong>{statusLabel(runtime?.full_refresh?.status)}</strong><small>{timeLabel(runtime?.full_refresh?.finished_at ?? runtime?.full_refresh?.started_at)}</small></div>
-          <div><span>30-min oppdatering</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{timeLabel(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
+          <div><span>Full oppdatering</span><strong>{statusLabel(runtime?.full_refresh?.status)}</strong><small>{formatDateTime(runtime?.full_refresh?.finished_at ?? runtime?.full_refresh?.started_at)}</small></div>
+          <div><span>30-min oppdatering</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
           <div><span>Førsteside-cache</span><strong>{snapshot?.cache_status ?? "UKJENT"}</strong><small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `v${snapshot.stored_version ?? "?"} · ${Math.round(snapshot.age_seconds / 60)} min gammel`}</small></div>
-          <div><span>Norges Bank</span><strong>{statusLabel(runtime?.norges_bank?.status)}</strong><small>{timeLabel(runtime?.norges_bank?.checked_at)}</small></div>
-          <div><span>Valuta BRL/USD → NOK</span><strong>{dateLabel(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {dateLabel(runtime?.fx?.expected_date)}</small></div>
+          <div><span>Norges Bank</span><strong>{statusLabel(runtime?.norges_bank?.status)}</strong><small>{formatDateTime(runtime?.norges_bank?.checked_at)}</small></div>
+          <div><span>Valuta BRL/USD → NOK</span><strong>{formatDate(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {formatDate(runtime?.fx?.expected_date)}</small></div>
         </div>
         {(runtime?.full_refresh?.stale || runtime?.fast_refresh?.stale || runtime?.full_refresh?.has_error || runtime?.fast_refresh?.has_error || runtime?.fx?.current === false) && <p className="qualityAlert">Minst ett driftsignal krever oppfølging. Den detaljerte nattdiagnosen lagres også i GitHub.</p>}
       </section>
@@ -82,7 +70,7 @@ export default function DataQualityPage() {
           <p className="dataNotice">{report?.message ?? "Venter på neste Otello-finansrapport."}</p>
         ) : (
           <>
-            <div className="qualityReportMeta"><div><span>Periode</span><strong>{report.source_period ?? "–"}</strong></div><div><span>Rapportdato</span><strong>{dateLabel(report.report_date)}</strong></div><div><span>Parser</span><strong>{report.parser_version ?? "–"}</strong></div>{report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Åpne kilde-PDF</a>}</div>
+            <div className="qualityReportMeta"><div><span>Periode</span><strong>{report.source_period ?? "–"}</strong></div><div><span>Rapportdato</span><strong>{formatDate(report.report_date)}</strong></div><div><span>Parser</span><strong>{report.parser_version ?? "–"}</strong></div>{report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Åpne kilde-PDF</a>}</div>
             <div className="qualitySteps">
               <Step label="NewsWeb" done={pipeline.newsweb_processed} />
               <Step label="PDF hentet" done={pipeline.pdf_downloaded} />

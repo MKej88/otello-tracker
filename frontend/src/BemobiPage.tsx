@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ResourceNotice from "./ResourceNotice";
 import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
 import "./bemobi-page.css";
 
@@ -199,15 +200,15 @@ export default function BemobiPage() {
   }, []);
 
   if (data == null && !failed) {
-    return <div className="bemobiNotice">Laster Bemobi-data …</div>;
+    return <ResourceNotice>Laster Bemobi-data …</ResourceNotice>;
   }
 
   if (failed && data == null) {
     return (
-      <div className="bemobiNotice">
+      <ResourceNotice kind="error">
         <strong>Kunne ikke hente Bemobi-data.</strong>
         <span>Investorvisningen er midlertidig utilgjengelig.</span>
-      </div>
+      </ResourceNotice>
     );
   }
 
