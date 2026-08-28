@@ -110,6 +110,14 @@ def test_euronext_csv_parser_handles_semicolon_and_decimal_comma() -> None:
     assert prices[-1].close == Decimal("17.20")
 
 
+@pytest.mark.parametrize("invalid_price", ["0", "-1.20", "NaN", "Infinity"])
+def test_euronext_csv_parser_rejects_invalid_prices(invalid_price: str) -> None:
+    text = f"Date;Closing Price\n30/12/2025;{invalid_price}\n"
+
+    with pytest.raises(ValueError, match="Ugyldig Euronext-sluttkurs"):
+        parse_euronext_historical_csv(text, date_order="DMY")
+
+
 def test_investing_otec_reconstruction_reverses_2022_distribution() -> None:
     raw = parse_investing_historical_csv(_investing_sample())
     prices, adjustment = reconstruct_otec_2022_distribution(raw)

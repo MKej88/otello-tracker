@@ -38,7 +38,10 @@ def _parse_decimal(value: str) -> Decimal:
             cleaned = cleaned.replace(",", "")
     elif "," in cleaned:
         cleaned = cleaned.replace(",", ".")
-    return Decimal(cleaned)
+    price = Decimal(cleaned)
+    if not price.is_finite() or price <= 0:
+        raise ValueError(f"Ugyldig Euronext-sluttkurs: {value}")
+    return price
 
 
 def _parse_date(value: str, date_order: str) -> str:
