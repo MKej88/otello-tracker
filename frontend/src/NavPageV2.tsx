@@ -297,6 +297,14 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
   return result.sort((left, right) => right.per_share_nok - left.per_share_nok);
 }
 
+function driverHasChange(driver: DisplayDriver) {
+  const effects = driver.breakdown ?? [driver];
+  return effects.some((effect) => (
+    Math.abs(effect.amount_mnok ?? 0) > 1e-9
+    || Math.abs(effect.per_share_nok) > 1e-9
+  ));
+}
+
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
   return (
     <div className="periodButtons" aria-label="Velg periode">
@@ -349,6 +357,7 @@ export default function NavPageV2() {
   const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
   const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
   const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
+  const changedDrivers = groupedDrivers(change?.drivers ?? []).filter(driverHasChange);
 
   return (
     <div className="investorPage navV2">
@@ -420,7 +429,7 @@ export default function NavPageV2() {
             </div>
             <div className="compositionTable driverNetTable">
               <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>Nettoeffekt NAV/aksje</span></div>
-              {groupedDrivers(change.drivers ?? []).map((driver) => {
+              {changedDrivers.map((driver) => {
                 const available = driver.key !== "life360" || displayAvailable(driver.details);
                 return (
                   <div className="compositionRow" key={driver.key}>

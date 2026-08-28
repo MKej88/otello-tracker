@@ -29,6 +29,7 @@ def test_issue_168_has_all_requested_periods_and_estimated_nav_views() -> None:
     assert "driverBarTrack" not in nav
     assert "sortCompositionByValue(" in nav
     assert "right.amount_mnok - left.amount_mnok" in nav
+    assert "filter(driverHasChange)" in nav
     assert "Rabatt til Estimert NAV" in history
     assert "axisLabel" in history
     assert "Rabatt / premie" in history
