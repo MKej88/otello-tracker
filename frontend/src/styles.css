@@ -105,3 +105,66 @@ h2 { margin: 4px 0 0; font-size: 17px; }
   .modelWarning strong { display: block; margin-bottom: 5px; }
   .exposure { align-items: flex-start; }
 }
+
+/* Tastaturbrukere skal alltid kunne se hvor fokuset er. */
+:focus-visible {
+  outline: 3px solid #79b2ff;
+  outline-offset: 3px;
+}
+
+.skipLink {
+  position: fixed;
+  z-index: 1000;
+  top: 10px;
+  left: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eef4ff;
+  color: #07101f;
+  font-weight: 800;
+  text-decoration: none;
+  transform: translateY(-160%);
+}
+.skipLink:focus { transform: translateY(0); }
+
+@media (max-width: 850px) {
+  .sidebar {
+    display: block;
+    overflow-x: auto;
+    padding: 14px 16px 10px;
+    border-right: 0;
+    border-bottom: 1px solid #18253b;
+  }
+  .brand { padding: 0 2px 12px; }
+  .brandMark { width: 32px; height: 32px; border-radius: 9px; }
+  .sidebar nav {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    gap: 6px;
+  }
+  .navItem { flex: 0 0 auto; padding: 9px 11px; }
+  .sidebarFooter { display: none; }
+}
+
+.resourceNotice {
+  display: grid;
+  gap: 4px;
+  padding: 12px 15px;
+  border: 1px solid #293d5d;
+  border-radius: 11px;
+  background: rgba(25, 49, 82, .28);
+  color: #b9cef0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.resourceNotice.error { border-color: #713848; background: rgba(98, 32, 50, .24); color: #ffc2cc; }
+.resourceNotice.empty { border-style: dashed; color: #91a0b8; }
+.resourceNotice.stale { border-color: #5a4826; color: #f0cf7a; }
+
+.chartSummary {
+  margin: 8px 0 0;
+  color: #91a0b8;
+  font-size: 12px;
+  line-height: 1.5;
+}

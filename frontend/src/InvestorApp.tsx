@@ -1,4 +1,6 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
+import InvestorNavigation from "./InvestorNavigation";
+import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
 import OverviewPage from "./OverviewPage";
 import "./investor-v2.css";
 
@@ -18,20 +20,6 @@ const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
 const NewsEventsPage = lazy(loadNewsEventsPage);
 
-type View = "Oversikt" | "NAV" | "Historikk" | "Tilbakekjøpsprogram" | "Bemobi" | "Konsensus" | "Nyheter" | "Datakvalitet";
-
-const menu: View[] = ["Oversikt", "NAV", "Historikk", "Tilbakekjøpsprogram", "Bemobi", "Konsensus", "Nyheter", "Datakvalitet"];
-const titles: Record<View, string> = {
-  Oversikt: "Otello investoroversikt",
-  NAV: "Estimert NAV",
-  Historikk: "Historisk NAV-rabatt",
-  Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
-  Bemobi: "Bemobi",
-  Konsensus: "Konsensus",
-  Nyheter: "Nyheter og hendelser",
-  Datakvalitet: "Datakvalitet",
-};
-
 function ViewFallback() {
   return <section className="card viewFallback"><span className="label">VISNING</span><strong>Laster modul …</strong></section>;
 }
@@ -46,37 +34,71 @@ function preload(view: View) {
   if (view === "Nyheter") void loadNewsEventsPage();
 }
 
+function ActiveView({ view }: { view: View }) {
+  if (view === "Oversikt") return <OverviewPage />;
+  if (view === "NAV") return <NavPageV2 />;
+  if (view === "Historikk") return <EstimatedHistoryPage />;
+  if (view === "Tilbakekjøpsprogram") return <BuybackPage />;
+  if (view === "Bemobi") {
+    return <div className="normalBemobiView"><BemobiPage /></div>;
+  }
+  if (view === "Konsensus") return <ConsensusPage />;
+  if (view === "Nyheter") return <NewsEventsPage />;
+  return <DataQualityPage />;
+}
+
 export default function InvestorApp() {
-  const [activeView, setActiveView] = useState<View>("Oversikt");
+  const [activeView, setActiveView] = useState<View>(() =>
+    viewFromHash(window.location.hash),
+  );
+
+  useEffect(() => {
+    const handleHashChange = () =>
+      setActiveView(viewFromHash(window.location.hash));
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  useEffect(() => {
+    document.title = `${viewTitles[activeView]} | Otello`;
+  }, [activeView]);
+
+  function selectView(view: View) {
+    if (view === activeView) return;
+    window.location.hash = viewSlugs[view];
+  }
+
+  function skipToMain(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    document.getElementById("main-content")?.focus();
+  }
+
   return (
-    <div className="shell investorShellV2">
-      <aside className="sidebar">
-        <div className="brand"><span className="brandMark">O</span><div><strong>Otello</strong><small>Investorverktøy</small></div></div>
-        <nav>
-          {menu.map((item) => (
-            <button className={item === activeView ? "navItem active" : "navItem"} key={item} onClick={() => setActiveView(item)} onMouseEnter={() => preload(item)} onFocus={() => preload(item)} type="button">
-              <span className="navDot" />{item}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebarFooter investorSidebarFooter">Teknisk status ligger under Datakvalitet</div>
-      </aside>
-      <main className="main investorMainV2">
-        <header className="investorTopbar">
-          <div><p className="eyebrow">OTELLO / BEMOBI</p><h1>{titles[activeView]}</h1></div>
-          {activeView !== "Datakvalitet" && <span className="investorModelBadge">ESTIMERT NAV</span>}
-        </header>
-        <Suspense fallback={<ViewFallback />}>
-          {activeView === "Oversikt" ? <OverviewPage />
-            : activeView === "NAV" ? <NavPageV2 />
-              : activeView === "Historikk" ? <EstimatedHistoryPage />
-                : activeView === "Tilbakekjøpsprogram" ? <BuybackPage />
-                  : activeView === "Bemobi" ? <div className="normalBemobiView"><BemobiPage /></div>
-                    : activeView === "Konsensus" ? <ConsensusPage />
-                      : activeView === "Nyheter" ? <NewsEventsPage />
-                        : <DataQualityPage />}
-        </Suspense>
-      </main>
-    </div>
+    <>
+      <a className="skipLink" href="#main-content" onClick={skipToMain}>
+        Hopp til hovedinnhold
+      </a>
+      <div className="shell investorShellV2">
+        <InvestorNavigation
+          activeView={activeView}
+          onPreload={preload}
+          onSelect={selectView}
+        />
+        <main className="main investorMainV2" id="main-content" tabIndex={-1}>
+          <header className="investorTopbar">
+            <div>
+              <p className="eyebrow">OTELLO / BEMOBI</p>
+              <h1>{viewTitles[activeView]}</h1>
+            </div>
+            {activeView !== "Datakvalitet" && (
+              <span className="investorModelBadge">ESTIMERT NAV</span>
+            )}
+          </header>
+          <Suspense fallback={<ViewFallback />}>
+            <ActiveView view={activeView} />
+          </Suspense>
+        </main>
+      </div>
+    </>
   );
 }

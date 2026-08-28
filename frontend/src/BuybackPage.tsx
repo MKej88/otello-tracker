@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ResourceNotice from "./ResourceNotice";
 import "./buyback-page.css";
 
 type Program = {
@@ -231,15 +232,15 @@ export default function BuybackPage() {
     : 50;
 
   if (data == null && !failed) {
-    return <div className="buybackLoading">Laster tilbakekjøpsdata …</div>;
+    return <ResourceNotice>Laster tilbakekjøpsdata …</ResourceNotice>;
   }
 
   if (failed && data == null) {
     return (
-      <div className="buybackNotice">
+      <ResourceNotice kind="error">
         <strong>Kunne ikke hente tilbakekjøpsdata.</strong>
         <span>Investoroversikten er midlertidig utilgjengelig.</span>
-      </div>
+      </ResourceNotice>
     );
   }
 
