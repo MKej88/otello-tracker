@@ -59,3 +59,11 @@ def test_production_checkout_does_not_persist_git_credentials() -> None:
     source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
     checkout = source.split("uses: actions/checkout@", 1)[1].split("\n\n", 1)[0]
     assert "persist-credentials: false" in checkout
+
+
+def test_production_acceptance_does_not_hardcode_hot_snapshot_version() -> None:
+    source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "snapshot_version = bootstrap_meta.get('snapshot_version')" in source
+    assert "isinstance(snapshot_version, int) and snapshot_version > 0" in source
+    assert "bootstrap_meta.get('snapshot_version') ==" not in source
