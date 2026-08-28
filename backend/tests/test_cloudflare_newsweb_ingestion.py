@@ -5,7 +5,6 @@ import json
 import sqlite3
 import sys
 from dataclasses import asdict
-from datetime import date
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 

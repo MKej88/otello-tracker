@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api_models import HealthResponse
 from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
 from app.bemobi.consensus_investor import bemobi_consensus
 from app.bemobi.dashboard import bemobi_dashboard
@@ -24,7 +26,12 @@ from app.fx_backtest import fx_backtest_summary
 from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
 from app.marketdata.quote_details import market_quote_details
-from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
+from app.nav import (
+    daily_cash_status,
+    daily_nav_status,
+    full_nav_status,
+    other_net_assets_status,
+)
 from app.nav.core_nav import core_nav_status
 from app.nav_waterfall_attribution_enrich import enrich_nav_waterfall
 from app.nav_waterfall_settlement import nav_waterfall_summary
@@ -50,7 +57,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+origins = [
+    origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,14 +70,14 @@ app.add_middleware(
 )
 
 
-@app.get("/api/health")
-def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": "otello-api",
-        "environment": settings.app_env,
-        "version": API_VERSION,
-    }
+@app.get("/api/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        service="otello-api",
+        environment=settings.app_env,
+        version=API_VERSION,
+    )
 
 
 @app.get("/api/system/database")
@@ -103,16 +112,22 @@ def system_buybacks() -> dict:
 
 @app.get("/api/buybacks/forecast")
 def system_buyback_forecast(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
 ) -> dict:
-    return buyback_forecast(settings.database_path, as_of_date=as_of_date)
+    return buyback_forecast(
+        settings.database_path,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
+    )
 
 
 @app.get("/api/buybacks/dashboard")
 def system_buyback_dashboard(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
 ) -> dict:
-    return buyback_dashboard(settings.database_path, as_of_date=as_of_date)
+    return buyback_dashboard(
+        settings.database_path,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
+    )
 
 
 @app.get("/api/bemobi/dashboard")
@@ -151,12 +166,12 @@ def bemobi_news_status() -> dict:
 
 @app.get("/api/news-events")
 async def news_events(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
     limit: int = Query(default=60, ge=1, le=100),
 ) -> dict:
     return await news_events_dashboard(
         settings.database_path,
-        as_of_date=as_of_date,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
         news_limit=limit,
     )
 

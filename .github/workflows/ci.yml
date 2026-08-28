@@ -30,7 +30,10 @@ jobs:
       - name: Verify Python dependency consistency
         run: python -m pip check
       - name: Run static Python checks
-        run: ruff check --select E9,F63,F7,F82 app ../cloudflare/src
+        run: |
+          ruff check --select E9,F63,F7,F82 app ../cloudflare/src
+          ruff format --check app/api_models.py app/estimated_nav_attribution.py app/main.py
+          mypy
       - name: Run reference backend tests
         run: PYTHONPATH=. pytest -q
 
