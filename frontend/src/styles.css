@@ -74,6 +74,8 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .placeholderRows, .sourceList { display: grid; gap: 0; margin-top: 14px; }
 .placeholderRows > div, .sourceList > div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid #1b2a40; color: #91a0b8; font-size: 13px; }
 .placeholderRows strong { color: #e9f1ff; text-align: right; }
+.overviewBuybackRows > div { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.overviewBuybackRows small { justify-self: end; }
 .exposure { display: flex; align-items: center; gap: 22px; margin-top: 16px; }
 .grow { flex: 1; }
 .donut { width: 92px; height: 92px; flex: 0 0 92px; border-radius: 50%; display: grid; place-items: center; position: relative; }
