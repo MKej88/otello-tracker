@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.buybacks.activity import market_activity_status, seed_otec_activity_history
 from app.buybacks.forecast import buyback_forecast
 from app.buybacks.program_terms import parse_program_terms
@@ -19,6 +21,18 @@ def test_parse_program_terms_from_weekly_status() -> None:
     assert result["program_reference_date"] == "2026-06-08"
     assert str(result["max_price_nok"]) == "20"
     assert result["max_shares"] == 2_192_046
+
+
+def test_parse_program_terms_reports_unknown_month_as_invalid_input() -> None:
+    text = """
+    Reference is made to the stock exchange notice from 8 Juny 2026 announcing the
+    initiation of the share buyback program. The maximum consideration to be paid for
+    shares acquired under this buyback program is NOK 20 per share and the maximum
+    number of shares that can be purchased under this buyback program is 2,192,046.
+    """
+
+    with pytest.raises(ValueError, match="Invalid Otello program reference date"):
+        parse_program_terms(text)
 
 
 def test_euronext_activity_seed_has_current_20_day_history(tmp_path) -> None:
