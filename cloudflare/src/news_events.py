@@ -42,6 +42,11 @@ def _safe_url(value: Any) -> str | None:
     return url if url.startswith(("https://", "http://")) else None
 
 
+def _company_name(symbol: Any) -> str | None:
+    """Return a display name only for companies covered by this dashboard."""
+    return {"OTEC": "Otello", "BMOB3": "Bemobi"}.get(str(symbol or ""))
+
+
 def _decode_payload(value: Any) -> dict[str, Any]:
     try:
         payload = json.loads(str(value or "{}"))
@@ -187,14 +192,17 @@ async def news_and_events(
         JOIN instruments i ON i.id=ca.issuer_instrument_id
         JOIN source_documents sd ON sd.id=ca.source_document_id
         JOIN sources s ON s.id=sd.source_id
-        WHERE (ca.ex_date >= ? OR ca.payment_date >= ?)
+        WHERE i.symbol IN ('OTEC', 'BMOB3')
+          AND (ca.ex_date >= ? OR ca.payment_date >= ?)
           AND ca.action_type IN ('DIVIDEND', 'JCP', 'DISTRIBUTION')
         ORDER BY COALESCE(ca.ex_date, ca.payment_date), ca.id
         """,
         (today.isoformat(), today.isoformat()),
     )
     for row in actions:
-        company = "Bemobi" if row.get("symbol") == "BMOB3" else "Otello"
+        company = _company_name(row.get("symbol"))
+        if company is None:
+            continue
         label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
