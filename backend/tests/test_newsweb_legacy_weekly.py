@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from app.newsweb.normalization import normalize_weekly_body
 from app.newsweb.weekly_parser import parse_newsweb_weekly_status
 
@@ -61,3 +63,10 @@ def test_first_week_fallback_refuses_non_starting_period() -> None:
         assert "mangler" in str(exc)
     else:
         raise AssertionError("Legacy fallback must not infer cumulative values mid-program")
+
+
+def test_first_week_parser_reports_unknown_month_as_invalid_input() -> None:
+    malformed = FIRST_WEEK_2023.replace("20 June 2023", "20 Juny 2023")
+
+    with pytest.raises(ValueError, match="Ugyldig NewsWeb-buybackdato"):
+        parse_newsweb_weekly_status(malformed)
