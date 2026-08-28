@@ -2,6 +2,8 @@ from decimal import Decimal
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import pytest
+
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
@@ -91,6 +93,14 @@ def test_ecb_cross_rates_from_eur_reference_rates() -> None:
     values = {(row.base_currency, row.quote_currency): row.rate for row in rows}
     assert values[("BRL", "NOK")] == Decimal("1.8")
     assert values[("USD", "NOK")] == Decimal("10")
+
+
+@pytest.mark.parametrize("invalid_value", ["0", "-1.2", "NaN", "Infinity", "ukjent"])
+def test_ecb_parser_rejects_invalid_reference_rates(invalid_value: str) -> None:
+    text = f"CURRENCY,TIME_PERIOD,OBS_VALUE\nNOK,2025-12-30,{invalid_value}\n"
+
+    with pytest.raises(ValueError, match="Ugyldig ECB-kurs for NOK"):
+        parse_ecb_csv(text)
 
 
 def test_euronext_csv_parser_handles_semicolon_and_decimal_comma() -> None:

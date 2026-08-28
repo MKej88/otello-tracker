@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from decimal import Decimal, getcontext
+from decimal import Decimal, InvalidOperation, getcontext
 from io import StringIO
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -39,10 +39,16 @@ def parse_ecb_csv(text: str) -> dict[str, dict[str, Decimal]]:
         currency = row["CURRENCY"].strip().upper()
         if currency not in {"BRL", "NOK", "USD"}:
             continue
-        value = row["OBS_VALUE"].strip()
-        if not value:
+        raw_value = row["OBS_VALUE"].strip()
+        if not raw_value:
             continue
-        rows.setdefault(row["TIME_PERIOD"], {})[currency] = Decimal(value)
+        try:
+            value = Decimal(raw_value)
+        except InvalidOperation as exc:
+            raise ValueError(f"Ugyldig ECB-kurs for {currency}: {raw_value}") from exc
+        if not value.is_finite() or value <= 0:
+            raise ValueError(f"Ugyldig ECB-kurs for {currency}: {raw_value}")
+        rows.setdefault(row["TIME_PERIOD"], {})[currency] = value
     return rows
 
 
