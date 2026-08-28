@@ -7,6 +7,10 @@ from pathlib import Path
 
 from app.nav_waterfall_settlement import apply_nav_settlement_waterfall as reference_waterfall
 from app.option_settlement import nav_cash_settlement as reference_settlement
+from app.option_settlement import (
+    settlement_inputs_from_components as reference_component_inputs,
+)
+from app.option_settlement import settlement_inputs_from_daily_row as reference_daily_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE = ROOT / "cloudflare" / "src"
@@ -15,6 +19,41 @@ if str(CLOUDFLARE) not in sys.path:
 
 from nav_waterfall_settlement import apply_nav_settlement_waterfall as worker_waterfall  # noqa: E402
 from option_settlement import nav_cash_settlement as worker_settlement  # noqa: E402
+from option_settlement import (  # noqa: E402
+    settlement_inputs_from_components as worker_component_inputs,
+)
+from option_settlement import (  # noqa: E402
+    settlement_inputs_from_daily_row as worker_daily_inputs,
+)
+
+
+def test_option_inputs_reject_non_finite_numbers_and_fractional_counts() -> None:
+    fractional_count = {
+        "other_net_assets": {
+            "option_liability": {
+                "inputs": {"option_count": 4.5, "strike_nok": "12.56"}
+            }
+        }
+    }
+    non_finite_strike = {
+        "other_net_assets": {
+            "option_liability": {
+                "inputs": {"option_count": 4_100_000, "strike_nok": "NaN"}
+            }
+        }
+    }
+    non_finite_liability = {
+        "option_inputs_json": '{"option_count": 4100000}',
+        "option_strike_nok": "12.56",
+        "option_liability_nok": "Infinity",
+    }
+
+    assert reference_component_inputs(fractional_count) is None
+    assert worker_component_inputs(fractional_count) is None
+    assert reference_component_inputs(non_finite_strike) is None
+    assert worker_component_inputs(non_finite_strike) is None
+    assert reference_daily_inputs(non_finite_liability) is None
+    assert worker_daily_inputs(non_finite_liability) is None
 
 
 def test_nav_cash_settlement_is_self_consistent_and_matches_worker() -> None:
