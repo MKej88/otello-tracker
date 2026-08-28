@@ -567,10 +567,20 @@ def _interpolated_base_ex_option(
     elapsed = Decimal((current - start_day).days)
     span = Decimal((end_day - start_day).days)
     legacy_current = legacy_start + (legacy_end - legacy_start) * elapsed / span
+    grant = date.fromisoformat(OPTION_PROGRAM["program"]["grant_date"])
+
+    # Når begge rapportankrene er etter opsjonsgrantet, er opsjonsforpliktelsen
+    # allerede skilt ut ved begge endepunktene. Interpoler derfor mellom de
+    # dekomponerte ONA-verdiene. Ellers blir opsjonsforpliktelsen i praksis
+    # trukket fra to ganger mellom rapportdatoene.
+    if grant <= start_day:
+        decomposed_start = _anchor_base_ex_option(start_anchor)
+        decomposed_end = _anchor_base_ex_option(end_anchor)
+        return decomposed_start + (decomposed_end - decomposed_start) * elapsed / span
+
     end_option = Decimal(str(end_anchor.get("option_liability_reported") or "0"))
     if end_option == 0:
         return legacy_current
-    grant = date.fromisoformat(OPTION_PROGRAM["program"]["grant_date"])
     if not (start_day < grant <= end_day) or current < grant:
         return legacy_current
     grant_fraction = Decimal((grant - start_day).days) / span
