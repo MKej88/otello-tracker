@@ -43,7 +43,6 @@ class SQLiteAsyncRepository:
 
 
 def _insert_snapshot(connection, *, observed_at: str, discount: str) -> None:
-    day = observed_at[:10]
     nav = 25.0
     otec = nav * (1 - float(discount) / 100)
     components = json.dumps(

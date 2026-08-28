@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -103,16 +104,22 @@ def system_buybacks() -> dict:
 
 @app.get("/api/buybacks/forecast")
 def system_buyback_forecast(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
 ) -> dict:
-    return buyback_forecast(settings.database_path, as_of_date=as_of_date)
+    return buyback_forecast(
+        settings.database_path,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
+    )
 
 
 @app.get("/api/buybacks/dashboard")
 def system_buyback_dashboard(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
 ) -> dict:
-    return buyback_dashboard(settings.database_path, as_of_date=as_of_date)
+    return buyback_dashboard(
+        settings.database_path,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
+    )
 
 
 @app.get("/api/bemobi/dashboard")
@@ -151,12 +158,12 @@ def bemobi_news_status() -> dict:
 
 @app.get("/api/news-events")
 async def news_events(
-    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    as_of_date: date | None = Query(default=None),
     limit: int = Query(default=60, ge=1, le=100),
 ) -> dict:
     return await news_events_dashboard(
         settings.database_path,
-        as_of_date=as_of_date,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
         news_limit=limit,
     )
 

@@ -24,3 +24,9 @@ def test_dashboard_summary() -> None:
     if not payload["ready"]:
         assert payload["data_status"] == "not_ready"
         assert "nav_per_share" not in payload
+
+
+def test_date_query_rejects_nonexistent_calendar_date() -> None:
+    response = client.get("/api/buybacks/forecast?as_of_date=2026-02-30")
+
+    assert response.status_code == 422
