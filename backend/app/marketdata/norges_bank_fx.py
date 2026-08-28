@@ -140,7 +140,7 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
                 rate = Decimal(str(raw_value))
             except (IndexError, InvalidOperation, TypeError, ValueError) as exc:
                 raise ValueError("Ugyldig observasjon fra Norges Bank") from exc
-            if rate <= 0:
+            if not rate.is_finite() or rate <= 0:
                 raise ValueError(f"Ugyldig {base}/NOK-kurs: {rate}")
             rows.append(CrossRate(trading_date, base, "NOK", rate))
             found_bases.add(base)
