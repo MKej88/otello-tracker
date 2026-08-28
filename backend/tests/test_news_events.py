@@ -1,5 +1,6 @@
 import asyncio
 
+from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.news_events import _importance, _news_item, _safe_url, news_events_dashboard
 
@@ -59,3 +60,46 @@ def test_news_events_dashboard_is_safe_on_empty_database(tmp_path) -> None:
         "events": [],
         "counts": {"news": 0, "events": 0},
     }
+
+
+def test_news_uses_document_date_when_news_date_is_missing(tmp_path) -> None:
+    database = str(tmp_path / "news-date.db")
+    init_database(database)
+    with get_connection(database) as connection:
+        instrument_id = connection.execute(
+            """
+            INSERT INTO instruments(symbol, name, asset_type, currency)
+            VALUES ('OTEC', 'Otello', 'EQUITY', 'NOK')
+            """
+        ).lastrowid
+        source_id = connection.execute(
+            """
+            INSERT INTO sources(code, name, source_type)
+            VALUES ('NEWS_TEST', 'Testkilde', 'OTHER')
+            """
+        ).lastrowid
+        document_id = connection.execute(
+            """
+            INSERT INTO source_documents(
+                source_id, document_type, title, published_at, url
+            ) VALUES (?, 'NOTICE', 'Viktig melding', '2026-08-26T08:15:00Z',
+                      'https://example.com/news')
+            """,
+            (source_id,),
+        ).lastrowid
+        connection.execute(
+            """
+            INSERT INTO company_news(
+                issuer_instrument_id, source_document_id, headline,
+                published_at, category
+            ) VALUES (?, ?, 'Viktig melding', NULL, 'CORPORATE')
+            """,
+            (instrument_id, document_id),
+        )
+        connection.commit()
+
+    result = asyncio.run(
+        news_events_dashboard(database, as_of_date="2026-08-27")
+    )
+
+    assert result["news"][0]["published_at"] == "2026-08-26T08:15:00Z"

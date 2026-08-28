@@ -104,7 +104,9 @@ async def news_and_events(
     safe_limit = max(1, min(news_limit, 100))
     news_rows = await repository.all(
         """
-        SELECT cn.id, cn.headline, cn.published_at, cn.category, cn.nav_impact,
+        SELECT cn.id, cn.headline,
+               COALESCE(cn.published_at, sd.published_at) AS published_at,
+               cn.category, cn.nav_impact,
                cn.summary, i.symbol, sd.url, s.code AS source_code,
                s.name AS source_name, sd.metadata_json
         FROM company_news cn
