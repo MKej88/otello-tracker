@@ -15,6 +15,7 @@ type Summary = {
 type EstimatedNav = {
   ready: boolean;
   as_of_date?: string;
+  calculated_at?: string | null;
   nav_per_share?: number | null;
   discount_pct?: number | null;
   economic_cash_mnok?: number | null;
@@ -43,6 +44,16 @@ function dateLabel(input?: string | null) {
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
+function dateTimeLabel(input?: string | null) {
+  if (!input) return "–";
+  const parsed = new Date(input);
+  if (!Number.isFinite(parsed.getTime())) return input;
+  return parsed.toLocaleString("nb-NO", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo",
+  });
+}
+
 export default function OverviewPage() {
   const { data: summary } = usePollingResource<Summary>("/api/dashboard/summary", REFRESH_MS);
   const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
@@ -62,7 +73,8 @@ export default function OverviewPage() {
         <div className="estimatedHeroSide">
           <div><span>OTEC</span><strong>{value(summary?.otec_price)} kr</strong></div>
           <div><span>Rabatt til Estimert NAV</span><strong>{value(nav?.discount_pct, 1)} %</strong></div>
-          <small>Datadato {dateLabel(nav?.as_of_date ?? summary?.as_of_date)}</small>
+          <small>Sist oppdatert {dateTimeLabel(nav?.calculated_at)}</small>
+          <small>Kontrolleres hvert 30. minutt</small>
           {refreshFailed && <small>Viser siste gode data</small>}
         </div>
       </section>

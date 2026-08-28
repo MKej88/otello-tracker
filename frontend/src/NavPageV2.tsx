@@ -349,7 +349,6 @@ export default function NavPageV2() {
   const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
   const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
   const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
-  const displayedAsOfDate = current?.date ?? live?.as_of_date;
 
   return (
     <div className="investorPage navV2">
@@ -361,8 +360,8 @@ export default function NavPageV2() {
         </div>
         <div className="estimatedHeroSide">
           <div><span>Rabatt</span><strong>{value(displayedDiscountPct, 1)} %</strong></div>
-          <small>Datadato {dateLabel(displayedAsOfDate)}</small>
-          <small>Beregnet {dateTimeLabel(live?.calculated_at)}</small>
+          <small>Sist oppdatert {dateTimeLabel(live?.calculated_at)}</small>
+          <small>Kontrolleres hvert 30. minutt</small>
         </div>
       </section>
 
