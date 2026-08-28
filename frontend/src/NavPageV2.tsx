@@ -349,7 +349,6 @@ export default function NavPageV2() {
   const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
   const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
   const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
-  const displayedAsOfDate = current?.date ?? live?.as_of_date;
 
   return (
     <div className="investorPage navV2">
@@ -361,8 +360,8 @@ export default function NavPageV2() {
         </div>
         <div className="estimatedHeroSide">
           <div><span>Rabatt</span><strong>{value(displayedDiscountPct, 1)} %</strong></div>
-          <small>Datadato {dateLabel(displayedAsOfDate)}</small>
-          <small>Beregnet {dateTimeLabel(live?.calculated_at)}</small>
+          <small>Sist oppdatert {dateTimeLabel(live?.calculated_at)}</small>
+          <small>Kontrolleres hvert 30. minutt</small>
         </div>
       </section>
 
@@ -403,6 +402,14 @@ export default function NavPageV2() {
           <div><span className="label">ENDRING</span><h2>Hva har flyttet Estimert NAV?</h2></div>
           <PeriodButtons selected={period} onChange={setPeriod} />
         </div>
+        {change?.ready && (
+          <p className="dataNotice">
+            Valgt periode {period.label}: faktisk sammenligning {dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}
+            {change.requested_start && change.resolved_start && change.requested_start !== change.resolved_start
+              ? ` (ønsket start ${dateLabel(change.requested_start)})`
+              : ""}
+          </p>
+        )}
         {loading && data && <div className="inlineLoading">Oppdaterer periode …</div>}
         {change?.ready ? (
           <>
