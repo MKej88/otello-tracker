@@ -63,6 +63,17 @@ def test_norges_bank_parser_fails_closed_on_unit_multiplier() -> None:
         parse_norges_bank_sdmx_json(_sample_payload("2"))
 
 
+@pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
+def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
+    payload = _sample_payload()
+    payload["dataSets"][0]["series"]["0:0:0:0"]["observations"]["0"] = [
+        invalid_rate
+    ]
+
+    with pytest.raises(ValueError, match="Ugyldig BRL/NOK-kurs"):
+        parse_norges_bank_sdmx_json(payload)
+
+
 def test_norges_bank_url_requests_direct_nok_pairs() -> None:
     url = build_norges_bank_url("2026-08-01", "2026-08-20")
     assert "/EXR/B.BRL+USD.NOK.SP?" in url
