@@ -29,10 +29,11 @@ function dateLabel(input?: string | null) {
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
-function shortDate(input?: string | null) {
+function chartDate(input?: string | null, showYear = false) {
   if (!input) return "–";
-  const [, month, day] = input.slice(0, 10).split("-");
-  return month && day ? `${day}.${month}` : input;
+  const [year, month, day] = input.slice(0, 10).split("-");
+  if (!year || !month || !day) return input;
+  return showYear ? `${day}.${month}.${year.slice(-2)}` : `${day}.${month}`;
 }
 
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
@@ -46,9 +47,14 @@ function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onCha
 }
 
 function DiscountChart({ points }: { points: Point[] }) {
-  const usable = points.filter((point) => point.discount_pct != null && Number.isFinite(point.discount_pct));
+  const usable = points.filter(
+    (point) => point.discount_pct != null && Number.isFinite(point.discount_pct),
+  );
   if (usable.length < 2) return <div className="dataNotice">Venter på nok Estimert NAV-observasjoner til grafen.</div>;
   const values = usable.map((point) => Number(point.discount_pct));
+  const priceValues = usable
+    .map((point) => point.otec_price)
+    .filter((price): price is number => price != null && Number.isFinite(price));
   let min = Math.min(...values);
   let max = Math.max(...values);
   const padding = Math.max(1, (max - min) * 0.12);
@@ -57,15 +63,35 @@ function DiscountChart({ points }: { points: Point[] }) {
   if (min === max) max = min + 5;
 
   const left = 78;
-  const right = 980;
+  const right = 910;
   const top = 20;
   const bottom = 285;
   const x = (index: number) => left + index / (usable.length - 1) * (right - left);
   const y = (result: number) => bottom - (result - min) / (max - min) * (bottom - top);
   const polyline = usable.map((point, index) => `${x(index).toFixed(1)},${y(Number(point.discount_pct)).toFixed(1)}`).join(" ");
+  const priceMin = priceValues.length > 0 ? Math.floor(Math.min(...priceValues) / 5) * 5 : 0;
+  let priceMax = priceValues.length > 0 ? Math.ceil(Math.max(...priceValues) / 5) * 5 : 5;
+  if (priceMin === priceMax) priceMax = priceMin + 5;
+  const priceY = (price: number) =>
+    bottom - ((price - priceMin) / (priceMax - priceMin)) * (bottom - top);
+  const pricePolyline = usable
+    .map((point, index) =>
+      point.otec_price != null && Number.isFinite(point.otec_price)
+        ? `${x(index).toFixed(1)},${priceY(point.otec_price).toFixed(1)}`
+        : null,
+    )
+    .filter((coordinate): coordinate is string => coordinate != null)
+    .join(" ");
   const yTicks = Array.from({ length: 6 }, (_, index) => min + (max - min) * index / 5);
+  const priceTicks = Array.from(
+    { length: 6 },
+    (_, index) => priceMin + ((priceMax - priceMin) * index) / 5,
+  );
   const xTickIndexes = Array.from(new Set([0, Math.round((usable.length - 1) * 0.25), Math.round((usable.length - 1) * 0.5), Math.round((usable.length - 1) * 0.75), usable.length - 1]));
   const zeroInRange = min <= 0 && max >= 0;
+  const firstYear = usable[0]?.date.slice(0, 4);
+  const lastYear = usable.at(-1)?.date.slice(0, 4);
+  const showYear = firstYear !== lastYear;
 
   return (
     <div className="axisChart">
@@ -76,13 +102,23 @@ function DiscountChart({ points }: { points: Point[] }) {
         })}
         {zeroInRange && <line className="axisZero" x1={left} x2={right} y1={y(0)} y2={y(0)} />}
         <polyline className="estimatedDiscountLine" points={polyline} />
+        {pricePolyline && <polyline className="estimatedPriceLine" points={pricePolyline} />}
+        {priceTicks.map((tick) => {
+          const py = priceY(tick);
+          return <text key={tick} className="axisLabel axisPriceLabel" x={right + 12} y={py + 5}>{value(tick, 0)} kr</text>;
+        })}
         {xTickIndexes.map((index) => {
           const px = x(index);
-          return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{shortDate(usable[index]?.date)}</text></g>;
+          return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{chartDate(usable[index]?.date, showYear)}</text></g>;
         })}
         <text className="axisTitle" transform="rotate(-90 18 150)" x="18" y="150" textAnchor="middle">Rabatt / premie</text>
+        <text className="axisTitle axisPriceTitle" transform="rotate(90 982 150)" x="982" y="150" textAnchor="middle">OTEC-kurs</text>
         <text className="axisTitle" x={(left + right) / 2} y="326" textAnchor="middle">Dato</text>
       </svg>
+      <div className="axisChartLegend" aria-hidden="true">
+        <span className="discountLegendItem">Rabatt / premie</span>
+        <span className="priceLegendItem">OTEC-kurs</span>
+      </div>
     </div>
   );
 }
