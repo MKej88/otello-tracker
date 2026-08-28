@@ -32,7 +32,7 @@ export default function NewsEventsPage() {
   return (
     <div className="investorPage newsEventsPage">
       <section className="card newsHero">
-        <div><span className="label">NYHETER OG KALENDER</span><h2>Det viktigste rundt Otello og Bemobi</h2><p>Offentlige meldinger og kjente datoer samlet uten automatisk KI-tolkning. Sammendrag vises bare når det finnes et faktabasert sammendrag i datakilden.</p></div>
+        <div><span className="label">NYHETER OG KALENDER</span><h2>Det viktigste rundt Otello og Bemobi</h2><p>Offentlige meldinger og kjente datoer samlet uten automatisk KI-tolkning. Bemobi-meldinger vises på engelsk, basert på offisielle CVM-metadata.</p></div>
         <div className="newsHeroStats"><div><strong>{data?.counts?.news ?? "–"}</strong><span>meldinger</span></div><div><strong>{data?.counts?.events ?? "–"}</strong><span>kommende datoer</span></div>{refreshFailed && <small>Viser siste gode data</small>}</div>
       </section>
       <section className="newsToolbar" aria-label="Filtrer innhold">
