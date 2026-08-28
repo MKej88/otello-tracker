@@ -150,6 +150,10 @@ function compositionWithoutSeparateFxRow(components: Composition[]) {
     });
 }
 
+function sortCompositionByValue(components: Composition[]) {
+  return [...components].sort((left, right) => right.amount_mnok - left.amount_mnok);
+}
+
 function displayAvailable(details?: Record<string, unknown>) {
   return details?.display_available !== false;
 }
@@ -244,7 +248,9 @@ export default function NavPageV2() {
 
   const current = data?.current;
   const change = data?.change;
-  const components = compositionWithoutSeparateFxRow(current?.composition ?? []);
+  const components = sortCompositionByValue(
+    compositionWithoutSeparateFxRow(current?.composition ?? []),
+  );
   const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
   const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
   const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
