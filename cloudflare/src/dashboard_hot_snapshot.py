@@ -53,8 +53,8 @@ async def buyback_forecast(repository: Any, *args: Any, **kwargs: Any) -> dict[s
 # Persisted hot snapshots contain already-rendered API payloads. Bump both the key
 # and version whenever response semantics change so a newly deployed Worker cannot
 # serve a payload produced by the previous application version.
-STATE_KEY = "dashboard_hot_snapshot_v2"
-SNAPSHOT_VERSION = 2
+STATE_KEY = "dashboard_hot_snapshot_v3"
+SNAPSHOT_VERSION = 3
 _COMPONENTS = {"summary", "economic", "quotes", "forecast"}
 
 
@@ -82,6 +82,13 @@ async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
     quotes = await market_quote_details(repository)
     forecast = await buyback_forecast(repository)
     generated_at = _now_iso()
+
+    # `as_of_at` is the business timestamp for the NAV observation and is often stored
+    # as 23:59:59 UTC. It must not be presented as the wall-clock update time because
+    # converting that value to Oslo time can incorrectly show tomorrow's date.
+    economic = dict(economic)
+    economic["calculated_at"] = generated_at
+
     return jsonable_encoder(
         {
             "version": SNAPSHOT_VERSION,
