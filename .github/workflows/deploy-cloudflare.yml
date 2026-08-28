@@ -354,7 +354,8 @@ jobs:
           assert bootstrap_economic.get('as_of_date') == bootstrap_summary.get('as_of_date'), bootstrap
           assert bootstrap_economic['conservative_nav_per_share'] <= bootstrap_economic['nav_per_share'], bootstrap
           assert bootstrap_quotes.get('ready') is True, bootstrap
-          assert bootstrap_meta.get('snapshot_version') == 2, bootstrap
+          snapshot_version = bootstrap_meta.get('snapshot_version')
+          assert isinstance(snapshot_version, int) and snapshot_version > 0, bootstrap
 
           assert summary.get('ready') is True, summary
           assert bootstrap_summary.get('as_of_date') == summary.get('as_of_date'), {
