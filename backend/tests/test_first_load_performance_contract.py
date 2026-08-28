@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 FRONTEND_SRC = ROOT / "frontend" / "src"
+FRONTEND_INDEX = ROOT / "frontend" / "index.html"
 
 
 def _top_level_import_roots(path: Path) -> set[str]:
@@ -68,3 +69,15 @@ def test_client_cache_never_replaces_background_network_revalidation() -> None:
     cache_return = source.index('return syntheticResponse(cachedComponent, "CLIENT_CACHE")')
     network_start = source.index("bootstrapPromise = fetchBootstrap(originalFetch)")
     assert network_start < cache_return
+
+
+def test_html_preloads_first_screen_data_before_javascript() -> None:
+    source = FRONTEND_INDEX.read_text(encoding="utf-8")
+    preload_start = source.index('rel="preload"')
+    script_start = source.index('type="module"')
+
+    assert preload_start < script_start
+    assert 'href="/api/dashboard/bootstrap"' in source
+    assert 'as="fetch"' in source
+    assert 'crossorigin="anonymous"' in source
+    assert 'fetchpriority="high"' in source
