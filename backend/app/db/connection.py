@@ -8,15 +8,18 @@ from typing import Iterator
 from app.settings import settings
 
 
-def _prepare_database_path(database_path: str) -> None:
+def _prepare_database_path(database_path: str) -> str:
     if database_path == ":memory:" or database_path.startswith("file:"):
-        return
-    Path(database_path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+        return database_path
+
+    expanded_path = Path(database_path).expanduser()
+    expanded_path.resolve().parent.mkdir(parents=True, exist_ok=True)
+    return str(expanded_path)
 
 
 def connect(database_path: str | None = None) -> sqlite3.Connection:
-    path = database_path or settings.database_path
-    _prepare_database_path(path)
+    configured_path = database_path or settings.database_path
+    path = _prepare_database_path(configured_path)
 
     connection = sqlite3.connect(
         path,
