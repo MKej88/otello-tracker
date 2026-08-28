@@ -403,6 +403,14 @@ export default function NavPageV2() {
           <div><span className="label">ENDRING</span><h2>Hva har flyttet Estimert NAV?</h2></div>
           <PeriodButtons selected={period} onChange={setPeriod} />
         </div>
+        {change?.ready && (
+          <p className="dataNotice">
+            Valgt periode {period.label}: faktisk sammenligning {dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}
+            {change.requested_start && change.resolved_start && change.requested_start !== change.resolved_start
+              ? ` (ønsket start ${dateLabel(change.requested_start)})`
+              : ""}
+          </p>
+        )}
         {loading && data && <div className="inlineLoading">Oppdaterer periode …</div>}
         {change?.ready ? (
           <>
