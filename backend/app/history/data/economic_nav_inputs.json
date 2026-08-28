@@ -1,5 +1,5 @@
 {
-  "version": "economic-nav-inputs-2026-08-19.3",
+  "version": "economic-nav-inputs-2026-08-28.1",
   "documents": {
     "otello_ar24": {
       "source_code": "OTELLO_IR",
@@ -10,9 +10,94 @@
       "source_code": "OTELLO_IR",
       "title": "Otello Corporation ASA - Annual Report 2025",
       "url": "https://otello.cdn.prismic.io/otello/agOFxqYofJOwHJQ4_OtelloCorporationASAAnnualReport2025.pdf"
+    },
+    "otello_1h24": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - 1H 2024",
+      "url": "https://otello.cdn.prismic.io/otello/ZsWAp0aF0TcGJJNc_Report1H24.pdf"
+    },
+    "otello_2h24": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - 2H 2024",
+      "url": "https://otello.cdn.prismic.io/otello/Z7SFmZ7c43Q3f6lX_Report2H24.pdf"
+    },
+    "otello_1h25": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - 1H 2025",
+      "url": "https://otello.cdn.prismic.io/otello/aKa1FaTt2nPbajuo_Report1H25FINAL.pdf"
+    },
+    "otello_1h26": {
+      "source_code": "MANUAL",
+      "title": "Otello Corporation ASA - 1H 2026",
+      "url": "https://financialfilings.com/filings/otello-corporation-asa/interim-quarterly-report/2026/57072581/"
     }
   },
   "operating_cost_anchors": [
+    {
+      "scenario": "BASE",
+      "effective_from": "2023-06-30",
+      "source_period": "1H23",
+      "source_period_start": "2023-01-01",
+      "source_period_end": "2023-06-30",
+      "period_days": 181,
+      "amount_usd": "1673000",
+      "source_measure": "employee benefits + other operating expenses, excluding depreciation and non-operational items",
+      "source_key": "otello_1h24",
+      "source_locator": "1H24 comparative 1H23 figures: employee benefits USD 0.973m + other operating expenses USD 0.700m",
+      "notes": "Source-backed recurring run-rate for the first half of 2023. Used from the 30 June 2023 report anchor until the next half-year anchor."
+    },
+    {
+      "scenario": "BASE",
+      "effective_from": "2023-12-31",
+      "source_period": "2H23",
+      "source_period_start": "2023-07-01",
+      "source_period_end": "2023-12-31",
+      "period_days": 184,
+      "amount_usd": "1400000",
+      "source_measure": "employee benefits + other operating expenses, excluding depreciation and non-operational items",
+      "source_key": "otello_2h24",
+      "source_locator": "2H24 comparative 2H23 figures: employee benefits USD 0.541m + other operating expenses USD 0.859m",
+      "notes": "Source-backed adjusted recurring run-rate for the second half of 2023."
+    },
+    {
+      "scenario": "BASE",
+      "effective_from": "2024-06-30",
+      "source_period": "1H24",
+      "source_period_start": "2024-01-01",
+      "source_period_end": "2024-06-30",
+      "period_days": 182,
+      "amount_usd": "1615000",
+      "source_measure": "employee benefits + other operating expenses, excluding depreciation and non-operational items",
+      "source_key": "otello_1h24",
+      "source_locator": "1H24 group performance: employee benefits USD 0.937m + other operating expenses USD 0.678m",
+      "notes": "Source-backed adjusted recurring run-rate for the first half of 2024."
+    },
+    {
+      "scenario": "BASE",
+      "effective_from": "2024-12-31",
+      "source_period": "2H24",
+      "source_period_start": "2024-07-01",
+      "source_period_end": "2024-12-31",
+      "period_days": 184,
+      "amount_usd": "958000",
+      "source_measure": "adjusted recurring employee benefits + other operating expenses",
+      "source_key": "otello_2h24",
+      "source_locator": "2H24 group performance: recurring employee benefits USD 0.479m + other operating expenses USD 0.479m; adjusted EBITDA USD -0.958m",
+      "notes": "Excludes the separately identified salary restructuring expense from the recurring investor run-rate."
+    },
+    {
+      "scenario": "BASE",
+      "effective_from": "2025-06-30",
+      "source_period": "1H25",
+      "source_period_start": "2025-01-01",
+      "source_period_end": "2025-06-30",
+      "period_days": 181,
+      "amount_usd": "1286000",
+      "source_measure": "employee benefits + other operating expenses, excluding depreciation and non-operational items",
+      "source_key": "otello_1h25",
+      "source_locator": "1H25 group performance: employee benefits USD 0.643m + other operating expenses USD 0.643m",
+      "notes": "Source-backed adjusted recurring run-rate for the first half of 2025."
+    },
     {
       "scenario": "BASE",
       "effective_from": "2025-12-31",
@@ -25,6 +110,19 @@
       "source_key": "otello_ar25",
       "source_locator": "FY2025/2H25 operating-cost analysis; recurring employee benefits USD 0.596m plus other operating expenses USD 0.425m",
       "notes": "Base investor overlay run-rate. Stored as curated source-backed data instead of a Python constant."
+    },
+    {
+      "scenario": "BASE",
+      "effective_from": "2026-06-30",
+      "source_period": "1H26",
+      "source_period_start": "2026-01-01",
+      "source_period_end": "2026-06-30",
+      "period_days": 181,
+      "amount_usd": "1473000",
+      "source_measure": "employee benefits excluding stock compensation + other operating expenses",
+      "source_key": "otello_1h26",
+      "source_locator": "1H26 group performance: recurring employee benefits USD 0.687m excluding USD 0.418m stock compensation + other operating expenses USD 0.786m",
+      "notes": "Latest source-backed recurring run-rate for the investor overlay after the 1H26 report."
     },
     {
       "scenario": "CONSERVATIVE",
