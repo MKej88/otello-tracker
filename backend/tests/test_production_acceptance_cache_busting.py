@@ -48,7 +48,8 @@ def test_production_acceptance_validates_bootstrap_payload() -> None:
     assert "bootstrap_economic.get('ready') is True" in step
     assert "bootstrap_economic['conservative_nav_per_share'] <= bootstrap_economic['nav_per_share']" in step
     assert "bootstrap_quotes.get('ready') is True" in step
-    assert "bootstrap_meta.get('snapshot_version') == 2" in step
+    assert "snapshot_version = bootstrap_meta.get('snapshot_version')" in step
+    assert "isinstance(snapshot_version, int) and snapshot_version > 0" in step
 
 
 def test_production_acceptance_requires_source_backed_life360_holding() -> None:
