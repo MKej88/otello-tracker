@@ -4,6 +4,7 @@ from datetime import date
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api_models import HealthResponse
 from app.bemobi import bemobi_cvm_news_status, list_bemobi_news
 from app.bemobi.consensus_investor import bemobi_consensus
 from app.bemobi.dashboard import bemobi_dashboard
@@ -25,7 +26,12 @@ from app.fx_backtest import fx_backtest_summary
 from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
 from app.marketdata.quote_details import market_quote_details
-from app.nav import daily_cash_status, daily_nav_status, full_nav_status, other_net_assets_status
+from app.nav import (
+    daily_cash_status,
+    daily_nav_status,
+    full_nav_status,
+    other_net_assets_status,
+)
 from app.nav.core_nav import core_nav_status
 from app.nav_waterfall_attribution_enrich import enrich_nav_waterfall
 from app.nav_waterfall_settlement import nav_waterfall_summary
@@ -51,7 +57,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+origins = [
+    origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,14 +70,14 @@ app.add_middleware(
 )
 
 
-@app.get("/api/health")
-def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": "otello-api",
-        "environment": settings.app_env,
-        "version": API_VERSION,
-    }
+@app.get("/api/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        service="otello-api",
+        environment=settings.app_env,
+        version=API_VERSION,
+    )
 
 
 @app.get("/api/system/database")
