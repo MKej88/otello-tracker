@@ -28,7 +28,10 @@ def _iso_date(value: str) -> str:
     if not match:
         raise ValueError(f"Invalid Otello program reference date: {value}")
     day, month, year = match.groups()
-    return datetime(int(year), _MONTHS[month.lower()], int(day)).date().isoformat()
+    month_number = _MONTHS.get(month.lower())
+    if month_number is None:
+        raise ValueError(f"Invalid Otello program reference date: {value}")
+    return datetime(int(year), month_number, int(day)).date().isoformat()
 
 
 def parse_program_terms(text: str) -> dict[str, Any]:
