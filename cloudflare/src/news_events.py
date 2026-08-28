@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from bemobi_news_translation import translate_bemobi_news
 
@@ -17,6 +18,15 @@ CATEGORY_LABELS = {
     "CORPORATE": "Selskapsmelding",
     "OTHER": "Annet",
 }
+OSLO_TZ = ZoneInfo("Europe/Oslo")
+
+
+def _current_oslo_date(now: datetime | None = None) -> date:
+    """Return the calendar date users in Norway currently see."""
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    return current.astimezone(OSLO_TZ).date()
 
 
 def _importance(category: str, nav_impact: str) -> str:
@@ -98,7 +108,7 @@ async def news_and_events(
     as_of_date: str | None = None,
     news_limit: int = 60,
 ) -> dict[str, Any]:
-    today = date.fromisoformat(as_of_date) if as_of_date else date.today()
+    today = date.fromisoformat(as_of_date) if as_of_date else _current_oslo_date()
     safe_limit = max(1, min(news_limit, 100))
     news_rows = await repository.all(
         """
