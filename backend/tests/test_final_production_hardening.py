@@ -15,7 +15,7 @@ def test_economic_nav_inputs_are_seeded_as_source_backed_documents(tmp_path: Pat
     init_database(str(database))
     result = seed_curated_history(str(database))
 
-    assert result["economic_nav_inputs"]["operating_cost_anchors"] == 2
+    assert result["economic_nav_inputs"]["operating_cost_anchors"] == 8
     assert result["economic_nav_inputs"]["cash_fx_exposure_anchors"] == 3
     assert result["economic_nav_inputs"]["fx_backtest_outcomes"] == 2
 
@@ -33,7 +33,7 @@ def test_economic_nav_inputs_are_seeded_as_source_backed_documents(tmp_path: Pat
             """
         ).fetchall()
 
-    assert len(rows) == 7
+    assert len(rows) == 13
     cash_rows = [
         row for row in rows if row["document_type"] == "ECONOMIC_NAV_CASH_FX_ANCHOR"
     ]
