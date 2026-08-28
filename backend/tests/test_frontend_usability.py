@@ -33,6 +33,8 @@ def test_skip_link_targets_focusable_main_content() -> None:
     app = read_frontend("InvestorApp.tsx")
 
     assert 'href="#main-content"' in app
+    assert "event.preventDefault()" in app
+    assert 'document.getElementById("main-content")?.focus()' in app
     assert 'id="main-content" tabIndex={-1}' in app
 
 

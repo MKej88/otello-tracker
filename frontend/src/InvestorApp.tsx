@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
 import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
 import OverviewPage from "./OverviewPage";
@@ -68,9 +68,14 @@ export default function InvestorApp() {
     window.location.hash = viewSlugs[view];
   }
 
+  function skipToMain(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    document.getElementById("main-content")?.focus();
+  }
+
   return (
     <>
-      <a className="skipLink" href="#main-content">
+      <a className="skipLink" href="#main-content" onClick={skipToMain}>
         Hopp til hovedinnhold
       </a>
       <div className="shell investorShellV2">
