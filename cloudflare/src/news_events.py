@@ -4,6 +4,8 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
+from bemobi_news_translation import translate_bemobi_news
+
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
     "DIVIDEND": "Utbytte",
@@ -41,15 +43,23 @@ def _decode_payload(value: Any) -> dict[str, Any]:
 def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     category = str(row.get("category") or "OTHER")
     nav_impact = str(row.get("nav_impact") or "NONE")
+    headline = row.get("headline")
+    summary = row.get("summary")
+    if row.get("symbol") == "BMOB3":
+        headline, summary = translate_bemobi_news(
+            headline=headline,
+            summary=summary,
+            metadata=_decode_payload(row.get("metadata_json")),
+        )
     return {
         "id": int(row["id"]),
         "company": "Bemobi" if row.get("symbol") == "BMOB3" else "Otello",
-        "headline": row.get("headline"),
+        "headline": headline,
         "published_at": row.get("published_at"),
         "category": category,
         "category_label": CATEGORY_LABELS.get(category, "Annet"),
         "importance": _importance(category, nav_impact),
-        "summary": row.get("summary"),
+        "summary": summary,
         "source": row.get("source_name") or row.get("source_code"),
         "url": _safe_url(row.get("url")),
     }

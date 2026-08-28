@@ -1,7 +1,7 @@
 import asyncio
 
 from app.db.migration_runner import init_database
-from app.news_events import _importance, _safe_url, news_events_dashboard
+from app.news_events import _importance, _news_item, _safe_url, news_events_dashboard
 
 
 def test_importance_is_factual_and_deterministic() -> None:
@@ -17,6 +17,29 @@ def test_only_http_sources_are_exposed_as_links() -> None:
     )
     assert _safe_url("javascript:alert(1)") is None
     assert _safe_url(None) is None
+
+
+def test_existing_and_future_bemobi_news_are_rendered_in_english() -> None:
+    item = _news_item(
+        {
+            "id": 1,
+            "symbol": "BMOB3",
+            "headline": "Fato Relevante — Programa de Recompra de Ações",
+            "summary": "Categoria: Fato Relevante",
+            "category": "BUYBACK",
+            "nav_impact": "POTENTIAL",
+            "metadata_json": (
+                '{"cvm_category":"Fato Relevante",'
+                '"cvm_subject":"Programa de Recompra de Ações"}'
+            ),
+        }
+    )
+
+    assert item["headline"] == "Material fact — Share buyback program"
+    assert item["summary"] == (
+        "Filing type: Material fact | Subject: Share buyback program | "
+        "See the official CVM filing for full details."
+    )
 
 
 def test_news_events_dashboard_is_safe_on_empty_database(tmp_path) -> None:
