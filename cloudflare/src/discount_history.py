@@ -5,7 +5,7 @@ from typing import Any
 
 from dashboard_service import dashboard_history
 from economic_nav_investor import economic_nav_summary
-from estimated_nav_history_display import estimated_nav_history
+from estimated_nav_history_display import _report_split_state, estimated_nav_history
 
 
 def _float(value: Decimal | str | int | float | None) -> float | None:
@@ -154,8 +154,107 @@ async def _economic_reference(repository) -> dict[str, Any]:
     return {"ready": True, "as_of_date": economic.get("as_of_date"), "quality": economic.get("quality"), "nav_per_share": economic.get("nav_per_share"), "discount_pct": economic.get("discount_pct"), "conservative_nav_per_share": economic.get("conservative_nav_per_share"), "conservative_discount_pct": economic.get("conservative_discount_pct")}
 
 
+async def _investment_report_for_nav_date(repository, nav_date: str) -> dict[str, Any]:
+    if not nav_date:
+        return {"ready": False, "reason": "missing_nav_date"}
+    anchor = await repository.first(
+        """
+        SELECT as_of_date
+        FROM cash_anchors
+        WHERE anchor_type='REPORTED' AND as_of_date<=?
+        ORDER BY as_of_date DESC, id DESC LIMIT 1
+        """,
+        (nav_date,),
+    )
+    if anchor is None:
+        return {"ready": False, "reason": "missing_reported_cash_anchor"}
+    return await _report_split_state(repository, str(anchor["as_of_date"]))
+
+
+def _apply_other_share_change_split(
+    change: dict[str, Any],
+    start_report: dict[str, Any],
+    current_report: dict[str, Any],
+) -> bool:
+    drivers = change.get("drivers") or []
+    if not isinstance(drivers, list):
+        return False
+    other_ona = next((item for item in drivers if item.get("key") == "other_ona"), None)
+    if other_ona is None or not start_report.get("ready") or not current_report.get("ready"):
+        return False
+
+    share_change = change.get("share_count_change") or {}
+    start_shares = int(share_change.get("start_shares") or 0)
+    current_shares = int(share_change.get("current_shares") or 0)
+    if start_shares <= 0 or current_shares <= 0:
+        return False
+
+    start_alliance_nok = Decimal(str(start_report.get("alliance_report_nok") or "0"))
+    current_alliance_nok = Decimal(str(current_report.get("alliance_report_nok") or "0"))
+    alliance_delta_nok = current_alliance_nok - start_alliance_nok
+    reciprocal_scale = (
+        Decimal("1") / Decimal(start_shares)
+        + Decimal("1") / Decimal(current_shares)
+    ) / Decimal("2")
+
+    original_other_ona_nok = Decimal(str(other_ona.get("amount_mnok") or "0")) * Decimal("1000000")
+    original_other_ona_per_share = Decimal(str(other_ona.get("per_share_nok") or "0"))
+    residual_ona_nok = original_other_ona_nok - alliance_delta_nok
+    other_ona["label"] = "Andre rapporterte eiendeler og forpliktelser"
+    other_ona["amount_mnok"] = float(residual_ona_nok / Decimal("1000000"))
+    other_ona["per_share_nok"] = float(
+        original_other_ona_per_share - alliance_delta_nok * reciprocal_scale
+    )
+    other_ona["details"] = {
+        **(other_ona.get("details") or {}),
+        "start_amount_mnok": None,
+        "current_amount_mnok": None,
+        "alliance_venture_spring_split": True,
+        "alliance_change_mnok": float(alliance_delta_nok / Decimal("1000000")),
+    }
+
+    alliance_driver = {
+        "key": "alliance_venture_spring",
+        "label": "Alliance Venture Spring AS",
+        "amount_mnok": float(alliance_delta_nok / Decimal("1000000")),
+        "per_share_nok": float(alliance_delta_nok * reciprocal_scale),
+        "impact_kind": "TOTAL_AND_PER_SHARE",
+        "details": {
+            "start_amount_mnok": float(start_alliance_nok / Decimal("1000000")),
+            "current_amount_mnok": float(current_alliance_nok / Decimal("1000000")),
+            "start_report_date": start_report.get("resolved_report_anchor_date"),
+            "current_report_date": current_report.get("resolved_report_anchor_date"),
+            "display_policy": "FIXED_AT_LAST_REPORT",
+        },
+    }
+    drivers.insert(drivers.index(other_ona), alliance_driver)
+    change["other_share_split_status"] = {
+        "ready": True,
+        "policy": "LIFE360_AND_ALLIANCE_SEPARATE_FROM_OTHER_ONA",
+        "start_report_date": start_report.get("resolved_report_anchor_date"),
+        "current_report_date": current_report.get("resolved_report_anchor_date"),
+    }
+    return True
+
+
 async def _estimated_extension(repository, days: int) -> dict[str, Any]:
     result = await estimated_nav_history(repository, days=days)
+    change = result.get("change") or {}
+    if change.get("ready"):
+        start_report = await _investment_report_for_nav_date(
+            repository,
+            str(change.get("resolved_start") or ""),
+        )
+        current_report = await _investment_report_for_nav_date(
+            repository,
+            str(change.get("current_date") or ""),
+        )
+        if not _apply_other_share_change_split(change, start_report, current_report):
+            change["other_share_split_status"] = {
+                "ready": False,
+                "start_reason": start_report.get("reason"),
+                "current_reason": current_report.get("reason"),
+            }
     return {**result, "statistics": _discount_statistics(result.get("points") or [])}
 
 
