@@ -26,6 +26,9 @@
 .compositionRow { padding:15px 12px; border-top:1px solid rgba(255,255,255,.075); }
 .compositionRow strong { font-size:14px; }
 .compositionRow small { opacity:.66; line-height:1.35; }
+.driverLabel,.driverCell { display:grid; gap:7px; }
+.driverLabel small,.driverCell small { min-height:18px; padding-top:6px; border-top:1px solid rgba(255,255,255,.045); font-size:11px; }
+.driverCell > span { min-height:18px; }
 .compositionTotal { padding:17px 12px 0; border-top:1px solid rgba(110,155,255,.35); }
 .compositionTotal strong,.compositionTotal span { font-size:16px; font-weight:800; }
 .compositionTotal small { opacity:.72; }

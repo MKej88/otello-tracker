@@ -545,6 +545,7 @@ def _enrich_change(
     other_ona = _item(drivers, "other_ona")
     if life360 is None:
         return
+    life360["label"] = "Life 360"
 
     both_ready = bool(start_state.get("ready") and current_state.get("ready"))
     life360["details"] = {
@@ -558,6 +559,10 @@ def _enrich_change(
         "current_market_value_mnok": None if not current_state.get("ready") else float(_decimal(current_state.get("market_value_nok")) / MILLION),
         "start_embedded_value_mnok": None if not start_state.get("ready") else float(_decimal(start_state.get("embedded_value_nok")) / MILLION),
         "current_embedded_value_mnok": None if not current_state.get("ready") else float(_decimal(current_state.get("embedded_value_nok")) / MILLION),
+        "start_price_usd": None if not start_state.get("ready") else float(_decimal(start_state.get("price"))),
+        "current_price_usd": None if not current_state.get("ready") else float(_decimal(current_state.get("price"))),
+        "start_usd_nok": None if not start_state.get("ready") else float(_decimal(start_state.get("fx_rate"))),
+        "current_usd_nok": None if not current_state.get("ready") else float(_decimal(current_state.get("fx_rate"))),
     }
     if not both_ready:
         return
@@ -582,6 +587,18 @@ def _enrich_change(
         Decimal("1") / Decimal(start_shares)
         + Decimal("1") / Decimal(current_shares)
     ) / Decimal("2")
+    holding = Decimal(int(current_state.get("shares") or 0))
+    start_price = _decimal(start_state.get("price"))
+    current_price = _decimal(current_state.get("price"))
+    start_fx = _decimal(start_state.get("fx_rate"))
+    current_fx = _decimal(current_state.get("fx_rate"))
+    price_effect_nok = (
+        holding
+        * (current_price - start_price)
+        * (start_fx + current_fx)
+        / Decimal("2")
+    )
+    fx_effect_nok = gross_delta_nok - price_effect_nok
 
     life360["amount_mnok"] = float(gross_delta_nok / MILLION)
     life360["per_share_nok"] = float(gross_delta_nok * reciprocal_scale)
@@ -590,6 +607,10 @@ def _enrich_change(
         "start_amount_mnok": float(start_market_nok / MILLION),
         "current_amount_mnok": float(current_market_nok / MILLION),
         "display_basis": "GROSS_MARKET_VALUE_CHANGE",
+        "price_effect_mnok": float(price_effect_nok / MILLION),
+        "price_effect_per_share_nok": float(price_effect_nok * reciprocal_scale),
+        "fx_effect_mnok": float(fx_effect_nok / MILLION),
+        "fx_effect_per_share_nok": float(fx_effect_nok * reciprocal_scale),
     }
 
     if other_ona is not None:

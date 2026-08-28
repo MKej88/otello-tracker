@@ -24,6 +24,15 @@ type Driver = {
   details?: Record<string, unknown>;
 };
 
+type DriverBreakdown = {
+  label: string;
+  movement: string;
+  amount_mnok?: number | null;
+  per_share_nok: number;
+};
+
+type DisplayDriver = Driver & { breakdown?: DriverBreakdown[] };
+
 type EstimatedHistory = {
   ready: boolean;
   from?: string;
@@ -202,6 +211,92 @@ function driverMovement(driver: Driver) {
   }
 }
 
+function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
+  const bemobiPrice = drivers.find((driver) => driver.key === "bemobi_price");
+  const bemobiFx = drivers.find((driver) => driver.key === "bemobi_fx");
+  const buybackCash = drivers.find((driver) => driver.key === "buyback_cash");
+  const buybackShares = drivers.find((driver) => driver.key === "buyback_shares");
+  const groupedKeys = new Set<string>();
+  const result: DisplayDriver[] = [];
+
+  const addGroup = (
+    key: string,
+    label: string,
+    parts: Driver[],
+  ) => {
+    parts.forEach((part) => groupedKeys.add(part.key));
+    result.push({
+      key,
+      label,
+      amount_mnok: parts.every((part) => part.amount_mnok == null)
+        ? null
+        : parts.reduce((sum, part) => sum + (part.amount_mnok ?? 0), 0),
+      per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0),
+      breakdown: parts.map((part) => ({
+        label: part.key === "bemobi_price"
+          ? "Aksjekurs"
+          : part.key === "bemobi_fx"
+            ? "Valuta (BRL/NOK)"
+            : part.key === "buyback_cash"
+              ? "Kontantbruk"
+              : "Færre aksjer",
+        movement: driverMovement(part),
+        amount_mnok: part.amount_mnok,
+        per_share_nok: part.per_share_nok,
+      })),
+    });
+  };
+
+  if (bemobiPrice && bemobiFx) {
+    addGroup("bemobi_net", "Bemobi – netto", [bemobiPrice, bemobiFx]);
+  }
+  if (buybackCash && buybackShares) {
+    addGroup("buyback_net", "Tilbakekjøp – netto", [buybackCash, buybackShares]);
+  }
+
+  for (const driver of drivers) {
+    if (groupedKeys.has(driver.key)) continue;
+    if (driver.key === "life360") {
+      const priceEffect = detailNumber(driver, "price_effect_per_share_nok");
+      const fxEffect = detailNumber(driver, "fx_effect_per_share_nok");
+      result.push({
+        ...driver,
+        label: "Life 360",
+        breakdown: priceEffect == null || fxEffect == null ? undefined : [
+          {
+            label: "Aksjekurs",
+            movement: `USD ${value(detailNumber(driver, "start_price_usd"))} → USD ${value(detailNumber(driver, "current_price_usd"))}`,
+            amount_mnok: detailNumber(driver, "price_effect_mnok"),
+            per_share_nok: priceEffect,
+          },
+          {
+            label: "Valuta (USD/NOK)",
+            movement: `USD/NOK ${value(detailNumber(driver, "start_usd_nok"), 4)} → ${value(detailNumber(driver, "current_usd_nok"), 4)}`,
+            amount_mnok: detailNumber(driver, "fx_effect_mnok"),
+            per_share_nok: fxEffect,
+          },
+        ],
+      });
+      continue;
+    }
+    if (driver.key === "other_cash") {
+      const operatingCost = detailNumber(driver, "operating_cost_mnok");
+      const otherMovements = detailNumber(driver, "other_movements_mnok");
+      const scale = driver.amount_mnok ? driver.per_share_nok / driver.amount_mnok : 0;
+      result.push({
+        ...driver,
+        breakdown: operatingCost == null || otherMovements == null ? undefined : [
+          { label: "Estimert drift", movement: "Driftskostnader i perioden", amount_mnok: operatingCost, per_share_nok: operatingCost * scale },
+          { label: "Andre kontantbevegelser", movement: "Resterende kontantendring", amount_mnok: otherMovements, per_share_nok: otherMovements * scale },
+        ],
+      });
+      continue;
+    }
+    result.push(driver);
+  }
+  return result.sort((left, right) => right.per_share_nok - left.per_share_nok);
+}
+
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
   return (
     <div className="periodButtons" aria-label="Velg periode">
@@ -318,14 +413,14 @@ export default function NavPageV2() {
             </div>
             <div className="compositionTable driverNetTable">
               <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>Nettoeffekt NAV/aksje</span></div>
-              {(change.drivers ?? []).map((driver) => {
+              {groupedDrivers(change.drivers ?? []).map((driver) => {
                 const available = driver.key !== "life360" || displayAvailable(driver.details);
                 return (
                   <div className="compositionRow" key={driver.key}>
-                    <strong>{driver.label}</strong>
-                    <span>{driverMovement(driver)}</span>
-                    <span className={available ? ((driver.amount_mnok ?? 0) >= 0 ? "positive" : "negative") : ""}>{available ? (driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`) : "–"}</span>
-                    <span className={available ? (driver.per_share_nok >= 0 ? "positive" : "negative") : ""}>{available ? `${signed(driver.per_share_nok)} kr/aksje` : "–"}</span>
+                    <div className="driverLabel"><strong>{driver.label}</strong>{driver.breakdown?.map((part) => <small key={part.label}>{part.label}</small>)}</div>
+                    <div className="driverCell"><span>{driver.breakdown ? "Samlet effekt" : driverMovement(driver)}</span>{driver.breakdown?.map((part) => <small key={part.label}>{part.movement}</small>)}</div>
+                    <div className="driverCell"><span className={available ? ((driver.amount_mnok ?? 0) >= 0 ? "positive" : "negative") : ""}>{available ? (driver.amount_mnok == null ? "–" : `${signed(driver.amount_mnok, 1)} mill. kr`) : "–"}</span>{driver.breakdown?.map((part) => <small className={(part.amount_mnok ?? 0) >= 0 ? "positive" : "negative"} key={part.label}>{part.amount_mnok == null ? "–" : `${signed(part.amount_mnok, 1)} mill. kr`}</small>)}</div>
+                    <div className="driverCell"><span className={available ? (driver.per_share_nok >= 0 ? "positive" : "negative") : ""}>{available ? `${signed(driver.per_share_nok)} kr/aksje` : "–"}</span>{driver.breakdown?.map((part) => <small className={part.per_share_nok >= 0 ? "positive" : "negative"} key={part.label}>{signed(part.per_share_nok)} kr/aksje</small>)}</div>
                   </div>
                 );
               })}
