@@ -257,6 +257,14 @@ def test_report_cash_alliance_life360_and_residual_are_split_without_changing_na
     assert drivers["life360"]["per_share_nok"] == 0.5
     assert drivers["life360"]["details"]["start_amount_mnok"] == 45.0
     assert drivers["life360"]["details"]["current_amount_mnok"] == 50.0
+    assert drivers["life360"]["label"] == "Life 360"
+    assert drivers["life360"]["details"]["start_price_usd"] == 135.0
+    assert drivers["life360"]["details"]["current_usd_nok"] == 10.0
+    assert (
+        drivers["life360"]["details"]["price_effect_mnok"]
+        + drivers["life360"]["details"]["fx_effect_mnok"]
+        == drivers["life360"]["amount_mnok"]
+    )
     assert drivers["other_ona"]["amount_mnok"] == -5.0
     assert drivers["other_ona"]["per_share_nok"] == -0.5
     assert drivers["life360"]["amount_mnok"] + drivers["other_ona"]["amount_mnok"] == 0.0

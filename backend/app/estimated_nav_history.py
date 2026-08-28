@@ -65,6 +65,13 @@ def _composition_amount_nok(point: dict[str, Any], key: str) -> Decimal:
     return Decimal("0")
 
 
+def _composition_details(point: dict[str, Any], key: str) -> dict[str, Any]:
+    for item in point.get("composition") or []:
+        if item.get("key") == key and isinstance(item.get("details"), dict):
+            return item["details"]
+    return {}
+
+
 def _driver(
     *,
     key: str,
@@ -489,6 +496,13 @@ def _build_change_attribution(
         )
 
     other_cash_delta = cash_delta - buyback_cash_nok - bemobi_paid_nok
+    start_operating_cost_nok = Decimal(
+        str(_composition_details(start, "cash").get("operating_cost_mnok") or "0")
+    ) * MILLION
+    current_operating_cost_nok = Decimal(
+        str(_composition_details(current, "cash").get("operating_cost_mnok") or "0")
+    ) * MILLION
+    operating_cost_delta_nok = -(current_operating_cost_nok - start_operating_cost_nok)
     drivers.append(
         _driver(
             key="other_cash",
@@ -498,6 +512,10 @@ def _build_change_attribution(
             details={
                 "start_amount_mnok": _float(_composition_amount_nok(start, "cash") / MILLION),
                 "current_amount_mnok": _float(_composition_amount_nok(current, "cash") / MILLION),
+                "operating_cost_mnok": _float(operating_cost_delta_nok / MILLION),
+                "other_movements_mnok": _float(
+                    (other_cash_delta - operating_cost_delta_nok) / MILLION
+                ),
             },
         )
     )
@@ -546,7 +564,7 @@ def _build_change_attribution(
     )
 
     for key, label in (
-        ("life360", "Life360 mark-to-market"),
+        ("life360", "Life 360"),
         ("options", "Opsjoner – estimert kontantoppgjør"),
     ):
         before = _composition_amount_nok(start, key)

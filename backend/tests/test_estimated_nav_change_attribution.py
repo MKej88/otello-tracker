@@ -88,6 +88,8 @@ def test_change_attribution_splits_bemobi_distributions_and_buybacks() -> None:
     assert by_key["buyback_shares"]["amount_mnok"] is None
     assert by_key["buyback_shares"]["details"]["shares_reduced"] == 10_000_000
     assert by_key["buyback_shares"]["per_share_nok"] > 0
+    assert by_key["other_cash"]["details"]["operating_cost_mnok"] == 0.0
+    assert by_key["other_cash"]["details"]["other_movements_mnok"] == -4.0
     assert "model_residual" not in by_key
 
     driver_sum = sum(Decimal(str(item["per_share_nok"])) for item in result["drivers"])
