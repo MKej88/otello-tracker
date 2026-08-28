@@ -59,13 +59,18 @@
 .historyKpi strong { font-size:28px; }
 .historyKpi small { opacity:.62; }
 .historyDetailGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
-.axisChart { width:100%; overflow:hidden; margin-top:14px; }
+.axisChart { width:100%; overflow:hidden; margin-top:14px; position:relative; }
 .axisChart svg { width:100%; height:auto; min-height:260px; overflow:visible; }
 .axisGrid { stroke:rgba(255,255,255,.075); stroke-width:1; }
 .axisZero { stroke:rgba(255,255,255,.3); stroke-width:1.5; stroke-dasharray:6 5; }
 .axisTick { stroke:rgba(255,255,255,.28); }
 .axisLabel { fill:currentColor; font-size:15px; opacity:.66; }
 .axisTitle { fill:currentColor; font-size:14px; font-weight:700; opacity:.6; }
+.estimatedPriceLine { fill:none; stroke:#55c9b5; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+.axisPriceLabel, .axisPriceTitle { fill:#55c9b5; }
+.axisChartLegend { display:flex; justify-content:center; gap:22px; margin-top:-2px; color:#aebdd2; font-size:12px; }
+.axisChartLegend span::before { content:""; display:inline-block; width:18px; height:2px; margin:0 7px 3px 0; background:#e6efff; }
+.axisChartLegend .priceLegendItem::before { background:#55c9b5; }
 .estimatedDiscountLine { fill:none; stroke:currentColor; stroke-width:3.2; vector-effect:non-scaling-stroke; }
 
 .qualityIntro { display:flex; justify-content:space-between; align-items:center; gap:24px; }
