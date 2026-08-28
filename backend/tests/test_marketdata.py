@@ -137,6 +137,14 @@ def test_investing_otec_reconstruction_reverses_2022_distribution() -> None:
     assert by_date["2022-08-09"].quality == "DIRECT"
 
 
+@pytest.mark.parametrize("invalid_price", ["0", "-1.20", "NaN", "Infinity"])
+def test_investing_csv_parser_rejects_invalid_prices(invalid_price: str) -> None:
+    text = f'Date,Price\n"08/19/2024","{invalid_price}"\n'
+
+    with pytest.raises(ValueError, match="Urealistisk OTEC-pris"):
+        parse_investing_historical_csv(text)
+
+
 def test_investing_import_validates_euronext_overlap_and_counts_unique_dates(tmp_path) -> None:
     database_path = str(tmp_path / "investing.db")
     init_database(database_path)

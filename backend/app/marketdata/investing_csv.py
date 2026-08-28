@@ -58,7 +58,11 @@ def _parse_decimal(value: str) -> Decimal:
         cleaned = cleaned.replace(",", ".")
 
     result = Decimal(cleaned)
-    if result <= 0 or result > MAX_PLAUSIBLE_OTEC_NOK:
+    if (
+        not result.is_finite()
+        or result <= 0
+        or result > MAX_PLAUSIBLE_OTEC_NOK
+    ):
         raise ValueError(f"Urealistisk OTEC-pris i Investing CSV: {value}")
     return result
 
