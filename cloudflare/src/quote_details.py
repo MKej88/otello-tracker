@@ -4,12 +4,13 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-
 _SYMBOLS = {
     "OTEC": {"currency": "NOK", "source": "EURONEXT"},
     "BMOB3": {"currency": "BRL", "source": "B3"},
     "LIF": {"currency": "USD", "source": "YAHOO_FINANCE"},
 }
+
+THREE_MONTH_TRADING_SESSIONS = 63
 
 
 def _number(value: Any) -> float | None:
@@ -50,10 +51,12 @@ def _preferred_daily_rows(
         priority = (
             int(row.get("series_priority") or 0),
             0 if row.get("source_code") == preferred_source else 1,
-            0
-            if row.get("quality")
-            in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"}
-            else 1,
+            (
+                0
+                if row.get("quality")
+                in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"}
+                else 1
+            ),
             -int(row.get("id") or 0),
         )
         if current is None or priority < current["_priority"]:
@@ -103,8 +106,7 @@ async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
     if symbol != "OTEC":
         return market
 
-    activity = await repository.first(
-        """
+    activity = await repository.first("""
         SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
                ma.quality, ma.metadata_json, s.code AS source_code
         FROM market_activity ma
@@ -113,8 +115,7 @@ async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
         WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
         ORDER BY ma.trading_date DESC, ma.id DESC
         LIMIT 1
-        """
-    )
+        """)
     if activity is None:
         return market
     if market is None or str(activity["trading_date"]) >= str(market["trading_date"]):
@@ -126,9 +127,7 @@ async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
     return market
 
 
-async def _day_stats(
-    repository, symbol: str, trading_date: str
-) -> dict[str, Any]:
+async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, Any]:
     rows = await repository.all(
         """
         SELECT mp.id, mp.price_type, mp.price, mp.observed_at, mp.metadata_json,
@@ -200,9 +199,13 @@ async def _day_stats(
             "open": open_value,
             "low": low_value,
             "high": high_value,
-            "basis": "STORED_SESSION_DATA"
-            if any(value is not None for value in (open_value, low_value, high_value))
-            else "CLOSE_ONLY",
+            "basis": (
+                "STORED_SESSION_DATA"
+                if any(
+                    value is not None for value in (open_value, low_value, high_value)
+                )
+                else "CLOSE_ONLY"
+            ),
         }
 
     if open_value is None and last_rows:
@@ -266,16 +269,14 @@ async def _volume_stats(
 ) -> dict[str, Any]:
     if symbol == "OTEC":
         try:
-            rows = await repository.all(
-                """
+            rows = await repository.all("""
                 SELECT ma.id, ma.trading_date, ma.volume_shares
                 FROM market_activity ma
                 JOIN instruments i ON i.id=ma.instrument_id
                 WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
                 ORDER BY ma.trading_date DESC, ma.id DESC
-                LIMIT 40
-                """
-            )
+                LIMIT 126
+                """)
         except Exception:
             rows = []
         deduped: dict[str, float] = {}
@@ -286,14 +287,18 @@ async def _volume_stats(
             value = _number(row.get("volume_shares"))
             if value is not None and value >= 0:
                 deduped[day] = value
-            if len(deduped) >= 20:
+            if len(deduped) >= THREE_MONTH_TRADING_SESSIONS:
                 break
         values = list(deduped.values())
+        average = sum(values) / len(values) if values else None
         return {
             "latest": values[0] if values else None,
             "latest_date": next(iter(deduped), None),
-            "average_20d": sum(values) / len(values) if values else None,
+            "average_3m": average,
             "average_sessions": len(values),
+            "latest_above_average": (
+                values[0] > average if average is not None else None
+            ),
             "unit": "shares",
             "basis": "EURONEXT_DAILY_ACTIVITY",
         }
@@ -304,18 +309,24 @@ async def _volume_stats(
         value = _meta_number(meta, "volume_shares", "quantity_shares")
         if value is not None and value >= 0:
             volume_rows.append((str(row["trading_date"]), value))
-        if len(volume_rows) >= 20:
+        if len(volume_rows) >= THREE_MONTH_TRADING_SESSIONS:
             break
     values = [value for _, value in volume_rows]
+    average = sum(values) / len(values) if values else None
     return {
         "latest": volume_rows[0][1] if volume_rows else None,
         "latest_date": volume_rows[0][0] if volume_rows else None,
-        "average_20d": sum(values) / len(values) if values else None,
+        "average_3m": average,
         "average_sessions": len(values),
+        "latest_above_average": (
+            volume_rows[0][1] > average if average is not None else None
+        ),
         "unit": "shares",
-        "basis": "B3_COTAHIST_QUANTITY"
-        if symbol == "BMOB3"
-        else "STORED_MARKET_PRICE_METADATA",
+        "basis": (
+            "B3_COTAHIST_QUANTITY"
+            if symbol == "BMOB3"
+            else "STORED_MARKET_PRICE_METADATA"
+        ),
     }
 
 
@@ -337,9 +348,11 @@ def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
         "low": min(lows) if lows else None,
         "high": max(highs) if highs else None,
         "sessions": len(lows),
-        "basis": "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK"
-        if used_session_range
-        else "DAILY_CLOSE",
+        "basis": (
+            "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK"
+            if used_session_range
+            else "DAILY_CLOSE"
+        ),
     }
 
 
@@ -380,7 +393,8 @@ async def market_quote_details(repository) -> dict[str, Any]:
         "symbols": quotes,
         "methodology": {
             "average_volume": (
-                "Gjennomsnitt av inntil 20 siste tilgjengelige handelssesjoner."
+                "Gjennomsnitt av inntil 63 siste tilgjengelige handelssesjoner, "
+                "tilsvarende omtrent tre måneder."
             ),
             "range_52w": (
                 "52-ukers intervallet bruker offisiell dags høy/lav når den finnes "

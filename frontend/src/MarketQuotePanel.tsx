@@ -26,8 +26,9 @@ type Quote = {
   volume?: {
     latest?: number | null;
     latest_date?: string | null;
-    average_20d?: number | null;
+    average_3m?: number | null;
     average_sessions?: number | null;
+    latest_above_average?: boolean | null;
     unit?: string | null;
     basis?: string | null;
   };
@@ -87,6 +88,7 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
   }
 
   const currency = quote.currency;
+  const latestAboveAverage = quote.volume?.latest_above_average;
   return (
     <article className="card marketQuoteCard">
       <div className="marketQuoteHeader">
@@ -127,10 +129,13 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           <span>Siste volum</span>
           <strong>{volume(quote.volume?.latest)}</strong>
           <small>{formatDate(quote.volume?.latest_date)}</small>
+          {latestAboveAverage != null && (
+            <small>{latestAboveAverage ? "Høyere enn 3 mnd snitt" : "Ikke høyere enn 3 mnd snitt"}</small>
+          )}
         </div>
         <div>
-          <span>Snittvolum</span>
-          <strong>{volume(quote.volume?.average_20d)}</strong>
+          <span>3 mnd snittvolum</span>
+          <strong>{volume(quote.volume?.average_3m)}</strong>
           <small>{quote.volume?.average_sessions ?? 0} sesjoner</small>
         </div>
         <div className="marketQuoteRange">
@@ -149,7 +154,7 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
             <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
           )}
-        {quote.symbol === "BMOB3" && (quote.volume?.average_sessions ?? 0) < 20 && (
+        {quote.symbol === "BMOB3" && (quote.volume?.average_sessions ?? 0) < 63 && (
           <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
         )}
         {quote.symbol === "LIF" && (
