@@ -192,6 +192,7 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
 function CalendarRow({ event }: { event: CalendarEvent }) {
   const consensus = event.market_consensus;
   const expectation = event.expectation;
+  const hasIngestedEventConsensus = expectation?.event_consensus === true || consensus?.ingested === true;
   const externalNotIngested = consensus?.coverage === "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED";
   return (
     <article className="brazilCalendarRow">
@@ -209,7 +210,7 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
       </div>
       <div className="brazilCalendarExpectation">
         <span className="label">MARKEDETS FORVENTNING</span>
-        {expectation ? (
+        {expectation && hasIngestedEventConsensus ? (
           <>
             <strong>{number(expectation.value, 2)} {expectation.unit}</strong>
             <small>{expectation.label} · {expectation.provider ?? "BCB Focus"}</small>
