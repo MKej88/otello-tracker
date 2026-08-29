@@ -8,6 +8,7 @@ const loadNavPage = () => import("./NavPageV2");
 const loadHistoryPage = () => import("./EstimatedHistoryPage");
 const loadBuybackPage = () => import("./BuybackPage");
 const loadBemobiPage = () => import("./BemobiPage");
+const loadBrazilPage = () => import("./BrazilPage");
 const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
 const loadNewsEventsPage = () => import("./NewsEventsPage");
@@ -16,6 +17,7 @@ const NavPageV2 = lazy(loadNavPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
 const BuybackPage = lazy(loadBuybackPage);
 const BemobiPage = lazy(loadBemobiPage);
+const BrazilPage = lazy(loadBrazilPage);
 const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
 const NewsEventsPage = lazy(loadNewsEventsPage);
@@ -29,6 +31,7 @@ function preload(view: View) {
   if (view === "Historikk") void loadHistoryPage();
   if (view === "Tilbakekjøpsprogram") void loadBuybackPage();
   if (view === "Bemobi") void loadBemobiPage();
+  if (view === "Brasil") void loadBrazilPage();
   if (view === "Konsensus") void loadConsensusPage();
   if (view === "Datakvalitet") void loadDataQualityPage();
   if (view === "Nyheter") void loadNewsEventsPage();
@@ -42,6 +45,7 @@ function ActiveView({ view }: { view: View }) {
   if (view === "Bemobi") {
     return <div className="normalBemobiView"><BemobiPage /></div>;
   }
+  if (view === "Brasil") return <BrazilPage />;
   if (view === "Konsensus") return <ConsensusPage />;
   if (view === "Nyheter") return <NewsEventsPage />;
   return <DataQualityPage />;
