@@ -13,7 +13,10 @@ from brazil_calendar_expectations import (  # noqa: E402
     _quarterly_expectation,
     _selic_expectation,
 )
-from brazil_dashboard_v2 import _annotate_market_consensus  # noqa: E402
+from brazil_dashboard_v2 import (  # noqa: E402
+    _annotate_market_consensus,
+    _fill_annual_focus_proxies,
+)
 
 
 def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
@@ -118,6 +121,57 @@ def test_focus_expectation_is_marked_as_market_consensus() -> None:
     assert consensus["ingested"] is True
     assert consensus["coverage"] == "BCB_FOCUS_EVENT"
     assert consensus["provider"] == "BCB Focus"
+
+
+def test_annual_focus_proxy_is_shown_when_event_consensus_is_missing() -> None:
+    events = _annotate_market_consensus(
+        [
+            {
+                "name": "IPCA",
+                "kind": "inflation",
+                "expectation": {
+                    "event_consensus": False,
+                    "label": "Focus 2026 IPCA (år)",
+                    "value": 4.2,
+                    "unit": "%",
+                },
+            }
+        ]
+    )
+
+    event = events[0]
+    assert event["expectation"]["value"] == 4.2
+    assert event["market_consensus"] == {
+        "available": True,
+        "ingested": True,
+        "coverage": "BCB_FOCUS_ANNUAL_PROXY",
+        "provider": "BCB Focus",
+        "note": (
+            "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi en "
+            "hendelsesnær median ikke var tilgjengelig."
+        ),
+    }
+
+
+def test_resilient_annual_focus_fills_empty_calendar_expectation() -> None:
+    events = _fill_annual_focus_proxies(
+        [
+            {
+                "date": "2026-09-11",
+                "name": "IPCA",
+                "kind": "inflation",
+            }
+        ],
+        {"ipca": {"2026": {"median": 4.2, "survey_date": "2026-08-28"}}},
+    )
+
+    assert events[0]["expectation"] == {
+        "label": "Focus 2026 IPCA (år)",
+        "value": 4.2,
+        "unit": "%",
+        "survey_date": "2026-08-28",
+        "event_consensus": False,
+    }
 
 
 def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
