@@ -41,7 +41,8 @@ async def brazil_dashboard(
             result["calendar_note"] = (
                 "For IPCA/IPCA-15, arbeidsledighet, BNP og Copom brukes hendelsesnære "
                 "BCB Focus-forventninger når tilgjengelig. Andre hendelser bruker års-/"
-                "retningsproxy eller vises uten konsensus."
+                "retningsproxy eller vises uten konsensus. Rader merket estimated er en "
+                "rullerende forhåndsvisning og må bekreftes i den offisielle kalenderen."
             )
     except Exception as exc:
         result.setdefault("source_status", {})["focus_event_expectations"] = {

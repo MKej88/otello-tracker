@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable
 
 from bounded_response import read_response_bytes
 
-SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados/ultimos/{limit}?formato=json"
+SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
 FOCUS_URL = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -100,7 +100,7 @@ def _parse_sgs_rows(payload: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _series_payload(key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _series_payload(key: str, rows: list[dict[str, Any]], *, source_url: str | None = None) -> dict[str, Any]:
     meta = SERIES[key]
     current = rows[-1]
     previous = rows[-2] if len(rows) > 1 else None
@@ -129,19 +129,32 @@ def _series_payload(key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             for row in rows
         ],
         "source": "Banco Central do Brasil / SGS",
-        "source_url": SGS_URL.format(code=meta["code"], limit=18),
+        "source_url": source_url or SGS_URL.format(code=meta["code"]),
     }
 
 
 async def _load_sgs_series(
     key: str,
     *,
+    as_of_date: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     meta = SERIES[key]
-    url = SGS_URL.format(code=meta["code"], limit=18)
+    end = date.fromisoformat(as_of_date)
+    # A single bounded window covers 18 monthly observations as well as the
+    # more frequent Selic series without allowing observations after `end`.
+    start = end - timedelta(days=570)
+    params = urllib.parse.urlencode({
+        "formato": "json",
+        "dataInicial": start.strftime("%d/%m/%Y"),
+        "dataFinal": end.strftime("%d/%m/%Y"),
+    })
+    url = f"{SGS_URL.format(code=meta['code'])}?{params}"
     payload = await _fetch_json(url, fetcher=fetcher)
-    return _series_payload(key, _parse_sgs_rows(payload))
+    rows = [row for row in _parse_sgs_rows(payload) if str(row["date"]) <= as_of_date]
+    if not rows:
+        raise ValueError("BCB SGS mangler observasjoner på eller før valgt dato")
+    return _series_payload(key, rows[-18:], source_url=url)
 
 
 def _focus_indicator_key(value: Any) -> str | None:
@@ -173,6 +186,9 @@ def parse_focus_rows(payload: Any, *, as_of_date: str) -> dict[str, Any]:
     candidates: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for raw in values:
         if not isinstance(raw, dict):
+            continue
+        survey_date = str(raw.get("Data") or "")[:10]
+        if survey_date and survey_date > as_of_date:
             continue
         key = _focus_indicator_key(raw.get("Indicador"))
         year = _focus_year(raw.get("DataReferencia"))
@@ -211,7 +227,7 @@ async def _load_focus(
         "$format": "json",
         "$top": "800",
         "$orderby": "Data desc",
-        "$filter": f"Data ge '{start}' and ({indicator_filter})",
+        "$filter": f"Data ge '{start}' and Data le '{as_of_date}' and ({indicator_filter})",
     }
     url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
     payload = await _fetch_json(url, fetcher=fetcher)
@@ -317,6 +333,52 @@ def _calendar_seed() -> list[dict[str, Any]]:
     return result
 
 
+def _next_weekday(day: date) -> date:
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
+def _rolling_calendar(start: date, end: date) -> list[dict[str, Any]]:
+    """Provide a clearly labelled rolling preview beyond the published seed.
+
+    IBGE and BCB publish exact release dates incrementally. Keeping a recurring
+    preview prevents the dashboard from going permanently blank between seed
+    updates; these rows deliberately do not claim to be confirmed dates and
+    link to the maintained official calendars.
+    """
+    first_month = date(start.year, start.month, 1)
+    month = first_month
+    rows: list[dict[str, Any]] = []
+    templates = [
+        (10, "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL),
+        (12, "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL),
+        (14, "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL),
+        (16, "IBC-Br", "activity", "BCB", BCB_IBC_URL),
+        (25, "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL),
+        (28, "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL),
+    ]
+    while month <= end:
+        for day_number, name, kind, source, source_url in templates:
+            event_day = _next_weekday(date(month.year, month.month, day_number))
+            if not (start <= event_day <= end):
+                continue
+            importance, impact = _impact(kind)
+            rows.append({
+                "date": event_day.isoformat(),
+                "name": name,
+                "kind": kind,
+                "source": source,
+                "source_url": source_url,
+                "reference": None,
+                "importance": importance,
+                "bemobi_impact": impact,
+                "date_status": "estimated",
+            })
+        month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    return rows
+
+
 def _focus_expectation_for_event(event: dict[str, Any], focus: dict[str, Any], year: int) -> dict[str, Any] | None:
     key = {
         "copom": "selic",
@@ -350,7 +412,12 @@ def calendar_events(*, as_of_date: str, focus: dict[str, Any]) -> list[dict[str,
     start = date.fromisoformat(as_of_date)
     horizon = start + timedelta(days=190)
     events = []
-    for raw in _calendar_seed():
+    seeded = _calendar_seed()
+    seed_end = max(date.fromisoformat(str(item["date"])) for item in seeded)
+    candidates = seeded
+    if horizon > seed_end:
+        candidates += _rolling_calendar(seed_end + timedelta(days=1), horizon)
+    for raw in candidates:
         event_day = date.fromisoformat(str(raw["date"]))
         if not (start <= event_day <= horizon):
             continue
@@ -454,7 +521,7 @@ async def brazil_dashboard(
     target = date.fromisoformat(as_of_date) if as_of_date else datetime.now(UTC).date()
     target_date = target.isoformat()
 
-    tasks = [_load_sgs_series(key, fetcher=fetcher) for key in SERIES]
+    tasks = [_load_sgs_series(key, as_of_date=target_date, fetcher=fetcher) for key in SERIES]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     metrics: dict[str, Any] = {}
     source_status: dict[str, Any] = {}
@@ -504,7 +571,7 @@ async def brazil_dashboard(
         "metrics": metrics,
         "focus": focus_result,
         "calendar": calendar,
-        "calendar_note": "Datoene er offisielle IBGE/BCB-publiseringsdatoer. Forventning-feltet bruker BCB Focus som års-/retningsproxy og er ikke konsensus for den enkelte publisering.",
+        "calendar_note": "Bekreftede datoer kommer fra IBGE/BCB. Rader merket estimated er en rullerende forhåndsvisning og må bekreftes i den lenkede offisielle kalenderen. Forventning-feltet bruker BCB Focus som års-/retningsproxy og er ikke konsensus for den enkelte publisering.",
         "source_status": source_status,
         "sources": [
             {"name": "Banco Central do Brasil – SGS", "url": "https://dadosabertos.bcb.gov.br/"},

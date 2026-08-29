@@ -8,10 +8,66 @@ if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
 from brazil_dashboard import (  # noqa: E402
+    _load_focus,
+    _load_sgs_series,
     _series_payload,
     calendar_events,
     parse_focus_rows,
 )
+
+
+class _Response:
+    ok = True
+    status = 200
+
+    def __init__(self, payload: object) -> None:
+        import json
+
+        self._body = json.dumps(payload).encode()
+
+    async def text(self) -> str:
+        return self._body.decode()
+
+
+def test_sgs_request_and_rows_are_capped_at_as_of_date() -> None:
+    import asyncio
+    from urllib.parse import parse_qs, urlparse
+
+    seen: list[str] = []
+
+    async def fetcher(url: str, **_kwargs: object) -> _Response:
+        seen.append(url)
+        return _Response([
+            {"data": "28/08/2026", "valor": "14.5"},
+            {"data": "30/08/2026", "valor": "99.0"},
+        ])
+
+    result = asyncio.run(_load_sgs_series("selic", as_of_date="2026-08-29", fetcher=fetcher))
+
+    query = parse_qs(urlparse(seen[0]).query)
+    assert query["dataFinal"] == ["29/08/2026"]
+    assert result["date"] == "2026-08-28"
+    assert result["value"] == 14.5
+
+
+def test_focus_request_and_parser_are_capped_at_as_of_date() -> None:
+    import asyncio
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    seen: list[str] = []
+
+    async def fetcher(url: str, **_kwargs: object) -> _Response:
+        seen.append(url)
+        return _Response({"value": [
+            {"Indicador": "Selic", "Data": "2026-08-28", "DataReferencia": "2026", "Mediana": 12.5},
+            {"Indicador": "Selic", "Data": "2026-08-30", "DataReferencia": "2026", "Mediana": 9.0},
+        ]})
+
+    result = asyncio.run(_load_focus("2026-08-29", fetcher=fetcher))
+
+    query = parse_qs(urlparse(seen[0]).query)
+    assert "Data le '2026-08-29'" in unquote(query["$filter"][0])
+    assert result["values"]["selic"]["2026"]["median"] == 12.5
 
 
 def test_parse_focus_rows_keeps_current_and_next_year() -> None:
@@ -83,6 +139,16 @@ def test_calendar_uses_focus_as_directional_proxy_not_event_consensus() -> None:
     assert gdp["expectation"]["value"] == 2.1
     assert copom["importance"] == "Høy"
     assert "Bemobi" in copom["bemobi_impact"] or "multippel" in copom["bemobi_impact"]
+
+
+def test_calendar_has_labelled_rolling_preview_after_seed_ends() -> None:
+    events = calendar_events(as_of_date="2027-02-19", focus={})
+
+    assert events
+    assert all(item["date"] >= "2027-02-19" for item in events)
+    estimated = [item for item in events if item.get("date_status") == "estimated"]
+    assert estimated
+    assert all(item["source_url"].startswith("https://") for item in estimated)
 
 
 def test_index_series_is_presented_as_monthly_change() -> None:

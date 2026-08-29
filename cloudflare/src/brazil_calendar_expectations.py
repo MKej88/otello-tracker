@@ -103,10 +103,11 @@ async def _fetch_endpoint(
     endpoint: str,
     *,
     start_date: str,
+    end_date: str,
     indicators: list[str] | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    filters = [f"Data ge '{start_date}'"]
+    filters = [f"Data ge '{start_date}'", f"Data le '{end_date}'"]
     if indicators:
         filters.append("(" + " or ".join(f"Indicador eq '{item}'" for item in indicators) + ")")
     params = {
@@ -194,6 +195,7 @@ async def enrich_calendar_expectations(
         monthly = await _fetch_endpoint(
             "ExpectativaMercadoMensais",
             start_date=start,
+            end_date=as_of_date,
             indicators=["IPCA", "IPCA-15", "Taxa de desocupação"],
             fetcher=fetcher,
         )
@@ -205,6 +207,7 @@ async def enrich_calendar_expectations(
         quarterly = await _fetch_endpoint(
             "ExpectativasMercadoTrimestrais",
             start_date=start,
+            end_date=as_of_date,
             indicators=["PIB Total"],
             fetcher=fetcher,
         )
@@ -216,6 +219,7 @@ async def enrich_calendar_expectations(
         selic = await _fetch_endpoint(
             "ExpectativasMercadoSelic",
             start_date=start,
+            end_date=as_of_date,
             indicators=["Selic"],
             fetcher=fetcher,
         )
