@@ -113,32 +113,32 @@ export default function BemobiSourceStatusPanel() {
     <section className="card bemobiSources bemobiSourceStatus">
       <div className="cardHeader">
         <div>
-          <span className="label">Datakilder</span>
-          <h2>Automatisk kildekontroll</h2>
+          <span className="label">KILDEOVERSIKT</span>
+          <h2>Status for hver kilde</h2>
         </div>
         <span className="pill">{statusLabel(data.overall_status)}</span>
       </div>
 
-      <div className="sourceList">
+      <div className="sourceStatusTable">
+        <div className="sourceStatusHead" aria-hidden="true">
+          <span>Data</span><span>Kilde</span><span>Status</span><span>Sist hentet</span><span>Sist kontrollert</span>
+        </div>
         {(data.items ?? []).map((item) => (
-          <div key={item.key}>
-            <span>
-              {item.label}
-              <small>
-                Kontrollert {dateTimeLabel(item.checked_at)} · datadato {dateLabel(item.data_date)}
-              </small>
-              {item.detail && <small>{item.detail}</small>}
-            </span>
-            <strong>
+          <div className="sourceStatusRow" key={item.key}>
+            <span className="sourceStatusName"><strong>{item.label}</strong><small>Datadato {dateLabel(item.data_date)}</small></span>
+            <span className="sourceStatusSource">
               {item.url ? (
                 <a href={item.url} target="_blank" rel="noreferrer">
-                  {item.source} · {statusLabel(item.status)}
+                  {item.source} ↗
                 </a>
               ) : (
-                <>{item.source} · {statusLabel(item.status)}</>
+                item.source
               )}
-              {item.uses_last_good && <small>bruker siste gode verdi</small>}
-            </strong>
+            </span>
+            <span><strong className={`sourceStatusBadge sourceStatus-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</strong>{item.uses_last_good && <small>Bruker siste gode verdi</small>}</span>
+            <span><b className="mobileSourceLabel">Sist hentet</b>{dateTimeLabel(item.last_good_at)}</span>
+            <span><b className="mobileSourceLabel">Sist kontrollert</b>{dateTimeLabel(item.checked_at)}</span>
+            {item.detail && <small className="sourceStatusDetail">{item.detail}</small>}
           </div>
         ))}
       </div>
