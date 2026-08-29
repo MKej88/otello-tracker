@@ -15,8 +15,10 @@ from datetime import date, timedelta
 from typing import Any, Awaitable, Callable, Iterable
 
 try:
+    from .bemobi_cvm_financials import refresh_bemobi_reported_net_income
     from .bounded_response import read_response_bytes
 except ImportError:
+    from bemobi_cvm_financials import refresh_bemobi_reported_net_income
     from bounded_response import read_response_bytes
 
 CVM_IPE_URL = (
@@ -488,20 +490,12 @@ async def refresh_bemobi_cvm(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     selected = await years_due(repository, target_date=target_date)
-    if not selected:
-        return {
-            "status": "ok",
-            "years": [],
-            "skipped": True,
-            "reason": "cvm_archives_not_due",
-            "errors": [],
-        }
-
     archived: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     discovered = 0
     relevant = 0
     successful_years: list[int] = []
+
     for year in selected:
         try:
             payload = await _download_year(year, fetcher=fetcher)
@@ -527,8 +521,40 @@ async def refresh_bemobi_cvm(
         except Exception as exc:
             errors.append({"year": year, "error": str(exc)[:1000]})
 
+    # The production workflow uses the native Workers fetcher. Custom fetchers are used by
+    # deterministic IPE tests; do not unexpectedly ask those fixtures for the much larger
+    # financial-statement archives.
+    if fetcher is None:
+        try:
+            financials = await refresh_bemobi_reported_net_income(
+                repository,
+                target_date=target_date,
+            )
+        except Exception as exc:
+            financials = {
+                "status": "error",
+                "error": str(exc)[:1000],
+                "rows_written": 0,
+                "errors": [{"error": str(exc)[:1000]}],
+            }
+    else:
+        financials = {
+            "status": "skipped",
+            "reason": "custom_ipe_fetcher",
+            "rows_written": 0,
+            "errors": [],
+        }
+
     categories = Counter(item["category"] for item in archived if item["is_latest_version"])
-    status = "error" if errors and not successful_years else ("partial" if errors else "ok")
+    ipe_status = "error" if errors and not successful_years else ("partial" if errors else "ok")
+    financial_status = str(financials.get("status") or "").lower()
+    if ipe_status == "error":
+        status = "error"
+    elif ipe_status == "partial" or financial_status in {"error", "partial"}:
+        status = "partial"
+    else:
+        status = "ok"
+
     return {
         "status": status,
         "years": selected,
@@ -542,5 +568,8 @@ async def refresh_bemobi_cvm(
         ),
         "categories": dict(sorted(categories.items())),
         "previous_year_refresh_days": PREVIOUS_YEAR_REFRESH_DAYS,
+        "financials": financials,
+        "financial_rows_written": int(financials.get("rows_written") or 0),
+        "skipped": not selected and financial_status == "skipped",
         "errors": errors,
     }
