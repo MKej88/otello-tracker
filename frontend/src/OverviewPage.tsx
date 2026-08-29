@@ -65,8 +65,20 @@ export default function OverviewPage() {
         <article className="card">
           <div className="cardHeader"><div><span className="label">Kapitalallokering</span><h2>Tilbakekjøpsprogram</h2></div></div>
           <div className="placeholderRows overviewBuybackRows">
-            <div><span>Siste rapporterte kjøp</span><strong>{formatInteger(summary?.latest_buyback?.shares)} aksjer</strong><small>{formatDate(summary?.latest_buyback?.trade_date)}</small></div>
-            <div><span>Neste uke – baseestimat</span><strong>{formatInteger(forecast?.estimate?.base_case_shares)} aksjer</strong><small>{formatDate(forecast?.forecast_week?.from)}–{formatDate(forecast?.forecast_week?.to)}</small></div>
+            <div>
+              <span>Siste rapporterte kjøp</span>
+              <span className="overviewBuybackValue">
+                <strong>{formatInteger(summary?.latest_buyback?.shares)} aksjer</strong>
+                <small>{formatDate(summary?.latest_buyback?.trade_date)}</small>
+              </span>
+            </div>
+            <div>
+              <span>Neste uke – baseestimat</span>
+              <span className="overviewBuybackValue">
+                <strong>{formatInteger(forecast?.estimate?.base_case_shares)} aksjer</strong>
+                <small>{formatDate(forecast?.forecast_week?.from)}–{formatDate(forecast?.forecast_week?.to)}</small>
+              </span>
+            </div>
             <div><span>Estimatintervall</span><strong>{formatInteger(forecast?.estimate?.low_shares)}–{formatInteger(forecast?.estimate?.high_shares)}</strong></div>
           </div>
         </article>
