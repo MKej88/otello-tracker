@@ -4,7 +4,22 @@ import { formatDate, formatDateTime } from "./uiFormat";
 
 const REFRESH_MS = 60_000;
 
-type Job = { available?: boolean; status?: string; started_at?: string | null; finished_at?: string | null; stale?: boolean; has_error?: boolean };
+type Job = {
+  available?: boolean;
+  status?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  stale?: boolean;
+  has_error?: boolean;
+  target_date?: string | null;
+  records_written?: number;
+  source_health?: Record<string, string>;
+  preflight?: {
+    ready?: boolean;
+    blocker_count?: number;
+    warning_count?: number;
+  } | null;
+};
 type Runtime = {
   ready: boolean;
   status: string;
@@ -39,17 +54,79 @@ function Step({ label, done }: { label: string; done?: boolean }) {
   return <div className="qualityStep"><span className={done ? "qualityDot ok" : "qualityDot"} /><span>{label}</span><strong>{done ? "OK" : "VENTER"}</strong></div>;
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  NORGES_BANK: "Norges Bank",
+  YAHOO_FINANCE: "Life360 / Yahoo Finance",
+  B3: "B3",
+  CVM: "CVM",
+  BEMOBI_IR: "Bemobi IR",
+  NEWSWEB: "NewsWeb",
+  EURONEXT: "Euronext / OTEC",
+};
+
+function durationLabel(startedAt?: string | null, finishedAt?: string | null) {
+  if (!startedAt || !finishedAt) return "–";
+  const seconds = Math.max(
+    0,
+    Math.round((new Date(finishedAt).getTime() - new Date(startedAt).getTime()) / 1000),
+  );
+  if (!Number.isFinite(seconds)) return "–";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes} min ${remainder} sek` : `${remainder} sek`;
+}
+
 export default function DataQualityPage() {
   const { data: runtime, refreshFailed: runtimeFailed } = usePollingResource<Runtime>("/api/dashboard/runtime-status", REFRESH_MS);
   const { data: report, refreshFailed: reportFailed } = usePollingResource<Report>("/api/dashboard/report-status", 2 * REFRESH_MS);
   const snapshot = runtime?.hot_snapshot;
   const pipeline = report?.pipeline ?? {};
+  const nightly = runtime?.full_refresh;
+  const nightlySources = Object.entries(nightly?.source_health ?? {});
+  const healthySourceCount = nightlySources.filter(([, status]) => status === "OK").length;
 
   return (
     <div className="investorPage dataQualityPage">
       <section className="card qualityIntro">
         <div><span className="label">DATAKVALITET</span><h2>Drift, ferskhet og kildekontroll</h2><p>Er dataene oppdatert? Her får du en enkel oversikt over hver datakilde, om den virker, og når vi sist hentet data. Tekniske detaljer ligger lenger ned på siden.</p></div>
         <span className={`qualityOverall ${runtime?.status === "OK" || runtime?.status === "SUCCESS" ? "ok" : ""}`}>{statusLabel(runtime?.status)}</span>
+      </section>
+
+      <section className="card nightlySummary">
+        <div className="cardHeader">
+          <div>
+            <span className="label">SISTE NATTKJØRING</span>
+            <h2>Nattkjøring {formatDate(nightly?.target_date)}</h2>
+          </div>
+          <span className={`pill nightlyStatus ${nightly?.status === "SUCCESS" ? "ok" : ""}`}>
+            {runtimeFailed ? "SISTE GODE" : statusLabel(nightly?.status)}
+          </span>
+        </div>
+        <div className="nightlyMetrics">
+          <div><span>Datadato</span><strong>{formatDate(nightly?.target_date)}</strong></div>
+          <div><span>Kjøretid</span><strong>{durationLabel(nightly?.started_at, nightly?.finished_at)}</strong></div>
+          <div><span>Oppdaterte datapunkter</span><strong>{nightly?.records_written ?? "–"}</strong></div>
+          <div><span>Datakilder</span><strong>{nightlySources.length ? `${healthySourceCount}/${nightlySources.length} OK` : "–"}</strong></div>
+        </div>
+        {nightlySources.length > 0 && (
+          <div className="nightlySources">
+            {nightlySources.map(([code, sourceStatus]) => (
+              <div key={code}>
+                <span className={`qualityDot ${sourceStatus === "OK" ? "ok" : ""}`} />
+                <span>{SOURCE_LABELS[code] ?? code}</span>
+                <strong>{statusLabel(sourceStatus)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+        {nightly?.preflight && (
+          <div className="nightlyControl">
+            <strong>Datakontroll</strong>
+            <span>Preflight: {nightly.preflight.ready ? "OK" : "FEIL"}</span>
+            <span>Blokkeringer: {nightly.preflight.blocker_count ?? 0}</span>
+            <span>Advarsler: {nightly.preflight.warning_count ?? 0}</span>
+          </div>
+        )}
       </section>
 
       <section className="card qualityMethod">
