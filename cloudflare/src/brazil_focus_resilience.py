@@ -81,21 +81,6 @@ async def _read_state(repository: Any, key: str) -> dict[str, Any] | None:
     return payload
 
 
-async def _write_state(repository: Any, key: str, payload: dict[str, Any]) -> None:
-    updated_at = _now_iso()
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    await repository.run(
-        """
-        INSERT INTO runtime_state(key, value, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            updated_at = excluded.updated_at
-        """,
-        (key, encoded, updated_at),
-    )
-
-
 async def _write_annual_state(repository: Any, payload: dict[str, Any]) -> None:
     """Store an annual snapshot without letting an older concurrent request win."""
     updated_at = _now_iso()
@@ -111,6 +96,37 @@ async def _write_annual_state(repository: Any, payload: dict[str, Any]) -> None:
               <= COALESCE(json_extract(excluded.value, '$.survey_date'), '')
         """,
         (ANNUAL_STATE_KEY, encoded, updated_at),
+    )
+
+
+async def _write_event_expectation(
+    repository: Any,
+    key: str,
+    expectation: dict[str, Any],
+) -> None:
+    """Atomically add one event unless the cache already has a newer survey."""
+    updated_at = _now_iso()
+    payload = {"expectations": {key: expectation}}
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    # Each upsert carries exactly one event. This lets SQLite serialize the
+    # read/compare/merge at the write boundary while json_patch preserves every
+    # unrelated event written by concurrent dashboard requests.
+    await repository.run(
+        """
+        INSERT INTO runtime_state(key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = json_patch(runtime_state.value, excluded.value),
+            updated_at = excluded.updated_at
+        WHERE COALESCE(
+                  json_extract(runtime_state.value, '$.expectations.' || json_quote(?) || '.survey_date'),
+                  ''
+              ) <= COALESCE(
+                  json_extract(excluded.value, '$.expectations.' || json_quote(?) || '.survey_date'),
+                  ''
+              )
+        """,
+        (EVENT_STATE_KEY, encoded, updated_at, key, key),
     )
 
 
@@ -228,24 +244,11 @@ def _event_key(event: dict[str, Any]) -> str:
 
 
 async def persist_event_expectations(repository: Any, events: list[dict[str, Any]]) -> None:
-    existing = await _read_state(repository, EVENT_STATE_KEY) or {}
-    stored = existing.get("expectations") if isinstance(existing.get("expectations"), dict) else {}
-    merged = dict(stored)
-    changed = False
     for event in events:
         expectation = event.get("expectation")
         if not isinstance(expectation, dict) or not expectation.get("event_consensus"):
             continue
-        key = _event_key(event)
-        previous = merged.get(key)
-        previous_date = str(previous.get("survey_date") or "") if isinstance(previous, dict) else ""
-        survey_date = str(expectation.get("survey_date") or "")
-        if previous_date and survey_date and previous_date > survey_date:
-            continue
-        merged[key] = dict(expectation)
-        changed = True
-    if changed:
-        await _write_state(repository, EVENT_STATE_KEY, {"expectations": merged})
+        await _write_event_expectation(repository, _event_key(event), dict(expectation))
 
 
 async def apply_cached_event_expectations(

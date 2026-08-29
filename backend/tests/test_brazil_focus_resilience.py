@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -33,10 +34,19 @@ class FakeRepository:
 
     async def run(self, sql: str, params=()):
         if "runtime_state" in sql:
-            key, value, updated_at = params
-            if "json_extract" in sql and (current := self.state.get(str(key))):
-                import json
-
+            key, value, updated_at = params[:3]
+            if "json_patch" in sql and (current := self.state.get(str(key))):
+                current_payload = json.loads(current["value"])
+                incoming_payload = json.loads(str(value))
+                event_key, incoming = next(iter(incoming_payload["expectations"].items()))
+                previous = current_payload.get("expectations", {}).get(event_key)
+                previous_date = str(previous.get("survey_date") or "") if previous else ""
+                incoming_date = str(incoming.get("survey_date") or "")
+                if previous_date > incoming_date:
+                    return {"success": True}
+                current_payload.setdefault("expectations", {})[event_key] = incoming
+                value = json.dumps(current_payload)
+            elif "json_extract" in sql and (current := self.state.get(str(key))):
                 current_date = json.loads(current["value"]).get("survey_date") or ""
                 incoming_date = json.loads(str(value)).get("survey_date") or ""
                 if current_date > incoming_date:
@@ -231,6 +241,39 @@ def test_event_expectation_survives_later_olinda_failure() -> None:
     assert count == 1
     assert restored[0]["expectation"]["value"] == 0.31
     assert restored[0]["expectation"]["fallback_cached"] is True
+
+
+def test_concurrent_event_writes_preserve_keys_and_newest_shared_survey() -> None:
+    repo = FakeRepository()
+
+    def event(name: str, survey_date: str, value: float) -> dict:
+        return {
+            "date": "2026-09-11",
+            "name": name,
+            "reference": "aug. 2026",
+            "expectation": {
+                "event_consensus": True,
+                "survey_date": survey_date,
+                "value": value,
+            },
+        }
+
+    async def race() -> None:
+        # The older request deliberately reaches the shared event last.
+        await persist_event_expectations(
+            repo,
+            [event("IPCA", "2026-08-29", 0.31), event("GDP", "2026-08-29", 0.4)],
+        )
+        await persist_event_expectations(
+            repo,
+            [event("IPCA", "2026-08-28", 0.35), event("Selic", "2026-08-28", 13.75)],
+        )
+
+    asyncio.run(race())
+    cached = json.loads(repo.state["brazil_focus_event_expectations_v1"]["value"])
+
+    assert len(cached["expectations"]) == 3
+    assert cached["expectations"]["2026-09-11|IPCA|aug. 2026"]["value"] == 0.31
 
 
 def test_live_event_consensus_survives_cache_write_failure(monkeypatch: pytest.MonkeyPatch) -> None:
