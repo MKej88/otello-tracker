@@ -144,6 +144,27 @@ def test_partial_live_focus_merges_into_complete_cached_snapshot() -> None:
     assert fallback["values"]["ipca"]["2026"]["median"] == 4.95
 
 
+def test_partial_live_focus_response_is_completed_from_merged_snapshot() -> None:
+    repo = FakeRepository()
+    asyncio.run(resolve_annual_focus(repo, _live_focus("2026-08-28"), as_of_date="2026-08-29"))
+    partial = {
+        "ready": True,
+        "values": {"selic": {"2026": {"median": 13.25, "survey_date": "2026-08-29"}}},
+    }
+
+    focus, status = asyncio.run(
+        resolve_annual_focus(repo, partial, as_of_date="2026-08-29")
+    )
+
+    assert focus["data_source"] == "BCB_OLINDA_LIVE"
+    assert focus["fallback"] is False
+    assert focus["values"]["selic"]["2026"]["median"] == 13.25
+    assert focus["values"]["selic"]["2027"]["median"] == 11.75
+    assert focus["values"]["ipca"]["2026"]["median"] == 4.95
+    assert focus["values"]["gdp"]["2027"]["median"] == 1.50
+    assert status["fallback"] is False
+
+
 def test_first_partial_live_focus_is_completed_by_published_bootstrap() -> None:
     repo = FakeRepository()
     partial = {

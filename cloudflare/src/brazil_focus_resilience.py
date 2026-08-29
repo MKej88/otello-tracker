@@ -64,6 +64,42 @@ def _valid_values(values: Any) -> bool:
     )
 
 
+def _merge_missing_annual_values(
+    live_values: dict[str, Any],
+    cached_values: Any,
+    *,
+    as_of_date: str,
+) -> dict[str, Any]:
+    """Fill gaps in a live response without replacing any live point."""
+    merged: dict[str, Any] = {}
+    if isinstance(cached_values, dict):
+        for indicator, by_year in cached_values.items():
+            if not isinstance(by_year, dict):
+                continue
+            eligible = {
+                str(year): dict(point)
+                for year, point in by_year.items()
+                if isinstance(point, dict)
+                and point.get("median") is not None
+                and (
+                    not str(point.get("survey_date") or "")[:10]
+                    or str(point.get("survey_date") or "")[:10] <= as_of_date
+                )
+            }
+            if eligible:
+                merged[str(indicator)] = eligible
+
+    for indicator, by_year in live_values.items():
+        if not isinstance(by_year, dict):
+            continue
+        target = merged.setdefault(str(indicator), {})
+        for year, point in by_year.items():
+            # Live data is authoritative, including any extra metadata attached
+            # to a point, so cached completion can never overwrite it.
+            target[str(year)] = dict(point) if isinstance(point, dict) else point
+    return merged
+
+
 async def _read_state(repository: Any, key: str) -> dict[str, Any] | None:
     row = await repository.first(
         "SELECT value, updated_at FROM runtime_state WHERE key = ?",
@@ -208,6 +244,18 @@ async def resolve_annual_focus(
         await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
+        try:
+            cached = await _read_state(repository, ANNUAL_STATE_KEY)
+        except Exception:  # noqa: BLE001 - cache completion must not hide valid live data
+            cached = None
+        completion_values = cached.get("values") if cached else None
+        if completion_values is None and as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
+            completion_values = _BOOTSTRAP_VALUES
+        result["values"] = _merge_missing_annual_values(
+            live_focus["values"],
+            completion_values,
+            as_of_date=as_of_date,
+        )
         result["fallback"] = False
         result["data_source"] = "BCB_OLINDA_LIVE"
         return result, {"ready": True, "fallback": False, "survey_date": survey_date}
