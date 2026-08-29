@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDateTime } from "./uiFormat";
 import { createPortal } from "react-dom";
 import { usePollingResource } from "./usePollingResource";
 import "./report-status.css";
@@ -65,13 +66,7 @@ function dateLabel(input?: string | null) {
 }
 
 function timeLabel(input?: Date | null) {
-  if (!input) return "–";
-  return input.toLocaleString("nb-NO", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(input);
 }
 
 function moneyUsd(input?: number | null) {

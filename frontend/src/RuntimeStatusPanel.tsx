@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePollingResource } from "./usePollingResource";
+import { formatDate, formatDateTime } from "./uiFormat";
 import "./runtime-status.css";
 
 type JobStatus = {
@@ -51,25 +52,6 @@ type RuntimeStatus = {
 };
 
 const REFRESH_MS = 60_000;
-
-function dateLabel(input?: string | null) {
-  if (!input) return "–";
-  const value = input.slice(0, 10);
-  const [year, month, day] = value.split("-");
-  return year && month && day ? `${day}.${month}.${year}` : input;
-}
-
-function timeLabel(input?: string | null) {
-  if (!input) return "–";
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) return input;
-  return parsed.toLocaleString("nb-NO", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function statusLabel(status?: string | null) {
   switch ((status ?? "").toUpperCase()) {
@@ -129,12 +111,12 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
         <div className={`runtimeMetric ${data.full_refresh.stale ? "runtimeMetricWarn" : ""}`}>
           <span>Full oppdatering</span>
           <strong>{statusLabel(data.full_refresh.status)}</strong>
-          <small>{timeLabel(data.full_refresh.finished_at ?? data.full_refresh.started_at)}</small>
+          <small>{formatDateTime(data.full_refresh.finished_at ?? data.full_refresh.started_at)}</small>
         </div>
         <div className={`runtimeMetric ${data.fast_refresh.stale ? "runtimeMetricWarn" : ""}`}>
           <span>30-min oppdatering</span>
           <strong>{statusLabel(data.fast_refresh.status)}</strong>
-          <small>{timeLabel(data.fast_refresh.finished_at ?? data.fast_refresh.started_at)}</small>
+          <small>{formatDateTime(data.fast_refresh.finished_at ?? data.fast_refresh.started_at)}</small>
         </div>
         <div className={`runtimeMetric ${snapshot && !snapshotHit ? "runtimeMetricWarn" : ""}`}>
           <span>Førsteside-cache</span>
@@ -144,18 +126,18 @@ function RuntimePanel({ data, refreshFailed }: { data: RuntimeStatus | null; ref
         <div className="runtimeMetric">
           <span>Norges Bank</span>
           <strong>{statusLabel(data.norges_bank.status)}</strong>
-          <small>{timeLabel(data.norges_bank.checked_at)}</small>
+          <small>{formatDateTime(data.norges_bank.checked_at)}</small>
         </div>
         <div className={`runtimeMetric ${data.fx.current ? "" : "runtimeMetricWarn"}`}>
           <span>Valuta BRL/USD → NOK</span>
-          <strong>{dateLabel(data.fx.latest_common_date)}</strong>
-          <small>Forventet minst {dateLabel(data.fx.expected_date)}</small>
+          <strong>{formatDate(data.fx.latest_common_date)}</strong>
+          <small>Forventet minst {formatDate(data.fx.expected_date)}</small>
         </div>
       </div>
 
       {refreshFailed && (
         <div className="runtimeAlert">
-          Ny status kunne ikke hentes. Siste gyldige produksjonsstatus beholdes, sist kontrollert {timeLabel(data.checked_at)}.
+          Ny status kunne ikke hentes. Siste gyldige produksjonsstatus beholdes, sist kontrollert {formatDateTime(data.checked_at)}.
         </div>
       )}
       {snapshot && !snapshotHit && (
