@@ -20,6 +20,7 @@ type ValuationSourceQuarter = {
   adjusted_net_income_mbrl: number;
   adjusted_ebitda_mbrl: number;
   adjusted_cash_generation_mbrl?: number | null;
+  reported_net_income_parent_mbrl?: number | null;
   source: string;
   source_url?: string | null;
 };
@@ -58,6 +59,10 @@ type BemobiDashboard = {
     ev_anchor_source?: string | null;
     ev_anchor_source_url?: string | null;
     adjusted_net_income_ttm_mbrl?: number | null;
+    reported_net_income_ttm_mbrl?: number | null;
+    reported_net_income_ttm_complete?: boolean;
+    reported_net_income_source?: string | null;
+    reported_net_income_source_url?: string | null;
     adjusted_ebitda_ttm_mbrl?: number | null;
     adjusted_fcf_ttm_mbrl?: number | null;
     ebit_ttm_mbrl?: number | null;
@@ -90,6 +95,27 @@ type BemobiDashboard = {
     source_code?: string | null;
     source_url?: string | null;
     source_title?: string | null;
+  };
+  distribution_estimate?: {
+    ready: boolean;
+    reason?: string | null;
+    period?: string | null;
+    ttm_end_period?: string | null;
+    reported_net_income_ttm_mbrl?: number | null;
+    payout_policy_pct?: number | null;
+    policy_year?: number | null;
+    policy_is_current?: boolean;
+    estimated_total_distribution_mbrl?: number | null;
+    otello_distribution_share_pct?: number | null;
+    distribution_eligible_shares?: number | null;
+    ownership_method?: string | null;
+    otello_gross_mbrl?: number | null;
+    otello_gross_mnok?: number | null;
+    otello_gross_per_otec_share_nok?: number | null;
+    brl_nok?: number | null;
+    source_code?: string | null;
+    source_url?: string | null;
+    methodology_note?: string | null;
   };
   latest_distribution?: {
     type?: string | null;
@@ -225,6 +251,7 @@ export default function BemobiPage() {
   const otello = data.otello;
   const valuation = data.valuation;
   const result = data.latest_result;
+  const distributionEstimate = data.distribution_estimate;
   const distribution = data.latest_distribution;
   const nextReport = data.next_report;
   const ttmRange = valuation?.period?.replace(/^TTM\s+/, "") ?? "TTM";
@@ -356,6 +383,7 @@ export default function BemobiPage() {
             </div>
             <div className="placeholderRows">
               <div><span>Justert resultat TTM</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Rapportert resultat TTM</span><strong>R$ {value(valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert EBITDA TTM</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert FCF-proxy TTM</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
               <div><span>EBIT TTM · anker {evAnchorPeriod}</span><strong>R$ {value(valuation?.ebit_ttm_mbrl, 1)}m</strong></div>
@@ -448,6 +476,87 @@ export default function BemobiPage() {
             <div><span>Verdi per OTEC-aksje</span><strong>{value(otello?.value_per_otello_share_nok, 2)} kr</strong></div>
           </div>
         </article>
+      </section>
+
+      <section className="card bemobiValuation">
+        <div className="cardHeader">
+          <div>
+            <span className="label">Kapitalretur · TTM run-rate</span>
+            <h2>Estimert utbytte til Otello</h2>
+          </div>
+          <SourceLink url={distributionEstimate?.source_url}>
+            <span className="pill">{distributionEstimate?.ready ? sourceName(distributionEstimate.source_code) : "CVM"}</span>
+          </SourceLink>
+        </div>
+
+        {distributionEstimate?.ready ? (
+          <>
+            <div className="bemobiValuationMetrics">
+              <div>
+                <span>Otello brutto</span>
+                <strong>{value(distributionEstimate.otello_gross_mnok, 1)} mill. kr</strong>
+                <small>R$ {value(distributionEstimate.otello_gross_mbrl, 1)}m</small>
+              </div>
+              <div>
+                <span>Per OTEC-aksje</span>
+                <strong>{value(distributionEstimate.otello_gross_per_otec_share_nok, 2)} kr</strong>
+                <small>Brutto run-rate</small>
+              </div>
+              <div>
+                <span>Rapportert resultat TTM</span>
+                <strong>R$ {value(distributionEstimate.reported_net_income_ttm_mbrl, 1)}m</strong>
+                <small>{distributionEstimate.period}</small>
+              </div>
+              <div>
+                <span>Otellos utdelingsandel</span>
+                <strong>{value(distributionEstimate.otello_distribution_share_pct, 2)} %</strong>
+                <small>
+                  {distributionEstimate.ownership_method === "LATEST_DISTRIBUTION_ELIGIBLE_SHARES"
+                    ? "Utbytteberettigede aksjer"
+                    : "Rapportert eierandel"}
+                </small>
+              </div>
+            </div>
+
+            <div className="placeholderRows">
+              <div>
+                <span>Indikert Bemobi-utdeling</span>
+                <strong>R$ {value(distributionEstimate.estimated_total_distribution_mbrl, 1)} mill.</strong>
+              </div>
+              <div>
+                <span>Payout brukt i modellen</span>
+                <strong>{value(distributionEstimate.payout_policy_pct, 0)} %</strong>
+              </div>
+              <div>
+                <span>Policy / scenario</span>
+                <strong>
+                  {distributionEstimate.policy_is_current
+                    ? `${distributionEstimate.policy_year} payout-policy`
+                    : "100 % payout-scenario"}
+                </strong>
+              </div>
+              <div>
+                <span>BRL/NOK</span>
+                <strong>{value(distributionEstimate.brl_nok, 4)}</strong>
+              </div>
+              {distributionEstimate.distribution_eligible_shares != null && (
+                <div>
+                  <span>Utbytteberettigede Bemobi-aksjer</span>
+                  <strong>{integer.format(distributionEstimate.distribution_eligible_shares)}</strong>
+                </div>
+              )}
+            </div>
+            <p className="bemobiValuationNote">
+              {distributionEstimate.methodology_note} Faktisk kontantbeløp kan avvike avhengig av
+              styrevedtak, JCP/utbytte-miks, skatt og eventuell endring i payout-policy.
+            </p>
+          </>
+        ) : (
+          <p className="bemobiEmpty">
+            Venter på fire sammenhengende kvartaler med rapportert CVM-resultat til Bemobis aksjonærer.
+            Når CVM-grunnlaget er komplett oppdateres TTM-estimatet automatisk.
+          </p>
+        )}
       </section>
 
       <section className="bemobiTwoColumn">
