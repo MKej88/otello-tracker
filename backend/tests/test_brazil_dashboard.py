@@ -29,7 +29,8 @@ class _FxRepository:
 
     async def all(self, sql: str, params: tuple[str, ...]) -> list[dict[str, object]]:
         assert "ROW_NUMBER() OVER" in sql
-        assert params == ("2026-08-29",)
+        assert "AND substr(fr.observed_at,1,10)>=?" in sql
+        assert params == ("2026-08-29", "2026-07-25")
         return [
             {"rate_date": "2026-08-28", "rate": "1.8061"},
             {"rate_date": "2026-08-27", "rate": "1.8200"},

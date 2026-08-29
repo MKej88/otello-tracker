@@ -485,12 +485,13 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
             JOIN sources s ON s.id=fr.source_id
             WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
               AND substr(fr.observed_at,1,10)<=?
+              AND substr(fr.observed_at,1,10)>=?
         )
         WHERE source_rank=1
         ORDER BY rate_date DESC
         LIMIT 18
         """,
-        (as_of_date,),
+        (as_of_date, floor),
     )
     series = [
         {"date": str(item.get("rate_date") or ""), "value": _float(rate)}
