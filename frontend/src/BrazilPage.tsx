@@ -76,6 +76,53 @@ type BrazilPayload = {
 
 const REFRESH_MS = 30 * 60 * 1000;
 
+const METRIC_LABELS: Record<string, string> = {
+  brl_nok: "Valutakurs for brasilianske real",
+  selic: "Styringsrenten",
+  ipca_12m: "Prisvekst siste 12 måneder",
+  ibc_br: "Økonomisk aktivitet",
+  ibc_services: "Aktivitet i tjenestenæringene",
+};
+
+const FOCUS_ROW_LABELS: Record<string, string> = {
+  selic: "Styringsrenten",
+  ipca: "Prisvekst",
+  gdp: "Økonomisk vekst (BNP)",
+  usd_brl: "Valutakurs (USD/BRL)",
+};
+
+function eventLabel(event: CalendarEvent) {
+  const labels: Record<string, string> = {
+    copom: "Rentebeslutning fra sentralbanken",
+    inflation: event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst",
+    gdp: event.name.replace("BNP", "Økonomisk vekst (BNP)"),
+    services: "Aktivitet i tjenestenæringene",
+    retail: "Omsetning i detaljhandelen",
+    activity: "Samlet økonomisk aktivitet",
+    labor: "Arbeidsledighet",
+  };
+  return labels[event.kind] ?? event.name;
+}
+
+function expectationLabel(value: string) {
+  return value
+    .replaceAll("Focus", "Markedsundersøkelse")
+    .replaceAll("Selic", "styringsrente")
+    .replaceAll("IPCA", "prisvekst")
+    .replaceAll("proxy", "anslag");
+}
+
+function financialText(value?: string | null) {
+  if (!value) return "";
+  return value
+    .replaceAll("Lavere Selic", "Lavere styringsrente")
+    .replaceAll("Selic", "styringsrenten")
+    .replaceAll("IBC-Br", "Målet for økonomisk aktivitet")
+    .replaceAll("Focus", "markedsundersøkelsen")
+    .replaceAll("multippel-ekspansjon", "høyere verdsettelse")
+    .replaceAll("multippel", "verdsettelse");
+}
+
 function number(value?: number | null, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "–";
   return value.toLocaleString("nb-NO", {
@@ -133,23 +180,24 @@ function MetricCard({ metric }: { metric?: Metric }) {
   const secondary = metric.key === "brl_nok"
     ? `${signed(metric.change_1m_pct, 1)} % siste ~1 mnd.`
     : metric.change != null
-      ? `${signed(metric.change, 2)} pp siden forrige observasjon`
+      ? `${signed(metric.change, 2)} prosentpoeng siden forrige observasjon`
       : metric.key.startsWith("ibc_")
         ? "Sesongjustert månedsendring"
         : "Siste observasjon";
   const signal = metric.signal ?? { tone: "neutral", label: "Nøytral" };
+  const unit = metric.unit.replace("% p.a.", "% per år").replace("% m/m", "% fra måneden før");
   return (
     <article className="card brazilMetricCard">
       <div className="brazilMetricTop">
-        <span className="label">{metric.label.toUpperCase()}</span>
-        <span className={`brazilSignal ${signal.tone}`}>{signal.label}</span>
+        <span className="label">{(METRIC_LABELS[metric.key] ?? metric.label).toUpperCase()}</span>
+        <span className={`brazilSignal ${signal.tone}`}>{financialText(signal.label)}</span>
       </div>
       <div className="brazilMetricValue">
-        {number(metric.value, digits)} <small>{metric.unit}</small>
+        {number(metric.value, digits)} <small>{unit}</small>
       </div>
       <div className="brazilMetricSecondary">{secondary}</div>
       <Sparkline points={metric.series} />
-      <p>{metric.bemobi_impact}</p>
+      <p>{financialText(metric.bemobi_impact)}</p>
       <div className="brazilSourceLine">{metric.source} · {dateLabel(metric.date)}</div>
     </article>
   );
@@ -158,10 +206,10 @@ function MetricCard({ metric }: { metric?: Metric }) {
 function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: string }) {
   const year = Number(asOfDate?.slice(0, 4) || new Date().getFullYear());
   const rows = [
-    { key: "selic", label: "Selic", unit: "%" },
-    { key: "ipca", label: "IPCA", unit: "%" },
-    { key: "gdp", label: "BNP", unit: "%" },
-    { key: "usd_brl", label: "USD/BRL", unit: "BRL" },
+    { key: "selic", unit: "%" },
+    { key: "ipca", unit: "%" },
+    { key: "gdp", unit: "%" },
+    { key: "usd_brl", unit: "BRL" },
   ];
   return (
     <div className="brazilTableWrap">
@@ -176,7 +224,7 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
             const survey = current?.survey_date ?? next?.survey_date;
             return (
               <tr key={row.key}>
-                <td><strong>{row.label}</strong></td>
+                <td><strong>{FOCUS_ROW_LABELS[row.key]}</strong></td>
                 <td>{number(current?.median, row.key === "usd_brl" ? 2 : 2)} {row.unit}</td>
                 <td>{number(next?.median, row.key === "usd_brl" ? 2 : 2)} {row.unit}</td>
                 <td>{dateLabel(survey)}</td>
@@ -202,29 +250,29 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
       </div>
       <div className="brazilCalendarMain">
         <div className="brazilCalendarTitle">
-          <strong>{event.name}</strong>
+          <strong>{eventLabel(event)}</strong>
           <span className={`brazilImportance ${event.importance.startsWith("Høy") ? "high" : "medium"}`}>{event.importance}</span>
         </div>
         {event.reference && <div className="brazilCalendarReference">Referanse: {event.reference}</div>}
-        <p>{event.bemobi_impact}</p>
+        <p>{financialText(event.bemobi_impact)}</p>
       </div>
       <div className="brazilCalendarExpectation">
         <span className="label">MARKEDETS FORVENTNING</span>
         {expectation && hasIngestedEventConsensus ? (
           <>
             <strong>{number(expectation.value, 2)} {expectation.unit}</strong>
-            <small>{expectation.label} · {expectation.provider ?? "BCB Focus"}</small>
+            <small>{expectationLabel(expectation.label)} · markedsundersøkelsen til Brasils sentralbank</small>
             {expectation.respondents ? <small>{expectation.respondents} respondenter</small> : null}
           </>
         ) : externalNotIngested ? (
           <>
             <strong>–</strong>
-            <small>Markedskonsensus finnes, men ikke via gratis BCB Focus-feed</small>
+            <small>Markedsforventninger finnes, men kan ikke hentes gratis automatisk</small>
           </>
         ) : (
           <>
             <strong>–</strong>
-            <small>{consensus?.note ?? "Hendelsesnær markedsforventning ikke tilgjengelig nå"}</small>
+            <small>{financialText(consensus?.note) || "Markedsforventning nær hendelsen er ikke tilgjengelig nå"}</small>
           </>
         )}
       </div>
@@ -249,8 +297,8 @@ export default function BrazilPage() {
       <section className="card brazilIntro">
         <div>
           <span className="label">BRASIL / BEMOBI</span>
-          <h2>Makro som påvirker Bemobi og Otellos NAV</h2>
-          <p>Renter og inflasjon driver avkastningskravet, aktivitet driver Bemobis underliggende marked, og BRL/NOK slår direkte inn i Otellos NAV.</p>
+          <h2>Økonomien som påvirker Bemobi og Otellos verdier</h2>
+          <p>Renter og prisvekst påvirker hva Bemobi verdsettes til. Aktiviteten påvirker markedet Bemobi selger i, mens valutakursen for brasilianske real slår direkte inn i Otellos verdier.</p>
         </div>
         <div className="brazilFreshness">
           <span className="label">SIST HENTET</span>
@@ -274,11 +322,11 @@ export default function BrazilPage() {
 
       <section className="card brazilFocusCard">
         <div className="sectionHeading compactHeading">
-          <div><span className="label">BCB FOCUS</span><h2>Hva markedet venter</h2></div>
+          <div><span className="label">MARKEDSUNDERSØKELSE</span><h2>Hva markedet venter</h2></div>
         </div>
-        <p className="brazilLead">Medianforventninger fra banker, forvaltere og andre deltakere i Banco Central do Brasils Focus-undersøkelse.</p>
+        <p className="brazilLead">Den midterste forventningen blant svarene fra banker, forvaltere og andre deltakere i undersøkelsen til Brasils sentralbank.</p>
         <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
-        <div className="brazilNote">{data.focus?.note ?? "Focus-data mangler akkurat nå."}</div>
+        <div className="brazilNote">Tall fra markedsundersøkelsen viser forventninger for hele året, ikke for én bestemt publisering.</div>
       </section>
 
       <section className="card brazilCalendarCard">
@@ -289,17 +337,17 @@ export default function BrazilPage() {
         <div className="brazilCalendarList">
           {calendar.length ? calendar.map((event) => <CalendarRow event={event} key={`${event.date}-${event.name}`} />) : <p>Ingen hendelser i perioden.</p>}
         </div>
-        <div className="brazilNote">{data.calendar_note}</div>
+        <div className="brazilNote">Bekreftede datoer kommer fra brasilianske myndigheter. Framtidige anslåtte datoer må bekreftes i den offisielle kalenderen. Forventninger for hele året er bare en pekepinn og gjelder ikke nødvendigvis den enkelte publiseringen.</div>
       </section>
 
       <section className="card brazilMethodCard">
         <span className="label">KILDER OG METODE</span>
         <h2>Gratis, offisielle kilder</h2>
-        <p>Makrotall hentes fra Banco Central do Brasil (SGS), forventninger fra BCB Focus, BRL/NOK fra Norges Bank og publiseringsdatoer fra BCB/IBGE.</p>
+        <p>Økonomiske nøkkeltall og forventninger hentes fra Brasils sentralbank, valutakursen fra Norges Bank og publiseringsdatoer fra brasilianske myndigheter.</p>
         <div className="brazilSources">
           {(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}
         </div>
-        <p className="brazilDisclaimer">BCB Focus er markedets forventninger fra banker, forvaltere og andre markedsaktører – ikke sentralbankens egen prognose. For IPCA/IPCA-15, arbeidsledighet, BNP og Copom bruker kalenderen hendelsesnære Focus-medianer når de finnes. PMS, PMC og IBC-Br har også markedskonsensus hos økonom-/bankpoller som Reuters/LSEG og Trading Economics, men disse er ikke hentet automatisk fordi vi ikke har en gratis lisensiert API-feed for dem.</p>
+        <p className="brazilDisclaimer">Markedsundersøkelsen viser forventningene til banker, forvaltere og andre i markedet – ikke sentralbankens egen prognose. Kalenderen viser forventninger nær publiseringsdatoen når de finnes. For tjenestenæringene, detaljhandelen og samlet økonomisk aktivitet finnes det også betalte spørreundersøkelser, men disse kan ikke hentes automatisk fra en gratis datakilde.</p>
       </section>
     </div>
   );
