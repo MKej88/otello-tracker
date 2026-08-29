@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Any
 
@@ -242,13 +243,15 @@ async def _estimated_extension(repository, days: int) -> dict[str, Any]:
     result = await estimated_nav_history(repository, days=days)
     change = result.get("change") or {}
     if change.get("ready"):
-        start_report = await _investment_report_for_nav_date(
-            repository,
-            str(change.get("resolved_start") or ""),
-        )
-        current_report = await _investment_report_for_nav_date(
-            repository,
-            str(change.get("current_date") or ""),
+        start_report, current_report = await asyncio.gather(
+            _investment_report_for_nav_date(
+                repository,
+                str(change.get("resolved_start") or ""),
+            ),
+            _investment_report_for_nav_date(
+                repository,
+                str(change.get("current_date") or ""),
+            ),
         )
         if not _apply_other_share_change_split(change, start_report, current_report):
             change["other_share_split_status"] = {
