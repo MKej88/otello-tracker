@@ -43,7 +43,7 @@ def test_bemobi_paid_is_split_out_without_changing_composition_total() -> None:
     bemobi = next(item for item in components if item["key"] == "bemobi_paid_since_report")
     residual = next(item for item in components if item["key"] == "other_cash_since_report")
 
-    assert bemobi["label"] == "Bemobi – utbetalt utbytte/JCP"
+    assert bemobi["label"] == "Bemobi – utbetalt utbytte/renter"
     assert bemobi["amount_mnok"] == 8.0
     assert bemobi["per_share_nok"] == 0.08
     assert bemobi["details"]["gross_mnok"] == 10.0

@@ -282,7 +282,7 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
     if distribution is not None and distribution.get("source_url"):
         sources.append(
             {
-                "label": "Utbytte / JCP",
+                "label": "Utbytte / renter",
                 "source": distribution.get("source_code") or "CVM",
                 "url": distribution.get("source_url"),
             }

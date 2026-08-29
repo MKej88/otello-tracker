@@ -396,7 +396,7 @@ def _build_change_attribution(
         drivers.append(
             _driver(
                 key="bemobi_paid",
-                label="Bemobi – utbetalt utbytte/JCP",
+                label="Bemobi – utbetalt utbytte/renter",
                 amount_nok=bemobi_paid_nok,
                 per_share_scale=reciprocal_scale,
                 details={
@@ -465,7 +465,7 @@ def _build_change_attribution(
         drivers.append(
             _driver(
                 key="bemobi_receivable",
-                label="Bemobi – tilgode utbytte/JCP",
+                label="Bemobi – tilgode utbytte/renter",
                 amount_nok=receivable_change,
                 per_share_scale=reciprocal_scale,
                 details={
@@ -728,7 +728,7 @@ async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
         "note": (
             "Estimert NAV bruker samme kildebelagte investorlogikk historisk som i dagens "
             "Estimert NAV. Manglende historiske innganger gjettes ikke. Endringsbroen "
-            "skiller Bemobi-kurs, BRL/NOK, utbyttefordring og utbetalt utbytte/JCP, samt "
+            "skiller Bemobi-kurs, BRL/NOK, utbyttefordring og utbetalt utbytte/renter, samt "
             "tilbakekjøpenes kontantbruk og aksjereduksjon."
         ),
     }

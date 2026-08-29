@@ -85,12 +85,12 @@ def reclassify_waterfall(
             ),
             _component(
                 key="bemobi_cash_received",
-                label="Bemobi-utbytte/JCP – mottatt",
+                label="Bemobi-utbytte/renter – mottatt",
                 amount_nok=bemobi_net_cash_nok,
                 anchor_shares=anchor_shares,
                 note=(
                     "Kontantmottak fra Bemobi etter rapportankeret, netto dokumentert "
-                    "JCP-skattetrekk. Utbytte og JCP vises separat fra øvrig cash."
+                    "skattetrekk på renter. Utbytte og renter vises separat fra øvrig cash."
                 ),
             ),
         ],
@@ -102,18 +102,18 @@ def reclassify_waterfall(
                 anchor_shares=anchor_shares,
                 note=(
                     "Kontantendring som gjenstår etter at tilbakekjøp og mottatt "
-                    "Bemobi-utbytte/JCP er skilt ut."
+                    "Bemobi-utbytte/renter er skilt ut."
                 ),
             )
         ],
         "ona_ex_option": [
             _component(
                 key="bemobi_receivable",
-                label="Bemobi-utbytte/JCP – til gode",
+                label="Bemobi-utbytte/renter – til gode",
                 amount_nok=receivable_change_nok,
                 anchor_shares=anchor_shares,
                 note=(
-                    "Endring i opptjent Bemobi-utbytte/JCP som er ex-rettighet, men ennå "
+                    "Endring i opptjent Bemobi-utbytte/renter som er ex-rettighet, men ennå "
                     "ikke utbetalt. Ved betaling flyttes beløpet fra fordring til cash."
                 ),
             ),
@@ -158,8 +158,8 @@ def reclassify_waterfall(
     }
     result["note"] = (
         str(result.get("note") or "")
-        + " Kontantbroen skiller tilbakekjøp og mottatt Bemobi-utbytte/JCP fra øvrig cash; "
-        "opptjent, ikke utbetalt Bemobi-utbytte/JCP vises separat som fordring."
+        + " Kontantbroen skiller tilbakekjøp og mottatt Bemobi-utbytte/renter fra øvrig cash; "
+        "opptjent, ikke utbetalt Bemobi-utbytte/renter vises separat som fordring."
     ).strip()
     return result
 

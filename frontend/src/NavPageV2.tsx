@@ -447,7 +447,7 @@ export default function NavPageV2() {
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/JCP og faktisk utbetalt utbytte/JCP. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i Estimert NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i Estimert NAV.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske Estimert NAV-observasjoner for valgt periode.</p>

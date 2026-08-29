@@ -58,7 +58,7 @@ def test_bemobi_receivable_is_split_out_of_fx_without_changing_nav() -> None:
     bemobi = next(item for item in components if item["key"] == "bemobi_receivable")
     fx = next(item for item in components if item["key"] == "fx_since_report")
 
-    assert bemobi["label"] == "Bemobi – tilgode utbytte/JCP"
+    assert bemobi["label"] == "Bemobi – tilgode utbytte/renter"
     assert bemobi["amount_mnok"] == 3.0
     assert bemobi["per_share_nok"] == 0.03
     assert bemobi["details"]["ex_dates"] == ["2026-08-20"]
