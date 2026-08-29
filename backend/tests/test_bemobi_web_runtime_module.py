@@ -39,13 +39,13 @@ def test_runtime_module_keeps_dynamic_forward_consensus_contract() -> None:
     assert [item["year"] for item in years] == [2028, 2029]
 
 
-def test_secondary_web_sources_are_rotated_across_three_nights() -> None:
+def test_heavy_secondary_web_sources_alternate_nights() -> None:
     slots = {
         runtime._secondary_refresh_slot(day)
-        for day in ("2026-08-21", "2026-08-22", "2026-08-23")
+        for day in ("2026-08-21", "2026-08-22")
     }
-    assert slots == {"result_release", "consensus", "xp_preview"}
-    assert len(runtime._SECONDARY_REFRESH_SLOTS) == 3
+    assert slots == {"result_release", "xp_preview"}
+    assert len(runtime._SECONDARY_REFRESH_SLOTS) == 2
 
 
 def test_scheduled_secondary_skip_is_not_a_source_failure() -> None:
@@ -59,6 +59,35 @@ def test_scheduled_secondary_skip_is_not_a_source_failure() -> None:
     }
 
 
+def test_marketscreener_consensus_runs_every_night(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def ok_ir(*args, **kwargs):
+        return {"status": "ok", "rows_written": 5}
+
+    async def ok_consensus(*args, **kwargs):
+        calls.append(str(kwargs["target_date"]))
+        return {"status": "ok", "rows_written": 3}
+
+    async def no_result(*args, **kwargs):
+        return {"status": "skipped", "rows_written": 0}
+
+    async def no_event(*args, **kwargs):
+        return 0
+
+    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
+    monkeypatch.setattr(runtime, "sync_marketscreener_consensus", ok_consensus)
+    monkeypatch.setattr(runtime, "sync_latest_result_release", no_result)
+    monkeypatch.setattr(runtime, "_ensure_consensus_event", no_event)
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")
+
+    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-29"))
+
+    assert calls == ["2026-08-29"]
+    assert result["consensus"]["status"] == "ok"
+    assert result["rows_written"] == 8
+
+
 def test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation(monkeypatch) -> None:
     async def ok_ir(*args, **kwargs):
         return {"status": "ok", "rows_written": 5}
@@ -68,7 +97,12 @@ def test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation(mo
 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
     monkeypatch.setattr(runtime, "sync_marketscreener_consensus", blocked_consensus)
-    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "consensus")
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
+
+    async def no_xp(*args, **kwargs):
+        return {"status": "skipped", "rows_written": 0}
+
+    monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-27"))
     assert result["status"] == "ok"
@@ -89,7 +123,12 @@ def test_transient_official_ir_failure_preserves_last_good_without_partial_night
 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", failed_ir)
     monkeypatch.setattr(runtime, "sync_marketscreener_consensus", ok_consensus)
-    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "consensus")
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
+
+    async def no_xp(*args, **kwargs):
+        return {"status": "skipped", "rows_written": 0}
+
+    monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-28"))
     assert result["status"] == "partial"

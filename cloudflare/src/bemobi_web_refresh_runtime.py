@@ -39,15 +39,16 @@ _REQUIRED_FORWARD_METRICS = {
     "eps_brl",
     "net_debt_mbrl",
 }
-_SECONDARY_REFRESH_SLOTS = ("result_release", "consensus", "xp_preview")
+_SECONDARY_REFRESH_SLOTS = ("result_release", "xp_preview")
 
 
 def _secondary_refresh_slot(target_date: str) -> str:
     """Spread CPU-heavier secondary web sources deterministically across nights.
 
-    Official Bemobi IR remains daily. Result PDF parsing, MarketScreener and XP are all
-    last-good-preserved secondary sources, so each may safely wait at most two additional
-    nights. This bounds one Workflow step without silently dropping any source permanently.
+    Official Bemobi IR and the lightweight MarketScreener snapshot remain daily. Result
+    PDF parsing and XP are last-good-preserved secondary sources and alternate nights.
+    Daily consensus snapshots are required for the revision tracker to move beyond its
+    seeded baseline and also make transient source failures retry on the next run.
     """
     ordinal = date.fromisoformat(target_date).toordinal()
     return _SECONDARY_REFRESH_SLOTS[ordinal % len(_SECONDARY_REFRESH_SLOTS)]
@@ -395,7 +396,12 @@ async def refresh_bemobi_web(
 
     active_slot = _secondary_refresh_slot(target_date)
     result: dict[str, Any] = _scheduled_skip("result_release", active_slot)
-    consensus: dict[str, Any] = _scheduled_skip("consensus", active_slot)
+    consensus = await sync_marketscreener_consensus(
+        repository,
+        target_date=target_date,
+        archive_bucket=archive_bucket,
+        fetcher=fetcher,
+    )
     xp: dict[str, Any] = _scheduled_skip("xp_preview", active_slot)
     event_rows = 0
 
@@ -413,13 +419,6 @@ async def refresh_bemobi_web(
         )
         if event_rows:
             result = {**result, "consensus_event_rows_written": event_rows}
-    elif active_slot == "consensus":
-        consensus = await sync_marketscreener_consensus(
-            repository,
-            target_date=target_date,
-            archive_bucket=archive_bucket,
-            fetcher=fetcher,
-        )
     else:
         xp = await sync_xp_preview(
             repository,
