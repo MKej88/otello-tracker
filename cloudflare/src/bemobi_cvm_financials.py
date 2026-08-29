@@ -64,6 +64,10 @@ DFC_METRICS: dict[str, dict[str, str]] = {
         "account": "6.01",
         "label": "Caixa Líquido Atividades Operacionais",
     },
+    "reported_capex_cash_outflow_mbrl": {
+        "account": "6.02.02",
+        "label": "Investimentos / capex - linha CVM 6.02.02",
+    },
 }
 BPA_METRICS: dict[str, dict[str, str]] = {
     "reported_cash_mbrl": {
@@ -796,9 +800,9 @@ async def refresh_bemobi_reported_net_income(
     """Refresh Bemobi standardized consolidated financials from CVM ITR/DFP.
 
     The established function name is retained for compatibility. It now refreshes statutory
-    revenue, EBIT, parent net income, operating cash flow, cash and borrowings. This lets the
-    Bemobi dashboard progressively replace curated accounting facts while keeping adjusted
-    KPIs sourced from the official result release.
+    revenue, EBIT, parent net income, operating cash flow, capex cash outflow, cash and
+    borrowings. This lets the Bemobi dashboard progressively replace curated accounting facts
+    while keeping adjusted KPIs sourced from the official result release.
     """
     due, reason = await _refresh_due(repository, target_date=target_date)
     if not due:
