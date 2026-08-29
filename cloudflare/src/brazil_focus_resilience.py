@@ -155,7 +155,9 @@ async def resolve_annual_focus(
                 "survey_date": survey_date,
             }
 
-    if as_of_date >= BOOTSTRAP_REFERENCE_DATE:
+    # The survey reference date predates publication; historical responses must not
+    # expose the report until it was publicly available.
+    if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
         result = {
             "ready": True,
             "values": _BOOTSTRAP_VALUES,

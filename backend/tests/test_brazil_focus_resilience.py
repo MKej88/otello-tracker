@@ -4,12 +4,15 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
 from brazil_focus_resilience import (  # noqa: E402
     BOOTSTRAP_REFERENCE_DATE,
+    BOOTSTRAP_PUBLICATION_DATE,
     apply_cached_event_expectations,
     persist_event_expectations,
     resolve_annual_focus,
@@ -91,17 +94,32 @@ def test_last_good_focus_cache_beats_static_bootstrap_after_live_success() -> No
     assert status["survey_date"] == "2026-08-28"
 
 
-def test_bootstrap_is_not_leaked_into_historical_dates_before_report() -> None:
+@pytest.mark.parametrize("as_of_date", ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
+def test_bootstrap_is_not_leaked_into_historical_dates_before_publication(
+    as_of_date: str,
+) -> None:
     repo = FakeRepository()
     empty = {"ready": False, "values": {}}
 
     focus, status = asyncio.run(
-        resolve_annual_focus(repo, empty, as_of_date="2026-08-20")
+        resolve_annual_focus(repo, empty, as_of_date=as_of_date)
     )
 
     assert focus["ready"] is False
     assert focus["values"] == {}
     assert status["ready"] is False
+
+
+def test_bootstrap_is_available_on_publication_date() -> None:
+    repo = FakeRepository()
+    empty = {"ready": False, "values": {}}
+
+    focus, status = asyncio.run(
+        resolve_annual_focus(repo, empty, as_of_date=BOOTSTRAP_PUBLICATION_DATE)
+    )
+
+    assert focus["data_source"] == "PUBLISHED_FOCUS_BOOTSTRAP"
+    assert status["ready"] is True
 
 
 def test_event_expectation_survives_later_olinda_failure() -> None:
