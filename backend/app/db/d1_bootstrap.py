@@ -178,8 +178,7 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
             """
             SELECT i.symbol, i.exchange_mic, p.price_type,
                    COUNT(*) AS row_count, MIN(p.trading_date) AS date_from,
-                   MAX(p.trading_date) AS date_to,
-                   MIN(p.close) AS min_price, MAX(p.close) AS max_price
+                   MAX(p.trading_date) AS date_to
             FROM market_prices p
             JOIN instruments i ON i.id = p.instrument_id
             GROUP BY i.symbol, i.exchange_mic, p.price_type
@@ -187,179 +186,146 @@ def key_metrics(connection: sqlite3.Connection) -> dict[str, Any]:
             """
         )
     ]
-    market_activity_coverage = [
-        dict(row)
-        for row in connection.execute(
-            """
-            SELECT i.symbol, i.exchange_mic,
-                   COUNT(*) AS row_count, MIN(a.trading_date) AS date_from,
-                   MAX(a.trading_date) AS date_to,
-                   SUM(CASE WHEN a.volume IS NOT NULL THEN 1 ELSE 0 END) AS volume_rows,
-                   SUM(CASE WHEN a.turnover_nok IS NOT NULL THEN 1 ELSE 0 END) AS turnover_rows
-            FROM market_activity a
-            JOIN instruments i ON i.id = a.instrument_id
-            GROUP BY i.symbol, i.exchange_mic
-            ORDER BY i.symbol, i.exchange_mic
-            """
-        )
-    ]
     fx_coverage = [
         dict(row)
         for row in connection.execute(
             """
-            SELECT base_ccy, quote_ccy, rate_type,
-                   COUNT(*) AS row_count, MIN(rate_date) AS date_from,
-                   MAX(rate_date) AS date_to,
-                   MIN(rate) AS min_rate, MAX(rate) AS max_rate
+            SELECT base_currency, quote_currency, COUNT(*) AS row_count,
+                   MIN(observed_at) AS observed_from, MAX(observed_at) AS observed_to
             FROM fx_rates
-            GROUP BY base_ccy, quote_ccy, rate_type
-            ORDER BY base_ccy, quote_ccy, rate_type
+            GROUP BY base_currency, quote_currency
+            ORDER BY base_currency, quote_currency
             """
         )
     ]
-    share_count = _latest_row(
-        connection,
-        "otello_share_counts",
-        "as_of_date",
-        ("as_of_date", "shares_outstanding", "source_document_id", "notes"),
-    )
-    cash_anchor = _latest_row(
-        connection,
-        "cash_anchors",
-        "as_of_date",
-        ("as_of_date", "cash_nok", "source_document_id", "notes"),
-    )
-    other_net_assets_anchor = _latest_row(
-        connection,
-        "other_net_assets_anchors",
-        "as_of_date",
-        ("as_of_date", "other_net_assets_nok", "source_document_id", "notes"),
-    )
-    latest_buyback = _latest_row(
-        connection,
-        "buybacks",
-        "as_of_date",
-        ("as_of_date", "shares", "amount_nok", "source_document_id", "notes"),
-    )
-    latest_distribution = _latest_row(
-        connection,
-        "corporate_actions",
-        "payment_date",
-        (
-            "external_action_id", "issuer_instrument_id", "action_type", "announcement_date",
-            "record_date", "ex_date", "payment_date", "amount_per_share",
-            "gross_amount_per_share", "net_amount_per_share", "gross_total_amount",
-            "net_total_amount", "withholding_rate", "tax_treatment", "source_document_id",
-            "notes",
-        ),
-        where_sql="WHERE action_type IN ('DIVIDEND', 'JCP', 'DISTRIBUTION')",
-    )
+
     return {
-        "nav": nav,
+        "nav_latest": nav,
         "market_coverage": market_coverage,
-        "market_activity_coverage": market_activity_coverage,
         "fx_coverage": fx_coverage,
-        "share_count": share_count,
-        "cash_anchor": cash_anchor,
-        "other_net_assets_anchor": other_net_assets_anchor,
-        "latest_buyback": latest_buyback,
-        "latest_distribution": latest_distribution,
-    }
-
-
-def build_manifest(connection: sqlite3.Connection) -> dict[str, Any]:
-    metrics = key_metrics(connection)
-    return {
-        "format": FORMAT_VERSION,
-        "tables": {
-            table: _table_manifest(connection, table)
-            for table in MANIFEST_TABLES
+        "buybacks": {
+            "row_count": connection.execute("SELECT COUNT(*) FROM buybacks").fetchone()[0],
+            "shares": connection.execute("SELECT COALESCE(SUM(shares), 0) FROM buybacks").fetchone()[0],
+            "amount_nok": _decimal_sum(connection, "buybacks", "amount_nok"),
+            "date_from": connection.execute("SELECT MIN(trade_date) FROM buybacks").fetchone()[0],
+            "date_to": connection.execute("SELECT MAX(trade_date) FROM buybacks").fetchone()[0],
         },
-        "key_metrics": metrics,
+        "buyback_daily": {
+            "row_count": connection.execute("SELECT COUNT(*) FROM buyback_daily_transactions").fetchone()[0],
+            "shares": connection.execute("SELECT COALESCE(SUM(shares), 0) FROM buyback_daily_transactions").fetchone()[0],
+            "amount_nok": _decimal_sum(connection, "buyback_daily_transactions", "amount_nok"),
+        },
+        "cash_latest": _latest_row(
+            connection, "cash_daily_estimates", "estimate_date",
+            ("estimate_date", "cash_nok", "quality", "inputs_hash"),
+        ),
+        "ona_latest": _latest_row(
+            connection, "other_net_assets_daily_estimates", "estimate_date",
+            (
+                "estimate_date", "amount_usd", "usd_nok_rate", "amount_nok",
+                "base_amount_nok", "associated_receivable_nok", "option_liability_nok",
+                "option_quality", "quality", "inputs_hash",
+            ),
+        ),
+        "share_count_latest": _latest_row(
+            connection, "otello_share_counts", "effective_from",
+            ("effective_from", "total_shares", "treasury_shares", "outstanding_shares"),
+        ),
+        "bemobi_holding_latest": _latest_row(
+            connection, "bemobi_holdings", "effective_from",
+            ("effective_from", "effective_to", "shares", "ownership_pct"),
+        ),
+        "life360_holding_latest": _latest_row(
+            connection, "life360_holding_anchors", "effective_from",
+            ("effective_from", "effective_to", "shares", "quality", "basis", "source_document_id"),
+        ),
     }
 
 
 def _existing_tables(connection: sqlite3.Connection) -> set[str]:
     return {
         row["name"]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
 
 
 def validate_source(connection: sqlite3.Connection) -> dict[str, Any]:
+    integrity_rows = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+    foreign_key_rows = [tuple(row) for row in connection.execute("PRAGMA foreign_key_check")]
+    existing = _existing_tables(connection)
+    missing = sorted(set(MANIFEST_TABLES) - existing)
+
+    latest = None
+    if "schema_migrations" in existing:
+        row = connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        latest = row[0] if row else None
+
     errors: list[str] = []
-    migrations = [
-        row["version"]
-        for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")
-    ]
-    if not migrations:
-        errors.append("SQLite database has no migration history")
-    elif migrations[-1] != LATEST_SQLITE_MIGRATION:
-        errors.append(
-            f"Expected SQLite migration {LATEST_SQLITE_MIGRATION}, found {migrations[-1]!r}"
-        )
-    missing_tables = [table for table in MANIFEST_TABLES if table not in _existing_tables(connection)]
-    if missing_tables:
-        errors.append(f"Missing manifest tables: {', '.join(missing_tables)}")
+    if integrity_rows != ["ok"]:
+        errors.append(f"SQLite integrity_check failed: {integrity_rows!r}")
+    if foreign_key_rows:
+        errors.append(f"SQLite foreign_key_check found {len(foreign_key_rows)} violation(s)")
+    if missing:
+        errors.append(f"Missing bootstrap table(s): {', '.join(missing)}")
+    if latest != LATEST_SQLITE_MIGRATION:
+        errors.append(f"Expected SQLite migration {LATEST_SQLITE_MIGRATION}, found {latest!r}")
 
-    expected_scopes = {"FULL", "ESTIMATED"}
-    actual_scopes = {
-        row["nav_scope"]
-        for row in connection.execute("SELECT DISTINCT nav_scope FROM nav_snapshots")
+    return {
+        "ok": not errors,
+        "latest_migration": latest,
+        "integrity_check": integrity_rows,
+        "foreign_key_violations": len(foreign_key_rows),
+        "missing_tables": missing,
+        "errors": errors,
     }
-    if actual_scopes and not expected_scopes.issubset(actual_scopes):
-        errors.append(
-            f"NAV scope coverage incomplete: expected {sorted(expected_scopes)}, got {sorted(actual_scopes)}"
-        )
 
-    integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-    if integrity != "ok":
-        errors.append(f"SQLite integrity_check failed: {integrity}")
-    return {"ok": not errors, "errors": errors}
+
+def build_manifest(connection: sqlite3.Connection) -> dict[str, Any]:
+    tables = {table: _table_manifest(connection, table) for table in MANIFEST_TABLES}
+    global_hasher = hashlib.sha256()
+    for table in MANIFEST_TABLES:
+        item = tables[table]
+        global_hasher.update(f"{table}\0{item['row_count']}\0{item['sha256']}\n".encode("utf-8"))
+
+    return {
+        "format_version": FORMAT_VERSION,
+        "latest_sqlite_migration": LATEST_SQLITE_MIGRATION,
+        "reference_tables": list(REFERENCE_TABLES),
+        "exported_tables": list(DATA_TABLES),
+        "omitted_operational_tables": list(OPERATIONAL_TABLES),
+        "tables": tables,
+        "logical_sha256": global_hasher.hexdigest(),
+        "key_metrics": key_metrics(connection),
+    }
 
 
 def build_sql(connection: sqlite3.Connection, manifest: dict[str, Any]) -> str:
     lines = [
-        "-- Generated by backend/app/db/d1_bootstrap.py",
-        "PRAGMA foreign_keys = OFF;",
-        "BEGIN TRANSACTION;",
+        "-- GENERATED D1 HISTORICAL BOOTSTRAP. Do not edit by hand.",
+        f"-- format: {FORMAT_VERSION}",
+        f"-- logical_sha256: {manifest['logical_sha256']}",
+        "-- Apply only after the Cloudflare schema/reference migrations on an otherwise fresh D1 database.",
+        "PRAGMA foreign_keys = ON;",
+        "PRAGMA defer_foreign_keys = ON;",
+        "",
     ]
-    for table in MANIFEST_TABLES:
+
+    for table in DATA_TABLES:
         columns = _table_columns(connection, table)
-        column_sql = ", ".join(_quote(column) for column in columns)
+        quoted_columns = ", ".join(_quote(column) for column in columns)
+        rows_written = 0
+        lines.append(f"-- {table}")
         for row in _ordered_rows(connection, table):
             values = ", ".join(_sql_literal(row[column]) for column in columns)
-            lines.append(
-                f"INSERT INTO {_quote(table)} ({column_sql}) VALUES ({values});"
-            )
-    lines.extend(("COMMIT;", "PRAGMA foreign_keys = ON;", ""))
-    return "\n".join(lines)
+            lines.append(f"INSERT INTO {_quote(table)} ({quoted_columns}) VALUES ({values});")
+            rows_written += 1
+        if rows_written == 0:
+            lines.append("-- empty")
+        lines.append("")
 
-
-def compare_manifests(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
-    mismatches: list[dict[str, Any]] = []
-    for table in MANIFEST_TABLES:
-        expected_table = expected.get("tables", {}).get(table)
-        actual_table = actual.get("tables", {}).get(table)
-        if expected_table != actual_table:
-            mismatches.append(
-                {"table": table, "expected": expected_table, "actual": actual_table}
-            )
-    if expected.get("key_metrics") != actual.get("key_metrics"):
-        mismatches.append(
-            {
-                "key_metrics": True,
-                "expected": expected.get("key_metrics"),
-                "actual": actual.get("key_metrics"),
-            }
-        )
-    return {"ok": not mismatches, "mismatches": mismatches}
-
-
-def compare_manifest(expected: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
-    return compare_manifests(expected, actual)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _open_database(path: Path, *, read_only: bool) -> sqlite3.Connection:
@@ -444,15 +410,31 @@ def compare_manifest(expected: dict[str, Any], actual: dict[str, Any]) -> dict[s
         expected_table = expected.get("tables", {}).get(table)
         actual_table = actual.get("tables", {}).get(table)
         if expected_table != actual_table:
-            mismatches.append(
-                {"table": table, "expected": expected_table, "actual": actual_table}
-            )
-    if expected.get("key_metrics") != actual.get("key_metrics"):
-        mismatches.append(
-            {
-                "key_metrics": True,
-                "expected": expected.get("key_metrics"),
-                "actual": actual.get("key_metrics"),
-            }
-        )
-    return {"ok": not mismatches, "mismatches": mismatches}
+            mismatches.append({"table": table, "expected": expected_table, "actual": actual_table})
+
+    key_metrics_match = expected.get("key_metrics") == actual.get("key_metrics")
+    logical_hash_match = expected.get("logical_sha256") == actual.get("logical_sha256")
+    return {
+        "ok": not mismatches and key_metrics_match and logical_hash_match,
+        "logical_hash_match": logical_hash_match,
+        "key_metrics_match": key_metrics_match,
+        "table_mismatches": mismatches,
+    }
+
+
+def verify_database(database_path: str | Path, expected_manifest: dict[str, Any]) -> dict[str, Any]:
+    path = Path(database_path)
+    connection = _open_database(path, read_only=True)
+    try:
+        foreign_key_rows = [tuple(row) for row in connection.execute("PRAGMA foreign_key_check")]
+        actual = build_manifest(connection)
+    finally:
+        connection.close()
+    comparison = compare_manifest(expected_manifest, actual)
+    comparison["foreign_key_violations"] = len(foreign_key_rows)
+    comparison["ok"] = comparison["ok"] and not foreign_key_rows
+    return comparison
+
+
+def load_manifest_file(path: str | Path) -> dict[str, Any]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
