@@ -91,10 +91,10 @@ def _apply_bemobi_paid_split(
     new_components.append(
         {
             "key": "bemobi_paid_since_report",
-            "label": "Bemobi – utbetalt utbytte/renter",
+            "label": "Bekreftede øvrige kontantbevegelser",
             "amount_mnok": float(bemobi_paid_nok / MILLION),
             "per_share_nok": float(bemobi_paid_nok / Decimal(shares)),
-            "formula": "Netto mottatt Bemobi-utbytte/renter siden siste rapport",
+            "formula": "Utbetalt utbytte/renter fra Bemobi siden siste rapport",
             "details": {
                 "gross_mnok": float(gross_nok / MILLION),
                 "withholding_mnok": float(withholding_nok / MILLION),
