@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query, Request
 
 from dashboard_hot_snapshot import dashboard_bootstrap_payload, dashboard_hot_component
-from performance_repository import PerformanceD1Repository
+from performance_repository import PerformanceD1Repository, PerformanceD1WriteRepository
 
 API_VERSION = "0.13.1"
 
@@ -62,6 +62,14 @@ def _repository(request: Request) -> PerformanceD1Repository:
     if database is None:
         raise HTTPException(status_code=503, detail="D1 binding unavailable")
     return PerformanceD1Repository(database)
+
+
+def _write_repository(request: Request) -> PerformanceD1WriteRepository:
+    env = request.scope.get("env")
+    database = getattr(env, "DB", None) if env is not None else None
+    if database is None:
+        raise HTTPException(status_code=503, detail="D1 binding unavailable")
+    return PerformanceD1WriteRepository(database)
 
 
 @app.get("/api/health")
@@ -238,7 +246,8 @@ async def get_brazil_dashboard(
     from brazil_dashboard_v2 import brazil_dashboard
 
     try:
-        return await brazil_dashboard(_repository(request), as_of_date=as_of_date)
+        # Focus resilience persists last-good annual and event-specific expectations.
+        return await brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
 
