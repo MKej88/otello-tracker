@@ -467,6 +467,36 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
     change_pct = None
     if previous_rate not in (None, Decimal("0")):
         change_pct = (current / previous_rate - Decimal("1")) * Decimal("100")
+    history_rows = await repository.all(
+        """
+        SELECT rate_date, rate
+        FROM (
+            SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY substr(fr.observed_at,1,10)
+                       ORDER BY CASE s.code
+                                    WHEN 'NORGES_BANK' THEN 0
+                                    WHEN 'ECB' THEN 1
+                                    ELSE 5
+                                END,
+                                fr.observed_at DESC, fr.id DESC
+                   ) AS source_rank
+            FROM fx_rates fr
+            JOIN sources s ON s.id=fr.source_id
+            WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+              AND substr(fr.observed_at,1,10)<=?
+        )
+        WHERE source_rank=1
+        ORDER BY rate_date DESC
+        LIMIT 18
+        """,
+        (as_of_date,),
+    )
+    series = [
+        {"date": str(item.get("rate_date") or ""), "value": _float(rate)}
+        for item in reversed(history_rows)
+        if (rate := _decimal(item.get("rate"))) is not None and rate > 0
+    ]
     return {
         "ready": True,
         "key": "brl_nok",
@@ -475,6 +505,7 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
         "date": str(row.get("rate_date") or ""),
         "value": _float(current),
         "change_1m_pct": _float(change_pct),
+        "series": series,
         "source": "Norges Bank" if row.get("source_code") == "NORGES_BANK" else str(row.get("source_code") or "FX"),
         "source_url": "https://data.norges-bank.no/api/data/EXR/B.BRL.NOK.SP",
         "bemobi_impact": "Sterkere BRL mot NOK øker Otellos Bemobi-verdi direkte målt i NOK.",
