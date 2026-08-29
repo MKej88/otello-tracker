@@ -41,8 +41,22 @@ def _latest_rows(payload: Any) -> list[dict[str, Any]]:
     return [dict(row) for row in values if isinstance(row, dict)] if isinstance(values, list) else []
 
 
+def _standard_base(row: dict[str, Any]) -> bool:
+    """Use Focus' standard 30-day sample (baseCalculo=0).
+
+    Unit tests and cached legacy rows may omit baseCalculo; accept those rows so
+    matching remains backwards compatible. Live OData requests filter to zero.
+    """
+    value = row.get("baseCalculo")
+    return value is None or str(value) == "0"
+
+
 def _latest_matching(rows: list[dict[str, Any]], predicate) -> dict[str, Any] | None:
-    matches = [row for row in rows if predicate(row) and _decimal(row.get("Mediana")) is not None]
+    matches = [
+        row
+        for row in rows
+        if _standard_base(row) and predicate(row) and _decimal(row.get("Mediana")) is not None
+    ]
     if not matches:
         return None
     matches.sort(key=lambda row: str(row.get("Data") or ""), reverse=True)
@@ -99,21 +113,41 @@ def _expectation(row: dict[str, Any], *, label: str, unit: str = "%") -> dict[st
     }
 
 
+def _odata_or(field: str, values: list[str]) -> str | None:
+    unique = sorted({value for value in values if value})
+    if not unique:
+        return None
+    escaped = [value.replace("'", "''") for value in unique]
+    return "(" + " or ".join(f"{field} eq '{value}'" for value in escaped) + ")"
+
+
 async def _fetch_endpoint(
     endpoint: str,
     *,
     start_date: str,
     end_date: str,
     indicators: list[str] | None = None,
+    reference_field: str | None = None,
+    references: list[str] | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    filters = [f"Data ge '{start_date}'", f"Data le '{end_date}'"]
+    filters = [f"Data ge '{start_date}'", f"Data le '{end_date}'", "baseCalculo eq 0"]
     if indicators:
         filters.append("(" + " or ".join(f"Indicador eq '{item}'" for item in indicators) + ")")
+    if reference_field and references:
+        reference_filter = _odata_or(reference_field, references)
+        if reference_filter:
+            filters.append(reference_filter)
+
+    if endpoint == "ExpectativasMercadoSelic":
+        select = "Indicador,Data,Reuniao,Media,Mediana,Minimo,Maximo,numeroRespondentes,baseCalculo"
+    else:
+        select = "Indicador,Data,DataReferencia,Media,Mediana,Minimo,Maximo,numeroRespondentes,baseCalculo"
+
     params = {
         "$format": "json",
-        "$top": "1200",
-        "$orderby": "Data desc",
+        "$top": "800",
+        "$select": select,
         "$filter": " and ".join(filters),
     }
     url = f"{FOCUS_BASE}/{endpoint}?{urllib.parse.urlencode(params)}"
@@ -128,11 +162,10 @@ def _monthly_expectation(event: dict[str, Any], rows: list[dict[str, Any]]) -> d
     name = _normalize(event.get("name"))
     if name == "ipca":
         indicator = "ipca"
-    elif name == "ipca-15":
-        indicator = "ipca-15"
     elif event.get("kind") == "labor":
         indicator = "taxa de desocupacao"
     else:
+        # BCB no longer collects IPCA-15 in the current Focus monthly survey.
         return None
 
     row = _latest_matching(
@@ -178,6 +211,38 @@ def _selic_expectation(event: dict[str, Any], rows: list[dict[str, Any]]) -> dic
     return _expectation(row, label=f"Focus Selic etter {meeting}")
 
 
+def _monthly_references(events: list[dict[str, Any]]) -> list[str]:
+    output: list[str] = []
+    for event in events:
+        name = _normalize(event.get("name"))
+        if name != "ipca" and event.get("kind") != "labor":
+            continue
+        target = _event_month(event)
+        if target is not None:
+            output.append(f"{target[1]:02d}/{target[0]}")
+    return output
+
+
+def _quarterly_references(events: list[dict[str, Any]]) -> list[str]:
+    output: list[str] = []
+    for event in events:
+        if event.get("kind") != "gdp":
+            continue
+        target = _event_quarter(event)
+        if target is not None:
+            output.append(f"{target[1]}/{target[0]}")
+    return output
+
+
+def _selic_references(events: list[dict[str, Any]]) -> list[str]:
+    return [
+        meeting
+        for event in events
+        if event.get("kind") == "copom"
+        if (meeting := COPOM_MEETINGS.get(str(event.get("date") or ""))) is not None
+    ]
+
+
 async def enrich_calendar_expectations(
     events: list[dict[str, Any]],
     *,
@@ -187,45 +252,64 @@ async def enrich_calendar_expectations(
     start = (date.fromisoformat(as_of_date) - timedelta(days=21)).isoformat()
     status: dict[str, Any] = {}
 
+    monthly_refs = _monthly_references(events)
+    quarterly_refs = _quarterly_references(events)
+    selic_refs = _selic_references(events)
+
     monthly: list[dict[str, Any]] = []
     quarterly: list[dict[str, Any]] = []
     selic: list[dict[str, Any]] = []
 
-    try:
-        monthly = await _fetch_endpoint(
-            "ExpectativaMercadoMensais",
-            start_date=start,
-            end_date=as_of_date,
-            indicators=["IPCA", "IPCA-15", "Taxa de desocupação"],
-            fetcher=fetcher,
-        )
-        status["monthly"] = {"ready": True, "rows": len(monthly)}
-    except Exception as exc:
-        status["monthly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    if monthly_refs:
+        try:
+            monthly = await _fetch_endpoint(
+                "ExpectativaMercadoMensais",
+                start_date=start,
+                end_date=as_of_date,
+                indicators=["IPCA", "Taxa de desocupação"],
+                reference_field="DataReferencia",
+                references=monthly_refs,
+                fetcher=fetcher,
+            )
+            status["monthly"] = {"ready": True, "rows": len(monthly)}
+        except Exception as exc:
+            status["monthly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    else:
+        status["monthly"] = {"ready": False, "skipped": True, "reason": "no_matching_events"}
 
-    try:
-        quarterly = await _fetch_endpoint(
-            "ExpectativasMercadoTrimestrais",
-            start_date=start,
-            end_date=as_of_date,
-            indicators=["PIB Total"],
-            fetcher=fetcher,
-        )
-        status["quarterly"] = {"ready": True, "rows": len(quarterly)}
-    except Exception as exc:
-        status["quarterly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    if quarterly_refs:
+        try:
+            quarterly = await _fetch_endpoint(
+                "ExpectativasMercadoTrimestrais",
+                start_date=start,
+                end_date=as_of_date,
+                indicators=["PIB Total"],
+                reference_field="DataReferencia",
+                references=quarterly_refs,
+                fetcher=fetcher,
+            )
+            status["quarterly"] = {"ready": True, "rows": len(quarterly)}
+        except Exception as exc:
+            status["quarterly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    else:
+        status["quarterly"] = {"ready": False, "skipped": True, "reason": "no_matching_events"}
 
-    try:
-        selic = await _fetch_endpoint(
-            "ExpectativasMercadoSelic",
-            start_date=start,
-            end_date=as_of_date,
-            indicators=["Selic"],
-            fetcher=fetcher,
-        )
-        status["selic"] = {"ready": True, "rows": len(selic)}
-    except Exception as exc:
-        status["selic"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    if selic_refs:
+        try:
+            selic = await _fetch_endpoint(
+                "ExpectativasMercadoSelic",
+                start_date=start,
+                end_date=as_of_date,
+                indicators=["Selic"],
+                reference_field="Reuniao",
+                references=selic_refs,
+                fetcher=fetcher,
+            )
+            status["selic"] = {"ready": True, "rows": len(selic)}
+        except Exception as exc:
+            status["selic"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    else:
+        status["selic"] = {"ready": False, "skipped": True, "reason": "no_matching_events"}
 
     enriched: list[dict[str, Any]] = []
     specific_count = 0
