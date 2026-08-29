@@ -20,11 +20,11 @@ type Statistics = {
 type EstimatedHistory = { ready: boolean; from?: string; to?: string; point_count?: number; points?: Point[]; statistics?: Statistics; note?: string };
 type Payload = { estimated?: EstimatedHistory };
 
-function chartDate(input?: string | null, showYear = false) {
+function chartDate(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.slice(0, 10).split("-");
   if (!year || !month || !day) return input;
-  return showYear ? `${day}.${month}.${year.slice(-2)}` : `${day}.${month}`;
+  return `${day}.${month}.${year}`;
 }
 
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
@@ -80,10 +80,6 @@ function DiscountChart({ points }: { points: Point[] }) {
   );
   const xTickIndexes = Array.from(new Set([0, Math.round((usable.length - 1) * 0.25), Math.round((usable.length - 1) * 0.5), Math.round((usable.length - 1) * 0.75), usable.length - 1]));
   const zeroInRange = min <= 0 && max >= 0;
-  const firstYear = usable[0]?.date.slice(0, 4);
-  const lastYear = usable.at(-1)?.date.slice(0, 4);
-  const showYear = firstYear !== lastYear;
-
   return (
     <div className="axisChart">
       <svg viewBox="0 0 1000 330" role="img" aria-label="Historisk rabatt til Estimert NAV">
@@ -100,7 +96,7 @@ function DiscountChart({ points }: { points: Point[] }) {
         })}
         {xTickIndexes.map((index) => {
           const px = x(index);
-          return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{chartDate(usable[index]?.date, showYear)}</text></g>;
+          return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{chartDate(usable[index]?.date)}</text></g>;
         })}
         <text className="axisTitle" transform="rotate(-90 18 150)" x="18" y="150" textAnchor="middle">Rabatt / premie</text>
         <text className="axisTitle axisPriceTitle" transform="rotate(90 982 150)" x="982" y="150" textAnchor="middle">OTEC-kurs</text>

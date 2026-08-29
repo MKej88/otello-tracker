@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { usePollingResource } from "./usePollingResource";
+import { formatDate, formatDateTime } from "./uiFormat";
 import "./news-events.css";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -12,9 +13,7 @@ const importanceLabels: Record<Importance, string> = { HIGH: "Høy", MEDIUM: "Mi
 
 function dateLabel(input?: string | null, includeTime = false) {
   if (!input) return "Dato mangler";
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) return input;
-  return parsed.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", year: "numeric", ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {}) });
+  return includeTime ? formatDateTime(input) : formatDate(input);
 }
 function SourceLink({ url, source }: { url?: string | null; source?: string | null }) {
   if (!url) return <span className="newsSource">{source ?? "Kilde ikke oppgitt"}</span>;
@@ -50,7 +49,7 @@ export default function NewsEventsPage() {
           <div className="card calendarCard">
             {!data && <p className="emptyCalendar">Laster kalender …</p>}
             {data && events.length === 0 && <p className="emptyCalendar">Ingen kjente kommende datoer for dette filteret.</p>}
-            {events.map((item) => <div className="calendarEvent" key={item.id}><time dateTime={item.date}><strong>{new Date(`${item.date}T12:00:00Z`).toLocaleDateString("nb-NO", { day: "2-digit" })}</strong><span>{new Date(`${item.date}T12:00:00Z`).toLocaleDateString("nb-NO", { month: "short" })}</span></time><div><div className="newsMeta"><span className={`companyTag company${item.company}`}>{item.company}</span><ImportanceBadge importance={item.importance} /></div><h3>{item.title}</h3><p>{item.date_label} · {item.confirmed ? "Bekreftet" : "Forventet / ikke bekreftet"}</p><SourceLink source={item.source} url={item.url} /></div></div>)}
+            {events.map((item) => <div className="calendarEvent" key={item.id}><time dateTime={item.date}><strong>{formatDate(item.date)}</strong></time><div><div className="newsMeta"><span className={`companyTag company${item.company}`}>{item.company}</span><ImportanceBadge importance={item.importance} /></div><h3>{item.title}</h3><p>{item.date_label} · {item.confirmed ? "Bekreftet" : "Forventet / ikke bekreftet"}</p><SourceLink source={item.source} url={item.url} /></div></div>)}
           </div>
           <p className="calendarNote">Forventede datoer er tydelig merket og kan endres. Kontroller alltid originalkilden.</p>
         </aside>

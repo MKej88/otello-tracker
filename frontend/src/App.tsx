@@ -198,7 +198,7 @@ function shortDate(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.split("-");
   if (!year || !month || !day) return input;
-  return `${day}.${month}`;
+  return `${day}.${month}.${year}`;
 }
 
 function statusLabel(input?: string | null) {
