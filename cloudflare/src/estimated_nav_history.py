@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import date, timedelta
@@ -649,19 +650,26 @@ async def _change(repository, start: dict[str, Any], current: dict[str, Any], re
     start_date = str(start["date"])
     current_date = str(current["date"])
     bemobi_delta = _composition_amount_nok(current, "bemobi") - _composition_amount_nok(start, "bemobi")
-    bemobi_market = await _bemobi_market_attribution(
-        repository,
-        start_date=start_date,
-        current_date=current_date,
-        expected_change_nok=bemobi_delta,
+    (
+        bemobi_market,
+        cash_breakdown,
+        start_receivable,
+        current_receivable,
+    ) = await asyncio.gather(
+        _bemobi_market_attribution(
+            repository,
+            start_date=start_date,
+            current_date=current_date,
+            expected_change_nok=bemobi_delta,
+        ),
+        _cash_breakdown(
+            repository,
+            start_date=start_date,
+            current_date=current_date,
+        ),
+        _receivable(repository, start_date),
+        _receivable(repository, current_date),
     )
-    cash_breakdown = await _cash_breakdown(
-        repository,
-        start_date=start_date,
-        current_date=current_date,
-    )
-    start_receivable = await _receivable(repository, start_date)
-    current_receivable = await _receivable(repository, current_date)
     return _build_change_attribution(
         start,
         current,
@@ -689,9 +697,13 @@ async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
     if str(current_date) not in dates:
         dates.append(str(current_date))
     dates = _pick_dates(sorted(set(dates)))
+    # Hvert punkt leser uavhengige historiske data. Kjør dem samtidig slik at en
+    # periodeendring ikke må vente på mange serielle turer til D1-databasen.
+    calculated_points = await asyncio.gather(
+        *(_estimated_point(repository, day) for day in dates)
+    )
     full_points, failures = [], []
-    for day in dates:
-        point = await _estimated_point(repository, day)
+    for day, point in zip(dates, calculated_points, strict=True):
         if point.get("ready"):
             full_points.append(point)
         else:
