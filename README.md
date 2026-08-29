@@ -1,15 +1,21 @@
 # Otello NAV-oversikt
 
-Privat investorverktøy for **Otello Corporation ASA** og **Bemobi Mobile Tech**. Løsningen beregner og viser løpende NAV, økonomisk investor-NAV, historisk NAV-rabatt, Bemobi-eksponering, tilbakekjøpsestimat, kontant-/valutaeffekter og konsensus.
+Privat investorverktøy for **Otello Corporation ASA**. Løsningen følger blant annet
+Otellos investeringer i **Bemobi Mobile Tech** og **Life360**, og beregner løpende
+NAV, økonomisk investor-NAV, historisk NAV-rabatt, tilbakekjøpsestimat,
+kontant-/valutaeffekter og konsensus.
 
 Produksjonen kjører på **Cloudflare Workers Paid** med React/Vite, Python Workers, D1, R2, Cron Triggers og Cloudflare Workflows.
 
-## Status 23.08.2026
+## Status 29.08.2026
 
 Produksjonen er live og deploy-/diagnosekjeden er etablert.
 
 - D1 er autoritativ produksjonsdatabase.
 - R2 brukes til råkilder, NewsWeb-PDF-er og logiske revisjonssnapshots.
+- Life360 inngår i investor-NAV med mark-to-market mot lagret LIF-sluttkurs og et
+  dokumentert rapportanker, uten at investeringen dobbelttelles i øvrige
+  nettoeiendeler.
 - rask Cron kjører hvert 30. minutt;
 - daglig Full Workflow kjører kl. 03:35 UTC;
 - rask og full oppdatering bruker felles D1-basert writer-lock, og hver Full Workflow-instans har unik lock-identitet;
@@ -35,7 +41,8 @@ Aktive visninger:
 
 Nyhetssiden samler offentlige Otello- og Bemobi-meldinger, originalkilder og kjente
 kommende datoer. Forventede datoer merkes tydelig som ubekreftet. Innstillinger er
-fortsatt et inaktivt område.
+ikke en del av den aktive investorvisningen. Datakvalitet samler kildehelse,
+rapportstatus, oppdateringsjobber og teknisk status på ett sted.
 
 ## Arkitektur
 
@@ -67,10 +74,12 @@ Se `docs/architecture.md`.
 
 ## Sentrale API-endepunkter
 
-Cloudflare-/referanse-API-versjon: **0.13.0**.
+Cloudflare-API-versjon: **0.13.1**. Den lokale SQLite-referansen har versjon
+**0.12.0** og brukes til testing av beregninger, ikke som produksjons-API.
 
 ```text
 GET /api/health
+GET /api/dashboard/bootstrap
 GET /api/market/quotes
 GET /api/dashboard/summary
 GET /api/dashboard/economic
@@ -234,7 +243,33 @@ Produksjonsdeploy og skrivebeskyttet diagnostikk bruker separate Cloudflare-toke
 
 SQLite-backenden brukes fortsatt til modellutvikling, historiske rebuilds, regresjonstester og sammenligning mot Cloudflare/D1.
 
-Frontend:
+### Python-oppsett
+
+Du kan kjøre referanse-API-et og testene med bare Python 3.12. Kommandoene under
+oppretter et isolert miljø i prosjektet:
+
+```bash
+cd backend
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+PYTHONPATH=. python -m uvicorn app.main:app --reload
+```
+
+API-et er da tilgjengelig på `http://127.0.0.1:8000`, og den interaktive
+API-dokumentasjonen ligger på `http://127.0.0.1:8000/docs`.
+
+Kjør Python-testene slik:
+
+```bash
+cd backend
+PYTHONPATH=. python -m pytest -q
+```
+
+### Frontend (valgfritt)
+
+Frontend kan ikke bygges med Python alene. Den krever Node.js 22 og npm, og er
+derfor valgfri når du bare skal arbeide med beregninger eller kjøre backend-tester:
 
 ```bash
 cd frontend
