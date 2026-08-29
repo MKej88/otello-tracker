@@ -62,8 +62,10 @@ def _scheduled_datetime(scheduled_time_ms: Any | None) -> datetime:
 
 
 def _scheduled_iso(scheduled_time_ms: Any | None) -> str:
-    return _scheduled_datetime(scheduled_time_ms).isoformat(timespec="milliseconds").replace(
-        "+00:00", "Z"
+    return (
+        _scheduled_datetime(scheduled_time_ms)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
     )
 
 
@@ -76,7 +78,10 @@ def _eod_is_authoritative(result: Any) -> bool:
         return False
     if result.get("status") == "ok":
         return True
-    return result.get("status") == "skipped" and result.get("reason") == "eod_already_finalized"
+    return (
+        result.get("status") == "skipped"
+        and result.get("reason") == "eod_already_finalized"
+    )
 
 
 async def _safe_async_step(
@@ -93,7 +98,11 @@ async def _safe_async_step(
         steps[name] = result
         return result
     except Exception as exc:
-        error = {"step": name, "error": str(exc)[:1000], "error_type": type(exc).__name__}
+        error = {
+            "step": name,
+            "error": str(exc)[:1000],
+            "error_type": type(exc).__name__,
+        }
         errors.append(error)
         steps[name] = {"status": "error", **error}
         return None
@@ -143,7 +152,9 @@ async def _otec_refresh_plan(repository, scheduled_at: datetime) -> dict[str, An
             "reason": "before_bootstrap_cutoff",
             "target_date": target_date,
         }
-    if local_time >= OTEC_EOD_FINALIZE_AFTER and await eod_otec_check_done(repository, target_date):
+    if local_time >= OTEC_EOD_FINALIZE_AFTER and await eod_otec_check_done(
+        repository, target_date
+    ):
         return {
             "should_poll": False,
             "reason": "eod_already_finalized",
@@ -191,7 +202,9 @@ async def run_fast_refresh(
     if should_poll_otec:
         otec = await _safe_async_step(
             "otec_delayed",
-            lambda: refresh_otec_with_gap_recovery(repository=repository, now=scheduled_at),
+            lambda: refresh_otec_with_gap_recovery(
+                repository=repository, now=scheduled_at
+            ),
             steps=steps,
             errors=errors,
             timings_ms=timings_ms,
@@ -219,7 +232,11 @@ async def run_fast_refresh(
                 "reason": "current_otec_refresh_failed",
             }
     else:
-        reason = str(plan.get("reason")) if isinstance(plan, dict) else "outside_market_window"
+        reason = (
+            str(plan.get("reason"))
+            if isinstance(plan, dict)
+            else "outside_market_window"
+        )
         target_date = plan.get("target_date") if isinstance(plan, dict) else None
         otec = {
             "status": "skipped",
@@ -268,7 +285,9 @@ async def run_fast_refresh(
     else:
         bmob3 = await _safe_async_step(
             "bmob3_delayed",
-            lambda: refresh_bmob3_intraday_price(repository=repository, now=scheduled_at),
+            lambda: refresh_bmob3_intraday_price(
+                repository=repository, now=scheduled_at
+            ),
             steps=steps,
             errors=errors,
             timings_ms=timings_ms,
@@ -297,14 +316,23 @@ async def run_fast_refresh(
         _append_nested_errors("newsweb_history", news_history, errors=errors)
         _append_nested_errors("newsweb_buybacks", news_buybacks, errors=errors)
     else:
-        steps["newsweb_history"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
-        steps["newsweb_buybacks"] = {"status": "skipped", "reason": "newsweb_fast_failed"}
+        steps["newsweb_history"] = {
+            "status": "skipped",
+            "reason": "newsweb_fast_failed",
+        }
+        steps["newsweb_buybacks"] = {
+            "status": "skipped",
+            "reason": "newsweb_fast_failed",
+        }
 
     if renew_lock is not None:
         await renew_lock("after NewsWeb")
 
     if archive_bucket is None:
-        report_result = {"status": "skipped", "reason": "missing_archive_bucket_binding"}
+        report_result = {
+            "status": "skipped",
+            "reason": "missing_archive_bucket_binding",
+        }
         steps["otello_reports"] = report_result
         timings_ms["otello_reports"] = 0.0
     else:
@@ -372,6 +400,7 @@ async def run_fast_refresh(
             repository,
             target_date=newsweb_date,
             archive_bucket=archive_bucket,
+            force_refresh=True,
         ),
         steps=steps,
         errors=errors,

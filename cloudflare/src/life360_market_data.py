@@ -114,7 +114,11 @@ def parse_yahoo_chart(
     if chart.get("error"):
         raise ValueError(f"Yahoo-returneringen inneholder feil: {chart.get('error')}")
     results = chart.get("result")
-    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+    if (
+        not isinstance(results, list)
+        or len(results) != 1
+        or not isinstance(results[0], dict)
+    ):
         raise ValueError("Yahoo-returneringen mangler én entydig resultatserie")
 
     result = results[0]
@@ -124,9 +128,13 @@ def parse_yahoo_chart(
     symbol = str(meta.get("symbol") or "")
     currency = str(meta.get("currency") or "")
     if symbol != expected_symbol:
-        raise ValueError(f"Yahoo-symbol {symbol!r} matcher ikke forventet {expected_symbol!r}")
+        raise ValueError(
+            f"Yahoo-symbol {symbol!r} matcher ikke forventet {expected_symbol!r}"
+        )
     if currency != expected_currency:
-        raise ValueError(f"Yahoo-valuta {currency!r} matcher ikke forventet {expected_currency!r}")
+        raise ValueError(
+            f"Yahoo-valuta {currency!r} matcher ikke forventet {expected_currency!r}"
+        )
 
     timezone_name = str(meta.get("exchangeTimezoneName") or "UTC")
     try:
@@ -138,22 +146,43 @@ def parse_yahoo_chart(
     timestamps = result.get("timestamp")
     indicators = result.get("indicators")
     quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
-    if not isinstance(timestamps, list) or not isinstance(quote_rows, list) or len(quote_rows) != 1:
+    if (
+        not isinstance(timestamps, list)
+        or not isinstance(quote_rows, list)
+        or len(quote_rows) != 1
+    ):
         raise ValueError("Yahoo-returneringen mangler daglige timestamps/quote")
-    closes = quote_rows[0].get("close") if isinstance(quote_rows[0], dict) else None
+    quote = quote_rows[0] if isinstance(quote_rows[0], dict) else {}
+    closes = quote.get("close")
     if not isinstance(closes, list) or len(closes) != len(timestamps):
         raise ValueError("Yahoo close-serien matcher ikke timestamp-serien")
 
     rows: list[dict[str, str]] = []
     previous_timestamp: int | None = None
-    for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
+    optional_series = {
+        "open": quote.get("open"),
+        "low": quote.get("low"),
+        "high": quote.get("high"),
+        "volume": quote.get("volume"),
+    }
+    for name, values in optional_series.items():
+        if values is not None and (
+            not isinstance(values, list) or len(values) != len(timestamps)
+        ):
+            raise ValueError(f"Yahoo {name}-serien matcher ikke timestamp-serien")
+
+    for index, (raw_timestamp, raw_close) in enumerate(
+        zip(timestamps, closes, strict=True)
+    ):
         if raw_close is None:
             continue
         try:
             timestamp = int(raw_timestamp)
             price = Decimal(str(raw_close))
         except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError("Yahoo-serien inneholder ugyldig timestamp eller sluttkurs") from exc
+            raise ValueError(
+                "Yahoo-serien inneholder ugyldig timestamp eller sluttkurs"
+            ) from exc
         if previous_timestamp is not None and timestamp <= previous_timestamp:
             raise ValueError("Yahoo-timestamps er ikke strengt stigende")
         previous_timestamp = timestamp
@@ -161,13 +190,27 @@ def parse_yahoo_chart(
             raise ValueError(f"Yahoo-serien inneholder urimelig sluttkurs: {price}")
         observed = datetime.fromtimestamp(timestamp, tz=UTC)
         trading_date = observed.astimezone(exchange_tz).date().isoformat()
-        rows.append(
-            {
-                "trading_date": trading_date,
-                "observed_at": observed.isoformat(timespec="seconds").replace("+00:00", "Z"),
-                "price": format(price, "f"),
-            }
-        )
+        row = {
+            "trading_date": trading_date,
+            "observed_at": observed.isoformat(timespec="seconds").replace(
+                "+00:00", "Z"
+            ),
+            "price": format(price, "f"),
+        }
+        for name, values in optional_series.items():
+            raw_value = values[index] if isinstance(values, list) else None
+            if raw_value is None:
+                continue
+            try:
+                value = Decimal(str(raw_value))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValueError(f"Yahoo-serien inneholder ugyldig {name}") from exc
+            if not value.is_finite() or value < 0:
+                raise ValueError(f"Yahoo-serien inneholder urimelig {name}: {value}")
+            if name != "volume" and value == 0:
+                raise ValueError(f"Yahoo-serien inneholder urimelig {name}: {value}")
+            row[name] = format(value, "f")
+        rows.append(row)
 
     if not rows:
         raise ValueError("Yahoo-returneringen inneholdt ingen gyldige sluttkurser")
@@ -201,7 +244,9 @@ async def _download_chart_endpoint(
         },
     )
     if not bool(getattr(response, "ok", False)):
-        raise RuntimeError(f"Yahoo Finance feilet med HTTP {getattr(response, 'status', 'unknown')}")
+        raise RuntimeError(
+            f"Yahoo Finance feilet med HTTP {getattr(response, 'status', 'unknown')}"
+        )
     payload = await read_response_bytes(
         response,
         max_bytes=MAX_RESPONSE_BYTES,
@@ -229,8 +274,12 @@ async def _download_chart_with_host_fallback(
             )
         except Exception as exc:
             base_url = _endpoint_base(endpoint)
-            failures.append(f"{urllib.parse.urlsplit(base_url).netloc}: {str(exc)[:300]}")
-    raise RuntimeError("Yahoo Finance chart feilet på alle endepunkter: " + "; ".join(failures))
+            failures.append(
+                f"{urllib.parse.urlsplit(base_url).netloc}: {str(exc)[:300]}"
+            )
+    raise RuntimeError(
+        "Yahoo Finance chart feilet på alle endepunkter: " + "; ".join(failures)
+    )
 
 
 def _is_yahoo_transport_failure(exc: Exception) -> bool:
@@ -270,8 +319,12 @@ async def _last_good_lif_price(repository) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-async def _lif_price_for_history_anchor(repository, as_of_date: str) -> dict[str, Any] | None:
-    floor = (date.fromisoformat(as_of_date) - timedelta(days=LIFE360_MAX_PRICE_AGE_DAYS)).isoformat()
+async def _lif_price_for_history_anchor(
+    repository, as_of_date: str
+) -> dict[str, Any] | None:
+    floor = (
+        date.fromisoformat(as_of_date) - timedelta(days=LIFE360_MAX_PRICE_AGE_DAYS)
+    ).isoformat()
     row = await repository.first(
         """
         SELECT mp.trading_date, mp.observed_at, mp.price, mp.currency,
@@ -299,10 +352,13 @@ async def repair_life360_lif_if_stale(
     target_date: str,
     archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    """Repair LIF when current mark-to-market or the 1M history anchor is missing."""
+    """Repair missing LIF data, or refresh it explicitly for the 30-minute job."""
     target = date.fromisoformat(target_date)
-    history_anchor_date = (target - timedelta(days=LIFE360_HISTORY_ANCHOR_DAYS)).isoformat()
+    history_anchor_date = (
+        target - timedelta(days=LIFE360_HISTORY_ANCHOR_DAYS)
+    ).isoformat()
     before = await _last_good_lif_price(repository)
     before_anchor = await _lif_price_for_history_anchor(repository, history_anchor_date)
     before_date_raw = str((before or {}).get("trading_date") or "")
@@ -310,7 +366,7 @@ async def repair_life360_lif_if_stale(
     age_days = (target - before_date).days if before_date is not None else None
     latest_fresh = age_days is not None and 0 <= age_days <= LIFE360_MAX_PRICE_AGE_DAYS
     history_anchor_ready = before_anchor is not None
-    if latest_fresh and history_anchor_ready:
+    if latest_fresh and history_anchor_ready and not force_refresh:
         return {
             "status": "skipped",
             "reason": "lif_price_fresh",
@@ -318,7 +374,8 @@ async def repair_life360_lif_if_stale(
             "latest_price_date": before_date_raw,
             "age_days": age_days,
             "history_anchor_date": history_anchor_date,
-            "history_anchor_price_date": str(before_anchor.get("trading_date") or "") or None,
+            "history_anchor_price_date": str(before_anchor.get("trading_date") or "")
+            or None,
             "network_fetches_avoided": True,
             "rows_written": 0,
             "repaired": False,
@@ -336,8 +393,7 @@ async def repair_life360_lif_if_stale(
     after_date = date.fromisoformat(after_date_raw) if after_date_raw else None
     after_age_days = (target - after_date).days if after_date is not None else None
     latest_repaired = (
-        after_age_days is not None
-        and 0 <= after_age_days <= LIFE360_MAX_PRICE_AGE_DAYS
+        after_age_days is not None and 0 <= after_age_days <= LIFE360_MAX_PRICE_AGE_DAYS
     )
     history_anchor_repaired = after_anchor is not None
     repaired = bool(latest_repaired and history_anchor_repaired)
@@ -355,10 +411,14 @@ async def repair_life360_lif_if_stale(
         "age_days": after_age_days,
         "history_anchor_date": history_anchor_date,
         "previous_history_anchor_price_date": (
-            str(before_anchor.get("trading_date") or "") or None if before_anchor else None
+            str(before_anchor.get("trading_date") or "") or None
+            if before_anchor
+            else None
         ),
         "history_anchor_price_date": (
-            str(after_anchor.get("trading_date") or "") or None if after_anchor else None
+            str(after_anchor.get("trading_date") or "") or None
+            if after_anchor
+            else None
         ),
         "network_fetches_avoided": False,
         "rows_written": int(result.get("rows_written") or 0),
@@ -381,7 +441,9 @@ async def _write_rows(
     written = 0
     for offset in range(0, len(rows), WRITE_BATCH_ROWS):
         chunk = rows[offset : offset + WRITE_BATCH_ROWS]
-        values_sql = ",".join("(?, ?, ?, 'CLOSE', ?, ?, ?, ?, 'DIRECT', ?)" for _ in chunk)
+        values_sql = ",".join(
+            "(?, ?, ?, 'CLOSE', ?, ?, ?, ?, 'DIRECT', ?)" for _ in chunk
+        )
         parameters: list[Any] = []
         for row in chunk:
             metadata = json.dumps(
@@ -391,6 +453,10 @@ async def _write_rows(
                     "role": role,
                     "adjusted": False,
                     "source_policy": "UNOFFICIAL_SECONDARY_LAST_GOOD",
+                    "open": row.get("open"),
+                    "low": row.get("low"),
+                    "high": row.get("high"),
+                    "volume_shares": row.get("volume"),
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -442,11 +508,15 @@ async def _refresh_symbol(
     coverage = await _coverage(repository, symbol)
     min_date = str(coverage.get("min_date") or "")
     max_date = str(coverage.get("max_date") or "")
-    history_backfill = not min_date or date.fromisoformat(min_date) > listing + timedelta(days=7)
+    history_backfill = not min_date or date.fromisoformat(
+        min_date
+    ) > listing + timedelta(days=7)
     if history_backfill:
         start = listing
     elif max_date:
-        start = max(listing, date.fromisoformat(max_date) - timedelta(days=RECENT_LOOKBACK_DAYS))
+        start = max(
+            listing, date.fromisoformat(max_date) - timedelta(days=RECENT_LOOKBACK_DAYS)
+        )
     else:
         start = max(listing, target - timedelta(days=RECENT_LOOKBACK_DAYS))
     if start > target:
@@ -645,7 +715,8 @@ async def refresh_life360_market_data(
 
     lif_ready = results.get(LIFE360_REQUIRED_SYMBOL, {}).get("status") == "ok"
     control_ready = all(
-        results.get(symbol, {}).get("status") == "ok" for symbol in LIFE360_CONTROL_SYMBOLS
+        results.get(symbol, {}).get("status") == "ok"
+        for symbol in LIFE360_CONTROL_SYMBOLS
     )
     fallback_used = bool(results.get(LIFE360_REQUIRED_SYMBOL, {}).get("fallback_used"))
     return {
