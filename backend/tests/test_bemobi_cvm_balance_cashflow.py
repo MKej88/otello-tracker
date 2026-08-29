@@ -40,6 +40,7 @@ FIELDS = [
 def _row(*, year: int, period_end: str, account: str, value: str, statement: str):
     labels = {
         "6.01": "Caixa Líquido Atividades Operacionais",
+        "6.02.02": "Investimentos / Capex",
         "1.01.01": "Caixa e Equivalentes de Caixa",
         "2.01.04": "Empréstimos e Financiamentos",
         "2.02.01": "Empréstimos e Financiamentos",
@@ -79,7 +80,7 @@ def _archive(*, year: int, document_type: str, files: dict[str, list[dict]]) -> 
     return buffer.getvalue()
 
 
-def test_cvm_cashflow_derives_standalone_quarter() -> None:
+def test_cvm_cashflow_derives_standalone_quarter_and_capex() -> None:
     payload = _archive(
         year=2026,
         document_type="itr",
@@ -87,6 +88,8 @@ def test_cvm_cashflow_derives_standalone_quarter() -> None:
             "DFC": [
                 _row(year=2026, period_end="2026-03-31", account="6.01", value="20000", statement="DFC"),
                 _row(year=2026, period_end="2026-06-30", account="6.01", value="47000", statement="DFC"),
+                _row(year=2026, period_end="2026-03-31", account="6.02.02", value="-3000", statement="DFC"),
+                _row(year=2026, period_end="2026-06-30", account="6.02.02", value="-8000", statement="DFC"),
             ]
         },
     )
@@ -95,12 +98,15 @@ def test_cvm_cashflow_derives_standalone_quarter() -> None:
         year=2026,
         document_type="itr",
         statement="DFC",
-        account_codes={"6.01"},
+        account_codes={"6.01", "6.02.02"},
     )
     quarters = derive_standardized_cashflow_quarters(year=2026, itr_observations=rows)
     assert quarters["1Q26"]["reported_operating_cash_flow_mbrl"] == 20.0
     assert quarters["2Q26"]["reported_operating_cash_flow_mbrl"] == 27.0
     assert quarters["2Q26"]["reported_operating_cash_flow_account"] == "6.01"
+    assert quarters["1Q26"]["reported_capex_cash_outflow_mbrl"] == -3.0
+    assert quarters["2Q26"]["reported_capex_cash_outflow_mbrl"] == -5.0
+    assert quarters["2Q26"]["reported_capex_cash_outflow_account"] == "6.02.02"
 
 
 def test_cvm_balance_builds_cash_borrowings_and_net_debt() -> None:
