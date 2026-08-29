@@ -100,16 +100,34 @@ async def persist_annual_focus(repository: Any, focus_payload: dict[str, Any]) -
     values = focus_payload.get("values")
     if not _valid_values(values):
         return
-    survey_date = _latest_survey_date(values)
     existing = await _read_state(repository, ANNUAL_STATE_KEY)
-    existing_date = _latest_survey_date((existing or {}).get("values"))
-    if existing_date and survey_date and existing_date > survey_date:
-        return
+    existing_values = (existing or {}).get("values")
+    if not isinstance(existing_values, dict):
+        existing_values = {}
+    merged_values = {
+        indicator: dict(by_year)
+        for indicator, by_year in existing_values.items()
+        if isinstance(by_year, dict)
+    }
+    for indicator, by_year in values.items():
+        if not isinstance(by_year, dict):
+            continue
+        merged_years = merged_values.setdefault(indicator, {})
+        for year, point in by_year.items():
+            if not isinstance(point, dict) or point.get("median") is None:
+                continue
+            previous = merged_years.get(year)
+            previous_date = str(previous.get("survey_date") or "") if isinstance(previous, dict) else ""
+            survey_date = str(point.get("survey_date") or "")
+            if previous_date and survey_date and previous_date > survey_date:
+                continue
+            merged_years[year] = dict(point)
+    survey_date = _latest_survey_date(merged_values)
     await _write_state(
         repository,
         ANNUAL_STATE_KEY,
         {
-            "values": values,
+            "values": merged_values,
             "source": focus_payload.get("source") or "Banco Central do Brasil / Focus",
             "source_url": focus_payload.get("source_url"),
             "survey_date": survey_date,

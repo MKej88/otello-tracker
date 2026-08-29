@@ -17,6 +17,7 @@ from brazil_focus_resilience import (  # noqa: E402
     persist_event_expectations,
     resolve_annual_focus,
 )
+import brazil_dashboard_v2  # noqa: E402
 
 
 class FakeRepository:
@@ -94,6 +95,24 @@ def test_last_good_focus_cache_beats_static_bootstrap_after_live_success() -> No
     assert status["survey_date"] == "2026-08-28"
 
 
+def test_partial_live_focus_merges_into_complete_cached_snapshot() -> None:
+    repo = FakeRepository()
+    asyncio.run(resolve_annual_focus(repo, _live_focus("2026-08-28"), as_of_date="2026-08-29"))
+    partial = {
+        "ready": True,
+        "values": {"selic": {"2026": {"median": 13.25, "survey_date": "2026-08-29"}}},
+    }
+
+    asyncio.run(resolve_annual_focus(repo, partial, as_of_date="2026-08-29"))
+    fallback, _ = asyncio.run(
+        resolve_annual_focus(repo, {"ready": False, "values": {}}, as_of_date="2026-08-30")
+    )
+
+    assert fallback["values"]["selic"]["2026"]["median"] == 13.25
+    assert fallback["values"]["selic"]["2027"]["median"] == 11.75
+    assert fallback["values"]["ipca"]["2026"]["median"] == 4.95
+
+
 @pytest.mark.parametrize("as_of_date", ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
 def test_bootstrap_is_not_leaked_into_historical_dates_before_publication(
     as_of_date: str,
@@ -153,3 +172,43 @@ def test_event_expectation_survives_later_olinda_failure() -> None:
     assert count == 1
     assert restored[0]["expectation"]["value"] == 0.31
     assert restored[0]["expectation"]["fallback_cached"] is True
+
+
+def test_live_event_consensus_survives_cache_write_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = {
+        "date": "2026-09-11",
+        "name": "IPCA",
+        "reference": "aug. 2026",
+        "kind": "inflation",
+    }
+    expectation = {"event_consensus": True, "value": 0.31, "provider": "BCB Focus"}
+
+    async def base_dashboard(*_args, **_kwargs):
+        return {
+            "as_of_date": "2026-08-29",
+            "focus": {"ready": False, "values": {}},
+            "calendar": [event],
+            "source_status": {"focus": {"ready": False}},
+        }
+
+    async def enrich(rows, **_kwargs):
+        enriched = [dict(rows[0], expectation=expectation)]
+        return enriched, {"ready": True, "specific_expectations": 1}
+
+    async def fail_persistence(*_args, **_kwargs):
+        raise RuntimeError("D1 unavailable")
+
+    async def no_cached(_repository, events, **_kwargs):
+        return events, 0
+
+    monkeypatch.setattr(brazil_dashboard_v2.base, "brazil_dashboard", base_dashboard)
+    monkeypatch.setattr(brazil_dashboard_v2, "enrich_calendar_expectations", enrich)
+    monkeypatch.setattr(brazil_dashboard_v2, "persist_event_expectations", fail_persistence)
+    monkeypatch.setattr(brazil_dashboard_v2, "apply_cached_event_expectations", no_cached)
+
+    result = asyncio.run(brazil_dashboard_v2.brazil_dashboard(FakeRepository()))
+
+    assert result["calendar"][0]["expectation"] == expectation
+    status = result["source_status"]["focus_event_expectations"]
+    assert status["ready"] is True
+    assert status["cache_persistence_error"] == "RuntimeError: D1 unavailable"

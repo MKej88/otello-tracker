@@ -141,7 +141,12 @@ async def brazil_dashboard(
             fetcher=fetcher,
         )
         if status.get("specific_expectations"):
-            await persist_event_expectations(repository, enriched)
+            try:
+                await persist_event_expectations(repository, enriched)
+            except Exception as exc:
+                # Cache writes are best-effort: a transient D1 failure must not discard
+                # the live consensus that Olinda already returned successfully.
+                status["cache_persistence_error"] = f"{type(exc).__name__}: {exc}"
         enriched, restored = await apply_cached_event_expectations(
             repository,
             enriched,
