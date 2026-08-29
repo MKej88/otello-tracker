@@ -92,10 +92,10 @@ def _apply_bemobi_paid_split(
     new_components.append(
         {
             "key": "bemobi_paid_since_report",
-            "label": "Bemobi – utbetalt utbytte/JCP",
+            "label": "Bemobi – utbetalt utbytte/renter",
             "amount_mnok": float(bemobi_paid_nok / MILLION),
             "per_share_nok": float(bemobi_paid_nok / Decimal(shares)),
-            "formula": "Netto mottatt Bemobi-utbytte/JCP siden siste rapport",
+            "formula": "Netto mottatt Bemobi-utbytte/renter siden siste rapport",
             "details": {
                 "gross_mnok": float(gross_nok / MILLION),
                 "withholding_mnok": float(withholding_nok / MILLION),
@@ -171,10 +171,10 @@ def _apply_bemobi_receivable_split(
     )
     receivable_component = {
         "key": "bemobi_receivable",
-        "label": "Bemobi – tilgode utbytte/JCP",
+        "label": "Bemobi – tilgode utbytte/renter",
         "amount_mnok": float(receivable_nok / MILLION),
         "per_share_nok": float(receivable_nok / Decimal(shares)),
-        "formula": "Opptjent Bemobi-utbytte/JCP fra ex-dato til betalingsdato",
+        "formula": "Opptjent Bemobi-utbytte/renter fra ex-dato til betalingsdato",
         "details": {
             "quality": receivable.get("quality"),
             "ex_dates": ex_dates,

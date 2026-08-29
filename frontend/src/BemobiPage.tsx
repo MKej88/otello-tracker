@@ -148,7 +148,7 @@ function dateLabel(input?: string | null) {
 }
 
 function distributionLabel(input?: string | null) {
-  if (input === "JCP") return "JCP";
+  if (input === "JCP") return "Renter";
   if (input === "DIVIDEND") return "Utbytte";
   return input || "Utbetaling";
 }

@@ -11,7 +11,7 @@ from app.db.connection import get_connection
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
     "DIVIDEND": "Utbytte",
-    "JCP": "Kapitaldistribusjon",
+    "JCP": "Renter",
     "BUYBACK": "Tilbakekjøp",
     "M_AND_A": "Oppkjøp og transaksjoner",
     "CAPITAL": "Kapital",
@@ -187,7 +187,7 @@ async def news_and_events(
     )
     for row in actions:
         company = "Bemobi" if row.get("symbol") == "BMOB3" else "Otello"
-        label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
+        label = "renter" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
             ("payment_date", "Betalingsdato"),
