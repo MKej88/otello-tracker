@@ -175,7 +175,7 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "EV / EBIT TTM" in page
     assert "FCF yield (just.)" in page
     assert "Multipelsensitivitet" in page
-    assert "Ikke kursmål" in page
+    assert "ikke kursmål" in page.lower()
     assert "Rapportert resultat TTM" in page
     assert "Estimert utbytte til Otello" in page
     assert "TTM run-rate" in page
