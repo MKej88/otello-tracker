@@ -18,10 +18,14 @@ MONTHS = {
     "jun": 6,
     "jul": 7,
     "ago": 8,
+    "aug": 8,
     "set": 9,
+    "sep": 9,
     "out": 10,
+    "okt": 10,
     "nov": 11,
     "dez": 12,
+    "des": 12,
 }
 
 COPOM_MEETINGS = {
