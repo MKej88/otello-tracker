@@ -178,20 +178,23 @@ def _statement_member(
     doc = document_type.lower()
     statement_upper = statement.upper()
     if statement_upper == "DFC":
-        candidates = {
+        # CVM's yearly ZIP contains both DFC_MI and DFC_MD files for the market as a
+        # whole. Bemobi reports its consolidated cash-flow statement using the indirect
+        # method, so prefer DFC_MI and only fall back to DFC_MD if that member is absent.
+        preferred = [
             f"{doc}_cia_aberta_dfc_mi_con_{year}.csv",
             f"{doc}_cia_aberta_dfc_md_con_{year}.csv",
-        }
-        matches = [
-            name
-            for name in archive.namelist()
-            if name.rsplit("/", 1)[-1].lower() in candidates
         ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"CVM {document_type.upper()} {year} forventet én konsolidert DFC, fant {len(matches)}"
-            )
-        return matches[0]
+        members = {
+            name.rsplit("/", 1)[-1].lower(): name
+            for name in archive.namelist()
+        }
+        for expected in preferred:
+            if expected in members:
+                return members[expected]
+        raise ValueError(
+            f"CVM {document_type.upper()} {year} mangler konsolidert DFC"
+        )
 
     expected = f"{doc}_cia_aberta_{statement.lower()}_con_{year}.csv"
     matches = [
