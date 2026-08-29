@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+
 
 # Keep the hot-snapshot read path intentionally light. These wrappers preserve the public
 # module names used by tests, but only import the expensive calculators if a snapshot really
@@ -18,7 +20,9 @@ async def dashboard_summary(repository: Any) -> dict[str, Any]:
     return await implementation(repository)
 
 
-async def enrich_dashboard_summary(summary: dict[str, Any], repository: Any) -> dict[str, Any]:
+async def enrich_dashboard_summary(
+    summary: dict[str, Any], repository: Any
+) -> dict[str, Any]:
     try:
         from .dashboard_service import enrich_dashboard_summary as implementation
     except ImportError:
@@ -42,7 +46,9 @@ async def market_quote_details(repository: Any) -> dict[str, Any]:
     return await implementation(repository)
 
 
-async def buyback_forecast(repository: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+async def buyback_forecast(
+    repository: Any, *args: Any, **kwargs: Any
+) -> dict[str, Any]:
     try:
         from .buyback_service import buyback_forecast as implementation
     except ImportError:
@@ -76,11 +82,20 @@ def _parse_timestamp(value: Any) -> datetime | None:
 
 async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
     """Build the expensive first-screen payload outside the user request path."""
-    summary = await dashboard_summary(repository)
-    summary = await enrich_dashboard_summary(summary, repository)
-    economic = await economic_nav_summary(repository)
-    quotes = await market_quote_details(repository)
-    forecast = await buyback_forecast(repository)
+
+    async def build_summary() -> dict[str, Any]:
+        summary = await dashboard_summary(repository)
+        return await enrich_dashboard_summary(summary, repository)
+
+    # These four sections do not depend on each other. Starting them together keeps a
+    # missing-snapshot fallback from making a first-time visitor wait for four separate
+    # calculation chains one after another.
+    summary, economic, quotes, forecast = await asyncio.gather(
+        build_summary(),
+        economic_nav_summary(repository),
+        market_quote_details(repository),
+        buyback_forecast(repository),
+    )
     generated_at = _now_iso()
 
     # `as_of_at` is the business timestamp for the NAV observation and is often stored
@@ -181,11 +196,17 @@ async def dashboard_hot_snapshot_status(
         return {**base, "reason": "invalid_json", "generated_at": row.get("updated_at")}
 
     if not isinstance(payload, dict):
-        return {**base, "reason": "invalid_payload", "generated_at": row.get("updated_at")}
+        return {
+            **base,
+            "reason": "invalid_payload",
+            "generated_at": row.get("updated_at"),
+        }
 
     stored_version = payload.get("version")
     generated_at = payload.get("generated_at") or row.get("updated_at")
-    present_components = sorted(name for name in _COMPONENTS if isinstance(payload.get(name), dict))
+    present_components = sorted(
+        name for name in _COMPONENTS if isinstance(payload.get(name), dict)
+    )
     current = (now or datetime.now(UTC)).astimezone(UTC)
     generated = _parse_timestamp(generated_at)
     age_seconds = (
@@ -214,7 +235,9 @@ async def dashboard_hot_snapshot_status(
     }
 
 
-async def dashboard_hot_component(repository: Any, component: str) -> dict[str, Any] | None:
+async def dashboard_hot_component(
+    repository: Any, component: str
+) -> dict[str, Any] | None:
     """Return one cached API payload without changing its public response shape."""
     if component not in _COMPONENTS:
         raise ValueError(f"Unknown dashboard hot-snapshot component: {component}")
@@ -241,7 +264,9 @@ async def refresh_dashboard_hot_snapshot(
             }
 
     payload = await build_dashboard_hot_snapshot(repository)
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     generated_at = str(payload["generated_at"])
     await repository.run(
         """
