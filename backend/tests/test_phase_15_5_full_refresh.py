@@ -9,6 +9,8 @@ import zipfile
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
@@ -36,8 +38,8 @@ def test_norges_bank_history_policy_is_rolling_ten_years() -> None:
     assert norges_bank_history_start("2024-02-29") == "2014-02-28"
 
 
-def test_norges_bank_direct_rates_match_reference_values() -> None:
-    payload = {
+def _norges_bank_payload() -> dict:
+    return {
         "data": {
             "dataSets": [
                 {
@@ -76,11 +78,37 @@ def test_norges_bank_direct_rates_match_reference_values() -> None:
             },
         }
     }
+
+
+def test_norges_bank_direct_rates_match_reference_values() -> None:
+    payload = _norges_bank_payload()
     rows = parse_norges_bank_sdmx_json(payload)
     assert rows == [
         ("2026-08-17", "BRL", Decimal("1.82")),
         ("2026-08-17", "USD", Decimal("10.00")),
     ]
+
+
+def test_cloudflare_norges_bank_parser_rejects_invalid_trading_date() -> None:
+    payload = _norges_bank_payload()
+    time_values = payload["data"]["structure"]["dimensions"]["observation"][0]["values"]
+    time_values[0]["id"] = "2026-02-30"
+
+    with pytest.raises(ValueError, match="Ugyldig observasjon"):
+        parse_norges_bank_sdmx_json(payload)
+
+
+@pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
+def test_cloudflare_norges_bank_parser_rejects_non_finite_rates(
+    invalid_rate: str,
+) -> None:
+    payload = _norges_bank_payload()
+    payload["data"]["dataSets"][0]["series"]["0:0:0:0"]["observations"]["0"] = [
+        invalid_rate
+    ]
+
+    with pytest.raises(ValueError, match="Ugyldig BRL/NOK-kurs"):
+        parse_norges_bank_sdmx_json(payload)
 
 
 def _b3_line(*, trading_date: str = "20260817", close: str = "0000000002281") -> str:
@@ -227,7 +255,9 @@ def test_newsweb_reconciliation_forces_full_overlap_revalidation(monkeypatch) ->
 
     monkeypatch.setattr(nw_reconcile, "collect_newsweb_history", fake_history)
     monkeypatch.setattr(nw_reconcile, "collect_newsweb_buybacks", fake_buybacks)
-    result = asyncio.run(nw_reconcile.reconcile_newsweb(object(), target_date="2026-08-17"))
+    result = asyncio.run(
+        nw_reconcile.reconcile_newsweb(object(), target_date="2026-08-17")
+    )
 
     assert result["status"] == "ok"
     assert result["from"] == "2026-07-03"
@@ -335,7 +365,9 @@ class _SQLiteAsyncRepository:
         return rows[0] if rows else None
 
 
-def test_d1_preflight_uses_portable_queries_and_reports_blockers(tmp_path: Path) -> None:
+def test_d1_preflight_uses_portable_queries_and_reports_blockers(
+    tmp_path: Path,
+) -> None:
     database = str(tmp_path / "preflight.db")
     init_database(database)
     seed_curated_history(database)
@@ -354,7 +386,9 @@ def test_d1_preflight_uses_portable_queries_and_reports_blockers(tmp_path: Path)
 
 
 def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None:
-    config = json.loads((ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8"))
+    config = json.loads(
+        (ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8")
+    )
     assert config["triggers"]["crons"] == ["*/30 * * * *"]
     assert "python_workers" in config["compatibility_flags"]
     assert "python_workflows" in config["compatibility_flags"]
@@ -373,8 +407,12 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
 
 
 def test_cloudflare_nav_fx_lookup_prefers_norges_bank_same_day() -> None:
-    nav_source = (ROOT / "cloudflare" / "src" / "nav_refresh.py").read_text(encoding="utf-8")
-    backtest_source = (ROOT / "cloudflare" / "src" / "fx_backtest.py").read_text(encoding="utf-8")
+    nav_source = (ROOT / "cloudflare" / "src" / "nav_refresh.py").read_text(
+        encoding="utf-8"
+    )
+    backtest_source = (ROOT / "cloudflare" / "src" / "fx_backtest.py").read_text(
+        encoding="utf-8"
+    )
     for source in (nav_source, backtest_source):
         assert "WHEN 'NORGES_BANK' THEN 0" in source
         assert "WHEN 'ECB' THEN 1" in source
