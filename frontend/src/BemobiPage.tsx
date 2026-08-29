@@ -199,11 +199,21 @@ function sourceName(input?: string | null) {
   return input ? names[input] ?? input : "Kilde ikke oppgitt";
 }
 
+function quarterIndex(period: string) {
+  const match = /^([1-4])Q(\d{2})$/.exec(period.trim());
+  if (!match) return null;
+  return (2000 + Number(match[2])) * 4 + Number(match[1]) - 1;
+}
+
 function completeTtm(
   quarters: ValuationSourceQuarter[],
   field: keyof ValuationSourceQuarter
 ) {
   if (quarters.length !== 4) return null;
+  const indexes = quarters.map((quarter) => quarterIndex(quarter.period));
+  if (indexes.some((current, index) => (
+    current == null || (index > 0 && current !== Number(indexes[index - 1]) + 1)
+  ))) return null;
   const values = quarters.map((quarter) => quarter[field]);
   if (values.some((item) => typeof item !== "number" || !Number.isFinite(item))) return null;
   return values.reduce<number>((sum, item) => sum + Number(item), 0);
