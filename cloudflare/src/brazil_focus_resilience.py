@@ -81,21 +81,39 @@ async def _read_state(repository: Any, key: str) -> dict[str, Any] | None:
     return payload
 
 
-async def _write_annual_state(repository: Any, payload: dict[str, Any]) -> None:
-    """Store an annual snapshot without letting an older concurrent request win."""
+async def _write_annual_point(
+    repository: Any,
+    indicator: str,
+    year: str,
+    point: dict[str, Any],
+    *,
+    source: str,
+    source_url: str | None,
+) -> None:
+    """Atomically merge one annual point unless the cache has a newer survey."""
     updated_at = _now_iso()
+    survey_date = str(point.get("survey_date") or "")[:10]
+    payload = {
+        "values": {indicator: {year: point}},
+        "source": source,
+        "source_url": source_url,
+        "survey_date": survey_date,
+    }
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     await repository.run(
         """
         INSERT INTO runtime_state(key, value, updated_at)
         VALUES (?, ?, ?)
         ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
+            value = json_patch(runtime_state.value, excluded.value),
             updated_at = excluded.updated_at
-        WHERE COALESCE(json_extract(runtime_state.value, '$.survey_date'), '')
-              <= COALESCE(json_extract(excluded.value, '$.survey_date'), '')
+        WHERE COALESCE(
+                  json_extract(runtime_state.value, '$.values.' || json_quote(?) || '.'
+                               || json_quote(?) || '.survey_date'),
+                  ''
+              ) <= ?
         """,
-        (ANNUAL_STATE_KEY, encoded, updated_at),
+        (ANNUAL_STATE_KEY, encoded, updated_at, indicator, year, survey_date),
     )
 
 
@@ -130,42 +148,54 @@ async def _write_event_expectation(
     )
 
 
-async def persist_annual_focus(repository: Any, focus_payload: dict[str, Any]) -> None:
+async def persist_annual_focus(
+    repository: Any,
+    focus_payload: dict[str, Any],
+    *,
+    as_of_date: str,
+) -> None:
     values = focus_payload.get("values")
     if not _valid_values(values):
         return
-    existing = await _read_state(repository, ANNUAL_STATE_KEY)
-    existing_values = (existing or {}).get("values")
-    if not isinstance(existing_values, dict):
-        existing_values = {}
-    merged_values = {
-        indicator: dict(by_year)
-        for indicator, by_year in existing_values.items()
-        if isinstance(by_year, dict)
-    }
+
+    # Once the report was public, seed every write with its complete coverage.
+    # Per-point conflict checks keep this seed from replacing fresher live values,
+    # while filling gaps in an empty or previously partial cache.
+    batches = []
+    if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
+        batches.append((_BOOTSTRAP_VALUES, "Banco Central do Brasil / Focus", BOOTSTRAP_SOURCE_URL))
+    batches.append(
+        (
+            values,
+            focus_payload.get("source") or "Banco Central do Brasil / Focus",
+            focus_payload.get("source_url"),
+        )
+    )
+    for batch, source, source_url in batches:
+        await _persist_annual_points(repository, batch, source=source, source_url=source_url)
+
+
+async def _persist_annual_points(
+    repository: Any,
+    values: dict[str, Any],
+    *,
+    source: str,
+    source_url: str | None,
+) -> None:
     for indicator, by_year in values.items():
         if not isinstance(by_year, dict):
             continue
-        merged_years = merged_values.setdefault(indicator, {})
         for year, point in by_year.items():
             if not isinstance(point, dict) or point.get("median") is None:
                 continue
-            previous = merged_years.get(year)
-            previous_date = str(previous.get("survey_date") or "") if isinstance(previous, dict) else ""
-            survey_date = str(point.get("survey_date") or "")
-            if previous_date and survey_date and previous_date > survey_date:
-                continue
-            merged_years[year] = dict(point)
-    survey_date = _latest_survey_date(merged_values)
-    await _write_annual_state(
-        repository,
-        {
-            "values": merged_values,
-            "source": focus_payload.get("source") or "Banco Central do Brasil / Focus",
-            "source_url": focus_payload.get("source_url"),
-            "survey_date": survey_date,
-        },
-    )
+            await _write_annual_point(
+                repository,
+                str(indicator),
+                str(year),
+                dict(point),
+                source=source,
+                source_url=source_url,
+            )
 
 
 async def resolve_annual_focus(
@@ -175,7 +205,7 @@ async def resolve_annual_focus(
     as_of_date: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(live_focus, dict) and live_focus.get("ready") and _valid_values(live_focus.get("values")):
-        await persist_annual_focus(repository, live_focus)
+        await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
         result["fallback"] = False

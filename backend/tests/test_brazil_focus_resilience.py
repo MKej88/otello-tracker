@@ -38,13 +38,27 @@ class FakeRepository:
             if "json_patch" in sql and (current := self.state.get(str(key))):
                 current_payload = json.loads(current["value"])
                 incoming_payload = json.loads(str(value))
-                event_key, incoming = next(iter(incoming_payload["expectations"].items()))
-                previous = current_payload.get("expectations", {}).get(event_key)
+                root = "expectations" if "expectations" in incoming_payload else "values"
+                if root == "expectations":
+                    event_key, incoming = next(iter(incoming_payload[root].items()))
+                    path = (event_key,)
+                    previous = current_payload.get(root, {}).get(event_key)
+                else:
+                    indicator, years = next(iter(incoming_payload[root].items()))
+                    year, incoming = next(iter(years.items()))
+                    path = (indicator, year)
+                    previous = current_payload.get(root, {}).get(indicator, {}).get(year)
                 previous_date = str(previous.get("survey_date") or "") if previous else ""
                 incoming_date = str(incoming.get("survey_date") or "")
                 if previous_date > incoming_date:
                     return {"success": True}
-                current_payload.setdefault("expectations", {})[event_key] = incoming
+                if root == "expectations":
+                    current_payload.setdefault(root, {})[path[0]] = incoming
+                else:
+                    current_payload.setdefault(root, {}).setdefault(path[0], {})[path[1]] = incoming
+                current_payload.update(
+                    {key: value for key, value in incoming_payload.items() if key != root}
+                )
                 value = json.dumps(current_payload)
             elif "json_extract" in sql and (current := self.state.get(str(key))):
                 current_date = json.loads(current["value"]).get("survey_date") or ""
@@ -130,56 +144,62 @@ def test_partial_live_focus_merges_into_complete_cached_snapshot() -> None:
     assert fallback["values"]["ipca"]["2026"]["median"] == 4.95
 
 
+def test_first_partial_live_focus_is_completed_by_published_bootstrap() -> None:
+    repo = FakeRepository()
+    partial = {
+        "ready": True,
+        "values": {"selic": {"2026": {"median": 13.25, "survey_date": "2026-08-29"}}},
+    }
+
+    asyncio.run(resolve_annual_focus(repo, partial, as_of_date="2026-08-29"))
+    fallback, _ = asyncio.run(
+        resolve_annual_focus(repo, {"ready": False, "values": {}}, as_of_date="2026-08-30")
+    )
+
+    assert fallback["values"]["selic"]["2026"]["median"] == 13.25
+    assert fallback["values"]["ipca"]["2027"]["median"] == 4.25
+    assert fallback["values"]["gdp"]["2026"]["median"] == 1.95
+
+
 def test_older_concurrent_focus_write_cannot_replace_newer_snapshot() -> None:
     repo = FakeRepository()
     newer = _live_focus("2026-08-29")
     older = _live_focus("2026-08-28")
 
-    # Model the interleaving where both requests read an empty cache, the current
-    # request writes first, and the historical request reaches its upsert last.
-    original_first = repo.first
-    original_run = repo.run
-    reads = 0
-    both_read = asyncio.Event()
-    newer_written = asyncio.Event()
-
-    async def delayed_reads(sql: str, params=()):
-        nonlocal reads
-        if "runtime_state" in sql and reads < 2:
-            reads += 1
-            if reads == 2:
-                both_read.set()
-            else:
-                await both_read.wait()
-            return None
-        return await original_first(sql, params)
-
-    repo.first = delayed_reads  # type: ignore[method-assign]
-
-    async def ordered_writes(sql: str, params=()):
-        import json
-
-        incoming_date = json.loads(str(params[1])).get("survey_date")
-        if incoming_date == "2026-08-28":
-            await newer_written.wait()
-            return await original_run(sql, params)
-        result = await original_run(sql, params)
-        newer_written.set()
-        return result
-
-    repo.run = ordered_writes  # type: ignore[method-assign]
-
     async def race() -> None:
-        await asyncio.gather(
-            resolve_annual_focus(repo, newer, as_of_date="2026-08-29"),
-            resolve_annual_focus(repo, older, as_of_date="2026-08-28"),
-        )
+        # Model the harmful write order: the historical request reaches D1 last.
+        await resolve_annual_focus(repo, newer, as_of_date="2026-08-29")
+        await resolve_annual_focus(repo, older, as_of_date="2026-08-29")
 
     asyncio.run(race())
     fallback, _ = asyncio.run(
         resolve_annual_focus(repo, {"ready": False, "values": {}}, as_of_date="2026-08-30")
     )
     assert fallback["values"]["selic"]["2026"]["survey_date"] == "2026-08-29"
+
+
+def test_equal_date_concurrent_focus_writes_preserve_distinct_years() -> None:
+    repo = FakeRepository()
+    first = {
+        "ready": True,
+        "values": {"selic": {"2026": {"median": 13.5, "survey_date": "2026-08-28"}}},
+    }
+    second = {
+        "ready": True,
+        "values": {"selic": {"2028": {"median": 10.0, "survey_date": "2026-08-28"}}},
+    }
+
+    async def race() -> None:
+        await asyncio.gather(
+            resolve_annual_focus(repo, first, as_of_date="2026-08-29"),
+            resolve_annual_focus(repo, second, as_of_date="2026-08-29"),
+        )
+
+    asyncio.run(race())
+    cached = json.loads(repo.state["brazil_focus_annual_v1"]["value"])
+
+    assert cached["values"]["selic"]["2026"]["median"] == 13.5
+    assert cached["values"]["selic"]["2028"]["median"] == 10.0
 
 
 @pytest.mark.parametrize("as_of_date", ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
