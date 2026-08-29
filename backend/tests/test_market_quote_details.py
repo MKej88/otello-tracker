@@ -158,6 +158,58 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     assert otec["volume"]["average_sessions"] == 63
 
 
+def test_otec_card_uses_completed_close_and_previous_day_close(tmp_path) -> None:
+    database = str(tmp_path / "otec-completed-close.db")
+    init_database(database)
+    seed_otec_activity_history(database)
+
+    with get_connection(database) as connection:
+        instrument_id = connection.execute(
+            "SELECT id FROM instruments WHERE symbol='OTEC'"
+        ).fetchone()["id"]
+        source_id = connection.execute(
+            "SELECT id FROM sources WHERE code='EURONEXT'"
+        ).fetchone()["id"]
+        connection.execute(
+            "DELETE FROM market_activity WHERE instrument_id=?", (instrument_id,)
+        )
+        for day, close in (("2026-08-27", "17.28"), ("2026-08-28", "17.48")):
+            connection.execute(
+                """
+                INSERT INTO market_activity(
+                    instrument_id, trading_date, volume_shares, last_price_nok,
+                    source_id, quality
+                ) VALUES (?, ?, 51477, ?, ?, 'DELAYED_TRADE_SUM')
+                """,
+                (instrument_id, day, close, source_id),
+            )
+        for at, price in (
+            ("2026-08-28T07:00:00Z", "17.20"),
+            ("2026-08-28T14:03:00Z", "17.28"),
+        ):
+            upsert_market_price(
+                connection,
+                symbol="OTEC",
+                observed_at=at,
+                trading_date="2026-08-28",
+                price_type="LAST",
+                price=price,
+                currency="NOK",
+                source_code="EURONEXT",
+                quality="DIRECT",
+            )
+        connection.commit()
+
+    otec = market_quote_details(database)["symbols"]["OTEC"]
+
+    assert otec["last"] == 17.48
+    assert otec["last_price_type"] == "CLOSE"
+    assert otec["last_updated_at"] == "2026-08-28T16:20:00+02:00"
+    assert otec["session"]["high"] == 17.48
+    assert otec["last_close"]["price"] == 17.28
+    assert otec["last_close"]["date"] == "2026-08-27"
+
+
 def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     backend = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from statistics import mean
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.db.connection import get_connection
 
@@ -86,7 +87,9 @@ def _latest_price(connection, symbol: str) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
-def _market_close(connection, symbol: str) -> dict[str, Any] | None:
+def _market_close(
+    connection, symbol: str, before_date: str | None = None
+) -> dict[str, Any] | None:
     row = connection.execute(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price, mp.quality,
@@ -95,32 +98,39 @@ def _market_close(connection, symbol: str) -> dict[str, Any] | None:
         JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
         WHERE i.symbol=? AND mp.price_type='CLOSE'
+          AND (? IS NULL OR mp.trading_date < ?)
         ORDER BY mp.trading_date DESC,
                  CASE WHEN s.code=? THEN 0 ELSE 1 END,
                  CASE WHEN mp.quality='DIRECT' THEN 0 ELSE 1 END,
                  mp.id DESC
         LIMIT 1
         """,
-        (symbol, _SYMBOLS[symbol]["source"]),
+        (symbol, before_date, before_date, _SYMBOLS[symbol]["source"]),
     ).fetchone()
     return dict(row) if row is not None else None
 
 
-def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
-    market = _market_close(connection, symbol)
+def _latest_close(
+    connection, symbol: str, before_date: str | None = None
+) -> dict[str, Any] | None:
+    market = _market_close(connection, symbol, before_date)
     if symbol != "OTEC":
         return market
 
-    activity_row = connection.execute("""
+    activity_row = connection.execute(
+        """
         SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
                ma.quality, ma.metadata_json, s.code AS source_code
         FROM market_activity ma
         JOIN instruments i ON i.id=ma.instrument_id
         JOIN sources s ON s.id=ma.source_id
         WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
+          AND (? IS NULL OR ma.trading_date < ?)
         ORDER BY ma.trading_date DESC, ma.id DESC
         LIMIT 1
-        """).fetchone()
+        """,
+        (before_date, before_date),
+    ).fetchone()
     activity = dict(activity_row) if activity_row is not None else None
     if activity is None:
         return market
@@ -129,6 +139,16 @@ def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
         return activity
     market["close_basis"] = "OFFICIAL_CLOSE"
     return market
+
+
+def _oslo_close_timestamp(trading_date: str) -> str:
+    """Returner tidspunktet da den ordinære OTEC-handelen stengte."""
+    local_close = datetime.combine(
+        date.fromisoformat(trading_date),
+        time(hour=16, minute=20),
+        tzinfo=ZoneInfo("Europe/Oslo"),
+    )
+    return local_close.isoformat(timespec="seconds")
 
 
 def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
@@ -196,6 +216,23 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
             explicit[str(row["price_type"])] = value
         if row["price_type"] == "LAST":
             last_rows.append(row)
+
+    if symbol == "OTEC":
+        activity_row = connection.execute(
+            """
+            SELECT ma.last_price_nok AS price
+            FROM market_activity ma
+            JOIN instruments i ON i.id=ma.instrument_id
+            WHERE i.symbol='OTEC' AND ma.trading_date=?
+              AND ma.last_price_nok IS NOT NULL
+            ORDER BY ma.id DESC
+            LIMIT 1
+            """,
+            (trading_date,),
+        ).fetchone()
+        activity_price = _number(activity_row["price"] if activity_row else None)
+        if activity_price is not None:
+            observed_prices.append(activity_price)
 
     open_value = open_value if open_value is not None else explicit.get("OPEN")
     low_value = low_value if low_value is not None else explicit.get("LOW")
@@ -363,9 +400,23 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
     latest = _latest_price(connection, symbol)
     if latest is None:
         return {"ready": False, "symbol": symbol, "reason": "missing_market_price"}
+    current_close = _latest_close(connection, symbol) if symbol == "OTEC" else None
+    if current_close and str(current_close["trading_date"]) >= str(
+        latest["trading_date"]
+    ):
+        latest = {
+            **current_close,
+            "price_type": "CLOSE",
+            "observed_at": _oslo_close_timestamp(str(current_close["trading_date"])),
+        }
+
     trading_date = str(latest["trading_date"])
     history = _daily_history(connection, symbol, trading_date)
-    latest_close = _latest_close(connection, symbol)
+    latest_close = _latest_close(
+        connection,
+        symbol,
+        trading_date if symbol == "OTEC" else None,
+    )
     return {
         "ready": True,
         "symbol": symbol,

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 _SYMBOLS = {
     "OTEC": {"currency": "NOK", "source": "EURONEXT"},
@@ -82,7 +83,9 @@ async def _latest_price(repository, symbol: str) -> dict[str, Any] | None:
     )
 
 
-async def _market_close(repository, symbol: str) -> dict[str, Any] | None:
+async def _market_close(
+    repository, symbol: str, before_date: str | None = None
+) -> dict[str, Any] | None:
     return await repository.first(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price, mp.quality,
@@ -91,31 +94,38 @@ async def _market_close(repository, symbol: str) -> dict[str, Any] | None:
         JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
         WHERE i.symbol=? AND mp.price_type='CLOSE'
+          AND (? IS NULL OR mp.trading_date < ?)
         ORDER BY mp.trading_date DESC,
                  CASE WHEN s.code=? THEN 0 ELSE 1 END,
                  CASE WHEN mp.quality='DIRECT' THEN 0 ELSE 1 END,
                  mp.id DESC
         LIMIT 1
         """,
-        (symbol, _SYMBOLS[symbol]["source"]),
+        (symbol, before_date, before_date, _SYMBOLS[symbol]["source"]),
     )
 
 
-async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
-    market = await _market_close(repository, symbol)
+async def _latest_close(
+    repository, symbol: str, before_date: str | None = None
+) -> dict[str, Any] | None:
+    market = await _market_close(repository, symbol, before_date)
     if symbol != "OTEC":
         return market
 
-    activity = await repository.first("""
+    activity = await repository.first(
+        """
         SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
                ma.quality, ma.metadata_json, s.code AS source_code
         FROM market_activity ma
         JOIN instruments i ON i.id=ma.instrument_id
         JOIN sources s ON s.id=ma.source_id
         WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
+          AND (? IS NULL OR ma.trading_date < ?)
         ORDER BY ma.trading_date DESC, ma.id DESC
         LIMIT 1
-        """)
+        """,
+        (before_date, before_date),
+    )
     if activity is None:
         return market
     if market is None or str(activity["trading_date"]) >= str(market["trading_date"]):
@@ -125,6 +135,16 @@ async def _latest_close(repository, symbol: str) -> dict[str, Any] | None:
     market = dict(market)
     market["close_basis"] = "OFFICIAL_CLOSE"
     return market
+
+
+def _oslo_close_timestamp(trading_date: str) -> str:
+    """Returner tidspunktet da den ordinære OTEC-handelen stengte."""
+    local_close = datetime.combine(
+        date.fromisoformat(trading_date),
+        time(hour=16, minute=20),
+        tzinfo=ZoneInfo("Europe/Oslo"),
+    )
+    return local_close.isoformat(timespec="seconds")
 
 
 async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, Any]:
@@ -189,6 +209,23 @@ async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, An
             explicit[str(row["price_type"])] = price
         if row["price_type"] == "LAST":
             last_rows.append(row)
+
+    if symbol == "OTEC":
+        activity_row = await repository.first(
+            """
+            SELECT ma.last_price_nok AS price
+            FROM market_activity ma
+            JOIN instruments i ON i.id=ma.instrument_id
+            WHERE i.symbol='OTEC' AND ma.trading_date=?
+              AND ma.last_price_nok IS NOT NULL
+            ORDER BY ma.id DESC
+            LIMIT 1
+            """,
+            (trading_date,),
+        )
+        activity_price = _number(activity_row.get("price") if activity_row else None)
+        if activity_price is not None:
+            observed_prices.append(activity_price)
 
     open_value = open_value if open_value is not None else explicit.get("OPEN")
     low_value = low_value if low_value is not None else explicit.get("LOW")
@@ -360,9 +397,25 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
     latest = await _latest_price(repository, symbol)
     if latest is None:
         return {"ready": False, "symbol": symbol, "reason": "missing_market_price"}
+    current_close = (
+        await _latest_close(repository, symbol) if symbol == "OTEC" else None
+    )
+    if current_close and str(current_close["trading_date"]) >= str(
+        latest["trading_date"]
+    ):
+        latest = {
+            **current_close,
+            "price_type": "CLOSE",
+            "observed_at": _oslo_close_timestamp(str(current_close["trading_date"])),
+        }
+
     trading_date = str(latest["trading_date"])
     history = await _daily_history(repository, symbol, trading_date)
-    latest_close = await _latest_close(repository, symbol)
+    latest_close = await _latest_close(
+        repository,
+        symbol,
+        trading_date if symbol == "OTEC" else None,
+    )
     return {
         "ready": True,
         "symbol": symbol,
