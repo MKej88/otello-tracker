@@ -118,7 +118,14 @@ function financialText(value?: string | null) {
     .replaceAll("Lavere Selic", "Lavere styringsrente")
     .replaceAll("Selic", "styringsrenten")
     .replaceAll("IBC-Br", "Målet for økonomisk aktivitet")
+    .replaceAll("BCB Focus", "markedsundersøkelsen til Brasils sentralbank")
+    .replaceAll("Focus-data", "data fra markedsundersøkelsen")
+    .replaceAll("Focus-respons", "svar fra markedsundersøkelsen")
+    .replaceAll("publisert Focus", "publiserte tall fra markedsundersøkelsen")
     .replaceAll("Focus", "markedsundersøkelsen")
+    .replaceAll("estimated", "anslått")
+    .replaceAll("nød-fallback", "nødløsning")
+    .replaceAll("fallback", "reserveløsning")
     .replaceAll("multippel-ekspansjon", "høyere verdsettelse")
     .replaceAll("multippel", "verdsettelse");
 }
@@ -326,7 +333,7 @@ export default function BrazilPage() {
         </div>
         <p className="brazilLead">Den midterste forventningen blant svarene fra banker, forvaltere og andre deltakere i undersøkelsen til Brasils sentralbank.</p>
         <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
-        <div className="brazilNote">Tall fra markedsundersøkelsen viser forventninger for hele året, ikke for én bestemt publisering.</div>
+        <div className="brazilNote">{financialText(data.focus?.note) || "Tall fra markedsundersøkelsen viser forventninger for hele året, ikke for én bestemt publisering."}</div>
       </section>
 
       <section className="card brazilCalendarCard">
@@ -337,7 +344,7 @@ export default function BrazilPage() {
         <div className="brazilCalendarList">
           {calendar.length ? calendar.map((event) => <CalendarRow event={event} key={`${event.date}-${event.name}`} />) : <p>Ingen hendelser i perioden.</p>}
         </div>
-        <div className="brazilNote">Bekreftede datoer kommer fra brasilianske myndigheter. Framtidige anslåtte datoer må bekreftes i den offisielle kalenderen. Forventninger for hele året er bare en pekepinn og gjelder ikke nødvendigvis den enkelte publiseringen.</div>
+        <div className="brazilNote">{financialText(data.calendar_note) || "Bekreftede datoer kommer fra brasilianske myndigheter. Framtidige anslåtte datoer må bekreftes i den offisielle kalenderen."}</div>
       </section>
 
       <section className="card brazilMethodCard">
