@@ -844,104 +844,128 @@ def _parse_year_financials(
     year: int,
     itr_payload: bytes,
     dfp_payload: bytes | None,
+    errors: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
 
-    itr_dre = parse_dre_accounts_archive(itr_payload, year=year, document_type="itr")
-    dfp_dre = (
-        parse_dre_accounts_archive(dfp_payload, year=year, document_type="dfp")
-        if dfp_payload is not None else []
-    )
-    _merge_period_payloads(
-        result,
-        derive_standardized_dre_quarters(
-            year=year,
-            itr_observations=itr_dre,
-            dfp_observations=dfp_dre,
-        ),
-    )
+    def record_error(section: str, exc: Exception) -> None:
+        if errors is not None:
+            errors.append(
+                {
+                    "archive": f"FINANCIALS {year} {section}",
+                    "error": str(exc)[:1000],
+                }
+            )
 
-    itr_dfc = parse_statement_accounts_archive(
-        itr_payload,
-        year=year,
-        document_type="itr",
-        statement="DFC",
-        account_codes={item["account"] for item in DFC_METRICS.values()},
-    )
-    itr_capex = parse_capex_accounts_archive(
-        itr_payload,
-        year=year,
-        document_type="itr",
-    )
-    if dfp_payload is not None:
-        dfp_dfc = parse_statement_accounts_archive(
-            dfp_payload,
+    # CVM publishes each statement as a separate CSV member. One missing or changed
+    # member must not prevent values from the other statements from being stored.
+    try:
+        itr_dre = parse_dre_accounts_archive(
+            itr_payload, year=year, document_type="itr"
+        )
+        dfp_dre = (
+            parse_dre_accounts_archive(dfp_payload, year=year, document_type="dfp")
+            if dfp_payload is not None
+            else []
+        )
+        _merge_period_payloads(
+            result,
+            derive_standardized_dre_quarters(
+                year=year,
+                itr_observations=itr_dre,
+                dfp_observations=dfp_dre,
+            ),
+        )
+    except Exception as exc:
+        record_error("DRE", exc)
+
+    try:
+        itr_dfc = parse_statement_accounts_archive(
+            itr_payload,
             year=year,
-            document_type="dfp",
+            document_type="itr",
             statement="DFC",
             account_codes={item["account"] for item in DFC_METRICS.values()},
         )
-        dfp_capex = parse_capex_accounts_archive(
-            dfp_payload,
+        itr_capex = parse_capex_accounts_archive(
+            itr_payload,
             year=year,
-            document_type="dfp",
+            document_type="itr",
         )
-    else:
-        dfp_dfc = []
-        dfp_capex = []
-    _merge_period_payloads(
-        result,
-        derive_standardized_cashflow_quarters(
-            year=year,
-            itr_observations=itr_dfc,
-            dfp_observations=dfp_dfc,
-            itr_capex_observations=itr_capex,
-            dfp_capex_observations=dfp_capex,
-        ),
-    )
+        if dfp_payload is not None:
+            dfp_dfc = parse_statement_accounts_archive(
+                dfp_payload,
+                year=year,
+                document_type="dfp",
+                statement="DFC",
+                account_codes={item["account"] for item in DFC_METRICS.values()},
+            )
+            dfp_capex = parse_capex_accounts_archive(
+                dfp_payload,
+                year=year,
+                document_type="dfp",
+            )
+        else:
+            dfp_dfc = []
+            dfp_capex = []
+        _merge_period_payloads(
+            result,
+            derive_standardized_cashflow_quarters(
+                year=year,
+                itr_observations=itr_dfc,
+                dfp_observations=dfp_dfc,
+                itr_capex_observations=itr_capex,
+                dfp_capex_observations=dfp_capex,
+            ),
+        )
+    except Exception as exc:
+        record_error("DFC", exc)
 
-    itr_bpa = parse_statement_accounts_archive(
-        itr_payload,
-        year=year,
-        document_type="itr",
-        statement="BPA",
-        account_codes={item["account"] for item in BPA_METRICS.values()},
-    )
-    itr_bpp = parse_statement_accounts_archive(
-        itr_payload,
-        year=year,
-        document_type="itr",
-        statement="BPP",
-        account_codes={item["account"] for item in BPP_METRICS.values()},
-    )
-    if dfp_payload is not None:
-        dfp_bpa = parse_statement_accounts_archive(
-            dfp_payload,
+    try:
+        itr_bpa = parse_statement_accounts_archive(
+            itr_payload,
             year=year,
-            document_type="dfp",
+            document_type="itr",
             statement="BPA",
             account_codes={item["account"] for item in BPA_METRICS.values()},
         )
-        dfp_bpp = parse_statement_accounts_archive(
-            dfp_payload,
+        itr_bpp = parse_statement_accounts_archive(
+            itr_payload,
             year=year,
-            document_type="dfp",
+            document_type="itr",
             statement="BPP",
             account_codes={item["account"] for item in BPP_METRICS.values()},
         )
-    else:
-        dfp_bpa = []
-        dfp_bpp = []
-    _merge_period_payloads(
-        result,
-        derive_standardized_balance_quarters(
-            year=year,
-            itr_bpa=itr_bpa,
-            itr_bpp=itr_bpp,
-            dfp_bpa=dfp_bpa,
-            dfp_bpp=dfp_bpp,
-        ),
-    )
+        if dfp_payload is not None:
+            dfp_bpa = parse_statement_accounts_archive(
+                dfp_payload,
+                year=year,
+                document_type="dfp",
+                statement="BPA",
+                account_codes={item["account"] for item in BPA_METRICS.values()},
+            )
+            dfp_bpp = parse_statement_accounts_archive(
+                dfp_payload,
+                year=year,
+                document_type="dfp",
+                statement="BPP",
+                account_codes={item["account"] for item in BPP_METRICS.values()},
+            )
+        else:
+            dfp_bpa = []
+            dfp_bpp = []
+        _merge_period_payloads(
+            result,
+            derive_standardized_balance_quarters(
+                year=year,
+                itr_bpa=itr_bpa,
+                itr_bpp=itr_bpp,
+                dfp_bpa=dfp_bpa,
+                dfp_bpp=dfp_bpp,
+            ),
+        )
+    except Exception as exc:
+        record_error("BALANCE", exc)
     return result
 
 
@@ -1014,6 +1038,7 @@ async def refresh_bemobi_reported_net_income(
                     year=year,
                     itr_payload=itr_payload,
                     dfp_payload=dfp_payload,
+                    errors=errors,
                 ),
             )
         except Exception as exc:
