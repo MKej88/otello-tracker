@@ -20,7 +20,16 @@ type ValuationSourceQuarter = {
   adjusted_net_income_mbrl: number;
   adjusted_ebitda_mbrl: number;
   adjusted_cash_generation_mbrl?: number | null;
+  reported_revenue_mbrl?: number | null;
+  reported_ebit_mbrl?: number | null;
   reported_net_income_parent_mbrl?: number | null;
+  reported_operating_cash_flow_mbrl?: number | null;
+  reported_capex_cash_outflow_mbrl?: number | null;
+  reported_cash_mbrl?: number | null;
+  reported_borrowings_mbrl?: number | null;
+  reported_net_debt_mbrl?: number | null;
+  reported_net_income_parent_source_url?: string | null;
+  reported_revenue_source_url?: string | null;
   source: string;
   source_url?: string | null;
 };
@@ -189,6 +198,16 @@ function sourceName(input?: string | null) {
   return input ? names[input] ?? input : "Kilde ikke oppgitt";
 }
 
+function completeTtm(
+  quarters: ValuationSourceQuarter[],
+  field: keyof ValuationSourceQuarter
+) {
+  if (quarters.length !== 4) return null;
+  const values = quarters.map((quarter) => quarter[field]);
+  if (values.some((item) => typeof item !== "number" || !Number.isFinite(item))) return null;
+  return values.reduce<number>((sum, item) => sum + Number(item), 0);
+}
+
 function SourceLink({ url, children }: { url?: string | null; children: React.ReactNode }) {
   if (!url) return <span>{children}</span>;
   return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
@@ -256,7 +275,66 @@ export default function BemobiPage() {
   const nextReport = data.next_report;
   const ttmRange = valuation?.period?.replace(/^TTM\s+/, "") ?? "TTM";
   const evAnchorPeriod = valuation?.ev_anchor_period ?? "ukjent periode";
-  const evAnchorStale = valuation?.ev_anchor_is_current === false;
+  const cvmQuarters = valuation?.source_quarters ?? [];
+  const latestCvm = cvmQuarters.at(-1);
+  const reportedRevenueTtm = completeTtm(cvmQuarters, "reported_revenue_mbrl");
+  const reportedEbitTtm = completeTtm(cvmQuarters, "reported_ebit_mbrl");
+  const reportedNetIncomeTtm = completeTtm(cvmQuarters, "reported_net_income_parent_mbrl");
+  const reportedOperatingCashFlowTtm = completeTtm(cvmQuarters, "reported_operating_cash_flow_mbrl");
+  const reportedCapexCashOutflowTtm = completeTtm(cvmQuarters, "reported_capex_cash_outflow_mbrl");
+  const reportedCapexTtm = reportedCapexCashOutflowTtm == null ? null : Math.abs(reportedCapexCashOutflowTtm);
+  const reportedFcfTtm =
+    reportedOperatingCashFlowTtm == null || reportedCapexTtm == null
+      ? null
+      : reportedOperatingCashFlowTtm - reportedCapexTtm;
+  const cvmNetDebt = latestCvm?.reported_net_debt_mbrl;
+  const cvmNetCash = typeof cvmNetDebt === "number" ? -cvmNetDebt : null;
+  const cvmEnterpriseValue =
+    valuation?.market_cap_mbrl == null || cvmNetDebt == null
+      ? null
+      : valuation.market_cap_mbrl + cvmNetDebt;
+  const cvmPe =
+    valuation?.market_cap_mbrl == null || reportedNetIncomeTtm == null || reportedNetIncomeTtm <= 0
+      ? null
+      : valuation.market_cap_mbrl / reportedNetIncomeTtm;
+  const cvmEvEbit =
+    cvmEnterpriseValue == null || reportedEbitTtm == null || reportedEbitTtm <= 0
+      ? null
+      : cvmEnterpriseValue / reportedEbitTtm;
+  const cvmEarningsYield =
+    valuation?.market_cap_mbrl == null || reportedNetIncomeTtm == null
+      ? null
+      : reportedNetIncomeTtm / valuation.market_cap_mbrl * 100;
+  const cvmFcfYield =
+    valuation?.market_cap_mbrl == null || reportedFcfTtm == null
+      ? null
+      : reportedFcfTtm / valuation.market_cap_mbrl * 100;
+  const adjustedCapexTtm =
+    valuation?.adjusted_ebitda_ttm_mbrl == null || valuation?.adjusted_fcf_ttm_mbrl == null
+      ? null
+      : valuation.adjusted_ebitda_ttm_mbrl - valuation.adjusted_fcf_ttm_mbrl;
+  const capexTtmDelta =
+    reportedCapexTtm == null || adjustedCapexTtm == null
+      ? null
+      : reportedCapexTtm - adjustedCapexTtm;
+  const adjustedCapexQuarter =
+    result?.adjusted_ebitda_mbrl == null || result?.ebitda_less_capex_mbrl == null
+      ? null
+      : result.adjusted_ebitda_mbrl - result.ebitda_less_capex_mbrl;
+  const cvmCapexQuarter =
+    latestCvm?.reported_capex_cash_outflow_mbrl == null
+      ? null
+      : Math.abs(latestCvm.reported_capex_cash_outflow_mbrl);
+  const capexQuarterDelta =
+    cvmCapexQuarter == null || adjustedCapexQuarter == null
+      ? null
+      : cvmCapexQuarter - adjustedCapexQuarter;
+  const cvmEvReady = cvmEvEbit != null;
+  const evAnchorStale = !cvmEvReady && valuation?.ev_anchor_is_current === false;
+  const pePrimary = cvmPe ?? valuation?.pe_ttm;
+  const evEbitPrimary = cvmEvEbit ?? valuation?.ev_ebit_ttm;
+  const fcfYieldPrimary = cvmFcfYield ?? valuation?.adjusted_fcf_yield_pct;
+  const earningsYieldPrimary = cvmEarningsYield ?? valuation?.earnings_yield_pct;
 
   const topCards = [
     {
@@ -311,7 +389,7 @@ export default function BemobiPage() {
       <section className="card bemobiValuation">
         <div className="cardHeader">
           <div>
-            <span className="label">Verdsettelse nå</span>
+            <span className="label">Verdsettelse nå · CVM-first</span>
             <h2>Hva betaler markedet for Bemobi?</h2>
           </div>
           <span className="pill">{valuation?.period ?? "TTM"}</span>
@@ -319,8 +397,8 @@ export default function BemobiPage() {
 
         {evAnchorStale && (
           <p className="bemobiValuationNote">
-            <strong>EV-ankeret er eldre enn TTM-grunnlaget.</strong> TTM slutter i {valuation?.ttm_end_period ?? "ukjent periode"},
-            mens EBIT/netto kontant er kildebelagt til {evAnchorPeriod}. Enterprise value og EV/EBIT skjules til et nytt anker er tilgjengelig.
+            <strong>CVM-balanse/EBIT er ikke komplett ennå.</strong> Legacy EV-ankeret er eldre enn TTM-grunnlaget.
+            Enterprise value og EV/EBIT vises derfor først når CVM-grunnlaget eller et ferskt anker er tilgjengelig.
           </p>
         )}
 
@@ -328,32 +406,32 @@ export default function BemobiPage() {
           <div>
             <span>Markedsverdi</span>
             <strong>R$ {value(valuation?.market_cap_mbrl, 0)}m</strong>
-            <small>Løpende BMOB3-kurs</small>
+            <small>B3-kurs × aksjer</small>
           </div>
           <div>
             <span>P/E TTM</span>
-            <strong>{value(valuation?.pe_ttm, 1)}x</strong>
-            <small>Justert resultat</small>
+            <strong>{value(pePrimary, 1)}x</strong>
+            <small>{cvmPe != null ? "Rapportert CVM-resultat" : "Justert fallback"}</small>
           </div>
           <div>
             <span>EV / EBIT TTM</span>
-            <strong>{value(valuation?.ev_ebit_ttm, 1)}x</strong>
-            <small>{evAnchorStale ? `Skjult · anker ${evAnchorPeriod}` : "Etter netto kontant"}</small>
+            <strong>{value(evEbitPrimary, 1)}x</strong>
+            <small>{cvmEvEbit != null ? "CVM EBIT + CVM netto gjeld" : `Fallback · anker ${evAnchorPeriod}`}</small>
           </div>
           <div>
-            <span>FCF yield (just.)</span>
-            <strong>{value(valuation?.adjusted_fcf_yield_pct, 1)} %</strong>
-            <small>EBITDA − capex</small>
+            <span>FCF yield</span>
+            <strong>{value(fcfYieldPrimary, 1)} %</strong>
+            <small>{cvmFcfYield != null ? "CVM CFO − capex" : "FCF yield (just.) fallback"}</small>
           </div>
           <div>
             <span>Earnings yield</span>
-            <strong>{value(valuation?.earnings_yield_pct, 1)} %</strong>
-            <small>Justert TTM-resultat</small>
+            <strong>{value(earningsYieldPrimary, 1)} %</strong>
+            <small>{cvmEarningsYield != null ? "Rapportert CVM-resultat" : "Justert fallback"}</small>
           </div>
           <div>
             <span>Markedsverdi / EBITDA</span>
             <strong>{value(valuation?.price_to_ebitda_ttm, 1)}x</strong>
-            <small>Egenkapitalverdi</small>
+            <small>Justert EBITDA · Bemobi</small>
           </div>
         </div>
 
@@ -361,7 +439,7 @@ export default function BemobiPage() {
           <div className="bemobiSensitivity">
             <div className="bemobiSectionTitle">
               <span>Multipelsensitivitet</span>
-              <small>Ikke kursmål</small>
+              <small>Justert EPS · ikke kursmål</small>
             </div>
             <div className="bemobiScenarioGrid">
               {(valuation?.scenarios ?? []).map((scenario) => (
@@ -378,32 +456,52 @@ export default function BemobiPage() {
 
           <div className="bemobiValuationBase">
             <div className="bemobiSectionTitle">
-              <span>TTM-grunnlag</span>
+              <span>TTM-grunnlag · CVM først</span>
               <small>{ttmRange}</small>
             </div>
             <div className="placeholderRows">
-              <div><span>Justert resultat TTM</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Rapportert resultat TTM</span><strong>R$ {value(valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Justert EBITDA TTM</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Rapportert omsetning TTM · CVM 3.01</span><strong>R$ {value(reportedRevenueTtm, 1)}m</strong></div>
+              <div><span>Rapportert EBIT TTM · CVM 3.05</span><strong>R$ {value(reportedEbitTtm, 1)}m</strong></div>
+              <div><span>Rapportert resultat TTM · CVM 3.11.01</span><strong>R$ {value(reportedNetIncomeTtm ?? valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Operasjonell kontantstrøm TTM · CVM 6.01</span><strong>R$ {value(reportedOperatingCashFlowTtm, 1)}m</strong></div>
+              <div><span>Capex TTM · CVM 6.02.02</span><strong>R$ {value(reportedCapexTtm, 1)}m</strong></div>
+              <div><span>FCF TTM · CVM CFO − capex</span><strong>R$ {value(reportedFcfTtm, 1)}m</strong></div>
+              <div><span>Netto kontant · CVM {latestCvm?.period ?? "siste"}</span><strong>R$ {value(cvmNetCash, 1)}m</strong></div>
+              <div><span>Enterprise value · CVM-first</span><strong>R$ {value(cvmEnterpriseValue, 0)}m</strong></div>
+              <div><span>Justert resultat TTM · Bemobi</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
+              <div><span>Justert EBITDA TTM · Bemobi</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
               <div><span>Justert FCF-proxy TTM</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
-              <div><span>EBIT TTM · anker {evAnchorPeriod}</span><strong>R$ {value(valuation?.ebit_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Netto kontant · anker {evAnchorPeriod}</span><strong>R$ {value(valuation?.net_cash_mbrl, 1)}m</strong></div>
-              <div><span>Enterprise value</span><strong>R$ {value(valuation?.enterprise_value_mbrl, 0)}m</strong></div>
-              <div><span>Justert EPS TTM</span><strong>R$ {value(valuation?.adjusted_eps_ttm_brl, 2)}</strong></div>
+              <div><span>Justert capex TTM · EBITDA − FCF-proxy</span><strong>R$ {value(adjustedCapexTtm, 1)}m</strong></div>
             </div>
           </div>
         </div>
 
+        {(reportedCapexTtm != null || adjustedCapexTtm != null) && (
+          <p className="bemobiValuationNote">
+            <strong>Capex-avstemming:</strong> CVM 6.02.02 viser R$ {value(reportedCapexTtm, 1)}m TTM,
+            mens Bemobis justerte definisjon impliserer R$ {value(adjustedCapexTtm, 1)}m.
+            {capexTtmDelta != null && ` Differanse: R$ ${value(capexTtmDelta, 1)}m.`}
+            {" "}Definisjonene kan ha ulikt omfang, så CVM-linjen brukes som regulatorisk kontroll – ikke som automatisk erstatning for Bemobis justerte capex.
+          </p>
+        )}
+
         <div className="bemobiQuarterSources">
           <span>Resultatgrunnlag:</span>
-          {(valuation?.source_quarters ?? []).map((quarter) => (
-            <SourceLink key={quarter.period} url={quarter.source_url}>
-              <span>{quarter.period} · {quarter.source}</span>
+          {cvmQuarters.map((quarter) => (
+            <SourceLink
+              key={quarter.period}
+              url={quarter.reported_net_income_parent_source_url ?? quarter.reported_revenue_source_url ?? quarter.source_url}
+            >
+              <span>
+                {quarter.period} · {quarter.reported_net_income_parent_mbrl != null ? "CVM ITR/DFP" : quarter.source}
+              </span>
             </SourceLink>
           ))}
-          <SourceLink url={valuation?.ev_anchor_source_url}>
-            <span>EV-anker {evAnchorPeriod} · {valuation?.ev_anchor_source ?? "CVM"}</span>
-          </SourceLink>
+          {!cvmEvReady && (
+            <SourceLink url={valuation?.ev_anchor_source_url}>
+              <span>Legacy EV-anker {evAnchorPeriod} · {valuation?.ev_anchor_source ?? "CVM"}</span>
+            </SourceLink>
+          )}
         </div>
         {valuation?.methodology_note && <p className="bemobiValuationNote">{valuation.methodology_note}</p>}
       </section>
@@ -412,46 +510,65 @@ export default function BemobiPage() {
         <article className="card bemobiResults">
           <div className="cardHeader">
             <div>
-              <span className="label">Siste rapport</span>
-              <h2>{result?.period ?? "–"} · nøkkeltall</h2>
+              <span className="label">Siste rapport · CVM-first</span>
+              <h2>{result?.period ?? latestCvm?.period ?? "–"} · nøkkeltall</h2>
             </div>
-            <SourceLink url={result?.source_url}>
-              <span className="pill">{sourceName(result?.source_code)}</span>
+            <SourceLink url={latestCvm?.reported_net_income_parent_source_url ?? result?.source_url}>
+              <span className="pill">{latestCvm?.reported_net_income_parent_mbrl != null ? "CVM" : sourceName(result?.source_code)}</span>
             </SourceLink>
           </div>
 
           <div className="bemobiResultGrid">
             <div>
-              <span>Justert nettoomsetning</span>
-              <strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
-              <em>{growthValue(result?.adjusted_net_revenue_yoy_pct, 1)} år/år</em>
+              <span>Rapportert omsetning</span>
+              <strong>R$ {value(latestCvm?.reported_revenue_mbrl ?? result?.adjusted_net_revenue_mbrl, 1)}m</strong>
+              <em>{latestCvm?.reported_revenue_mbrl != null ? "CVM 3.01" : "Justert fallback"}</em>
             </div>
             <div>
-              <span>Justert EBITDA</span>
-              <strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
-              <em>{growthValue(result?.adjusted_ebitda_yoy_pct, 1)} år/år</em>
+              <span>Rapportert EBIT</span>
+              <strong>R$ {value(latestCvm?.reported_ebit_mbrl, 1)}m</strong>
+              <em>CVM 3.05</em>
             </div>
             <div>
-              <span>EBITDA-margin</span>
-              <strong>{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
-              <em>Justert</em>
+              <span>Resultat til Bemobi-aksjonærer</span>
+              <strong>R$ {value(latestCvm?.reported_net_income_parent_mbrl ?? result?.adjusted_net_income_mbrl, 1)}m</strong>
+              <em>{latestCvm?.reported_net_income_parent_mbrl != null ? "CVM 3.11.01" : "Justert fallback"}</em>
             </div>
             <div>
-              <span>Justert resultat</span>
-              <strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
-              <em>{growthValue(result?.adjusted_net_income_yoy_pct, 1)} år/år</em>
+              <span>Operasjonell kontantstrøm</span>
+              <strong>R$ {value(latestCvm?.reported_operating_cash_flow_mbrl, 1)}m</strong>
+              <em>CVM 6.01</em>
             </div>
             <div>
-              <span>EBITDA etter capex</span>
-              <strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m</strong>
-              <em>{value(result?.cash_conversion_pct, 1)} % kontantkonvertering</em>
+              <span>Capex</span>
+              <strong>R$ {value(cvmCapexQuarter, 1)}m</strong>
+              <em>CVM 6.02.02</em>
             </div>
             <div>
               <span>Kontantbeholdning</span>
-              <strong>R$ {value(result?.cash_mbrl, 0)}m</strong>
-              <em>Ved kvartalsslutt</em>
+              <strong>R$ {value(latestCvm?.reported_cash_mbrl ?? result?.cash_mbrl, 0)}m</strong>
+              <em>{latestCvm?.reported_cash_mbrl != null ? "CVM 1.01.01" : "Bemobi fallback"}</em>
             </div>
           </div>
+
+          <div className="bemobiSectionTitle">
+            <span>Bemobi-justerte KPI-er</span>
+            <small>Offisiell resultatpresentasjon</small>
+          </div>
+          <div className="placeholderRows">
+            <div><span>Justert nettoomsetning</span><strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong></div>
+            <div><span>Justert EBITDA</span><strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m · {value(result?.adjusted_ebitda_margin_pct, 1)} % margin</strong></div>
+            <div><span>Justert resultat</span><strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong></div>
+            <div><span>EBITDA etter capex</span><strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m · {value(result?.cash_conversion_pct, 1)} % konvertering</strong></div>
+          </div>
+
+          {(cvmCapexQuarter != null || adjustedCapexQuarter != null) && (
+            <p className="bemobiValuationNote">
+              Capex-avstemming {latestCvm?.period ?? result?.period}: CVM 6.02.02 R$ {value(cvmCapexQuarter, 1)}m
+              mot Bemobi-justert implisitt capex R$ {value(adjustedCapexQuarter, 1)}m.
+              {capexQuarterDelta != null && ` Differanse R$ ${value(capexQuarterDelta, 1)}m.`}
+            </p>
+          )}
 
           <div className="bemobiGrowthStrip">
             <div><span>Payments</span><strong>{growthValue(result?.payments_yoy_pct, 0)}</strong><small>år/år</small></div>
