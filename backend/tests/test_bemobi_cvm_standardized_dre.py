@@ -13,6 +13,7 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 
 from bemobi_cvm_financials import (  # noqa: E402
     BEMOBI_CVM_CODE,
+    _parse_year_financials,
     derive_standardized_dre_quarters,
     parse_dre_accounts_archive,
 )
@@ -106,6 +107,36 @@ def test_standardized_cvm_dre_derives_revenue_ebit_and_parent_income() -> None:
     assert quarters["2Q26"]["reported_revenue_account"] == "3.01"
     assert quarters["2Q26"]["reported_ebit_account"] == "3.05"
     assert quarters["2Q26"]["reported_net_income_parent_account"] == "3.11.01"
+
+
+def test_year_refresh_keeps_dre_when_another_statement_is_missing() -> None:
+    rows = []
+    for account, q1, h1 in (
+        ("3.01", "120000", "255000"),
+        ("3.05", "30000", "65000"),
+        ("3.11.01", "34210", "67445"),
+    ):
+        rows.extend(
+            [
+                _row(year=2026, period_end="2026-03-31", account=account, value=q1),
+                _row(year=2026, period_end="2026-06-30", account=account, value=h1),
+            ]
+        )
+
+    errors: list[dict[str, object]] = []
+    quarters = _parse_year_financials(
+        year=2026,
+        itr_payload=_archive(year=2026, document_type="itr", rows=rows),
+        dfp_payload=None,
+        errors=errors,
+    )
+
+    assert quarters["2Q26"]["reported_revenue_mbrl"] == 135.0
+    assert quarters["2Q26"]["reported_ebit_mbrl"] == 35.0
+    assert {error["archive"] for error in errors} == {
+        "FINANCIALS 2026 BALANCE",
+        "FINANCIALS 2026 DFC",
+    }
 
 
 def test_standardized_cvm_dre_uses_dfp_to_derive_q4() -> None:
