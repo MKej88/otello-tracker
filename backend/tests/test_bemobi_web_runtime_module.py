@@ -5,13 +5,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
-if str(CLOUDFLARE_SRC) not in sys.path:
-    sys.path.insert(0, str(CLOUDFLARE_SRC))
+CLOUDFLARE_ROOT = ROOT / "cloudflare"
+CLOUDFLARE_SRC = CLOUDFLARE_ROOT / "src"
+for path in (CLOUDFLARE_ROOT, CLOUDFLARE_SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 import bemobi_web_refresh_runtime as runtime  # noqa: E402
 import bemobi_web_refresh_v2 as legacy_v2  # noqa: E402
-import full_refresh as full_refresh_runtime  # noqa: E402
+from src import full_refresh as full_refresh_runtime  # noqa: E402
 
 
 def test_v2_import_path_is_only_a_runtime_compatibility_shim() -> None:
