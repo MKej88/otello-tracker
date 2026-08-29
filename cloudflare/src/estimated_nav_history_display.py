@@ -13,6 +13,14 @@ TOLERANCE_NOK = Decimal("1000")
 ALLIANCE_VENTURE_SPRING_SHARES = 7_411_532
 
 
+def _display_date(value: str) -> str:
+    """Formater en ISO-dato for norsk visningstekst."""
+    try:
+        return date.fromisoformat(value).strftime("%d.%m.%Y")
+    except ValueError:
+        return value
+
+
 def _decimal(value: Any) -> Decimal:
     return Decimal(str(value or "0"))
 
@@ -108,10 +116,7 @@ def _confirmed_other_cash_display(
 
     event = events[0]
     event_date = str(event["movement_date"])
-    try:
-        display_date = date.fromisoformat(event_date).strftime("%d.%m.%Y")
-    except ValueError:
-        display_date = event_date
+    display_date = _display_date(event_date)
     external_id = str(event["external_movement_id"])
     event_name = (
         "Patentoppgjør"
@@ -369,6 +374,8 @@ async def _split_current_composition(
         - life360_nok
     )
     currency_effect_nok = cash_fx_nok + ona_currency_effect_nok
+    cash_report_display_date = _display_date(cash_report_date)
+    current_display_date = _display_date(current_date)
 
     new_components: list[dict[str, Any]] = [dict(bemobi)]
     new_components.extend(
@@ -378,7 +385,7 @@ async def _split_current_composition(
                 "Kontantbeholdning",
                 reported_cash_nok,
                 shares,
-                f"Siste rapporterte kontantbeholdning ({cash_report_date})",
+                f"Siste rapporterte kontantbeholdning ({cash_report_display_date})",
                 {
                     "report_date": cash_report_date,
                     "source_document_id": report.get("cash_source_document_id"),
@@ -392,7 +399,8 @@ async def _split_current_composition(
                 "Estimert drift siden siste rapport",
                 -operating_cost_nok,
                 shares,
-                f"Estimert løpende drift fra {cash_report_date} til {current_date}",
+                "Estimert løpende drift fra "
+                f"{cash_report_display_date} til {current_display_date}",
                 {"report_date": cash_report_date, "current_date": current_date},
             ),
             _component(
@@ -400,7 +408,7 @@ async def _split_current_composition(
                 "Tilbakekjøp siden siste rapport",
                 buyback_nok,
                 shares,
-                f"Kontantbruk på egne aksjer etter {cash_report_date}",
+                f"Kontantbruk på egne aksjer etter {cash_report_display_date}",
                 {
                     "report_date": cash_report_date,
                     "current_date": current_date,

@@ -177,6 +177,11 @@ def test_confirmed_other_cash_display_exposes_patent_settlement() -> None:
     assert events[0]["source_document_id"] == 99
 
 
+def test_display_date_formats_iso_date_for_norwegian_readers() -> None:
+    assert estimated_nav_history_display._display_date("2026-06-30") == "30.06.2026"
+    assert estimated_nav_history_display._display_date("ukjent") == "ukjent"
+
+
 def test_confirmed_other_cash_display_falls_back_if_events_do_not_reconcile() -> None:
     rows = [
         {
@@ -232,8 +237,20 @@ def test_report_cash_alliance_life360_and_residual_are_split_without_changing_na
     assert "ona" not in by_key
     assert by_key["reported_cash"]["label"] == "Kontantbeholdning"
     assert by_key["reported_cash"]["amount_mnok"] == 50.0
+    assert (
+        by_key["reported_cash"]["formula"]
+        == "Siste rapporterte kontantbeholdning (31.03.2026)"
+    )
     assert by_key["operating_cost_since_report"]["amount_mnok"] == -7.0
+    assert (
+        by_key["operating_cost_since_report"]["formula"]
+        == "Estimert løpende drift fra 31.03.2026 til 02.04.2026"
+    )
     assert by_key["buybacks_since_report"]["amount_mnok"] == -12.0
+    assert (
+        by_key["buybacks_since_report"]["formula"]
+        == "Kontantbruk på egne aksjer etter 31.03.2026"
+    )
     assert by_key["other_cash_since_report"]["amount_mnok"] == -3.0
     assert by_key["other_cash_since_report"]["label"] == "Andre kontantbevegelser siden siste rapport"
     assert by_key["other_cash_since_report"]["details"]["confirmed"] is False
