@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDate, formatDateTime } from "./uiFormat";
 import "./market-quote-panel.css";
 
 type Quote = {
@@ -68,25 +69,6 @@ function volume(value: number | null | undefined) {
   return Math.round(value).toLocaleString("nb-NO");
 }
 
-function shortDate(input?: string | null) {
-  if (!input) return "–";
-  const [year, month, day] = input.slice(0, 10).split("-");
-  return year && month && day ? `${day}.${month}.${year}` : input;
-}
-
-function updated(input?: string | null) {
-  if (!input) return "–";
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) return input;
-  return parsed.toLocaleString("nb-NO", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Oslo",
-  });
-}
-
 function sessionBasisLabel(quote: Quote) {
   if (quote.session?.basis === "EXCHANGE_SESSION_SUMMARY") return "Børssammendrag";
   if (quote.session?.basis === "OBSERVED_TRADES") return "Observerte Euronext-handler";
@@ -118,8 +100,8 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
         </div>
         <div className="marketQuoteUpdated">
           <span>Sist oppdatert</span>
-          <strong>{updated(quote.last_updated_at)}</strong>
-          <small>Handelsdato {shortDate(quote.trading_date)}</small>
+          <strong>{formatDateTime(quote.last_updated_at)}</strong>
+          <small>Handelsdato {formatDate(quote.trading_date)}</small>
         </div>
       </div>
 
@@ -139,12 +121,12 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
         <div>
           <span>Siste sluttkurs</span>
           <strong>{price(quote.last_close?.price, currency)}</strong>
-          <small>{shortDate(quote.last_close?.date)}</small>
+          <small>{formatDate(quote.last_close?.date)}</small>
         </div>
         <div>
           <span>Siste volum</span>
           <strong>{volume(quote.volume?.latest)}</strong>
-          <small>{shortDate(quote.volume?.latest_date)}</small>
+          <small>{formatDate(quote.volume?.latest_date)}</small>
         </div>
         <div>
           <span>Snittvolum</span>

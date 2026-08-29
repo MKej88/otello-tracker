@@ -20,18 +20,21 @@ export function formatDate(input?: string | null): string {
 }
 
 export function formatDateTime(
-  input?: string | null,
-  includeYear = true,
+  input?: string | Date | null,
 ): string {
   if (!input) return "–";
-  const parsed = new Date(input);
-  if (!Number.isFinite(parsed.getTime())) return input;
-  return parsed.toLocaleString(NUMBER_LOCALE, {
+  const parsed = input instanceof Date ? input : new Date(input);
+  if (!Number.isFinite(parsed.getTime())) return String(input);
+  const date = parsed.toLocaleDateString(NUMBER_LOCALE, {
     day: "2-digit",
     month: "2-digit",
-    ...(includeYear ? { year: "numeric" } : {}),
+    year: "numeric",
+    timeZone: "Europe/Oslo",
+  });
+  const time = parsed.toLocaleTimeString(NUMBER_LOCALE, {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Europe/Oslo",
   });
+  return `${date} kl. ${time}`;
 }

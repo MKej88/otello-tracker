@@ -18,6 +18,15 @@ FAST_MAX_AGE = timedelta(minutes=90)
 FULL_MAX_AGE = timedelta(hours=36)
 FAST_RUNNING_MAX_AGE = timedelta(minutes=90)
 FULL_RUNNING_MAX_AGE = timedelta(hours=4)
+PUBLIC_SOURCE_CODES = (
+    "NORGES_BANK",
+    "YAHOO_FINANCE",
+    "B3",
+    "CVM",
+    "BEMOBI_IR",
+    "NEWSWEB",
+    "EURONEXT",
+)
 
 
 def _metadata(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -114,6 +123,10 @@ def _job_payload(
             **freshness,
         }
     metadata = _metadata(row)
+    raw_source_health = metadata.get("source_health")
+    source_health = raw_source_health if isinstance(raw_source_health, dict) else {}
+    raw_preflight = metadata.get("preflight")
+    preflight = raw_preflight if isinstance(raw_preflight, dict) else {}
     return {
         "available": True,
         "status": row.get("status"),
@@ -125,6 +138,18 @@ def _job_payload(
         "error_message": None,
         "has_error": bool(row.get("error_message")),
         "target_date": metadata.get("target_date"),
+        "source_health": {
+            code: str(source_health[code]).upper()
+            for code in PUBLIC_SOURCE_CODES
+            if code in source_health
+        },
+        "preflight": {
+            "ready": bool(preflight.get("ready")),
+            "blocker_count": len(preflight.get("blockers") or []),
+            "warning_count": len(preflight.get("warnings") or []),
+        }
+        if preflight
+        else None,
         **freshness,
     }
 
