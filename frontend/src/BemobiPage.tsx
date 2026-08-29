@@ -25,6 +25,7 @@ type ValuationSourceQuarter = {
   reported_net_income_parent_mbrl?: number | null;
   reported_operating_cash_flow_mbrl?: number | null;
   reported_capex_cash_outflow_mbrl?: number | null;
+  reported_capex_cash_outflow_account?: string | null;
   reported_cash_mbrl?: number | null;
   reported_borrowings_mbrl?: number | null;
   reported_net_debt_mbrl?: number | null;
@@ -329,6 +330,7 @@ export default function BemobiPage() {
     cvmCapexQuarter == null || adjustedCapexQuarter == null
       ? null
       : cvmCapexQuarter - adjustedCapexQuarter;
+  const cvmCapexAccount = latestCvm?.reported_capex_cash_outflow_account;
   const cvmEvReady = cvmEvEbit != null;
   const evAnchorStale = !cvmEvReady && valuation?.ev_anchor_is_current === false;
   const pePrimary = cvmPe ?? valuation?.pe_ttm;
@@ -464,7 +466,7 @@ export default function BemobiPage() {
               <div><span>Rapportert EBIT TTM · CVM 3.05</span><strong>R$ {value(reportedEbitTtm, 1)}m</strong></div>
               <div><span>Rapportert resultat TTM · CVM 3.11.01</span><strong>R$ {value(reportedNetIncomeTtm ?? valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
               <div><span>Operasjonell kontantstrøm TTM · CVM 6.01</span><strong>R$ {value(reportedOperatingCashFlowTtm, 1)}m</strong></div>
-              <div><span>Capex TTM · CVM 6.02.02</span><strong>R$ {value(reportedCapexTtm, 1)}m</strong></div>
+              <div><span>Capex TTM · CVM DFC</span><strong>R$ {value(reportedCapexTtm, 1)}m</strong></div>
               <div><span>FCF TTM · CVM CFO − capex</span><strong>R$ {value(reportedFcfTtm, 1)}m</strong></div>
               <div><span>Netto kontant · CVM {latestCvm?.period ?? "siste"}</span><strong>R$ {value(cvmNetCash, 1)}m</strong></div>
               <div><span>Enterprise value · CVM-first</span><strong>R$ {value(cvmEnterpriseValue, 0)}m</strong></div>
@@ -478,10 +480,12 @@ export default function BemobiPage() {
 
         {(reportedCapexTtm != null || adjustedCapexTtm != null) && (
           <p className="bemobiValuationNote">
-            <strong>Capex-avstemming:</strong> CVM 6.02.02 viser R$ {value(reportedCapexTtm, 1)}m TTM,
+            <strong>Capex-avstemming:</strong> CVM DFC viser R$ {value(reportedCapexTtm, 1)}m TTM,
             mens Bemobis justerte definisjon impliserer R$ {value(adjustedCapexTtm, 1)}m.
             {capexTtmDelta != null && ` Differanse: R$ ${value(capexTtmDelta, 1)}m.`}
-            {" "}Definisjonene kan ha ulikt omfang, så CVM-linjen brukes som regulatorisk kontroll – ikke som automatisk erstatning for Bemobis justerte capex.
+            {" "}CVM-kontokoden kan endres mellom rapporter; trackeren følger beskrivelsen for kjøp av
+            imobilizado/intangível og lagrer faktisk kontokode som proveniens. Definisjonene kan ha ulikt
+            omfang, så CVM-linjen brukes som regulatorisk kontroll – ikke som automatisk erstatning for Bemobis justerte capex.
           </p>
         )}
 
@@ -542,7 +546,7 @@ export default function BemobiPage() {
             <div>
               <span>Capex</span>
               <strong>R$ {value(cvmCapexQuarter, 1)}m</strong>
-              <em>CVM 6.02.02</em>
+              <em>{cvmCapexAccount ? `CVM ${cvmCapexAccount}` : "CVM DFC"}</em>
             </div>
             <div>
               <span>Kontantbeholdning</span>
@@ -564,7 +568,8 @@ export default function BemobiPage() {
 
           {(cvmCapexQuarter != null || adjustedCapexQuarter != null) && (
             <p className="bemobiValuationNote">
-              Capex-avstemming {latestCvm?.period ?? result?.period}: CVM 6.02.02 R$ {value(cvmCapexQuarter, 1)}m
+              Capex-avstemming {latestCvm?.period ?? result?.period}: CVM DFC
+              {cvmCapexAccount ? ` (${cvmCapexAccount})` : ""} R$ {value(cvmCapexQuarter, 1)}m
               mot Bemobi-justert implisitt capex R$ {value(adjustedCapexQuarter, 1)}m.
               {capexQuarterDelta != null && ` Differanse R$ ${value(capexQuarterDelta, 1)}m.`}
             </p>
