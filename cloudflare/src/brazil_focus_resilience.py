@@ -264,9 +264,20 @@ async def resolve_annual_focus(
     if cached and _valid_values(cached.get("values")):
         survey_date = _latest_survey_date(cached.get("values"))
         if not survey_date or survey_date <= as_of_date:
+            cached_values = cached["values"]
+            if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
+                # A sequence of per-point writes can be interrupted after only
+                # part of the bootstrap or live response has reached D1. Complete
+                # that partial snapshot for this response while keeping every
+                # cached point authoritative over the published seed.
+                cached_values = _merge_missing_annual_values(
+                    cached_values,
+                    _BOOTSTRAP_VALUES,
+                    as_of_date=as_of_date,
+                )
             result = {
                 "ready": True,
-                "values": cached["values"],
+                "values": cached_values,
                 "source": cached.get("source") or "Banco Central do Brasil / Focus",
                 "source_url": cached.get("source_url"),
                 "fallback": True,

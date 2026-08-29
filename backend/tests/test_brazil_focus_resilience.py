@@ -182,6 +182,37 @@ def test_first_partial_live_focus_is_completed_by_published_bootstrap() -> None:
     assert fallback["values"]["gdp"]["2026"]["median"] == 1.95
 
 
+def test_partial_cache_after_interrupted_write_is_completed_by_bootstrap() -> None:
+    class InterruptingRepository(FakeRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.writes = 0
+            self.interrupt_writes = True
+
+        async def run(self, sql: str, params=()):
+            self.writes += 1
+            if self.interrupt_writes and self.writes == 2:
+                raise RuntimeError("transient D1 write failure")
+            return await super().run(sql, params)
+
+    repo = InterruptingRepository()
+    with pytest.raises(RuntimeError, match="transient D1 write failure"):
+        asyncio.run(resolve_annual_focus(repo, _live_focus(), as_of_date="2026-08-29"))
+
+    repo.interrupt_writes = False
+    fallback, status = asyncio.run(
+        resolve_annual_focus(repo, {"ready": False, "values": {}}, as_of_date="2026-08-30")
+    )
+
+    assert fallback["data_source"] == "LAST_GOOD_D1_CACHE"
+    assert fallback["values"]["selic"]["2026"]["median"] == 13.75
+    assert fallback["values"]["selic"]["2027"]["median"] == 12.0
+    assert fallback["values"]["ipca"]["2026"]["median"] == 5.02
+    assert fallback["values"]["gdp"]["2027"]["median"] == 1.5
+    assert fallback["values"]["usd_brl"]["2027"]["median"] == 5.3
+    assert status["fallback_source"] == "LAST_GOOD_D1_CACHE"
+
+
 def test_older_concurrent_focus_write_cannot_replace_newer_snapshot() -> None:
     repo = FakeRepository()
     newer = _live_focus("2026-08-29")
