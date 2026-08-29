@@ -180,7 +180,7 @@ export default function EstimatedHistoryPage() {
 
           <section className="historyDetailGrid">
             <article className="card"><div className="cardHeader"><div><span className="label">Fordeling</span><h2>Historiske nivåer</h2></div></div><div className="placeholderRows"><div><span>10. persentil</span><strong>{formatNumber(stats.p10_discount_pct)} %</strong></div><div><span>Median</span><strong>{formatNumber(stats.median_discount_pct)} %</strong></div><div><span>90. persentil</span><strong>{formatNumber(stats.p90_discount_pct)} %</strong></div></div></article>
-            <article className="card"><div className="cardHeader"><div><span className="label">Ytterpunkter</span><h2>Historisk spenn</h2></div></div><div className="placeholderRows"><div><span>Største rabatt</span><strong>{formatNumber(stats.maximum_discount_pct)} %</strong><small>{formatDate(stats.maximum_discount_date)}</small></div><div><span>Laveste rabatt / høyeste premie</span><strong>{formatNumber(stats.minimum_discount_pct)} %</strong><small>{formatDate(stats.minimum_discount_date)}</small></div></div></article>
+            <article className="card"><div className="cardHeader"><div><span className="label">Ytterpunkter</span><h2>Historisk spenn</h2></div></div><div className="placeholderRows historyRangeRows"><div><span>Største rabatt</span><strong>{formatNumber(stats.maximum_discount_pct)} %</strong><small>{formatDate(stats.maximum_discount_date)}</small></div><div><span>Laveste rabatt / høyeste premie</span><strong>{formatNumber(stats.minimum_discount_pct)} %</strong><small>{formatDate(stats.minimum_discount_date)}</small></div></div></article>
           </section>
           {data.note && <p className="methodNote">{data.note}</p>}
         </>
