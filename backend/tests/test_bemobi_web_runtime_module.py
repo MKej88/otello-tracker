@@ -11,6 +11,7 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 
 import bemobi_web_refresh_runtime as runtime  # noqa: E402
 import bemobi_web_refresh_v2 as legacy_v2  # noqa: E402
+import full_refresh as full_refresh_runtime  # noqa: E402
 
 
 def test_v2_import_path_is_only_a_runtime_compatibility_shim() -> None:
@@ -75,6 +76,36 @@ def test_marketscreener_unavailable_is_best_effort_warning_not_ir_degradation(mo
     ]
 
 
+def test_transient_official_ir_failure_preserves_last_good_without_partial_nightly(monkeypatch) -> None:
+    failed_url = runtime.BEMOBI_OWNERSHIP_URL
+
+    async def failed_ir(*args, **kwargs):
+        raise RuntimeError(f"Bemobi IR fetch feilet for {failed_url}: HTTP 503")
+
+    async def ok_consensus(*args, **kwargs):
+        return {"status": "ok", "years": [2026, 2027], "rows_written": 2}
+
+    monkeypatch.setattr(runtime, "sync_bemobi_ir", failed_ir)
+    monkeypatch.setattr(runtime, "sync_marketscreener_consensus", ok_consensus)
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "consensus")
+
+    result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-28"))
+    assert result["status"] == "partial"
+    assert result["non_blocking_degraded"] is True
+    assert result["ir"]["status"] == "not_available"
+    assert result["ir"]["last_good_preserved"] is True
+    assert result["ir"]["failed_url"] == failed_url
+    assert full_refresh_runtime._source_health_status(result) == "DEGRADED"
+    assert full_refresh_runtime._degraded_source_blocks_job(
+        "BEMOBI_IR", {"bemobi_web": result}
+    ) is False
+
+
+def test_ir_parser_failure_resolves_source_url() -> None:
+    exc = ValueError("Bemobi IR analytikertabell ga for få gyldige rader")
+    assert runtime._ir_failed_url(exc) == runtime.BEMOBI_ANALYST_URL
+
+
 def test_unparseable_official_result_still_degrades_bemobi_ir(monkeypatch) -> None:
     async def ok_ir(*args, **kwargs):
         return {"status": "ok", "rows_written": 5}
@@ -92,5 +123,9 @@ def test_unparseable_official_result_still_degrades_bemobi_ir(monkeypatch) -> No
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-26"))
     assert result["status"] == "partial"
+    assert result["non_blocking_degraded"] is False
     assert result["secondary_status"] == "degraded"
     assert result["secondary_warnings"][0]["source"] == "result_release"
+    assert full_refresh_runtime._degraded_source_blocks_job(
+        "BEMOBI_IR", {"bemobi_web": result}
+    ) is True
