@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -43,12 +44,17 @@ def _dimension_values(dimension: dict) -> list[str]:
 
 def _series_unit_multiplier(structure: dict, series: dict) -> int:
     attributes = structure.get("attributes") or {}
-    series_attributes = attributes.get("series") if isinstance(attributes, dict) else None
+    series_attributes = (
+        attributes.get("series") if isinstance(attributes, dict) else None
+    )
     raw_values = series.get("attributes")
     if not isinstance(series_attributes, list) or not isinstance(raw_values, list):
         return 0
     for index, attribute in enumerate(series_attributes):
-        if not isinstance(attribute, dict) or str(attribute.get("id") or "").upper() != "UNIT_MULT":
+        if (
+            not isinstance(attribute, dict)
+            or str(attribute.get("id") or "").upper() != "UNIT_MULT"
+        ):
             continue
         if index >= len(raw_values) or raw_values[index] is None:
             return 0
@@ -76,16 +82,30 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
     root = _payload_root(parsed)
     data_sets = root.get("dataSets")
     structure = root.get("structure")
-    if not isinstance(data_sets, list) or not data_sets or not isinstance(structure, dict):
+    if (
+        not isinstance(data_sets, list)
+        or not data_sets
+        or not isinstance(structure, dict)
+    ):
         raise ValueError("Norges Bank SDMX-JSON mangler dataSets/structure")
 
     dimensions = structure.get("dimensions") or {}
-    series_dimensions = dimensions.get("series") if isinstance(dimensions, dict) else None
-    observation_dimensions = dimensions.get("observation") if isinstance(dimensions, dict) else None
-    if not isinstance(series_dimensions, list) or not isinstance(observation_dimensions, list):
+    series_dimensions = (
+        dimensions.get("series") if isinstance(dimensions, dict) else None
+    )
+    observation_dimensions = (
+        dimensions.get("observation") if isinstance(dimensions, dict) else None
+    )
+    if not isinstance(series_dimensions, list) or not isinstance(
+        observation_dimensions, list
+    ):
         raise ValueError("Norges Bank SDMX-JSON mangler dimensjoner")
 
-    dimension_ids = [str(item.get("id") or "") for item in series_dimensions if isinstance(item, dict)]
+    dimension_ids = [
+        str(item.get("id") or "")
+        for item in series_dimensions
+        if isinstance(item, dict)
+    ]
     required = {"FREQ", "BASE_CUR", "QUOTE_CUR", "TENOR"}
     if not required.issubset(set(dimension_ids)):
         raise ValueError(f"Uventede Norges Bank-seriedimensjoner: {dimension_ids}")
@@ -97,7 +117,11 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
     }
 
     time_dimension = next(
-        (item for item in observation_dimensions if isinstance(item, dict) and item.get("id") == "TIME_PERIOD"),
+        (
+            item
+            for item in observation_dimensions
+            if isinstance(item, dict) and item.get("id") == "TIME_PERIOD"
+        ),
         None,
     )
     if time_dimension is None:
@@ -124,7 +148,9 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
         if base not in FX_BASE_CURRENCIES:
             continue
         if freq != "B" or quote != "NOK" or tenor != "SP":
-            raise ValueError(f"Uventet Norges Bank-serie: {freq}/{base}/{quote}/{tenor}")
+            raise ValueError(
+                f"Uventet Norges Bank-serie: {freq}/{base}/{quote}/{tenor}"
+            )
         unit_multiplier = _series_unit_multiplier(structure, series)
         if unit_multiplier != 0:
             raise ValueError(f"Uventet UNIT_MULT={unit_multiplier} for {base}/NOK")
@@ -136,7 +162,10 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
             try:
                 time_index = int(str(observation_key).split(":")[0])
                 trading_date = time_values[time_index]
-                raw_value = observation[0] if isinstance(observation, list) else observation
+                date.fromisoformat(trading_date)
+                raw_value = (
+                    observation[0] if isinstance(observation, list) else observation
+                )
                 rate = Decimal(str(raw_value))
             except (IndexError, InvalidOperation, TypeError, ValueError) as exc:
                 raise ValueError("Ugyldig observasjon fra Norges Bank") from exc
@@ -146,10 +175,14 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
             found_bases.add(base)
 
     if not rows:
-        raise ValueError("Norges Bank-returneringen inneholdt ingen BRL/NOK eller USD/NOK-rader")
+        raise ValueError(
+            "Norges Bank-returneringen inneholdt ingen BRL/NOK eller USD/NOK-rader"
+        )
     missing = sorted(set(FX_BASE_CURRENCIES) - found_bases)
     if missing:
-        raise ValueError(f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}")
+        raise ValueError(
+            f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}"
+        )
     return sorted(rows, key=lambda item: (item.trading_date, item.base_currency))
 
 
