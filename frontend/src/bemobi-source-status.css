@@ -16,6 +16,16 @@
   color: #d5a85d;
 }
 
+.bemobiSourceCvmSnapshot {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255,255,255,.075);
+}
+
+.bemobiSourceCvmSnapshot .placeholderRows {
+  margin-top: 14px;
+}
+
 @media (max-width: 760px) {
   .sourceStatusHead { display: none; }
   .sourceStatusRow { grid-template-columns: 1fr 1fr; gap: 12px; }

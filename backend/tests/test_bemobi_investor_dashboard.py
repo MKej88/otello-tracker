@@ -69,6 +69,9 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     valuation = result["valuation"]
     assert valuation["period"] == "TTM 3Q25–2Q26"
     assert valuation["adjusted_net_income_ttm_mbrl"] == 184.2
+    assert abs(valuation["reported_net_income_ttm_mbrl"] - 159.7) < 1e-12
+    assert valuation["reported_net_income_ttm_complete"] is True
+    assert valuation["reported_net_income_source"] == "CVM"
     assert valuation["adjusted_ebitda_ttm_mbrl"] == 283.1
     assert abs(valuation["adjusted_fcf_ttm_mbrl"] - 226.2) < 1e-12
     assert valuation["ebit_ttm_mbrl"] == 175.08
@@ -92,6 +95,7 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     assert valuation["source_quarters"][-1]["period"] == "2Q26"
     assert valuation["source_quarters"][-1]["source_url"]
     assert valuation["source_quarters"][-1]["adjusted_cash_generation_mbrl"] == 64.8
+    assert valuation["source_quarters"][-1]["reported_net_income_parent_mbrl"] == 33.235
 
     latest = result["latest_result"]
     assert latest["period"] == "2Q26"
@@ -114,6 +118,22 @@ def test_bemobi_dashboard_combines_market_ownership_result_valuation_and_jcp(tmp
     assert abs(distribution["otello_net_mbrl"] - 5.17692298818508) < 1e-10
     assert distribution["source_code"] == "CVM"
 
+    estimate = result["distribution_estimate"]
+    assert estimate["ready"] is True
+    assert estimate["period"] == "TTM 3Q25–2Q26"
+    assert abs(estimate["reported_net_income_ttm_mbrl"] - 159.7) < 1e-12
+    assert estimate["payout_policy_pct"] == 100.0
+    assert estimate["policy_year"] == 2026
+    assert estimate["policy_is_current"] is True
+    assert abs(estimate["estimated_total_distribution_mbrl"] - 159.7) < 1e-12
+    assert estimate["distribution_eligible_shares"] == 83_427_659
+    assert estimate["ownership_method"] == "LATEST_DISTRIBUTION_ELIGIBLE_SHARES"
+    assert abs(estimate["otello_distribution_share_pct"] - 39.219113298981) < 1e-12
+    assert abs(estimate["otello_gross_mbrl"] - 62.63292393847265) < 1e-10
+    assert abs(estimate["otello_gross_mnok"] - 119.00255548309804) < 1e-10
+    assert abs(estimate["otello_gross_per_otec_share_nok"] - 1.7000365069014005) < 1e-12
+    assert estimate["source_code"] == "CVM"
+
     assert result["next_report"]["period"] == "3Q26"
     assert result["next_report"]["date"] is None
     assert result["next_report"]["date_quality"] == "NOT_CONFIRMED"
@@ -123,6 +143,8 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_dashboard.py").read_text(encoding="utf-8")
+    cvm_financials = (ROOT / "cloudflare/src/bemobi_cvm_financials.py").read_text(encoding="utf-8")
+    cvm_refresh = (ROOT / "cloudflare/src/cvm_full_refresh.py").read_text(encoding="utf-8")
     d1_migration = (ROOT / "cloudflare/migrations/0009_bemobi_investor_facts.sql").read_text(
         encoding="utf-8"
     )
@@ -138,6 +160,11 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "TTM_EBIT_MBRL" not in worker_service
     assert "NET_DEBT_2Q26_MBRL" not in worker_service
     assert 'VALUATION_MULTIPLES = (12.0, 14.0, 16.0)' in worker_service
+    assert "BEMOBI_PAYOUT_POLICY_PCT = 100.0" in worker_service
+    assert "reported_net_income_ttm_mbrl" in worker_service
+    assert 'PARENT_NET_INCOME_ACCOUNT = "3.11.01"' in cvm_financials
+    assert "derive_reported_quarters" in cvm_financials
+    assert "refresh_bemobi_reported_net_income" in cvm_refresh
     assert "CREATE TABLE bemobi_investor_facts" in d1_migration
     assert "'RESULT', '2Q26'" in d1_migration
     assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
@@ -148,5 +175,9 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "EV / EBIT TTM" in page
     assert "FCF yield (just.)" in page
     assert "Multipelsensitivitet" in page
-    assert "Ikke kursmål" in page
+    assert "ikke kursmål" in page.lower()
+    assert "Rapportert resultat TTM" in page
+    assert "Estimert utbytte til Otello" in page
+    assert "TTM run-rate" in page
+    assert "distribution_estimate" in page
     assert "Ikke bekreftet" in page

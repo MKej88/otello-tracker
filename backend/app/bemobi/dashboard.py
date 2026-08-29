@@ -11,6 +11,8 @@ from app.db.connection import get_connection
 # Dette er modellparametre, ikke finansielle fakta. Selve Bemobi-tallene og kildene ligger i
 # bemobi_investor_facts i SQLite/D1.
 VALUATION_MULTIPLES = (12.0, 14.0, 16.0)
+BEMOBI_PAYOUT_POLICY_PCT = 100.0
+BEMOBI_PAYOUT_POLICY_YEAR = 2026
 
 
 def _number(value: Any) -> float | None:
@@ -20,6 +22,33 @@ def _number(value: Any) -> float | None:
         return float(Decimal(str(value)))
     except (ValueError, ArithmeticError):
         return None
+
+
+def _period_year(period: str | None) -> int | None:
+    text = str(period or "").strip()
+    if len(text) < 2 or not text[-2:].isdigit():
+        return None
+    return 2000 + int(text[-2:])
+
+
+def _quarter_index(period: str | None) -> int | None:
+    text = str(period or "").strip()
+    if (
+        len(text) != 4
+        or text[1] != "Q"
+        or text[0] not in "1234"
+        or not text[2:].isdigit()
+    ):
+        return None
+    return (2000 + int(text[2:])) * 4 + int(text[0]) - 1
+
+
+def _quarters_are_consecutive(quarters: list[dict[str, Any]]) -> bool:
+    indexes = [_quarter_index(item.get("period")) for item in quarters]
+    return len(indexes) == 4 and all(
+        current is not None and previous is not None and current == previous + 1
+        for previous, current in zip(indexes, indexes[1:])
+    )
 
 
 def _latest_distribution(connection) -> dict[str, Any] | None:
@@ -63,7 +92,9 @@ def _latest_result_source(connection) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
-def _distribution_payload(row: dict[str, Any] | None, holding_shares: int | None) -> dict[str, Any] | None:
+def _distribution_payload(
+    row: dict[str, Any] | None, holding_shares: int | None
+) -> dict[str, Any] | None:
     if row is None:
         return None
     gross_per_share = _number(row.get("gross_per_share"))
@@ -84,8 +115,12 @@ def _distribution_payload(row: dict[str, Any] | None, holding_shares: int | None
         "net_total_mbrl": None if net_total is None else net_total / 1_000_000,
         "withholding_rate_pct": None if withholding is None else withholding * 100,
         "tax_treatment": row.get("tax_treatment"),
-        "otello_gross_mbrl": None if gross_per_share is None or holding <= 0 else gross_per_share * holding / 1_000_000,
-        "otello_net_mbrl": None if net_per_share is None or holding <= 0 else net_per_share * holding / 1_000_000,
+        "otello_gross_mbrl": None
+        if gross_per_share is None or holding <= 0
+        else gross_per_share * holding / 1_000_000,
+        "otello_net_mbrl": None
+        if net_per_share is None or holding <= 0
+        else net_per_share * holding / 1_000_000,
         "source_code": row.get("source_code"),
         "source_url": row.get("source_url"),
         "source_title": row.get("source_title"),
@@ -100,16 +135,33 @@ def _valuation_payload(
     ev_anchor: dict[str, Any],
 ) -> dict[str, Any]:
     total_shares = int(ownership.get("bemobi_total_shares") or 0)
-    ttm_net_income = sum(float(item["adjusted_net_income_mbrl"]) for item in ttm_quarters)
+    ttm_net_income = sum(
+        float(item["adjusted_net_income_mbrl"]) for item in ttm_quarters
+    )
     ttm_ebitda = sum(float(item["adjusted_ebitda_mbrl"]) for item in ttm_quarters)
-    ttm_adjusted_fcf = sum(float(item["adjusted_cash_generation_mbrl"]) for item in ttm_quarters)
+    ttm_adjusted_fcf = sum(
+        float(item["adjusted_cash_generation_mbrl"]) for item in ttm_quarters
+    )
+    reported_values = [
+        _number(item.get("reported_net_income_parent_mbrl")) for item in ttm_quarters
+    ]
+    reported_ttm = (
+        sum(float(value) for value in reported_values if value is not None)
+        if all(value is not None for value in reported_values)
+        and _quarters_are_consecutive(ttm_quarters)
+        else None
+    )
     anchor_ebit = float(ev_anchor["ttm_ebit_mbrl"])
     anchor_net_debt = float(ev_anchor["net_debt_mbrl"])
-    adjusted_eps = None if total_shares <= 0 else ttm_net_income * 1_000_000 / total_shares
+    adjusted_eps = (
+        None if total_shares <= 0 else ttm_net_income * 1_000_000 / total_shares
+    )
 
     first_period = str(ttm_quarters[0].get("period") or "")
     last_period = str(ttm_quarters[-1].get("period") or "")
-    period = f"TTM {first_period}–{last_period}" if first_period and last_period else "TTM"
+    period = (
+        f"TTM {first_period}–{last_period}" if first_period and last_period else "TTM"
+    )
     ev_anchor_period = str(ev_anchor.get("period") or "")
     ev_anchor_is_current = bool(last_period and ev_anchor_period == last_period)
 
@@ -130,7 +182,11 @@ def _valuation_payload(
         adjusted_fcf_yield_pct = ttm_adjusted_fcf / market_cap_mbrl * 100
         if ev_anchor_is_current:
             enterprise_value_mbrl = market_cap_mbrl + anchor_net_debt
-            ev_ebit_ttm = enterprise_value_mbrl / anchor_ebit if enterprise_value_mbrl > 0 else None
+            ev_ebit_ttm = (
+                enterprise_value_mbrl / anchor_ebit
+                if enterprise_value_mbrl > 0
+                else None
+            )
         if adjusted_eps is not None:
             scenarios = [
                 {
@@ -165,8 +221,17 @@ def _valuation_payload(
         "ev_metrics_ready": ev_anchor_is_current,
         "ev_anchor_quality": ev_anchor.get("quality") or ev_anchor.get("_quality"),
         "ev_anchor_source": ev_anchor.get("source") or ev_anchor.get("_source_name"),
-        "ev_anchor_source_url": ev_anchor.get("source_url") or ev_anchor.get("_source_url"),
+        "ev_anchor_source_url": ev_anchor.get("source_url")
+        or ev_anchor.get("_source_url"),
         "adjusted_net_income_ttm_mbrl": ttm_net_income,
+        "reported_net_income_ttm_mbrl": reported_ttm,
+        "reported_net_income_ttm_complete": reported_ttm is not None,
+        "reported_net_income_source": "CVM" if reported_ttm is not None else None,
+        "reported_net_income_source_url": (
+            ttm_quarters[-1].get("reported_net_income_parent_source_url")
+            if reported_ttm is not None
+            else None
+        ),
         "adjusted_ebitda_ttm_mbrl": ttm_ebitda,
         "adjusted_fcf_ttm_mbrl": ttm_adjusted_fcf,
         "ebit_ttm_mbrl": anchor_ebit,
@@ -184,6 +249,100 @@ def _valuation_payload(
             "bruksrett-CAPEX). Det er en operasjonell FCF-proxy, ikke IFRS-kontantstrøm. "
             + ev_note
             + " 12x/14x/16x er kun multipelsensitivitet, ikke kursmål."
+        ),
+    }
+
+
+def _distribution_estimate_payload(
+    *,
+    valuation: dict[str, Any],
+    latest_distribution: dict[str, Any] | None,
+    holding_shares: int,
+    ownership_pct: float | None,
+    brl_nok: float | None,
+    outstanding_otello: int,
+) -> dict[str, Any]:
+    reported_ttm = _number(valuation.get("reported_net_income_ttm_mbrl"))
+    period = str(valuation.get("period") or "TTM")
+    ttm_end_period = str(valuation.get("ttm_end_period") or "")
+    if reported_ttm is None:
+        return {
+            "ready": False,
+            "reason": "reported_ttm_not_ready",
+            "period": period,
+            "payout_policy_pct": BEMOBI_PAYOUT_POLICY_PCT,
+            "policy_year": BEMOBI_PAYOUT_POLICY_YEAR,
+        }
+    if reported_ttm < 0:
+        return {
+            "ready": False,
+            "reason": "reported_ttm_loss",
+            "period": period,
+            "reported_net_income_ttm_mbrl": reported_ttm,
+            "payout_policy_pct": BEMOBI_PAYOUT_POLICY_PCT,
+            "policy_year": BEMOBI_PAYOUT_POLICY_YEAR,
+        }
+
+    distribution_share_pct = ownership_pct
+    eligible_shares: float | None = None
+    ownership_method = "REPORTED_OWNERSHIP_PCT"
+    gross_total_mbrl = _number((latest_distribution or {}).get("gross_total_mbrl"))
+    gross_per_share = _number((latest_distribution or {}).get("gross_per_share_brl"))
+    if (
+        gross_total_mbrl is not None
+        and gross_total_mbrl > 0
+        and gross_per_share is not None
+        and gross_per_share > 0
+    ):
+        inferred = gross_total_mbrl * 1_000_000 / gross_per_share
+        if inferred >= holding_shares > 0:
+            eligible_shares = inferred
+            distribution_share_pct = holding_shares / inferred * 100
+            ownership_method = "LATEST_DISTRIBUTION_ELIGIBLE_SHARES"
+
+    estimated_total_mbrl = reported_ttm * BEMOBI_PAYOUT_POLICY_PCT / 100
+    otello_gross_mbrl = (
+        None
+        if distribution_share_pct is None
+        else estimated_total_mbrl * distribution_share_pct / 100
+    )
+    otello_gross_mnok = (
+        None
+        if otello_gross_mbrl is None or brl_nok is None
+        else otello_gross_mbrl * brl_nok
+    )
+    per_otec = (
+        None
+        if otello_gross_mnok is None or outstanding_otello <= 0
+        else otello_gross_mnok * 1_000_000 / outstanding_otello
+    )
+    policy_is_current = _period_year(ttm_end_period) == BEMOBI_PAYOUT_POLICY_YEAR
+
+    return {
+        "ready": True,
+        "period": period,
+        "ttm_end_period": ttm_end_period or None,
+        "reported_net_income_ttm_mbrl": reported_ttm,
+        "payout_policy_pct": BEMOBI_PAYOUT_POLICY_PCT,
+        "policy_year": BEMOBI_PAYOUT_POLICY_YEAR,
+        "policy_is_current": policy_is_current,
+        "estimated_total_distribution_mbrl": estimated_total_mbrl,
+        "otello_distribution_share_pct": distribution_share_pct,
+        "distribution_eligible_shares": None
+        if eligible_shares is None
+        else round(eligible_shares),
+        "ownership_method": ownership_method,
+        "otello_gross_mbrl": otello_gross_mbrl,
+        "otello_gross_mnok": otello_gross_mnok,
+        "otello_gross_per_otec_share_nok": per_otec,
+        "brl_nok": brl_nok,
+        "source_code": valuation.get("reported_net_income_source") or "CVM",
+        "source_url": valuation.get("reported_net_income_source_url"),
+        "methodology_note": (
+            "TTM run-rate, ikke vedtatt utbytte. Modellen bruker regnskapsmessig nettoresultat "
+            "til Bemobis kontrollerende aksjonærer (CVM DRE 3.11.01) og 100 % payout. "
+            "Otellos andel beregnes mot utbytteberettigede aksjer utledet fra siste faktiske "
+            "utdeling når dette er tilgjengelig; ellers brukes rapportert eierandel."
         ),
     }
 
@@ -206,7 +365,12 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         ev_anchor = latest_bemobi_fact(connection, "VALUATION_ANCHOR")
         next_quarter_fact = latest_bemobi_fact(connection, "NEXT_QUARTER")
 
-    if latest_result_fact is None or ownership_fact is None or ev_anchor is None or len(ttm_quarters) < 4:
+    if (
+        latest_result_fact is None
+        or ownership_fact is None
+        or ev_anchor is None
+        or len(ttm_quarters) < 4
+    ):
         return {
             "ready": False,
             "reason": "bemobi_investor_facts_not_ready",
@@ -226,7 +390,9 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
     bmob3_price = _number(summary.get("bmob3_price"))
     brl_nok = _number(summary.get("brl_nok"))
     value_nok_m = _number(summary.get("bemobi_value_mnok"))
-    value_brl_m = None if bmob3_price is None or shares <= 0 else bmob3_price * shares / 1_000_000
+    value_brl_m = (
+        None if bmob3_price is None or shares <= 0 else bmob3_price * shares / 1_000_000
+    )
 
     outstanding_otello = int(summary.get("shares_outstanding") or 0)
     value_per_otello_share = None
@@ -235,8 +401,14 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
 
     market_dates = summary.get("market_timestamps") or {}
     curated_result = public_fact(latest_result_fact) or {}
-    result_url = str((result_source or {}).get("url") or latest_result_fact.get("_source_url") or "")
-    result_source_code = str((result_source or {}).get("source_code") or latest_result_fact.get("_source_name") or "BEMOBI_IR")
+    result_url = str(
+        (result_source or {}).get("url") or latest_result_fact.get("_source_url") or ""
+    )
+    result_source_code = str(
+        (result_source or {}).get("source_code")
+        or latest_result_fact.get("_source_name")
+        or "BEMOBI_IR"
+    )
     result_source_title = str(
         (result_source or {}).get("headline")
         or (result_source or {}).get("title")
@@ -251,6 +423,14 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
     }
     distribution = _distribution_payload(distribution_row, shares)
     valuation = _valuation_payload(bmob3_price, ownership_fact, ttm_quarters, ev_anchor)
+    distribution_estimate = _distribution_estimate_payload(
+        valuation=valuation,
+        latest_distribution=distribution,
+        holding_shares=shares,
+        ownership_pct=ownership_pct,
+        brl_nok=brl_nok,
+        outstanding_otello=outstanding_otello,
+    )
 
     sources = [
         {
@@ -271,7 +451,10 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         {
             "label": "Verdsettelse TTM",
             "source": "Kuraterte kvartalstall i D1",
-            "url": (ttm_quarters[-1].get("source_url") or ttm_quarters[-1].get("_source_url")),
+            "url": (
+                ttm_quarters[-1].get("source_url")
+                or ttm_quarters[-1].get("_source_url")
+            ),
         },
         {
             "label": "EV / EBIT og netto kontant",
@@ -279,6 +462,14 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
             "url": ev_anchor.get("source_url") or ev_anchor.get("_source_url"),
         },
     ]
+    if distribution_estimate.get("ready"):
+        sources.append(
+            {
+                "label": "Rapportert resultat TTM",
+                "source": distribution_estimate.get("source_code") or "CVM",
+                "url": distribution_estimate.get("source_url"),
+            }
+        )
     if distribution is not None and distribution.get("source_url"):
         sources.append(
             {
@@ -303,22 +494,30 @@ def bemobi_dashboard(database_path: str | None = None) -> dict[str, Any]:
         "otello": {
             "shares": shares or None,
             "ownership_pct": ownership_pct,
-            "ownership_source_date": ownership_fact.get("_as_of_date") if ownership_matches_nav else None,
-            "ownership_quality": ownership_fact.get("_quality") if ownership_matches_nav else summary.get("bemobi_ownership_quality"),
-            "bemobi_total_shares": int(ownership.get("bemobi_total_shares") or 0) or None,
+            "ownership_source_date": ownership_fact.get("_as_of_date")
+            if ownership_matches_nav
+            else None,
+            "ownership_quality": ownership_fact.get("_quality")
+            if ownership_matches_nav
+            else summary.get("bemobi_ownership_quality"),
+            "bemobi_total_shares": int(ownership.get("bemobi_total_shares") or 0)
+            or None,
             "value_brl_m": value_brl_m,
             "value_nok_m": value_nok_m,
             "value_per_otello_share_nok": value_per_otello_share,
         },
         "valuation": valuation,
         "latest_result": latest_result,
+        "distribution_estimate": distribution_estimate,
         "latest_distribution": distribution,
         "next_report": {
             "period": next_quarter.get("period"),
             "date": next_quarter.get("report_date"),
             "date_quality": next_quarter.get("date_quality"),
             "label": next_quarter.get("label"),
-            "source_url": None if next_quarter_fact is None else next_quarter_fact.get("_source_url"),
+            "source_url": None
+            if next_quarter_fact is None
+            else next_quarter_fact.get("_source_url"),
         },
         "sources": sources,
         "note": (
