@@ -33,7 +33,16 @@ type CalendarExpectation = {
   value: number;
   unit: string;
   survey_date?: string;
+  respondents?: number;
   event_consensus: boolean;
+  provider?: string;
+};
+type MarketConsensus = {
+  available: boolean;
+  ingested: boolean;
+  coverage: string;
+  provider?: string | null;
+  note?: string;
 };
 type CalendarEvent = {
   date: string;
@@ -45,6 +54,7 @@ type CalendarEvent = {
   importance: string;
   bemobi_impact: string;
   expectation?: CalendarExpectation | null;
+  market_consensus?: MarketConsensus | null;
 };
 type BrazilPayload = {
   ready: boolean;
@@ -180,6 +190,10 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
 }
 
 function CalendarRow({ event }: { event: CalendarEvent }) {
+  const consensus = event.market_consensus;
+  const expectation = event.expectation;
+  const hasIngestedEventConsensus = expectation?.event_consensus === true || consensus?.ingested === true;
+  const externalNotIngested = consensus?.coverage === "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED";
   return (
     <article className="brazilCalendarRow">
       <div className="brazilCalendarDate">
@@ -195,14 +209,23 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
         <p>{event.bemobi_impact}</p>
       </div>
       <div className="brazilCalendarExpectation">
-        <span className="label">FORVENTNING</span>
-        {event.expectation ? (
+        <span className="label">MARKEDETS FORVENTNING</span>
+        {expectation && hasIngestedEventConsensus ? (
           <>
-            <strong>{number(event.expectation.value, 2)} {event.expectation.unit}</strong>
-            <small>{event.expectation.label}</small>
+            <strong>{number(expectation.value, 2)} {expectation.unit}</strong>
+            <small>{expectation.label} · {expectation.provider ?? "BCB Focus"}</small>
+            {expectation.respondents ? <small>{expectation.respondents} respondenter</small> : null}
+          </>
+        ) : externalNotIngested ? (
+          <>
+            <strong>–</strong>
+            <small>Markedskonsensus finnes, men ikke via gratis BCB Focus-feed</small>
           </>
         ) : (
-          <><strong>–</strong><small>Ingen gratis offisiell publiseringskonsensus</small></>
+          <>
+            <strong>–</strong>
+            <small>{consensus?.note ?? "Hendelsesnær markedsforventning ikke tilgjengelig nå"}</small>
+          </>
         )}
       </div>
     </article>
@@ -276,7 +299,7 @@ export default function BrazilPage() {
         <div className="brazilSources">
           {(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}
         </div>
-        <p className="brazilDisclaimer">Forventningene i kalenderen er års-/retningsproxyer fra Focus. De må ikke tolkes som Bloomberg/Reuters-lignende konsensus for den enkelte publiseringen.</p>
+        <p className="brazilDisclaimer">BCB Focus er markedets forventninger fra banker, forvaltere og andre markedsaktører – ikke sentralbankens egen prognose. For IPCA/IPCA-15, arbeidsledighet, BNP og Copom bruker kalenderen hendelsesnære Focus-medianer når de finnes. PMS, PMC og IBC-Br har også markedskonsensus hos økonom-/bankpoller som Reuters/LSEG og Trading Economics, men disse er ikke hentet automatisk fordi vi ikke har en gratis lisensiert API-feed for dem.</p>
       </section>
     </div>
   );
