@@ -13,6 +13,7 @@ from brazil_calendar_expectations import (  # noqa: E402
     _quarterly_expectation,
     _selic_expectation,
 )
+from brazil_dashboard_v2 import _annotate_market_consensus  # noqa: E402
 
 
 def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
@@ -95,3 +96,43 @@ def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
     assert result is not None
     assert result["value"] == 0.6
     assert result["label"] == "Focus BNP Q2 2026"
+
+
+def test_focus_expectation_is_marked_as_market_consensus() -> None:
+    events = _annotate_market_consensus(
+        [
+            {
+                "name": "IPCA",
+                "kind": "inflation",
+                "expectation": {
+                    "event_consensus": True,
+                    "provider": "BCB Focus",
+                    "value": 0.31,
+                },
+            }
+        ]
+    )
+
+    consensus = events[0]["market_consensus"]
+    assert consensus["available"] is True
+    assert consensus["ingested"] is True
+    assert consensus["coverage"] == "BCB_FOCUS_EVENT"
+    assert consensus["provider"] == "BCB Focus"
+
+
+def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
+    events = _annotate_market_consensus(
+        [
+            {"name": "Tjenesteaktivitet (PMS)", "kind": "services"},
+            {"name": "Detaljhandel (PMC)", "kind": "retail"},
+            {"name": "IBC-Br", "kind": "activity"},
+        ]
+    )
+
+    for event in events:
+        consensus = event["market_consensus"]
+        assert consensus["available"] is True
+        assert consensus["ingested"] is False
+        assert consensus["coverage"] == "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED"
+        assert "Markedskonsensus" in consensus["note"]
+        assert "gratis BCB Focus-serie" in consensus["note"]
