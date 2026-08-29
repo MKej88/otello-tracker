@@ -3,14 +3,20 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from app.bemobi.dashboard import _valuation_payload as reference_valuation_payload
+from app.bemobi.dashboard import (
+    _distribution_estimate_payload as reference_distribution_estimate_payload,
+    _valuation_payload as reference_valuation_payload,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
-from bemobi_dashboard import _valuation_payload as worker_valuation_payload  # noqa: E402
+from bemobi_dashboard import (  # noqa: E402
+    _distribution_estimate_payload as worker_distribution_estimate_payload,
+    _valuation_payload as worker_valuation_payload,
+)
 from bemobi_web_refresh import (  # noqa: E402
     _valuation_anchor_from_result,
     parse_bemobi_result_text,
@@ -23,14 +29,44 @@ def _ownership() -> dict:
 
 def _quarters(last_period: str = "2Q26") -> list[dict]:
     rows = [
-        {"period": "3Q25", "adjusted_net_income_mbrl": 41.0, "adjusted_ebitda_mbrl": 62.7, "adjusted_cash_generation_mbrl": 47.5, "source": "XP"},
-        {"period": "4Q25", "adjusted_net_income_mbrl": 61.0, "adjusted_ebitda_mbrl": 66.0, "adjusted_cash_generation_mbrl": 52.5, "source": "XP"},
-        {"period": "1Q26", "adjusted_net_income_mbrl": 37.0, "adjusted_ebitda_mbrl": 75.0, "adjusted_cash_generation_mbrl": 61.4, "source": "Bemobi"},
-        {"period": "2Q26", "adjusted_net_income_mbrl": 45.2, "adjusted_ebitda_mbrl": 79.4, "adjusted_cash_generation_mbrl": 64.8, "source": "Bemobi"},
+        {
+            "period": "3Q25",
+            "adjusted_net_income_mbrl": 41.0,
+            "adjusted_ebitda_mbrl": 62.7,
+            "adjusted_cash_generation_mbrl": 47.5,
+            "source": "XP",
+        },
+        {
+            "period": "4Q25",
+            "adjusted_net_income_mbrl": 61.0,
+            "adjusted_ebitda_mbrl": 66.0,
+            "adjusted_cash_generation_mbrl": 52.5,
+            "source": "XP",
+        },
+        {
+            "period": "1Q26",
+            "adjusted_net_income_mbrl": 37.0,
+            "adjusted_ebitda_mbrl": 75.0,
+            "adjusted_cash_generation_mbrl": 61.4,
+            "source": "Bemobi",
+        },
+        {
+            "period": "2Q26",
+            "adjusted_net_income_mbrl": 45.2,
+            "adjusted_ebitda_mbrl": 79.4,
+            "adjusted_cash_generation_mbrl": 64.8,
+            "source": "Bemobi",
+        },
     ]
     if last_period == "3Q26":
         rows = rows[1:] + [
-            {"period": "3Q26", "adjusted_net_income_mbrl": 48.0, "adjusted_ebitda_mbrl": 84.0, "adjusted_cash_generation_mbrl": 68.0, "source": "Bemobi"}
+            {
+                "period": "3Q26",
+                "adjusted_net_income_mbrl": 48.0,
+                "adjusted_ebitda_mbrl": 84.0,
+                "adjusted_cash_generation_mbrl": 68.0,
+                "source": "Bemobi",
+            }
         ]
     return rows
 
@@ -71,6 +107,42 @@ def test_stale_ev_anchor_fails_closed_without_hiding_period_fact() -> None:
         assert valuation["net_cash_mbrl"] == 287.2
         assert valuation["pe_ttm"] is not None
         assert "skjules" in valuation["methodology_note"]
+
+
+def test_reported_ttm_requires_four_consecutive_quarters() -> None:
+    quarters = _quarters()
+    for index, quarter in enumerate(quarters):
+        quarter["reported_net_income_parent_mbrl"] = 10.0 + index
+    quarters[1]["period"] = "1Q26"
+
+    for builder in (reference_valuation_payload, worker_valuation_payload):
+        valuation = builder(22.8, _ownership(), quarters, _anchor())
+        assert valuation["reported_net_income_ttm_mbrl"] is None
+        assert valuation["reported_net_income_ttm_complete"] is False
+
+
+def test_ttm_loss_does_not_produce_a_negative_distribution() -> None:
+    valuation = {
+        "period": "TTM 3Q25–2Q26",
+        "ttm_end_period": "2Q26",
+        "reported_net_income_ttm_mbrl": -12.5,
+    }
+    for builder in (
+        reference_distribution_estimate_payload,
+        worker_distribution_estimate_payload,
+    ):
+        estimate = builder(
+            valuation=valuation,
+            latest_distribution=None,
+            holding_shares=32_719_588,
+            ownership_pct=38.22,
+            brl_nok=1.9,
+            outstanding_otello=70_000_000,
+        )
+        assert estimate["ready"] is False
+        assert estimate["reason"] == "reported_ttm_loss"
+        assert estimate["reported_net_income_ttm_mbrl"] == -12.5
+        assert "estimated_total_distribution_mbrl" not in estimate
 
 
 def test_result_parser_captures_growth_fields_and_explicit_ev_anchor_inputs() -> None:
@@ -127,4 +199,9 @@ def test_result_without_explicit_ev_inputs_does_not_invent_anchor() -> None:
     result = parse_bemobi_result_text(text, published_date="2026-11-10")
     assert result["ttm_ebit_mbrl"] is None
     assert result["net_debt_mbrl"] is None
-    assert _valuation_anchor_from_result(result, source_name="CVM", source_url="https://example.test/result.pdf") is None
+    assert (
+        _valuation_anchor_from_result(
+            result, source_name="CVM", source_url="https://example.test/result.pdf"
+        )
+        is None
+    )
