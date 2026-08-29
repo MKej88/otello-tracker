@@ -42,6 +42,23 @@ _REQUIRED_COLUMNS = {
     "VL_CONTA",
 }
 
+# Standardized consolidated CVM DRE lines. These are statutory values, while the
+# existing adjusted Bemobi KPIs continue to come from the official result release.
+DRE_METRICS: dict[str, dict[str, str]] = {
+    "reported_revenue_mbrl": {
+        "account": "3.01",
+        "label": "Receita de Venda de Bens e/ou Serviços",
+    },
+    "reported_ebit_mbrl": {
+        "account": "3.05",
+        "label": "Resultado Antes do Resultado Financeiro e dos Tributos",
+    },
+    "reported_net_income_parent_mbrl": {
+        "account": PARENT_NET_INCOME_ACCOUNT,
+        "label": "Atribuído a Sócios da Empresa Controladora",
+    },
+}
+
 
 @dataclass(frozen=True)
 class CVMIncomeObservation:
@@ -52,6 +69,8 @@ class CVMIncomeObservation:
     reference_date: str | None
     version: int
     value_mbrl: float
+    account_code: str = PARENT_NET_INCOME_ACCOUNT
+    account_label: str | None = None
 
 
 def _norm(value: str | None) -> str:
@@ -136,16 +155,23 @@ def _dre_member(archive: zipfile.ZipFile, *, document_type: str, year: int) -> s
     return matches[0]
 
 
-def parse_parent_net_income_archive(
+def parse_dre_accounts_archive(
     payload: bytes,
     *,
     year: int,
     document_type: str,
+    account_codes: set[str] | None = None,
 ) -> list[CVMIncomeObservation]:
-    """Read only Bemobi's consolidated DRE account 3.11.01 from an ITR/DFP ZIP."""
+    """Read selected standardized consolidated DRE accounts for Bemobi.
+
+    CVM ITR contains both quarter-only and year-to-date DRE rows. We deliberately keep
+    only rows whose exercise starts on 1 January, then derive standalone quarters from
+    those cumulative values. This makes Q2/Q3/Q4 handling deterministic across filings.
+    """
     doc = document_type.lower()
     if doc not in {"itr", "dfp"}:
         raise ValueError(f"Ukjent CVM dokumenttype: {document_type}")
+    wanted = account_codes or {item["account"] for item in DRE_METRICS.values()}
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except zipfile.BadZipFile as exc:
@@ -167,7 +193,8 @@ def parse_parent_net_income_archive(
                 for row in reader:
                     if _clean_cvm_code(row.get("CD_CVM")) != BEMOBI_CVM_CODE:
                         continue
-                    if str(row.get("CD_CONTA") or "").strip() != PARENT_NET_INCOME_ACCOUNT:
+                    account_code = str(row.get("CD_CONTA") or "").strip()
+                    if account_code not in wanted:
                         continue
                     if _norm(row.get("ORDEM_EXERC")) != "ultimo":
                         continue
@@ -190,19 +217,106 @@ def parse_parent_net_income_archive(
                             reference_date=_date_text(row.get("DT_REFER")) or None,
                             version=version,
                             value_mbrl=_to_mbrl(row.get("VL_CONTA"), row.get("ESCALA_MOEDA")),
+                            account_code=account_code,
+                            account_label=str(row.get("DS_CONTA") or "").strip() or None,
                         )
                     )
 
-    latest: dict[str, CVMIncomeObservation] = {}
+    latest: dict[tuple[str, str], CVMIncomeObservation] = {}
     for item in observations:
-        existing = latest.get(item.period_end)
+        key = (item.account_code, item.period_end)
+        existing = latest.get(key)
         if existing is None or item.version > existing.version:
-            latest[item.period_end] = item
+            latest[key] = item
         elif item.version == existing.version and abs(item.value_mbrl - existing.value_mbrl) > 1e-9:
             raise ValueError(
-                f"Motstridende CVM-verdier for {doc.upper()} {item.period_end} v{item.version}"
+                f"Motstridende CVM-verdier for {doc.upper()} {item.account_code} "
+                f"{item.period_end} v{item.version}"
             )
     return [latest[key] for key in sorted(latest)]
+
+
+def parse_parent_net_income_archive(
+    payload: bytes,
+    *,
+    year: int,
+    document_type: str,
+) -> list[CVMIncomeObservation]:
+    """Compatibility wrapper for the original payout-model parser."""
+    return parse_dre_accounts_archive(
+        payload,
+        year=year,
+        document_type=document_type,
+        account_codes={PARENT_NET_INCOME_ACCOUNT},
+    )
+
+
+def _derive_metric_quarters(
+    *,
+    year: int,
+    observations: list[CVMIncomeObservation],
+) -> dict[str, tuple[float, list[CVMIncomeObservation], str]]:
+    itr = {
+        item.period_end: item
+        for item in observations
+        if item.year == year and item.document_type == "ITR"
+    }
+    dfp = {
+        item.period_end: item
+        for item in observations
+        if item.year == year and item.document_type == "DFP"
+    }
+    ends = {
+        "1Q": f"{year}-03-31",
+        "2Q": f"{year}-06-30",
+        "3Q": f"{year}-09-30",
+        "4Q": f"{year}-12-31",
+    }
+    result: dict[str, tuple[float, list[CVMIncomeObservation], str]] = {}
+    q1 = itr.get(ends["1Q"])
+    q2_ytd = itr.get(ends["2Q"])
+    q3_ytd = itr.get(ends["3Q"])
+    fy = dfp.get(ends["4Q"])
+    if q1 is not None:
+        result["1Q"] = (q1.value_mbrl, [q1], "CVM ITR")
+    if q1 is not None and q2_ytd is not None:
+        result["2Q"] = (q2_ytd.value_mbrl - q1.value_mbrl, [q1, q2_ytd], "CVM ITR")
+    if q2_ytd is not None and q3_ytd is not None:
+        result["3Q"] = (q3_ytd.value_mbrl - q2_ytd.value_mbrl, [q2_ytd, q3_ytd], "CVM ITR")
+    if q3_ytd is not None and fy is not None:
+        result["4Q"] = (fy.value_mbrl - q3_ytd.value_mbrl, [q3_ytd, fy], "CVM DFP / ITR")
+    return result
+
+
+def derive_standardized_dre_quarters(
+    *,
+    year: int,
+    itr_observations: list[CVMIncomeObservation],
+    dfp_observations: list[CVMIncomeObservation] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Derive standalone quarterly statutory revenue, EBIT and parent net income."""
+    combined = [*itr_observations, *(dfp_observations or [])]
+    yy = str(year)[-2:]
+    result: dict[str, dict[str, Any]] = {}
+    for field, definition in DRE_METRICS.items():
+        account = definition["account"]
+        metric_rows = [item for item in combined if item.account_code == account]
+        derived = _derive_metric_quarters(year=year, observations=metric_rows)
+        prefix = field.removesuffix("_mbrl")
+        for label, (value, source_items, source) in derived.items():
+            period = f"{label}{yy}"
+            payload = result.setdefault(period, {"period": period})
+            latest_version = max(item.version for item in source_items)
+            payload[field] = round(value, 6)
+            payload[f"{prefix}_source"] = source
+            payload[f"{prefix}_source_url"] = (
+                CVM_DFP_URL.format(year=year) if label == "4Q" else CVM_ITR_URL.format(year=year)
+            )
+            payload[f"{prefix}_quality"] = "CVM_OFFICIAL_DRE_CON"
+            payload[f"{prefix}_account"] = account
+            payload[f"{prefix}_as_of_date"] = source_items[-1].period_end
+            payload[f"{prefix}_version"] = latest_version
+    return result
 
 
 def derive_reported_quarters(
@@ -211,47 +325,27 @@ def derive_reported_quarters(
     itr_observations: list[CVMIncomeObservation],
     dfp_observations: list[CVMIncomeObservation] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Derive standalone Q1–Q4 from CVM year-to-date ITR and full-year DFP values."""
-    itr = {item.period_end: item for item in itr_observations if item.year == year}
-    dfp = {item.period_end: item for item in (dfp_observations or []) if item.year == year}
-    yy = str(year)[-2:]
-    ends = {
-        "1Q": f"{year}-03-31",
-        "2Q": f"{year}-06-30",
-        "3Q": f"{year}-09-30",
-        "4Q": f"{year}-12-31",
+    """Backward-compatible parent-net-income-only quarterly derivation."""
+    full = derive_standardized_dre_quarters(
+        year=year,
+        itr_observations=itr_observations,
+        dfp_observations=dfp_observations,
+    )
+    keep = {
+        "period",
+        "reported_net_income_parent_mbrl",
+        "reported_net_income_parent_source",
+        "reported_net_income_parent_source_url",
+        "reported_net_income_parent_quality",
+        "reported_net_income_parent_account",
+        "reported_net_income_parent_as_of_date",
+        "reported_net_income_parent_version",
     }
-    result: dict[str, dict[str, Any]] = {}
-
-    q1 = itr.get(ends["1Q"])
-    q2_ytd = itr.get(ends["2Q"])
-    q3_ytd = itr.get(ends["3Q"])
-    fy = dfp.get(ends["4Q"])
-
-    def add(label: str, value: float, source_items: list[CVMIncomeObservation], source: str) -> None:
-        latest_version = max(item.version for item in source_items)
-        result[f"{label}{yy}"] = {
-            "period": f"{label}{yy}",
-            "reported_net_income_parent_mbrl": round(value, 6),
-            "reported_net_income_parent_source": source,
-            "reported_net_income_parent_source_url": (
-                CVM_DFP_URL.format(year=year) if label == "4Q" else CVM_ITR_URL.format(year=year)
-            ),
-            "reported_net_income_parent_quality": "CVM_OFFICIAL_DRE_CON",
-            "reported_net_income_parent_account": PARENT_NET_INCOME_ACCOUNT,
-            "reported_net_income_parent_as_of_date": source_items[-1].period_end,
-            "reported_net_income_parent_version": latest_version,
-        }
-
-    if q1 is not None:
-        add("1Q", q1.value_mbrl, [q1], "CVM ITR")
-    if q1 is not None and q2_ytd is not None:
-        add("2Q", q2_ytd.value_mbrl - q1.value_mbrl, [q1, q2_ytd], "CVM ITR")
-    if q2_ytd is not None and q3_ytd is not None:
-        add("3Q", q3_ytd.value_mbrl - q2_ytd.value_mbrl, [q2_ytd, q3_ytd], "CVM ITR")
-    if q3_ytd is not None and fy is not None:
-        add("4Q", fy.value_mbrl - q3_ytd.value_mbrl, [q3_ytd, fy], "CVM DFP / ITR")
-    return result
+    return {
+        period: {key: value for key, value in payload.items() if key in keep}
+        for period, payload in full.items()
+        if payload.get("reported_net_income_parent_mbrl") is not None
+    }
 
 
 async def _download_optional(
@@ -307,12 +401,13 @@ async def _latest_quarters_missing_reported(repository) -> bool:
     )
     if len(rows) < 4:
         return True
+    required = tuple(DRE_METRICS)
     for row in rows:
         try:
             payload = json.loads(str(row.get("payload_json") or "{}"))
         except json.JSONDecodeError:
             return True
-        if payload.get("reported_net_income_parent_mbrl") is None:
+        if any(payload.get(field) is None for field in required):
             return True
     return False
 
@@ -337,6 +432,7 @@ async def _refresh_due(repository, *, target_date: str) -> tuple[bool, str]:
 async def _needs_previous_year(repository, year: int) -> bool:
     suffix = str(year)[-2:]
     keys = (f"3Q{suffix}", f"4Q{suffix}")
+    required = tuple(DRE_METRICS)
     for key in keys:
         row = await repository.first(
             """
@@ -351,7 +447,7 @@ async def _needs_previous_year(repository, year: int) -> bool:
             payload = json.loads(str(row.get("payload_json") or "{}"))
         except json.JSONDecodeError:
             return True
-        if payload.get("reported_net_income_parent_mbrl") is None:
+        if any(payload.get(field) is None for field in required):
             return True
     return False
 
@@ -389,7 +485,13 @@ async def refresh_bemobi_reported_net_income(
     target_date: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Refresh statutory parent net income used by the Bemobi payout run-rate model."""
+    """Refresh Bemobi standardized consolidated DRE facts from CVM ITR/DFP.
+
+    The function keeps its original name because it is the established CVM full-refresh
+    integration point. It now refreshes statutory revenue and EBIT in addition to parent
+    net income, so downstream dashboard code can progressively replace curated financial
+    facts without adding another external data source.
+    """
     due, reason = await _refresh_due(repository, target_date=target_date)
     if not due:
         return {"status": "skipped", "reason": reason, "rows_written": 0, "errors": []}
@@ -406,6 +508,7 @@ async def refresh_bemobi_reported_net_income(
     unavailable: list[str] = []
     errors: list[dict[str, Any]] = []
 
+    wanted_accounts = {definition["account"] for definition in DRE_METRICS.values()}
     for year in years:
         itr_payload: bytes | None = None
         dfp_payload: bytes | None = None
@@ -442,13 +545,31 @@ async def refresh_bemobi_reported_net_income(
         if itr_payload is None:
             continue
         try:
-            itr = parse_parent_net_income_archive(itr_payload, year=year, document_type="itr")
+            itr = parse_dre_accounts_archive(
+                itr_payload,
+                year=year,
+                document_type="itr",
+                account_codes=wanted_accounts,
+            )
             dfp = (
-                parse_parent_net_income_archive(dfp_payload, year=year, document_type="dfp")
+                parse_dre_accounts_archive(
+                    dfp_payload,
+                    year=year,
+                    document_type="dfp",
+                    account_codes=wanted_accounts,
+                )
                 if dfp_payload is not None
                 else []
             )
-            derived.update(derive_reported_quarters(year=year, itr_observations=itr, dfp_observations=dfp))
+            year_derived = derive_standardized_dre_quarters(
+                year=year,
+                itr_observations=itr,
+                dfp_observations=dfp,
+            )
+            for period, payload in year_derived.items():
+                derived.setdefault(period, {"period": period}).update(
+                    {key: value for key, value in payload.items() if key != "period"}
+                )
         except Exception as exc:
             errors.append({"archive": f"DRE {year}", "error": str(exc)[:1000]})
 
@@ -470,6 +591,10 @@ async def refresh_bemobi_reported_net_income(
         "archives": archives,
         "unavailable": unavailable,
         "derived_periods": sorted(derived),
+        "metrics": {
+            field: definition["account"]
+            for field, definition in DRE_METRICS.items()
+        },
         "fact_status": statuses,
         "rows_written": rows_written,
         "normal_refresh_days": NORMAL_REFRESH_DAYS,
