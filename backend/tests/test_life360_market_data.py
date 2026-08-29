@@ -409,5 +409,5 @@ def test_forced_lif_refresh_fetches_even_when_existing_price_is_fresh(
     assert result["rows_written"] == 1
 
 
-def test_yahoo_repair_window_covers_one_month_history() -> None:
-    assert life360_market_data.RECENT_LOOKBACK_DAYS == 45
+def test_yahoo_repair_window_covers_three_month_history() -> None:
+    assert life360_market_data.RECENT_LOOKBACK_DAYS == 100

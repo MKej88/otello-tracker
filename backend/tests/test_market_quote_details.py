@@ -10,7 +10,6 @@ from app.db.repository import upsert_market_price
 from app.marketdata.b3_cotahist import parse_cotahist_line
 from app.marketdata.quote_details import market_quote_details
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -85,7 +84,11 @@ def _seed_prices(database: str) -> None:
             currency="BRL",
             source_code="B3",
             quality="DIRECT",
-            metadata={"open_price": "23.00", "min_price": "22.80", "max_price": "23.40"},
+            metadata={
+                "open_price": "23.00",
+                "min_price": "22.80",
+                "max_price": "23.40",
+            },
         )
         for day, close in (("2026-08-18", "18.00"), ("2026-08-19", "18.20")):
             upsert_market_price(
@@ -139,6 +142,8 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     assert bmob3["last_close"]["price"] == 22.9
     assert bmob3["volume"]["latest"] == 130000.0
     assert bmob3["volume"]["average_sessions"] == 3
+    assert bmob3["volume"]["average_3m"] == 120000.0
+    assert bmob3["volume"]["latest_above_average"] is True
     assert bmob3["range_52w"]["low"] == 21.8
     assert bmob3["range_52w"]["high"] == 23.1
 
@@ -150,19 +155,31 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     assert otec["session"]["basis"] == "OBSERVED_TRADES"
     assert otec["last_close"]["price"] == 18.2
     assert otec["volume"]["latest"] is not None
-    assert otec["volume"]["average_sessions"] == 20
+    assert otec["volume"]["average_sessions"] == 63
 
 
 def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     backend = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
-    worker_service = (ROOT / "cloudflare/src/quote_details.py").read_text(encoding="utf-8")
+    worker_service = (ROOT / "cloudflare/src/quote_details.py").read_text(
+        encoding="utf-8"
+    )
     panel = (ROOT / "frontend/src/MarketQuotePanel.tsx").read_text(encoding="utf-8")
     economic = (ROOT / "frontend/src/EconomicNavPanel.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/market/quotes")' in backend
     assert '@app.get("/api/market/quotes")' in worker
     assert "market_quote_details" in worker_service
-    for label in ("Sist oppdatert", "52-ukers lav / høy", "Snittvolum", "Siste volum", "Åpning", "Dagens lav", "Dagens høy", "Siste sluttkurs"):
+    for label in (
+        "Sist oppdatert",
+        "52-ukers lav / høy",
+        "3 mnd snittvolum",
+        "Høyere enn 3 mnd snitt",
+        "Siste volum",
+        "Åpning",
+        "Dagens lav",
+        "Dagens høy",
+        "Siste sluttkurs",
+    ):
         assert label in panel
     assert "<MarketQuotePanel />" in economic
