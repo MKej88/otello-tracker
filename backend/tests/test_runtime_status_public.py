@@ -81,6 +81,42 @@ def test_public_job_payload_does_not_expose_raw_exception_text() -> None:
     assert payload["target_date"] == "2026-08-20"
 
 
+def test_public_job_payload_includes_safe_nightly_summary() -> None:
+    now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+    row = {
+        "status": "PARTIAL",
+        "started_at": "2026-08-21T03:30:00Z",
+        "finished_at": "2026-08-21T03:34:50Z",
+        "records_written": 162,
+        "error_message": "secret upstream detail",
+        "metadata_json": (
+            '{"target_date":"2026-08-20",'
+            '"source_health":{"NORGES_BANK":"OK","BEMOBI_IR":"DOWN",'
+            '"PRIVATE_SOURCE":"secret"},'
+            '"preflight":{"ready":true,"blockers":[],"warnings":["check"]}}'
+        ),
+    }
+
+    payload = _job_payload(
+        row,
+        now=now,
+        completed_max_age=FULL_MAX_AGE,
+        running_max_age=FULL_RUNNING_MAX_AGE,
+    )
+
+    assert payload["records_written"] == 162
+    assert payload["source_health"] == {
+        "NORGES_BANK": "OK",
+        "BEMOBI_IR": "DOWN",
+    }
+    assert payload["preflight"] == {
+        "ready": True,
+        "blocker_count": 0,
+        "warning_count": 1,
+    }
+    assert "PRIVATE_SOURCE" not in payload["source_health"]
+
+
 def _running_full_payload(now: datetime) -> tuple[dict, dict]:
     row = {
         "status": "RUNNING",
