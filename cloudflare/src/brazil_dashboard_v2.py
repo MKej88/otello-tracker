@@ -147,11 +147,16 @@ async def brazil_dashboard(
                 # Cache writes are best-effort: a transient D1 failure must not discard
                 # the live consensus that Olinda already returned successfully.
                 status["cache_persistence_error"] = f"{type(exc).__name__}: {exc}"
-        enriched, restored = await apply_cached_event_expectations(
-            repository,
-            enriched,
-            as_of_date=target_date,
-        )
+        try:
+            enriched, restored = await apply_cached_event_expectations(
+                repository,
+                enriched,
+                as_of_date=target_date,
+            )
+        except Exception as exc:
+            # A cache-table read is also best-effort. Keep the live-enriched rows.
+            restored = 0
+            status["cache_restore_error"] = f"{type(exc).__name__}: {exc}"
         status["cached_restored"] = restored
         status["fallback"] = bool(restored and not status.get("ready"))
         result["calendar"] = _annotate_market_consensus(enriched)
@@ -172,16 +177,26 @@ async def brazil_dashboard(
                 "må bekreftes i den offisielle kalenderen."
             )
     except Exception as exc:
-        restored_rows, restored = await apply_cached_event_expectations(
-            repository,
-            calendar_rows,
-            as_of_date=target_date,
-        )
+        try:
+            restored_rows, restored = await apply_cached_event_expectations(
+                repository,
+                calendar_rows,
+                as_of_date=target_date,
+            )
+            restore_error = None
+        except Exception as restore_exc:
+            # Never repeat a failing cache read out of protection and turn a usable
+            # base calendar into a dashboard 500.
+            restored_rows, restored = calendar_rows, 0
+            restore_error = f"{type(restore_exc).__name__}: {restore_exc}"
         result["calendar"] = _annotate_market_consensus(restored_rows)
-        result.setdefault("source_status", {})["focus_event_expectations"] = {
+        fallback_status = {
             "ready": bool(restored),
             "fallback": bool(restored),
             "cached_restored": restored,
             "error": f"{type(exc).__name__}: {exc}",
         }
+        if restore_error:
+            fallback_status["cache_restore_error"] = restore_error
+        result.setdefault("source_status", {})["focus_event_expectations"] = fallback_status
     return result

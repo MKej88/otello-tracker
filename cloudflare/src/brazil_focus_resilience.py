@@ -96,6 +96,24 @@ async def _write_state(repository: Any, key: str, payload: dict[str, Any]) -> No
     )
 
 
+async def _write_annual_state(repository: Any, payload: dict[str, Any]) -> None:
+    """Store an annual snapshot without letting an older concurrent request win."""
+    updated_at = _now_iso()
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    await repository.run(
+        """
+        INSERT INTO runtime_state(key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        WHERE COALESCE(json_extract(runtime_state.value, '$.survey_date'), '')
+              <= COALESCE(json_extract(excluded.value, '$.survey_date'), '')
+        """,
+        (ANNUAL_STATE_KEY, encoded, updated_at),
+    )
+
+
 async def persist_annual_focus(repository: Any, focus_payload: dict[str, Any]) -> None:
     values = focus_payload.get("values")
     if not _valid_values(values):
@@ -123,9 +141,8 @@ async def persist_annual_focus(repository: Any, focus_payload: dict[str, Any]) -
                 continue
             merged_years[year] = dict(point)
     survey_date = _latest_survey_date(merged_values)
-    await _write_state(
+    await _write_annual_state(
         repository,
-        ANNUAL_STATE_KEY,
         {
             "values": merged_values,
             "source": focus_payload.get("source") or "Banco Central do Brasil / Focus",
