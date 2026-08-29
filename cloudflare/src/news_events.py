@@ -115,31 +115,37 @@ async def news_and_events(
 ) -> dict[str, Any]:
     today = date.fromisoformat(as_of_date) if as_of_date else _current_oslo_date()
     safe_limit = max(1, min(news_limit, 100))
-    news_rows = await repository.all(
-        """
-        SELECT cn.id, cn.headline,
-               COALESCE(cn.published_at, sd.published_at) AS published_at,
-               cn.category, cn.nav_impact,
-               cn.summary, i.symbol, sd.url, s.code AS source_code,
-               s.name AS source_name, sd.metadata_json
-        FROM company_news cn
-        LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
-        JOIN source_documents sd ON sd.id=cn.source_document_id
-        JOIN sources s ON s.id=sd.source_id
-        WHERE i.symbol IN ('OTEC', 'BMOB3')
-        ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
-        LIMIT ?
-        """,
-        (safe_limit * 3,),
-    )
     news = []
-    for row in news_rows:
-        metadata = _decode_payload(row.get("metadata_json"))
-        if metadata.get("is_latest_version") is False:
-            continue
-        news.append(_news_item(row))
-        if len(news) >= safe_limit:
+    batch_size = safe_limit * 3
+    offset = 0
+    while len(news) < safe_limit:
+        news_rows = await repository.all(
+            """
+            SELECT cn.id, cn.headline,
+                   COALESCE(cn.published_at, sd.published_at) AS published_at,
+                   cn.category, cn.nav_impact,
+                   cn.summary, i.symbol, sd.url, s.code AS source_code,
+                   s.name AS source_name, sd.metadata_json
+            FROM company_news cn
+            LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
+            JOIN source_documents sd ON sd.id=cn.source_document_id
+            JOIN sources s ON s.id=sd.source_id
+            WHERE i.symbol IN ('OTEC', 'BMOB3')
+            ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (batch_size, offset),
+        )
+        for row in news_rows:
+            metadata = _decode_payload(row.get("metadata_json"))
+            if metadata.get("is_latest_version") is False:
+                continue
+            news.append(_news_item(row))
+            if len(news) >= safe_limit:
+                break
+        if len(news_rows) < batch_size:
             break
+        offset += batch_size
 
     events: list[dict[str, Any]] = []
     programs = await repository.all(
