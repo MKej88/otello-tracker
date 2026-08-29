@@ -46,6 +46,20 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
                     "koblet til denne referanseperioden/hendelsen."
                 ),
             }
+        elif isinstance(expectation, dict) and expectation.get("value") is not None:
+            # Grunnvisningen legger allerede på siste årlige Focus-median som et
+            # retningsgivende anslag. Behold tallet når den mer presise hendelsesfeed
+            # er tom, men merk det tydelig som årsestimat og ikke hendelseskonsensus.
+            event["market_consensus"] = {
+                "available": True,
+                "ingested": True,
+                "coverage": "BCB_FOCUS_ANNUAL_PROXY",
+                "provider": "BCB Focus",
+                "note": (
+                    "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi "
+                    "en hendelsesnær median ikke var tilgjengelig."
+                ),
+            }
         elif str(event.get("kind") or "") in _EXTERNAL_CONSENSUS_KINDS:
             event["market_consensus"] = {
                 "available": True,
@@ -79,6 +93,25 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
             }
         annotated.append(event)
     return annotated
+
+
+def _fill_annual_focus_proxies(
+    events: list[dict[str, Any]], focus_values: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Fyll tomme kalenderfelt fra den robuste, årlige Focus-reserven."""
+    output: list[dict[str, Any]] = []
+    for raw in events:
+        event = dict(raw)
+        if not isinstance(event.get("expectation"), dict):
+            event_date = str(event.get("date") or "")
+            if len(event_date) >= 4 and event_date[:4].isdigit():
+                event["expectation"] = base._focus_expectation_for_event(
+                    event,
+                    focus_values,
+                    int(event_date[:4]),
+                )
+        output.append(event)
+    return output
 
 
 def _recompute_focus_signals(result: dict[str, Any], focus_values: dict[str, Any], target_year: int) -> None:
@@ -133,7 +166,14 @@ async def brazil_dashboard(
     if not isinstance(calendar, list) or not calendar:
         return result
 
-    calendar_rows = [dict(item) for item in calendar if isinstance(item, dict)]
+    focus = result.get("focus")
+    focus_values = focus.get("values") if isinstance(focus, dict) else {}
+    if not isinstance(focus_values, dict):
+        focus_values = {}
+    calendar_rows = _fill_annual_focus_proxies(
+        [dict(item) for item in calendar if isinstance(item, dict)],
+        focus_values,
+    )
     try:
         enriched, status = await enrich_calendar_expectations(
             calendar_rows,
