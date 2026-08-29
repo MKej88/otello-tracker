@@ -21,7 +21,6 @@ type Report = {
   status: string;
   source_period?: string | null;
   report_date?: string | null;
-  fetched_at?: string | null;
   parser_version?: string | null;
   source_url?: string | null;
   message?: string | null;
@@ -83,7 +82,7 @@ export default function DataQualityPage() {
           <p className="dataNotice">{report?.message ?? "Venter på neste Otello-finansrapport."}</p>
         ) : (
           <>
-            <div className="qualityReportMeta"><div><span>Periode</span><strong>{report.source_period ?? "–"}</strong></div><div><span>Rapportdato</span><strong>{formatDate(report.report_date)}</strong></div><div><span>Sist hentet</span><strong>{formatDateTime(report.fetched_at)}</strong></div>{report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Åpne kilde-PDF</a>}</div>
+            <div className="qualityReportMeta"><div><span>Periode</span><strong>{report.source_period ?? "–"}</strong></div><div><span>Rapportdato</span><strong>{formatDate(report.report_date)}</strong></div><div><span>Parser</span><strong>{report.parser_version ?? "–"}</strong></div>{report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Åpne kilde-PDF</a>}</div>
             <div className="qualitySteps">
               <Step label="NewsWeb" done={pipeline.newsweb_processed} />
               <Step label="PDF hentet" done={pipeline.pdf_downloaded} />

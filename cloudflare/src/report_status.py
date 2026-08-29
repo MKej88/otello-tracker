@@ -212,7 +212,6 @@ async def report_status_summary(repository) -> dict[str, Any]:
         "apply_status": apply_status,
         "headline": report.get("title") or (news.get("headline") if news else None),
         "published_at": report.get("published_at"),
-        "fetched_at": report.get("fetched_at"),
         "report_date": report_date,
         "source_period": facts.get("source_period"),
         "parser_version": metadata.get("parser_version"),
