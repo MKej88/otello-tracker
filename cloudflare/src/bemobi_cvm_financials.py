@@ -64,10 +64,6 @@ DFC_METRICS: dict[str, dict[str, str]] = {
         "account": "6.01",
         "label": "Caixa Líquido Atividades Operacionais",
     },
-    "reported_capex_cash_outflow_mbrl": {
-        "account": "6.02.02",
-        "label": "Investimentos / capex - linha CVM 6.02.02",
-    },
 }
 BPA_METRICS: dict[str, dict[str, str]] = {
     "reported_cash_mbrl": {
@@ -85,9 +81,16 @@ BPP_METRICS: dict[str, dict[str, str]] = {
         "label": "Empréstimos e Financiamentos - Não Circulante",
     },
 }
-_REQUIRED_QUARTER_FIELDS = tuple(
-    [*DRE_METRICS, *DFC_METRICS, *BPA_METRICS, *BPP_METRICS]
-)
+CAPEX_FIELD = "reported_capex_cash_outflow_mbrl"
+CAPEX_SELECTION = "CVM_DFC_DESCRIPTION_MATCH"
+# CVM account numbering for this line is issuer/filing dependent. Bemobi used 6.02.02
+# historically and 6.02.10 in 2Q26, so capex must be identified from DS_CONTA rather
+# than a fixed CD_CONTA.
+CAPEX_ACTION_TOKENS = ("aquisicao", "adicao", "adicoes")
+CAPEX_ASSET_TOKENS = ("imobilizado", "intangivel")
+
+# Capex is a reconciliation metric, not a hard blocker for the core accounting refresh.
+_REQUIRED_QUARTER_FIELDS = tuple([*DRE_METRICS, *DFC_METRICS, *BPA_METRICS, *BPP_METRICS])
 
 
 @dataclass(frozen=True)
@@ -182,28 +185,19 @@ def _statement_member(
     doc = document_type.lower()
     statement_upper = statement.upper()
     if statement_upper == "DFC":
-        # CVM's yearly ZIP contains both DFC_MI and DFC_MD files for the market as a
-        # whole. Bemobi reports its consolidated cash-flow statement using the indirect
-        # method, so prefer DFC_MI and only fall back to DFC_MD if that member is absent.
         preferred = [
             f"{doc}_cia_aberta_dfc_mi_con_{year}.csv",
             f"{doc}_cia_aberta_dfc_md_con_{year}.csv",
         ]
-        members = {
-            name.rsplit("/", 1)[-1].lower(): name
-            for name in archive.namelist()
-        }
+        members = {name.rsplit("/", 1)[-1].lower(): name for name in archive.namelist()}
         for expected in preferred:
             if expected in members:
                 return members[expected]
-        raise ValueError(
-            f"CVM {document_type.upper()} {year} mangler konsolidert DFC"
-        )
+        raise ValueError(f"CVM {document_type.upper()} {year} mangler konsolidert DFC")
 
     expected = f"{doc}_cia_aberta_{statement.lower()}_con_{year}.csv"
     matches = [
-        name
-        for name in archive.namelist()
+        name for name in archive.namelist()
         if name.rsplit("/", 1)[-1].lower() == expected
     ]
     if len(matches) != 1:
@@ -213,15 +207,51 @@ def _statement_member(
     return matches[0]
 
 
-def parse_statement_accounts_archive(
+def _row_to_observation(
+    row: dict[str, str],
+    *,
+    year: int,
+    document_type: str,
+    statement: str,
+) -> CVMIncomeObservation | None:
+    flow_statement = statement in {"DRE", "DFC"}
+    if _clean_cvm_code(row.get("CD_CVM")) != BEMOBI_CVM_CODE:
+        return None
+    if _norm(row.get("ORDEM_EXERC")) != "ultimo":
+        return None
+    if _norm(row.get("MOEDA")) not in {"real", "brl"}:
+        return None
+    period_start = _date_text(row.get("DT_INI_EXERC")) if flow_statement else ""
+    period_end = _date_text(row.get("DT_FIM_EXERC"))
+    if flow_statement and period_start != f"{year}-01-01":
+        return None
+    if not period_end.startswith(f"{year}-"):
+        return None
+    try:
+        version = int(str(row.get("VERSAO") or "1").strip())
+    except ValueError:
+        version = 1
+    return CVMIncomeObservation(
+        year=year,
+        document_type=document_type.upper(),
+        period_start=period_start,
+        period_end=period_end,
+        reference_date=_date_text(row.get("DT_REFER")) or None,
+        version=version,
+        value_mbrl=_to_mbrl(row.get("VL_CONTA"), row.get("ESCALA_MOEDA")),
+        account_code=str(row.get("CD_CONTA") or "").strip(),
+        account_label=str(row.get("DS_CONTA") or "").strip() or None,
+        statement=statement,
+    )
+
+
+def _statement_reader(
     payload: bytes,
     *,
     year: int,
     document_type: str,
     statement: str,
-    account_codes: set[str],
-) -> list[CVMIncomeObservation]:
-    """Read selected standardized consolidated statement accounts for Bemobi."""
+):
     doc = document_type.lower()
     statement_upper = statement.upper()
     if doc not in {"itr", "dfp"}:
@@ -235,60 +265,32 @@ def parse_statement_accounts_archive(
 
     flow_statement = statement_upper in {"DRE", "DFC"}
     required = _FLOW_REQUIRED_COLUMNS if flow_statement else _COMMON_REQUIRED_COLUMNS
-    observations: list[CVMIncomeObservation] = []
-    with archive:
-        member = _statement_member(
-            archive,
-            document_type=doc,
-            year=year,
-            statement=statement_upper,
+    member = _statement_member(
+        archive,
+        document_type=doc,
+        year=year,
+        statement=statement_upper,
+    )
+    raw_member = archive.open(member, "r")
+    buffered = io.BufferedReader(raw_member, buffer_size=64 * 1024)
+    encoding = _csv_encoding(bytes(buffered.peek(8192)[:8192]))
+    text_stream = io.TextIOWrapper(buffered, encoding=encoding, newline="")
+    reader = csv.DictReader(text_stream, delimiter=";")
+    missing = sorted(required - set(reader.fieldnames or []))
+    if missing:
+        text_stream.close()
+        archive.close()
+        raise ValueError(
+            f"CVM {doc.upper()} {statement_upper} {year} mangler kolonner: {', '.join(missing)}"
         )
-        with archive.open(member, "r") as raw_member:
-            buffered = io.BufferedReader(raw_member, buffer_size=64 * 1024)
-            encoding = _csv_encoding(bytes(buffered.peek(8192)[:8192]))
-            with io.TextIOWrapper(buffered, encoding=encoding, newline="") as text_stream:
-                reader = csv.DictReader(text_stream, delimiter=";")
-                missing = sorted(required - set(reader.fieldnames or []))
-                if missing:
-                    raise ValueError(
-                        f"CVM {doc.upper()} {statement_upper} {year} mangler kolonner: "
-                        f"{', '.join(missing)}"
-                    )
-                for row in reader:
-                    if _clean_cvm_code(row.get("CD_CVM")) != BEMOBI_CVM_CODE:
-                        continue
-                    account_code = str(row.get("CD_CONTA") or "").strip()
-                    if account_code not in account_codes:
-                        continue
-                    if _norm(row.get("ORDEM_EXERC")) != "ultimo":
-                        continue
-                    if _norm(row.get("MOEDA")) not in {"real", "brl"}:
-                        continue
-                    period_start = _date_text(row.get("DT_INI_EXERC")) if flow_statement else ""
-                    period_end = _date_text(row.get("DT_FIM_EXERC"))
-                    if flow_statement and period_start != f"{year}-01-01":
-                        continue
-                    if not period_end.startswith(f"{year}-"):
-                        continue
-                    try:
-                        version = int(str(row.get("VERSAO") or "1").strip())
-                    except ValueError:
-                        version = 1
-                    observations.append(
-                        CVMIncomeObservation(
-                            year=year,
-                            document_type=doc.upper(),
-                            period_start=period_start,
-                            period_end=period_end,
-                            reference_date=_date_text(row.get("DT_REFER")) or None,
-                            version=version,
-                            value_mbrl=_to_mbrl(row.get("VL_CONTA"), row.get("ESCALA_MOEDA")),
-                            account_code=account_code,
-                            account_label=str(row.get("DS_CONTA") or "").strip() or None,
-                            statement=statement_upper,
-                        )
-                    )
+    return archive, text_stream, reader
 
+
+def _dedupe_observations(
+    observations: list[CVMIncomeObservation],
+    *,
+    label: str,
+) -> list[CVMIncomeObservation]:
     latest: dict[tuple[str, str], CVMIncomeObservation] = {}
     for item in observations:
         key = (item.account_code, item.period_end)
@@ -297,10 +299,138 @@ def parse_statement_accounts_archive(
             latest[key] = item
         elif item.version == existing.version and abs(item.value_mbrl - existing.value_mbrl) > 1e-9:
             raise ValueError(
-                f"Motstridende CVM-verdier for {doc.upper()} {statement_upper} "
-                f"{item.account_code} {item.period_end} v{item.version}"
+                f"Motstridende CVM-verdier for {label} {item.account_code} "
+                f"{item.period_end} v{item.version}"
             )
     return [latest[key] for key in sorted(latest)]
+
+
+def parse_statement_accounts_archive(
+    payload: bytes,
+    *,
+    year: int,
+    document_type: str,
+    statement: str,
+    account_codes: set[str],
+) -> list[CVMIncomeObservation]:
+    """Read selected standardized consolidated statement accounts for Bemobi."""
+    statement_upper = statement.upper()
+    observations: list[CVMIncomeObservation] = []
+    archive, text_stream, reader = _statement_reader(
+        payload,
+        year=year,
+        document_type=document_type,
+        statement=statement_upper,
+    )
+    try:
+        for row in reader:
+            account_code = str(row.get("CD_CONTA") or "").strip()
+            if account_code not in account_codes:
+                continue
+            item = _row_to_observation(
+                row,
+                year=year,
+                document_type=document_type,
+                statement=statement_upper,
+            )
+            if item is not None:
+                observations.append(item)
+    finally:
+        text_stream.close()
+        archive.close()
+    return _dedupe_observations(
+        observations,
+        label=f"{document_type.upper()} {statement_upper}",
+    )
+
+
+def _is_capex_label(label: str | None) -> bool:
+    normalized = _norm(label)
+    has_action = any(token in normalized for token in CAPEX_ACTION_TOKENS)
+    has_asset = any(token in normalized for token in CAPEX_ASSET_TOKENS)
+    return has_action and has_asset
+
+
+def _is_combined_capex_label(label: str | None) -> bool:
+    normalized = _norm(label)
+    return _is_capex_label(label) and all(token in normalized for token in CAPEX_ASSET_TOKENS)
+
+
+def parse_capex_accounts_archive(
+    payload: bytes,
+    *,
+    year: int,
+    document_type: str,
+) -> list[CVMIncomeObservation]:
+    """Identify Bemobi capex from DFC descriptions instead of unstable account numbers.
+
+    If a filing provides one combined acquisition-of-PPE-and-intangibles line, use that row.
+    If the filing splits tangible and intangible acquisitions, sum the matching component rows.
+    The latest CVM filing version wins for each period.
+    """
+    observations: list[CVMIncomeObservation] = []
+    archive, text_stream, reader = _statement_reader(
+        payload,
+        year=year,
+        document_type=document_type,
+        statement="DFC",
+    )
+    try:
+        for row in reader:
+            if not _is_capex_label(row.get("DS_CONTA")):
+                continue
+            item = _row_to_observation(
+                row,
+                year=year,
+                document_type=document_type,
+                statement="DFC",
+            )
+            if item is not None:
+                observations.append(item)
+    finally:
+        text_stream.close()
+        archive.close()
+
+    observations = _dedupe_observations(
+        observations,
+        label=f"{document_type.upper()} DFC capex",
+    )
+    by_period: dict[str, list[CVMIncomeObservation]] = {}
+    for item in observations:
+        by_period.setdefault(item.period_end, []).append(item)
+
+    result: list[CVMIncomeObservation] = []
+    for period_end, rows in sorted(by_period.items()):
+        latest_version = max(item.version for item in rows)
+        rows = [item for item in rows if item.version == latest_version]
+        combined = [item for item in rows if _is_combined_capex_label(item.account_label)]
+        selected = combined if combined else rows
+        if combined:
+            # A combined line is already the total; multiple identical combined rows are
+            # tolerated only when they agree, otherwise fail closed instead of double counting.
+            values = {round(item.value_mbrl, 9) for item in combined}
+            if len(values) != 1:
+                raise ValueError(f"Motstridende kombinerte CVM-capexlinjer for {period_end}")
+            selected = [sorted(combined, key=lambda item: item.account_code)[0]]
+        value = sum(item.value_mbrl for item in selected)
+        codes = sorted({item.account_code for item in selected})
+        labels = sorted({str(item.account_label or "") for item in selected if item.account_label})
+        first = selected[0]
+        result.append(
+            CVMIncomeObservation(
+                year=year,
+                document_type=first.document_type,
+                period_start=first.period_start,
+                period_end=period_end,
+                reference_date=first.reference_date,
+                version=latest_version,
+                value_mbrl=value,
+                account_code="+".join(codes),
+                account_label=" + ".join(labels),
+                statement="DFC",
+            )
+        )
+    return result
 
 
 def parse_dre_accounts_archive(
@@ -310,7 +440,6 @@ def parse_dre_accounts_archive(
     document_type: str,
     account_codes: set[str] | None = None,
 ) -> list[CVMIncomeObservation]:
-    """Read Bemobi consolidated DRE accounts, keeping only year-to-date rows."""
     wanted = account_codes or {item["account"] for item in DRE_METRICS.values()}
     return parse_statement_accounts_archive(
         payload,
@@ -327,7 +456,6 @@ def parse_parent_net_income_archive(
     year: int,
     document_type: str,
 ) -> list[CVMIncomeObservation]:
-    """Compatibility wrapper for the original payout-model parser."""
     return parse_dre_accounts_archive(
         payload,
         year=year,
@@ -378,11 +506,7 @@ def _derive_point_in_time_quarters(
     year: int,
     observations: list[CVMIncomeObservation],
 ) -> dict[str, tuple[float, list[CVMIncomeObservation], str]]:
-    by_end = {
-        item.period_end: item
-        for item in observations
-        if item.year == year
-    }
+    by_end = {item.period_end: item for item in observations if item.year == year}
     result: dict[str, tuple[float, list[CVMIncomeObservation], str]] = {}
     for label, end in (
         ("1Q", f"{year}-03-31"),
@@ -412,7 +536,6 @@ def _add_metric_payload(
     for label, (value, source_items, source) in derived.items():
         period = f"{label}{yy}"
         payload = result.setdefault(period, {"period": period})
-        latest_version = max(item.version for item in source_items)
         payload[field] = round(value, 6)
         payload[f"{prefix}_source"] = source
         payload[f"{prefix}_source_url"] = (
@@ -421,7 +544,33 @@ def _add_metric_payload(
         payload[f"{prefix}_quality"] = quality
         payload[f"{prefix}_account"] = account
         payload[f"{prefix}_as_of_date"] = source_items[-1].period_end
-        payload[f"{prefix}_version"] = latest_version
+        payload[f"{prefix}_version"] = max(item.version for item in source_items)
+
+
+def _add_capex_payload(
+    result: dict[str, dict[str, Any]],
+    *,
+    year: int,
+    derived: dict[str, tuple[float, list[CVMIncomeObservation], str]],
+) -> None:
+    yy = str(year)[-2:]
+    prefix = CAPEX_FIELD.removesuffix("_mbrl")
+    for label, (value, source_items, source) in derived.items():
+        period = f"{label}{yy}"
+        payload = result.setdefault(period, {"period": period})
+        account_codes = sorted({code for item in source_items for code in item.account_code.split("+") if code})
+        account_labels = sorted({str(item.account_label or "") for item in source_items if item.account_label})
+        payload[CAPEX_FIELD] = round(value, 6)
+        payload[f"{prefix}_source"] = source
+        payload[f"{prefix}_source_url"] = (
+            CVM_DFP_URL.format(year=year) if label == "4Q" else CVM_ITR_URL.format(year=year)
+        )
+        payload[f"{prefix}_quality"] = "CVM_OFFICIAL_DFC_CON"
+        payload[f"{prefix}_account"] = "+".join(account_codes) or None
+        payload[f"{prefix}_account_labels"] = account_labels
+        payload[f"{prefix}_selection"] = CAPEX_SELECTION
+        payload[f"{prefix}_as_of_date"] = source_items[-1].period_end
+        payload[f"{prefix}_version"] = max(item.version for item in source_items)
 
 
 def derive_standardized_dre_quarters(
@@ -430,18 +579,16 @@ def derive_standardized_dre_quarters(
     itr_observations: list[CVMIncomeObservation],
     dfp_observations: list[CVMIncomeObservation] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Derive standalone quarterly statutory revenue, EBIT and parent net income."""
     combined = [*itr_observations, *(dfp_observations or [])]
     result: dict[str, dict[str, Any]] = {}
     for field, definition in DRE_METRICS.items():
-        account = definition["account"]
-        metric_rows = [item for item in combined if item.account_code == account]
+        rows = [item for item in combined if item.account_code == definition["account"]]
         _add_metric_payload(
             result,
             year=year,
             field=field,
-            account=account,
-            derived=_derive_metric_quarters(year=year, observations=metric_rows),
+            account=definition["account"],
+            derived=_derive_metric_quarters(year=year, observations=rows),
             quality="CVM_OFFICIAL_DRE_CON",
         )
     return result
@@ -453,7 +600,6 @@ def derive_reported_quarters(
     itr_observations: list[CVMIncomeObservation],
     dfp_observations: list[CVMIncomeObservation] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Backward-compatible parent-net-income-only quarterly derivation."""
     full = derive_standardized_dre_quarters(
         year=year,
         itr_observations=itr_observations,
@@ -481,19 +627,27 @@ def derive_standardized_cashflow_quarters(
     year: int,
     itr_observations: list[CVMIncomeObservation],
     dfp_observations: list[CVMIncomeObservation] | None = None,
+    itr_capex_observations: list[CVMIncomeObservation] | None = None,
+    dfp_capex_observations: list[CVMIncomeObservation] | None = None,
 ) -> dict[str, dict[str, Any]]:
     combined = [*itr_observations, *(dfp_observations or [])]
     result: dict[str, dict[str, Any]] = {}
     for field, definition in DFC_METRICS.items():
-        account = definition["account"]
-        metric_rows = [item for item in combined if item.account_code == account]
+        rows = [item for item in combined if item.account_code == definition["account"]]
         _add_metric_payload(
             result,
             year=year,
             field=field,
-            account=account,
-            derived=_derive_metric_quarters(year=year, observations=metric_rows),
+            account=definition["account"],
+            derived=_derive_metric_quarters(year=year, observations=rows),
             quality="CVM_OFFICIAL_DFC_CON",
+        )
+    capex_rows = [*(itr_capex_observations or []), *(dfp_capex_observations or [])]
+    if capex_rows:
+        _add_capex_payload(
+            result,
+            year=year,
+            derived=_derive_metric_quarters(year=year, observations=capex_rows),
         )
     return result
 
@@ -509,8 +663,7 @@ def derive_standardized_balance_quarters(
     result: dict[str, dict[str, Any]] = {}
     for field, definition in BPA_METRICS.items():
         rows = [
-            item
-            for item in [*itr_bpa, *(dfp_bpa or [])]
+            item for item in [*itr_bpa, *(dfp_bpa or [])]
             if item.account_code == definition["account"]
         ]
         _add_metric_payload(
@@ -523,8 +676,7 @@ def derive_standardized_balance_quarters(
         )
     for field, definition in BPP_METRICS.items():
         rows = [
-            item
-            for item in [*itr_bpp, *(dfp_bpp or [])]
+            item for item in [*itr_bpp, *(dfp_bpp or [])]
             if item.account_code == definition["account"]
         ]
         _add_metric_payload(
@@ -567,7 +719,6 @@ async def _download_optional(
 ) -> bytes | None:
     if fetcher is None:
         from workers import fetch
-
         fetcher = fetch
     response = await fetcher(
         url,
@@ -696,15 +847,10 @@ def _parse_year_financials(
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
 
-    itr_dre = parse_dre_accounts_archive(
-        itr_payload,
-        year=year,
-        document_type="itr",
-    )
+    itr_dre = parse_dre_accounts_archive(itr_payload, year=year, document_type="itr")
     dfp_dre = (
         parse_dre_accounts_archive(dfp_payload, year=year, document_type="dfp")
-        if dfp_payload is not None
-        else []
+        if dfp_payload is not None else []
     )
     _merge_period_payloads(
         result,
@@ -722,23 +868,35 @@ def _parse_year_financials(
         statement="DFC",
         account_codes={item["account"] for item in DFC_METRICS.values()},
     )
-    dfp_dfc = (
-        parse_statement_accounts_archive(
+    itr_capex = parse_capex_accounts_archive(
+        itr_payload,
+        year=year,
+        document_type="itr",
+    )
+    if dfp_payload is not None:
+        dfp_dfc = parse_statement_accounts_archive(
             dfp_payload,
             year=year,
             document_type="dfp",
             statement="DFC",
             account_codes={item["account"] for item in DFC_METRICS.values()},
         )
-        if dfp_payload is not None
-        else []
-    )
+        dfp_capex = parse_capex_accounts_archive(
+            dfp_payload,
+            year=year,
+            document_type="dfp",
+        )
+    else:
+        dfp_dfc = []
+        dfp_capex = []
     _merge_period_payloads(
         result,
         derive_standardized_cashflow_quarters(
             year=year,
             itr_observations=itr_dfc,
             dfp_observations=dfp_dfc,
+            itr_capex_observations=itr_capex,
+            dfp_capex_observations=dfp_capex,
         ),
     )
 
@@ -756,28 +914,24 @@ def _parse_year_financials(
         statement="BPP",
         account_codes={item["account"] for item in BPP_METRICS.values()},
     )
-    dfp_bpa = (
-        parse_statement_accounts_archive(
+    if dfp_payload is not None:
+        dfp_bpa = parse_statement_accounts_archive(
             dfp_payload,
             year=year,
             document_type="dfp",
             statement="BPA",
             account_codes={item["account"] for item in BPA_METRICS.values()},
         )
-        if dfp_payload is not None
-        else []
-    )
-    dfp_bpp = (
-        parse_statement_accounts_archive(
+        dfp_bpp = parse_statement_accounts_archive(
             dfp_payload,
             year=year,
             document_type="dfp",
             statement="BPP",
             account_codes={item["account"] for item in BPP_METRICS.values()},
         )
-        if dfp_payload is not None
-        else []
-    )
+    else:
+        dfp_bpa = []
+        dfp_bpp = []
     _merge_period_payloads(
         result,
         derive_standardized_balance_quarters(
@@ -799,10 +953,9 @@ async def refresh_bemobi_reported_net_income(
 ) -> dict[str, Any]:
     """Refresh Bemobi standardized consolidated financials from CVM ITR/DFP.
 
-    The established function name is retained for compatibility. It now refreshes statutory
-    revenue, EBIT, parent net income, operating cash flow, capex cash outflow, cash and
-    borrowings. This lets the Bemobi dashboard progressively replace curated accounting facts
-    while keeping adjusted KPIs sourced from the official result release.
+    The established function name is retained for compatibility. It refreshes statutory
+    revenue, EBIT, parent net income, operating cash flow, dynamic-description capex, cash
+    and borrowings while adjusted KPIs stay sourced from Bemobi's official result release.
     """
     due, reason = await _refresh_due(repository, target_date=target_date)
     if not due:
@@ -837,8 +990,7 @@ async def refresh_bemobi_reported_net_income(
         except Exception as exc:
             errors.append({"archive": f"ITR {year}", "error": str(exc)[:1000]})
 
-        need_dfp = year == previous_year
-        if need_dfp:
+        if year == previous_year:
             dfp_url = CVM_DFP_URL.format(year=year)
             try:
                 dfp_payload = await _download_optional(
@@ -888,6 +1040,11 @@ async def refresh_bemobi_reported_net_income(
         "metrics": {
             "DRE": {field: definition["account"] for field, definition in DRE_METRICS.items()},
             "DFC": {field: definition["account"] for field, definition in DFC_METRICS.items()},
+            "CAPEX": {
+                "field": CAPEX_FIELD,
+                "selection": CAPEX_SELECTION,
+                "description_tokens": [*CAPEX_ACTION_TOKENS, *CAPEX_ASSET_TOKENS],
+            },
             "BPA": {field: definition["account"] for field, definition in BPA_METRICS.items()},
             "BPP": {field: definition["account"] for field, definition in BPP_METRICS.items()},
         },
