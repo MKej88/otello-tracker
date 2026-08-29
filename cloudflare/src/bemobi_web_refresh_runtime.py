@@ -13,6 +13,7 @@ import re
 from datetime import date
 from typing import Any, Awaitable, Callable
 
+from bemobi_cvm_post_result import refresh_cvm_financials_after_new_result
 from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
@@ -420,6 +421,11 @@ async def refresh_bemobi_web(
         fetcher=fetcher,
     )
     xp: dict[str, Any] = _scheduled_skip("xp_preview", active_slot)
+    post_result_cvm: dict[str, Any] = {
+        "status": "skipped",
+        "reason": "no_new_result",
+        "rows_written": 0,
+    }
     event_rows = 0
 
     if active_slot == "result_release":
@@ -436,6 +442,27 @@ async def refresh_bemobi_web(
         )
         if event_rows:
             result = {**result, "consensus_event_rows_written": event_rows}
+        if result.get("status") == "ok" and result.get("period"):
+            if fetcher is None:
+                try:
+                    post_result_cvm = await refresh_cvm_financials_after_new_result(
+                        repository,
+                        target_date=target_date,
+                        period=str(result["period"]),
+                    )
+                except Exception as exc:
+                    post_result_cvm = {
+                        "status": "error",
+                        "reason": "post_result_cvm_refresh_failed",
+                        "error": str(exc)[:700],
+                        "rows_written": 0,
+                    }
+            else:
+                post_result_cvm = {
+                    "status": "skipped",
+                    "reason": "custom_web_fetcher",
+                    "rows_written": 0,
+                }
     else:
         xp = await sync_xp_preview(
             repository,
@@ -455,18 +482,32 @@ async def refresh_bemobi_web(
         for name, item in (("result_release", result), ("consensus", consensus), ("xp_preview", xp))
         if item.get("status") == "not_available"
     ]
+    if post_result_cvm.get("status") in {"error", "partial"}:
+        best_effort_warnings.append(
+            {
+                "source": "post_result_cvm_financials",
+                "status": str(post_result_cvm.get("status")),
+                "reason": post_result_cvm.get("reason"),
+                "error": post_result_cvm.get("error"),
+            }
+        )
     # A new official result document that cannot be parsed is material and still degrades
     # the nightly job. A core ownership/IR failure remains visible as DEGRADED but is
     # non-blocking for the full job. Analyst coverage is separately reported best-effort
     # and never changes the top-level Bemobi source health on its own.
     result_release_degraded = result.get("status") == "not_available"
     non_blocking_degraded = ir_failed and not result_release_degraded
-    rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
+    rows_written = (
+        sum(int(item.get("rows_written") or 0) for item in [ir, *secondary])
+        + event_rows
+        + int(post_result_cvm.get("rows_written") or 0)
+    )
     return {
         "status": "partial" if (ir_failed or result_release_degraded) else "ok",
         "rows_written": rows_written,
         "ir": ir,
         "result_release": result,
+        "post_result_cvm_financials": post_result_cvm,
         "consensus": consensus,
         "xp_preview": xp,
         "secondary_status": "degraded" if secondary_warnings else "ok",
