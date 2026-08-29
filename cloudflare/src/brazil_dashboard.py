@@ -448,7 +448,8 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
     current = _decimal(row.get("rate"))
     if current is None or current <= 0:
         return {"ready": False, "reason": "invalid_brl_nok"}
-    floor = (date.fromisoformat(as_of_date) - timedelta(days=35)).isoformat()
+    quote_date = date.fromisoformat(str(row.get("rate_date")))
+    floor = (quote_date - timedelta(days=35)).isoformat()
     previous = await repository.first(
         """
         SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate
@@ -461,7 +462,7 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
                  fr.observed_at ASC, fr.id ASC
         LIMIT 1
         """,
-        ((date.fromisoformat(as_of_date) - timedelta(days=28)).isoformat(), floor),
+        ((quote_date - timedelta(days=28)).isoformat(), floor),
     )
     previous_rate = _decimal(previous.get("rate")) if previous else None
     change_pct = None
@@ -491,7 +492,7 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
         ORDER BY rate_date DESC
         LIMIT 18
         """,
-        (as_of_date, floor),
+        (quote_date.isoformat(), floor),
     )
     series = [
         {"date": str(item.get("rate_date") or ""), "value": _float(rate)}
