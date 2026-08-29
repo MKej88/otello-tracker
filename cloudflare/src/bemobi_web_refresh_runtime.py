@@ -13,6 +13,7 @@ import re
 from datetime import date
 from typing import Any, Awaitable, Callable
 
+from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
     BEMOBI_OWNERSHIP_URL,
@@ -25,7 +26,6 @@ from bemobi_web_refresh import (
     _number,
     _store_web_document,
     _upsert_fact,
-    sync_bemobi_ir,
     sync_latest_result_release,
     sync_xp_preview,
 )
@@ -373,7 +373,7 @@ async def refresh_bemobi_web(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Refresh official IR daily and rotate CPU-heavier last-good-preserved sources."""
+    """Refresh core Bemobi IR daily while keeping analyst coverage best-effort."""
     ir_failed = False
     try:
         ir = await sync_bemobi_ir(
@@ -393,6 +393,23 @@ async def refresh_bemobi_web(
             "last_good_preserved": True,
             "rows_written": 0,
         }
+
+    analyst_coverage = (
+        ir.get("analyst_coverage")
+        if isinstance(ir.get("analyst_coverage"), dict)
+        else {}
+    )
+    best_effort_warnings = []
+    if analyst_coverage.get("status") == "not_available":
+        best_effort_warnings.append(
+            {
+                "source": "analyst_coverage",
+                "status": "not_available",
+                "reason": analyst_coverage.get("reason"),
+                "error": analyst_coverage.get("error"),
+                "failed_url": analyst_coverage.get("failed_url"),
+            }
+        )
 
     active_slot = _secondary_refresh_slot(target_date)
     result: dict[str, Any] = _scheduled_skip("result_release", active_slot)
@@ -439,8 +456,9 @@ async def refresh_bemobi_web(
         if item.get("status") == "not_available"
     ]
     # A new official result document that cannot be parsed is material and still degrades
-    # the nightly job. A transient official IR page failure is different: last-good facts
-    # remain intact and the source is marked DEGRADED without making the whole job PARTIAL.
+    # the nightly job. A core ownership/IR failure remains visible as DEGRADED but is
+    # non-blocking for the full job. Analyst coverage is separately reported best-effort
+    # and never changes the top-level Bemobi source health on its own.
     result_release_degraded = result.get("status") == "not_available"
     non_blocking_degraded = ir_failed and not result_release_degraded
     rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
@@ -453,8 +471,10 @@ async def refresh_bemobi_web(
         "xp_preview": xp,
         "secondary_status": "degraded" if secondary_warnings else "ok",
         "secondary_warnings": secondary_warnings,
+        "best_effort_status": "degraded" if best_effort_warnings else "ok",
+        "best_effort_warnings": best_effort_warnings,
         "non_blocking_degraded": non_blocking_degraded,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
-        "policy": "official-ir-daily-last-good-preserved-result-release-health-best-effort-consensus-xp-last-good-preserved",
+        "policy": "ownership-core-analyst-best-effort-result-release-health-best-effort-consensus-xp-last-good-preserved",
     }
