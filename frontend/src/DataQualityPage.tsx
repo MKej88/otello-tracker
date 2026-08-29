@@ -48,7 +48,7 @@ export default function DataQualityPage() {
   return (
     <div className="investorPage dataQualityPage">
       <section className="card qualityIntro">
-        <div><span className="label">DATAKVALITET</span><h2>Er dataene oppdatert?</h2><p>Her får du en enkel oversikt over hver datakilde, om den virker, og når vi sist hentet data. Tekniske detaljer ligger lenger ned på siden.</p></div>
+        <div><span className="label">DATAKVALITET</span><h2>Drift, ferskhet og kildekontroll</h2><p>Er dataene oppdatert? Her får du en enkel oversikt over hver datakilde, om den virker, og når vi sist hentet data. Tekniske detaljer ligger lenger ned på siden.</p></div>
         <span className={`qualityOverall ${runtime?.status === "OK" || runtime?.status === "SUCCESS" ? "ok" : ""}`}>{statusLabel(runtime?.status)}</span>
       </section>
 
