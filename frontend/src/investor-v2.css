@@ -78,6 +78,12 @@
 .qualityIntro p { margin:0; max-width:760px; opacity:.72; line-height:1.5; }
 .qualityOverall { border:1px solid rgba(255,255,255,.15); border-radius:999px; padding:9px 13px; font-size:12px; font-weight:800; }
 .qualityOverall.ok { border-color:rgba(100,210,145,.4); }
+.qualityMethod { padding:22px 24px; }
+.qualityMethodSteps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:16px; }
+.qualityMethodSteps > div { display:grid; grid-template-columns:30px 1fr; gap:3px 10px; padding:14px; border:1px solid rgba(255,255,255,.075); border-radius:11px; }
+.qualityMethodSteps span { grid-row:1 / 3; display:grid; place-items:center; align-self:start; width:28px; height:28px; border-radius:50%; background:rgba(79,139,255,.16); color:#a9c5ff; font-weight:800; }
+.qualityMethodSteps p { margin:0; opacity:.65; font-size:12px; line-height:1.45; }
+.qualityMethodNote { margin:14px 0 0; font-size:12px; opacity:.65; line-height:1.5; }
 .qualityMetricGrid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin-top:16px; }
 .qualityMetricGrid > div,.qualityReportMeta > div { border:1px solid rgba(255,255,255,.075); border-radius:11px; padding:13px; display:grid; gap:5px; }
 .qualityMetricGrid span,.qualityMetricGrid small,.qualityReportMeta span { opacity:.64; font-size:12px; }
@@ -97,6 +103,7 @@
   .compositionHead,.compositionRow,.compositionTotal { grid-template-columns:minmax(160px,1fr) 120px 100px; }
   .compositionHead span:last-child,.compositionRow small,.compositionTotal small { grid-column:1 / -1; }
   .historyKpiGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .qualityMethodSteps { grid-template-columns:1fr; }
 }
 
 @media (max-width:760px) {
