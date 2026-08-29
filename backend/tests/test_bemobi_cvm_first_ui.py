@@ -15,14 +15,17 @@ def test_bemobi_primary_view_prefers_cvm_and_reconciles_capex() -> None:
     assert "Rapportert EBIT TTM · CVM 3.05" in page
     assert "Rapportert resultat TTM · CVM 3.11.01" in page
     assert "Operasjonell kontantstrøm TTM · CVM 6.01" in page
-    assert "Capex TTM · CVM 6.02.02" in page
+    assert "Capex TTM · CVM DFC" in page
     assert "FCF TTM · CVM CFO − capex" in page
     assert "Rapportert omsetning" in page
     assert "Resultat til Bemobi-aksjonærer" in page
     assert "Capex-avstemming" in page
     assert "Justert fallback" in page
 
-    assert '"reported_capex_cash_outflow_mbrl"' in financials
-    assert '"account": "6.02.02"' in financials
-    assert "Capex TTM · 6.02.02" in source_status
+    assert 'CAPEX_FIELD = "reported_capex_cash_outflow_mbrl"' in financials
+    assert 'CAPEX_SELECTION = "CVM_DFC_DESCRIPTION_MATCH"' in financials
+    assert "parse_capex_accounts_archive" in financials
+    assert "CAPEX_ASSET_TOKENS" in financials
+    assert "Capex TTM · CVM DFC" in source_status
+    assert "Capex-konto i siste filing" in source_status
     assert "FCF TTM · CFO minus capex" in source_status
