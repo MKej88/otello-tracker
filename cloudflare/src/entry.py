@@ -171,7 +171,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
     """Durable full refresh protected from concurrent fast-path writes."""
 
     async def run(self, event, step):
-        from b3_full_refresh import refresh_bmob3_close
+        from b3_full_refresh import backfill_bmob3_volume_history, refresh_bmob3_close
         from bemobi_web_refresh_runtime import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
         from full_refresh import (
@@ -354,7 +354,16 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     target_date=target_date,
                     archive_bucket=self.env.SOURCE_ARCHIVE,
                 )
-                return {**result, "repository": repository.performance_metrics()}
+                volume_history = await backfill_bmob3_volume_history(
+                    repository,
+                    target_date=target_date,
+                    archive_bucket=self.env.SOURCE_ARCHIVE,
+                )
+                return {
+                    **result,
+                    "volume_history": volume_history,
+                    "repository": repository.performance_metrics(),
+                }
 
             try:
                 source_results["b3"] = await b3_step()

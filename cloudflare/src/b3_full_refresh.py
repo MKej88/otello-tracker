@@ -17,8 +17,12 @@ except ImportError:
     from bounded_response import read_response_bytes
     from r2_archive import archive_bytes
 
-B3_DAILY_URL = "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D{date_ddmmyyyy}.ZIP"
+B3_DAILY_URL = (
+    "https://bvmf.bmfbovespa.com.br/InstDados/SerHist/COTAHIST_D{date_ddmmyyyy}.ZIP"
+)
 MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
+BMOB3_VOLUME_HISTORY_SESSIONS = 63
+BMOB3_VOLUME_HISTORY_CALENDAR_DAYS = 100
 
 
 @dataclass(frozen=True)
@@ -178,7 +182,9 @@ async def refresh_bmob3_close(
                 "scope": "DAILY",
                 "isin": latest.isin,
                 "workflow": "cloudflare_full_refresh",
-                "archive_policy": "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED",
+                "archive_policy": (
+                    "CONTENT_ADDRESSED_R2" if archived else "NOT_REQUESTED"
+                ),
                 **market_metadata,
             },
         )
@@ -212,4 +218,63 @@ async def refresh_bmob3_close(
         "status": "not_available",
         "attempted_dates": attempted,
         "retryable": True,
+    }
+
+
+async def backfill_bmob3_volume_history(
+    repository,
+    *,
+    target_date: str,
+    required_sessions: int = BMOB3_VOLUME_HISTORY_SESSIONS,
+    max_calendar_days: int = BMOB3_VOLUME_HISTORY_CALENDAR_DAYS,
+    archive_bucket: Any | None = None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any]:
+    """Fill the rolling BMOB3 history used by the three-month volume average."""
+    target = date.fromisoformat(target_date)
+    start = (target - timedelta(days=max_calendar_days)).isoformat()
+    rows = await repository.all(
+        """
+        SELECT DISTINCT mp.trading_date
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='BMOB3' AND mp.price_type='CLOSE' AND s.code='B3'
+          AND mp.trading_date BETWEEN ? AND ?
+        ORDER BY mp.trading_date DESC
+        """,
+        (start, target_date),
+    )
+    available = {str(row["trading_date"]) for row in rows}
+    initial_sessions = len(available)
+    downloaded = 0
+    attempted: list[str] = []
+
+    for offset in range(max_calendar_days + 1):
+        if len(available) >= required_sessions:
+            break
+        candidate = target - timedelta(days=offset)
+        candidate_text = candidate.isoformat()
+        if not is_b3_trading_day(candidate) or candidate_text in available:
+            continue
+        attempted.append(candidate_text)
+        result = await refresh_bmob3_close(
+            repository,
+            target_date=candidate_text,
+            max_lookback_days=0,
+            archive_bucket=archive_bucket,
+            fetcher=fetcher,
+        )
+        if result.get("status") != "ok":
+            continue
+        available.add(str(result["trading_date"]))
+        downloaded += 1
+
+    return {
+        "status": "ok" if len(available) >= required_sessions else "partial",
+        "required_sessions": required_sessions,
+        "initial_sessions": initial_sessions,
+        "available_sessions": len(available),
+        "downloaded_sessions": downloaded,
+        "attempted_dates": attempted,
     }
