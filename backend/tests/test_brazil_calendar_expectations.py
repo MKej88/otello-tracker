@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
@@ -12,11 +15,24 @@ from brazil_calendar_expectations import (  # noqa: E402
     _quarter_reference,
     _quarterly_expectation,
     _selic_expectation,
+    enrich_calendar_expectations,
 )
 from brazil_dashboard_v2 import (  # noqa: E402
     _annotate_market_consensus,
-    _fill_annual_focus_proxies,
+    _prepare_calendar_rows,
 )
+
+
+class _Response:
+    ok = True
+    status = 200
+
+    def __init__(self, payload: object) -> None:
+        self._body = json.dumps(payload).encode()
+
+    async def text(self) -> str:
+        return self._body.decode()
+
 
 
 def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
@@ -33,6 +49,7 @@ def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
             "DataReferencia": "08/2026",
             "Mediana": 0.31,
             "numeroRespondentes": 95,
+            "baseCalculo": 0,
         }
     ]
 
@@ -43,6 +60,38 @@ def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
     assert result["event_consensus"] is True
     assert result["provider"] == "BCB Focus"
     assert "08/26" in result["label"]
+
+
+
+def test_monthly_focus_prefers_standard_30_day_sample() -> None:
+    event = {
+        "date": "2026-09-11",
+        "name": "IPCA",
+        "kind": "inflation",
+        "reference": "aug. 2026",
+    }
+    rows = [
+        {
+            "Indicador": "IPCA",
+            "Data": "2026-08-28",
+            "DataReferencia": "08/2026",
+            "Mediana": 0.40,
+            "baseCalculo": 1,
+        },
+        {
+            "Indicador": "IPCA",
+            "Data": "2026-08-28",
+            "DataReferencia": "08/2026",
+            "Mediana": 0.31,
+            "baseCalculo": 0,
+        },
+    ]
+
+    result = _monthly_expectation(event, rows)
+
+    assert result is not None
+    assert result["value"] == 0.31
+
 
 
 def test_copom_uses_focus_expectation_for_exact_meeting() -> None:
@@ -58,12 +107,14 @@ def test_copom_uses_focus_expectation_for_exact_meeting() -> None:
             "Reuniao": "R6/2026",
             "Mediana": 14.5,
             "numeroRespondentes": 88,
+            "baseCalculo": 0,
         },
         {
             "Indicador": "Selic",
             "Data": "2026-08-28",
             "Reuniao": "R7/2026",
             "Mediana": 14.0,
+            "baseCalculo": 0,
         },
     ]
 
@@ -72,6 +123,7 @@ def test_copom_uses_focus_expectation_for_exact_meeting() -> None:
     assert result is not None
     assert result["value"] == 14.5
     assert "R6/2026" in result["label"]
+
 
 
 def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
@@ -91,6 +143,7 @@ def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
             "DataReferencia": "2/2026",
             "Mediana": 0.6,
             "numeroRespondentes": 72,
+            "baseCalculo": 0,
         }
     ]
 
@@ -99,6 +152,7 @@ def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
     assert result is not None
     assert result["value"] == 0.6
     assert result["label"] == "Focus BNP Q2 2026"
+
 
 
 def test_focus_expectation_is_marked_as_market_consensus() -> None:
@@ -123,63 +177,41 @@ def test_focus_expectation_is_marked_as_market_consensus() -> None:
     assert consensus["provider"] == "BCB Focus"
 
 
-def test_annual_focus_proxy_is_shown_when_event_consensus_is_missing() -> None:
-    events = _annotate_market_consensus(
+
+def test_annual_focus_proxy_is_removed_from_event_calendar() -> None:
+    prepared = _prepare_calendar_rows(
         [
             {
+                "date": "2026-09-11",
                 "name": "IPCA",
                 "kind": "inflation",
                 "expectation": {
                     "event_consensus": False,
                     "label": "Focus 2026 IPCA (år)",
-                    "value": 4.2,
+                    "value": 5.02,
                     "unit": "%",
                 },
             }
         ]
     )
 
+    assert "expectation" not in prepared[0]
+
+    events = _annotate_market_consensus(prepared)
     event = events[0]
-    assert event["expectation"]["value"] == 4.2
-    assert event["market_consensus"] == {
-        "available": True,
-        "ingested": True,
-        "coverage": "BCB_FOCUS_ANNUAL_PROXY",
-        "provider": "BCB Focus",
-        "note": (
-            "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi en "
-            "hendelsesnær median ikke var tilgjengelig."
-        ),
-    }
+    assert "expectation" not in event
+    assert event["market_consensus"]["ingested"] is False
+    assert event["market_consensus"]["coverage"] == "BCB_FOCUS_EVENT_TEMPORARILY_UNAVAILABLE"
 
 
-def test_resilient_annual_focus_fills_empty_calendar_expectation() -> None:
-    events = _fill_annual_focus_proxies(
-        [
-            {
-                "date": "2026-09-11",
-                "name": "IPCA",
-                "kind": "inflation",
-            }
-        ],
-        {"ipca": {"2026": {"median": 4.2, "survey_date": "2026-08-28"}}},
-    )
 
-    assert events[0]["expectation"] == {
-        "label": "Focus 2026 IPCA (år)",
-        "value": 4.2,
-        "unit": "%",
-        "survey_date": "2026-08-28",
-        "event_consensus": False,
-    }
-
-
-def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
+def test_pms_pmc_ibc_br_and_ipca15_do_not_get_annual_proxies() -> None:
     events = _annotate_market_consensus(
         [
             {"name": "Tjenesteaktivitet (PMS)", "kind": "services"},
             {"name": "Detaljhandel (PMC)", "kind": "retail"},
             {"name": "IBC-Br", "kind": "activity"},
+            {"name": "IPCA-15", "kind": "inflation"},
         ]
     )
 
@@ -189,4 +221,57 @@ def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
         assert consensus["ingested"] is False
         assert consensus["coverage"] == "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED"
         assert "Markedskonsensus" in consensus["note"]
-        assert "gratis BCB Focus-serie" in consensus["note"]
+
+
+
+def test_focus_api_requests_are_reference_scoped_and_use_standard_sample() -> None:
+    seen: list[str] = []
+
+    async def fetcher(url: str, **_kwargs: object) -> _Response:
+        seen.append(url)
+        return _Response({"value": []})
+
+    events = [
+        {
+            "date": "2026-09-01",
+            "name": "BNP Q2",
+            "kind": "gdp",
+            "reference": "2026 Q2",
+        },
+        {
+            "date": "2026-09-11",
+            "name": "IPCA",
+            "kind": "inflation",
+            "reference": "aug. 2026",
+        },
+        {
+            "date": "2026-09-16",
+            "name": "Copom rentebeslutning",
+            "kind": "copom",
+        },
+    ]
+
+    asyncio.run(
+        enrich_calendar_expectations(
+            events,
+            as_of_date="2026-08-29",
+            fetcher=fetcher,
+        )
+    )
+
+    assert len(seen) == 3
+    queries = {urlparse(url).path.rsplit("/", 1)[-1]: parse_qs(urlparse(url).query) for url in seen}
+
+    monthly_filter = unquote(queries["ExpectativaMercadoMensais"]["$filter"][0])
+    quarterly_filter = unquote(queries["ExpectativasMercadoTrimestrais"]["$filter"][0])
+    selic_filter = unquote(queries["ExpectativasMercadoSelic"]["$filter"][0])
+
+    assert "baseCalculo eq 0" in monthly_filter
+    assert "DataReferencia eq '08/2026'" in monthly_filter
+    assert "baseCalculo eq 0" in quarterly_filter
+    assert "DataReferencia eq '2/2026'" in quarterly_filter
+    assert "baseCalculo eq 0" in selic_filter
+    assert "Reuniao eq 'R6/2026'" in selic_filter
+    assert "$select" in queries["ExpectativaMercadoMensais"]
+    assert "$select" in queries["ExpectativasMercadoTrimestrais"]
+    assert "$select" in queries["ExpectativasMercadoSelic"]
