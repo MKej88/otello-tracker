@@ -38,14 +38,20 @@ def _payload(*, symbol: str = "LIF", currency: str = "USD") -> bytes:
                             "currency": currency,
                             "exchangeName": "NMS" if symbol == "LIF" else "ASX",
                             "exchangeTimezoneName": (
-                                "America/New_York" if symbol == "LIF" else "Australia/Sydney"
+                                "America/New_York"
+                                if symbol == "LIF"
+                                else "Australia/Sydney"
                             ),
                         },
                         "timestamp": [1787251800, 1787338200, 1787424600],
                         "indicators": {
                             "quote": [
                                 {
+                                    "open": [43.5, 44.1, 44.2],
+                                    "low": [43.0, 43.8, 44.0],
+                                    "high": [44.5, 44.8, 45.0],
                                     "close": [44.0, None, 44.66],
+                                    "volume": [1000, 2000, 3000],
                                 }
                             ]
                         },
@@ -113,15 +119,21 @@ def test_lif_is_required_while_asx_is_control_series() -> None:
     assert LIFE360_CONTROL_SYMBOLS == {"360.AX"}
 
 
-def test_required_lif_uses_independent_ir_fallback_when_both_yahoo_hosts_fail(monkeypatch) -> None:
-    async def fake_refresh_symbol(repository, *, symbol, target_date, archive_bucket, fetcher):
+def test_required_lif_uses_independent_ir_fallback_when_both_yahoo_hosts_fail(
+    monkeypatch,
+) -> None:
+    async def fake_refresh_symbol(
+        repository, *, symbol, target_date, archive_bucket, fetcher
+    ):
         if symbol == "LIF":
             raise RuntimeError(
                 "Yahoo Finance chart feilet på alle endepunkter: query1: HTTP 503; query2: HTTP 503"
             )
         raise RuntimeError("ASX control unavailable")
 
-    async def fake_ir_fallback(repository, *, target_date, archive_bucket=None, fetcher=None):
+    async def fake_ir_fallback(
+        repository, *, target_date, archive_bucket=None, fetcher=None
+    ):
         return {
             "status": "ok",
             "symbol": "LIF",
@@ -159,12 +171,16 @@ def test_required_lif_uses_independent_ir_fallback_when_both_yahoo_hosts_fail(mo
 def test_ir_fallback_does_not_hide_non_transport_errors(monkeypatch) -> None:
     fallback_called = False
 
-    async def fake_refresh_symbol(repository, *, symbol, target_date, archive_bucket, fetcher):
+    async def fake_refresh_symbol(
+        repository, *, symbol, target_date, archive_bucket, fetcher
+    ):
         if symbol == "LIF":
             raise RuntimeError("D1 write failed")
         return {"status": "ok", "symbol": symbol, "rows_written": 0}
 
-    async def fake_ir_fallback(repository, *, target_date, archive_bucket=None, fetcher=None):
+    async def fake_ir_fallback(
+        repository, *, target_date, archive_bucket=None, fetcher=None
+    ):
         nonlocal fallback_called
         fallback_called = True
         return {"status": "ok"}
@@ -172,7 +188,9 @@ def test_ir_fallback_does_not_hide_non_transport_errors(monkeypatch) -> None:
     monkeypatch.setattr(life360_market_data, "_refresh_symbol", fake_refresh_symbol)
     monkeypatch.setattr(life360_ir_lseg, "refresh_life360_ir_lif", fake_ir_fallback)
 
-    result = asyncio.run(refresh_life360_market_data(object(), target_date="2026-08-25"))
+    result = asyncio.run(
+        refresh_life360_market_data(object(), target_date="2026-08-25")
+    )
 
     assert result["status"] == "error"
     assert fallback_called is False
@@ -180,11 +198,17 @@ def test_ir_fallback_does_not_hide_non_transport_errors(monkeypatch) -> None:
 
 
 def test_parser_accepts_lif_and_skips_null_close() -> None:
-    result = parse_yahoo_chart(_payload(), expected_symbol="LIF", expected_currency="USD")
+    result = parse_yahoo_chart(
+        _payload(), expected_symbol="LIF", expected_currency="USD"
+    )
     assert result["symbol"] == "LIF"
     assert result["currency"] == "USD"
     assert len(result["rows"]) == 2
     assert result["rows"][-1]["price"] == "44.66"
+    assert result["rows"][-1]["open"] == "44.2"
+    assert result["rows"][-1]["low"] == "44.0"
+    assert result["rows"][-1]["high"] == "45.0"
+    assert result["rows"][-1]["volume"] == "3000"
 
 
 def test_parser_accepts_asx_history_in_aud() -> None:
@@ -205,7 +229,9 @@ def test_parser_accepts_asx_history_in_aud() -> None:
         ("LIF", "AUD", "valuta"),
     ],
 )
-def test_parser_rejects_wrong_identity(expected_symbol: str, expected_currency: str, match: str) -> None:
+def test_parser_rejects_wrong_identity(
+    expected_symbol: str, expected_currency: str, match: str
+) -> None:
     with pytest.raises(ValueError, match=match):
         parse_yahoo_chart(
             _payload(),
@@ -257,12 +283,15 @@ def test_d1_price_writes_never_exceed_bound_parameter_limit() -> None:
     assert life360_market_data.BOUND_PARAMETERS_PER_ROW == 8
     assert life360_market_data.WRITE_BATCH_ROWS == 12
     assert (
-        life360_market_data.WRITE_BATCH_ROWS * life360_market_data.BOUND_PARAMETERS_PER_ROW
+        life360_market_data.WRITE_BATCH_ROWS
+        * life360_market_data.BOUND_PARAMETERS_PER_ROW
         <= life360_market_data.D1_MAX_BOUND_PARAMETERS
     )
     assert written == 25
     assert repository.parameter_counts == [96, 96, 8]
-    assert max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS
+    assert (
+        max(repository.parameter_counts) <= life360_market_data.D1_MAX_BOUND_PARAMETERS
+    )
     assert all("'DIRECT'" in sql for sql in repository.sql_texts)
     assert all("'SECONDARY'" not in sql for sql in repository.sql_texts)
 
@@ -294,7 +323,9 @@ def test_stale_lif_price_triggers_bounded_repair(monkeypatch) -> None:
         repository.latest = "2026-08-26"
         return {"status": "ok", "rows_written": 18}
 
-    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", fake_refresh)
+    monkeypatch.setattr(
+        life360_market_data, "_refresh_lif_with_independent_fallback", fake_refresh
+    )
     result = asyncio.run(
         life360_market_data.repair_life360_lif_if_stale(
             repository,
@@ -325,7 +356,9 @@ def test_fresh_lif_price_skips_network_repair(monkeypatch) -> None:
     async def forbidden_refresh(*args, **kwargs):
         raise AssertionError("network refresh must be skipped for fresh LIF")
 
-    monkeypatch.setattr(life360_market_data, "_refresh_lif_with_independent_fallback", forbidden_refresh)
+    monkeypatch.setattr(
+        life360_market_data, "_refresh_lif_with_independent_fallback", forbidden_refresh
+    )
     result = asyncio.run(
         life360_market_data.repair_life360_lif_if_stale(
             Repository(),
@@ -336,6 +369,44 @@ def test_fresh_lif_price_skips_network_repair(monkeypatch) -> None:
     assert result["reason"] == "lif_price_fresh"
     assert result["network_fetches_avoided"] is True
     assert result["rows_written"] == 0
+
+
+def test_forced_lif_refresh_fetches_even_when_existing_price_is_fresh(
+    monkeypatch,
+) -> None:
+    class Repository:
+        async def first(self, sql: str, parameters=()):
+            return {
+                "trading_date": "2026-08-25",
+                "observed_at": "2026-08-25T13:30:00Z",
+                "price": 44.66,
+                "currency": "USD",
+                "source_code": "YAHOO_FINANCE",
+            }
+
+    calls = 0
+
+    async def forced_refresh(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {"status": "ok", "rows_written": 1}
+
+    monkeypatch.setattr(
+        life360_market_data,
+        "_refresh_lif_with_independent_fallback",
+        forced_refresh,
+    )
+    result = asyncio.run(
+        life360_market_data.repair_life360_lif_if_stale(
+            Repository(),
+            target_date="2026-08-25",
+            force_refresh=True,
+        )
+    )
+
+    assert calls == 1
+    assert result["network_fetches_avoided"] is False
+    assert result["rows_written"] == 1
 
 
 def test_yahoo_repair_window_covers_one_month_history() -> None:
