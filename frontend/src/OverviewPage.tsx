@@ -8,8 +8,12 @@ type Summary = {
   ready: boolean;
   as_of_date?: string;
   otec_price?: number | null;
+  brl_nok?: number | null;
   bemobi_value_mnok?: number | null;
   bemobi_ownership_pct?: number | null;
+  market_timestamps?: {
+    brl_nok?: { date?: string | null };
+  };
   latest_buyback?: { trade_date?: string; shares?: number } | null;
 };
 
@@ -30,15 +34,21 @@ type Forecast = {
 };
 
 export default function OverviewPage() {
-  const { data: summary } = usePollingResource<Summary>("/api/dashboard/summary", REFRESH_MS);
+  const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>("/api/dashboard/summary", REFRESH_MS);
   const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
   const { data: forecast } = usePollingResource<Forecast>("/api/buybacks/forecast", REFRESH_MS);
+  const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
+  const brlNokStatus = summaryRefreshFailed
+    ? summary
+      ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
+      : "Kurs utilgjengelig"
+    : `Siste kurs ${formatDate(brlNokDate)}`;
 
   return (
     <div className="investorPage overviewV2">
       <section className="estimatedHero card">
         <div>
-          <span className="label">ESTIMERT NAV</span>
+          <span className="label">NAV</span>
           <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share)} kr` : "Laster …"}</h2>
           <p>
             Dagens beste estimat på verdien per Otello-aksje basert på markedsverdier,
@@ -47,7 +57,7 @@ export default function OverviewPage() {
         </div>
         <div className="estimatedHeroSide">
           <div><span>OTEC</span><strong>{formatNumber(summary?.otec_price)} kr</strong></div>
-          <div><span>Rabatt til Estimert NAV</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></div>
+          <div><span>Rabatt til NAV</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></div>
           <small>Sist oppdatert {formatDateTime(nav?.calculated_at)}</small>
           <small>Kontrolleres hvert 30. minutt</small>
           {refreshFailed && <small>Viser siste gode data</small>}
@@ -55,8 +65,11 @@ export default function OverviewPage() {
       </section>
 
       <section className="kpiGrid overviewKpiGrid">
-        <article className="card kpi"><span className="label">OTEC-kurs</span><strong>{formatNumber(summary?.otec_price)} kr</strong></article>
-        <article className="card kpi"><span className="label">Estimert NAV</span><strong>{formatNumber(nav?.nav_per_share)} kr</strong></article>
+        <article className="card kpi">
+          <span className="label">BRL/NOK</span>
+          <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
+          <small>{brlNokStatus}</small>
+        </article>
         <article className="card kpi"><span className="label">NAV-rabatt</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></article>
         <article className="card kpi"><span className="label">Bemobi-verdi</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></article>
       </section>

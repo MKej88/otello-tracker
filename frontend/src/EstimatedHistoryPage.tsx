@@ -41,7 +41,7 @@ function DiscountChart({ points }: { points: Point[] }) {
   const usable = points.filter(
     (point) => point.discount_pct != null && Number.isFinite(point.discount_pct),
   );
-  if (usable.length < 2) return <div className="dataNotice">Venter på nok Estimert NAV-observasjoner til grafen.</div>;
+  if (usable.length < 2) return <div className="dataNotice">Venter på nok NAV-observasjoner til grafen.</div>;
   const values = usable.map((point) => Number(point.discount_pct));
   const priceValues = usable
     .map((point) => point.otec_price)
@@ -82,7 +82,7 @@ function DiscountChart({ points }: { points: Point[] }) {
   const zeroInRange = min <= 0 && max >= 0;
   return (
     <div className="axisChart">
-      <svg viewBox="0 0 1000 330" role="img" aria-label="Historisk rabatt til Estimert NAV">
+      <svg viewBox="0 0 1000 330" role="img" aria-label="Historisk rabatt til NAV">
         {yTicks.map((tick) => {
           const py = y(tick);
           return <g key={tick}><line className="axisGrid" x1={left} x2={right} y1={py} y2={py} /><text className="axisLabel" x={left - 12} y={py + 5} textAnchor="end">{formatNumber(tick, 0)} %</text></g>;
@@ -154,14 +154,14 @@ export default function EstimatedHistoryPage() {
       <section className="card historyV2Header">
         <div>
           <span className="label">HISTORIKK</span>
-          <h2>Rabatt til Estimert NAV</h2>
-          <p>OTEC-kursen målt mot Estimert NAV gjennom valgt periode. Grafen viser faktiske prosentverdier på Y-aksen og datoer på X-aksen.</p>
+          <h2>Rabatt til NAV</h2>
+          <p>OTEC-kursen målt mot NAV gjennom valgt periode. Grafen viser faktiske prosentverdier på Y-aksen og datoer på X-aksen.</p>
         </div>
         <PeriodButtons selected={period} onChange={setPeriod} />
       </section>
 
-      {failed && !data && <ResourceNotice kind="error">Kunne ikke hente Estimert NAV-historikk.</ResourceNotice>}
-      {loading && !data && <ResourceNotice>Beregner Estimert NAV-historikk …</ResourceNotice>}
+      {failed && !data && <ResourceNotice kind="error">Kunne ikke hente NAV-historikk.</ResourceNotice>}
+      {loading && !data && <ResourceNotice>Beregner NAV-historikk …</ResourceNotice>}
       {data && !data.ready && <ResourceNotice kind="empty">Det finnes foreløpig ikke nok kildebelagt historikk til denne perioden.</ResourceNotice>}
 
       {data?.ready && stats && (
@@ -174,7 +174,7 @@ export default function EstimatedHistoryPage() {
           </section>
 
           <section className="card historyAxisCard">
-            <div className="cardHeader"><div><span className="label">ESTIMERT NAV</span><h2>Rabatt / premie over tid</h2></div><span className="pill">{loading ? "OPPDATERER" : period.label}</span></div>
+            <div className="cardHeader"><div><span className="label">NAV</span><h2>Rabatt / premie over tid</h2></div><span className="pill">{loading ? "OPPDATERER" : period.label}</span></div>
             <DiscountChart points={points} />
           </section>
 

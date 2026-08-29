@@ -363,7 +363,7 @@ export default function NavPageV2() {
     <div className="investorPage navV2">
       <section className="estimatedHero card">
         <div>
-          <span className="label">ESTIMERT NAV</span>
+          <span className="label">NAV</span>
           <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : "Laster …"}</h2>
           <p>Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.</p>
         </div>
@@ -376,12 +376,12 @@ export default function NavPageV2() {
 
       <section className="card compositionCard">
         <div className="cardHeader">
-          <div><span className="label">SAMMENSETNING</span><h2>Hva består Estimert NAV av i dag?</h2></div>
+          <div><span className="label">SAMMENSETNING</span><h2>Hva består NAV av i dag?</h2></div>
           <span className="pill">{dateLabel(current?.date ?? live?.as_of_date)}</span>
         </div>
         {loading && !data && <p className="dataNotice">Beregner sammensetningen …</p>}
         {failed && !data && <p className="dataNotice">Kunne ikke hente NAV-sammensetningen.</p>}
-        {data && !data.ready && <p className="dataNotice">Historisk Estimert NAV er ikke komplett nok ennå.</p>}
+        {data && !data.ready && <p className="dataNotice">Historisk NAV er ikke komplett nok ennå.</p>}
         {components.length > 0 && (
           <div className="compositionTable">
             <div className="compositionHead"><span>Komponent</span><span>Verdi</span><span>Per aksje</span><span>Beregning</span></div>
@@ -397,7 +397,7 @@ export default function NavPageV2() {
               );
             })}
             <div className="compositionTotal">
-              <strong>Estimert NAV</strong>
+              <strong>NAV</strong>
               <span>{value(current?.nav_total_mnok, 1)} mill. kr</span>
               <span>{value(current?.nav_per_share)} kr</span>
               <small>Sum av komponentene over</small>
@@ -408,7 +408,7 @@ export default function NavPageV2() {
 
       <section className="card navDriversCard">
         <div className="cardHeader driverHeader">
-          <div><span className="label">ENDRING</span><h2>Hva har flyttet Estimert NAV?</h2></div>
+          <div><span className="label">ENDRING</span><h2>Hva har flyttet NAV?</h2></div>
           <PeriodButtons selected={period} onChange={setPeriod} />
         </div>
         {change?.ready && (
@@ -441,16 +441,16 @@ export default function NavPageV2() {
                 );
               })}
               <div className="compositionTotal">
-                <strong>Estimert NAV</strong>
+                <strong>NAV</strong>
                 <span>{dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}</span>
                 <span>–</span>
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i Estimert NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
           </>
         ) : (
-          <p className="dataNotice">Venter på nok historiske Estimert NAV-observasjoner for valgt periode.</p>
+          <p className="dataNotice">Venter på nok historiske NAV-observasjoner for valgt periode.</p>
         )}
       </section>
     </div>

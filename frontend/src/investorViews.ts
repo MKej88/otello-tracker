@@ -35,7 +35,7 @@ export const viewSlugs: Record<View, string> = {
 
 export const viewTitles: Record<View, string> = {
   Oversikt: "Otello investoroversikt",
-  NAV: "Estimert NAV",
+  NAV: "NAV",
   Historikk: "Historisk NAV-rabatt",
   Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
   Bemobi: "Bemobi",

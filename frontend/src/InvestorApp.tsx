@@ -90,13 +90,7 @@ export default function InvestorApp() {
         />
         <main className="main investorMainV2" id="main-content" tabIndex={-1}>
           <header className="investorTopbar">
-            <div>
-              <p className="eyebrow">OTELLO / BEMOBI</p>
-              <h1>{viewTitles[activeView]}</h1>
-            </div>
-            {activeView !== "Datakvalitet" && (
-              <span className="investorModelBadge">ESTIMERT NAV</span>
-            )}
+            <h1>{viewTitles[activeView]}</h1>
           </header>
           <Suspense fallback={<ViewFallback />}>
             <ActiveView view={activeView} />

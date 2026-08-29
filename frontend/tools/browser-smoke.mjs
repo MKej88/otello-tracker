@@ -200,7 +200,7 @@ async function clickView(session, label, heading, readySelector) {
     "Kunne ikke hente Bemobi-data.",
     "Kunne ikke hente konsensusdata.",
     "Kunne ikke hente NAV-sammensetningen.",
-    "Kunne ikke hente Estimert NAV-historikk."
+    "Kunne ikke hente NAV-historikk."
   ]) {
     if (body.includes(errorText)) throw new Error(`${label} viser feiltilstand: ${errorText}`);
   }
@@ -220,8 +220,20 @@ async function main() {
   await waitFor(
     session,
     "document.readyState === 'complete' && document.querySelector('.overviewV2 .estimatedHero h2')?.textContent?.includes('kr')",
-    "vellykket innlasting av Estimert NAV"
+    "vellykket innlasting av NAV"
   );
+
+  const overviewLabels = await session.evaluate(`(() => ({
+    body: document.body.innerText,
+    topbar: document.querySelector('.investorTopbar')?.innerText ?? '',
+    kpis: [...document.querySelectorAll('.overviewKpiGrid .label')].map((item) => item.textContent?.trim())
+  }))()`);
+  if (overviewLabels.body.includes("OTELLO / BEMOBI") || overviewLabels.body.includes("ESTIMERT NAV")) {
+    throw new Error(`Gamle globale NAV-etiketter er fortsatt synlige: ${JSON.stringify(overviewLabels)}`);
+  }
+  if (!overviewLabels.kpis.includes("BRL/NOK") || overviewLabels.kpis.includes("OTEC-kurs")) {
+    throw new Error(`Oversiktskortene er ikke oppdatert: ${JSON.stringify(overviewLabels.kpis)}`);
+  }
 
   const accessibility = await session.evaluate(`(() => ({
     skipTarget: document.querySelector('.skipLink')?.getAttribute('href'),
@@ -249,9 +261,9 @@ async function main() {
   await session.send("Emulation.clearDeviceMetricsOverride");
 
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
-  await clickView(session, "NAV", "Estimert NAV", ".compositionTable");
+  await clickView(session, "NAV", "NAV", ".compositionTable");
   const navRoute = await session.evaluate("({ hash: location.hash, title: document.title })");
-  if (navRoute.hash !== "#nav" || navRoute.title !== "Estimert NAV | Otello") {
+  if (navRoute.hash !== "#nav" || navRoute.title !== "NAV | Otello") {
     throw new Error(`NAV-rute eller sidetittel er feil: ${JSON.stringify(navRoute)}`);
   }
   await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
