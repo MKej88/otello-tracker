@@ -169,6 +169,18 @@ def _source_group_detail(
     components: dict[str, str],
 ) -> str | None:
     if source_code == "BEMOBI_IR" and any(status == "DEGRADED" for status in components.values()):
+        bemobi = source_results.get("bemobi_web") or {}
+        ir = bemobi.get("ir") if isinstance(bemobi.get("ir"), dict) else {}
+        if ir.get("status") == "not_available":
+            detail_parts = ["Bemobi IR kunne ikke oppdateres"]
+            failed_url = str(ir.get("failed_url") or "").strip()
+            error = str(ir.get("error") or "").strip()
+            if failed_url:
+                detail_parts.append(f"URL: {failed_url}")
+            if error:
+                detail_parts.append(f"feil: {error[:700]}")
+            detail_parts.append("siste gode fakta ble beholdt")
+            return "; ".join(detail_parts)[:1000]
         return "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
     if source_code == "YAHOO_FINANCE" and any(status != "OK" for status in components.values()):
         life360 = source_results.get("life360") or {}
@@ -247,6 +259,18 @@ def _critical_workflow_errors(
             }
         )
     return errors
+
+
+def _degraded_source_blocks_job(
+    source_code: str,
+    source_results: dict[str, dict[str, Any]],
+) -> bool:
+    """Keep transient official Bemobi IR fetch failures visible but non-blocking."""
+    if source_code == "BEMOBI_IR":
+        bemobi = source_results.get("bemobi_web") or {}
+        if bool(bemobi.get("non_blocking_degraded")):
+            return False
+    return True
 
 
 def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
@@ -352,9 +376,13 @@ async def finish_full_refresh(
             }
         )
 
+    blocking_degraded = any(
+        health == "DEGRADED" and _degraded_source_blocks_job(source_code, source_results)
+        for source_code, health in grouped_health.items()
+    )
     if critical_errors:
         status = "FAILED"
-    elif errors or any(health == "DEGRADED" for health in grouped_health.values()):
+    elif errors or blocking_degraded:
         status = "PARTIAL"
     else:
         status = "SUCCESS"
