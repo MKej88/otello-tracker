@@ -8,12 +8,45 @@ if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
 from brazil_dashboard import (  # noqa: E402
+    _brl_nok,
     _load_focus,
     _load_sgs_series,
     _series_payload,
     calendar_events,
     parse_focus_rows,
 )
+
+
+class _FxRepository:
+    async def first(self, sql: str, params: tuple[str, ...]) -> dict[str, object]:
+        if "ORDER BY substr(fr.observed_at,1,10) ASC" in sql:
+            assert params == ("2026-07-31", "2026-07-24")
+            return {"rate_date": "2026-08-01", "rate": "1.9000"}
+        return {
+            "rate_date": "2026-08-28",
+            "rate": "1.8061",
+            "source_code": "NORGES_BANK",
+        }
+
+    async def all(self, sql: str, params: tuple[str, ...]) -> list[dict[str, object]]:
+        assert "ROW_NUMBER() OVER" in sql
+        assert "AND substr(fr.observed_at,1,10)>=?" in sql
+        assert params == ("2026-08-28", "2026-07-24")
+        return [
+            {"rate_date": "2026-08-28", "rate": "1.8061"},
+            {"rate_date": "2026-08-27", "rate": "1.8200"},
+        ]
+
+
+def test_brl_nok_includes_chronological_history_for_sparkline() -> None:
+    import asyncio
+
+    result = asyncio.run(_brl_nok(_FxRepository(), "2026-09-29"))
+
+    assert result["series"] == [
+        {"date": "2026-08-27", "value": 1.82},
+        {"date": "2026-08-28", "value": 1.8061},
+    ]
 
 
 class _Response:
