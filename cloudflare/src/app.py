@@ -235,7 +235,7 @@ async def get_brazil_dashboard(
     request: Request,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
-    from brazil_dashboard import brazil_dashboard
+    from brazil_dashboard_v2 import brazil_dashboard
 
     try:
         return await brazil_dashboard(_repository(request), as_of_date=as_of_date)
