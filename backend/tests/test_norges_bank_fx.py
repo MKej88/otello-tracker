@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from app.marketdata.norges_bank_fx import build_norges_bank_url, parse_norges_bank_sdmx_json
+from app.marketdata.norges_bank_fx import (
+    build_norges_bank_url,
+    parse_norges_bank_sdmx_json,
+)
 
 
 def _sample_payload(unit_mult: str = "0") -> dict:
@@ -39,9 +42,7 @@ def _sample_payload(unit_mult: str = "0") -> dict:
                 ],
             },
             "attributes": {
-                "series": [
-                    {"id": "UNIT_MULT", "values": [{"id": unit_mult}]}
-                ]
+                "series": [{"id": "UNIT_MULT", "values": [{"id": unit_mult}]}]
             },
         },
     }
@@ -63,12 +64,19 @@ def test_norges_bank_parser_fails_closed_on_unit_multiplier() -> None:
         parse_norges_bank_sdmx_json(_sample_payload("2"))
 
 
+def test_norges_bank_parser_rejects_invalid_trading_date() -> None:
+    payload = _sample_payload()
+    time_values = payload["structure"]["dimensions"]["observation"][0]["values"]
+    time_values[0]["id"] = "2026-02-30"
+
+    with pytest.raises(ValueError, match="Ugyldig observasjon"):
+        parse_norges_bank_sdmx_json(payload)
+
+
 @pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
 def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
     payload = _sample_payload()
-    payload["dataSets"][0]["series"]["0:0:0:0"]["observations"]["0"] = [
-        invalid_rate
-    ]
+    payload["dataSets"][0]["series"]["0:0:0:0"]["observations"]["0"] = [invalid_rate]
 
     with pytest.raises(ValueError, match="Ugyldig BRL/NOK-kurs"):
         parse_norges_bank_sdmx_json(payload)
@@ -84,7 +92,9 @@ def test_norges_bank_url_requests_direct_nok_pairs() -> None:
 
 def test_norges_bank_source_migrations_match() -> None:
     root = Path(__file__).resolve().parents[2]
-    sqlite = (root / "backend/app/db/migrations/0021_norges_bank_fx_source.sql").read_text()
+    sqlite = (
+        root / "backend/app/db/migrations/0021_norges_bank_fx_source.sql"
+    ).read_text()
     d1 = (root / "cloudflare/migrations/0011_norges_bank_fx_source.sql").read_text()
     assert sqlite == d1
     assert "NORGES_BANK" in sqlite
