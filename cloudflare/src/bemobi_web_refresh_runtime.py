@@ -14,6 +14,8 @@ from datetime import date
 from typing import Any, Awaitable, Callable
 
 from bemobi_web_refresh import (
+    BEMOBI_ANALYST_URL,
+    BEMOBI_OWNERSHIP_URL,
     MARKETSCREENER_FINANCES_URL,
     MAX_HTML_BYTES,
     _decode_html,
@@ -59,6 +61,50 @@ def _scheduled_skip(slot: str, active_slot: str) -> dict[str, Any]:
         "active_slot": active_slot,
         "rows_written": 0,
     }
+
+
+def _ir_fetcher_with_url_context(
+    fetcher: Callable[..., Awaitable[Any]] | None,
+) -> Callable[..., Awaitable[Any]]:
+    """Add the exact Bemobi IR URL to transport/HTTP failures for diagnostics."""
+
+    async def wrapped(url: str, **kwargs):
+        try:
+            if fetcher is None:
+                from workers import fetch as workers_fetch
+
+                response = await workers_fetch(url, **kwargs)
+            else:
+                response = await fetcher(url, **kwargs)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Bemobi IR fetch feilet for {url}: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        status = int(getattr(response, "status", 0) or 0)
+        if not bool(getattr(response, "ok", False)):
+            raise RuntimeError(
+                f"Bemobi IR fetch feilet for {url}: HTTP {status or 'unknown'}"
+            )
+        return response
+
+    return wrapped
+
+
+def _ir_failed_url(exc: Exception) -> str | None:
+    """Resolve a useful source URL also for parser failures raised after a successful fetch."""
+    text = str(exc)
+    if BEMOBI_OWNERSHIP_URL in text:
+        return BEMOBI_OWNERSHIP_URL
+    if BEMOBI_ANALYST_URL in text:
+        return BEMOBI_ANALYST_URL
+
+    lowered = text.lower()
+    if "eier" in lowered or "ownership" in lowered:
+        return BEMOBI_OWNERSHIP_URL
+    if "analyt" in lowered:
+        return BEMOBI_ANALYST_URL
+    return None
 
 
 def parse_forward_consensus_html(
@@ -327,12 +373,25 @@ async def refresh_bemobi_web(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     """Refresh official IR daily and rotate CPU-heavier last-good-preserved sources."""
-    ir = await sync_bemobi_ir(
-        repository,
-        target_date=target_date,
-        archive_bucket=archive_bucket,
-        fetcher=fetcher,
-    )
+    ir_failed = False
+    try:
+        ir = await sync_bemobi_ir(
+            repository,
+            target_date=target_date,
+            archive_bucket=archive_bucket,
+            fetcher=_ir_fetcher_with_url_context(fetcher),
+        )
+    except Exception as exc:
+        ir_failed = True
+        ir = {
+            "status": "not_available",
+            "reason": "official_ir_refresh_failed",
+            "error": str(exc)[:700],
+            "error_type": type(exc).__name__,
+            "failed_url": _ir_failed_url(exc),
+            "last_good_preserved": True,
+            "rows_written": 0,
+        }
 
     active_slot = _secondary_refresh_slot(target_date)
     result: dict[str, Any] = _scheduled_skip("result_release", active_slot)
@@ -381,13 +440,13 @@ async def refresh_bemobi_web(
         if item.get("status") == "not_available"
     ]
     # A new official result document that cannot be parsed is material and still degrades
-    # BEMOBI_IR. MarketScreener consensus and XP preview are explicitly best-effort external
-    # supplements: preserve last-good data and expose their failure as metadata, but do not
-    # mislabel the healthy official Bemobi IR source as DEGRADED.
+    # the nightly job. A transient official IR page failure is different: last-good facts
+    # remain intact and the source is marked DEGRADED without making the whole job PARTIAL.
     result_release_degraded = result.get("status") == "not_available"
+    non_blocking_degraded = ir_failed and not result_release_degraded
     rows_written = sum(int(item.get("rows_written") or 0) for item in [ir, *secondary]) + event_rows
     return {
-        "status": "partial" if result_release_degraded else "ok",
+        "status": "partial" if (ir_failed or result_release_degraded) else "ok",
         "rows_written": rows_written,
         "ir": ir,
         "result_release": result,
@@ -395,7 +454,8 @@ async def refresh_bemobi_web(
         "xp_preview": xp,
         "secondary_status": "degraded" if secondary_warnings else "ok",
         "secondary_warnings": secondary_warnings,
+        "non_blocking_degraded": non_blocking_degraded,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
-        "policy": "official-ir-daily-result-release-health-best-effort-consensus-xp-last-good-preserved",
+        "policy": "official-ir-daily-last-good-preserved-result-release-health-best-effort-consensus-xp-last-good-preserved",
     }
