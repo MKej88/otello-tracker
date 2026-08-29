@@ -7,12 +7,13 @@ from typing import Any
 
 from app.db.connection import get_connection
 
-
 _SYMBOLS = {
     "OTEC": {"currency": "NOK", "source": "EURONEXT"},
     "BMOB3": {"currency": "BRL", "source": "B3"},
     "LIF": {"currency": "USD", "source": "YAHOO_FINANCE"},
 }
+
+THREE_MONTH_TRADING_SESSIONS = 63
 
 
 def _number(value: Any) -> float | None:
@@ -53,10 +54,12 @@ def _preferred_daily_rows(
         priority = (
             int(row.get("series_priority") or 0),
             0 if row.get("source_code") == preferred_source else 1,
-            0
-            if row.get("quality")
-            in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"}
-            else 1,
+            (
+                0
+                if row.get("quality")
+                in {"DIRECT", "HISTORICAL_EXPORT", "DELAYED_TRADE_SUM"}
+                else 1
+            ),
             -int(row.get("id") or 0),
         )
         if current is None or priority < current["_priority"]:
@@ -108,8 +111,7 @@ def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
     if symbol != "OTEC":
         return market
 
-    activity_row = connection.execute(
-        """
+    activity_row = connection.execute("""
         SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
                ma.quality, ma.metadata_json, s.code AS source_code
         FROM market_activity ma
@@ -118,8 +120,7 @@ def _latest_close(connection, symbol: str) -> dict[str, Any] | None:
         WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
         ORDER BY ma.trading_date DESC, ma.id DESC
         LIMIT 1
-        """
-    ).fetchone()
+        """).fetchone()
     activity = dict(activity_row) if activity_row is not None else None
     if activity is None:
         return market
@@ -205,9 +206,13 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
             "open": open_value,
             "low": low_value,
             "high": high_value,
-            "basis": "STORED_SESSION_DATA"
-            if any(value is not None for value in (open_value, low_value, high_value))
-            else "CLOSE_ONLY",
+            "basis": (
+                "STORED_SESSION_DATA"
+                if any(
+                    value is not None for value in (open_value, low_value, high_value)
+                )
+                else "CLOSE_ONLY"
+            ),
         }
 
     if open_value is None and last_rows:
@@ -269,19 +274,14 @@ def _volume_stats(
 ) -> dict[str, Any]:
     if symbol == "OTEC":
         try:
-            rows = [
-                dict(row)
-                for row in connection.execute(
-                    """
+            rows = [dict(row) for row in connection.execute("""
                     SELECT trading_date, volume_shares
                     FROM market_activity ma
                     JOIN instruments i ON i.id=ma.instrument_id
                     WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
                     ORDER BY trading_date DESC, ma.id DESC
-                    LIMIT 20
-                    """
-                )
-            ]
+                    LIMIT 126
+                    """)]
         except Exception:
             rows = []
         deduped: dict[str, float] = {}
@@ -291,12 +291,18 @@ def _volume_stats(
             value = _number(row.get("volume_shares"))
             if value is not None and value >= 0:
                 deduped[str(row["trading_date"])] = value
+            if len(deduped) >= THREE_MONTH_TRADING_SESSIONS:
+                break
         values = list(deduped.values())
+        average = mean(values) if values else None
         return {
             "latest": values[0] if values else None,
             "latest_date": next(iter(deduped), None),
-            "average_20d": mean(values) if values else None,
+            "average_3m": average,
             "average_sessions": len(values),
+            "latest_above_average": (
+                values[0] > average if average is not None else None
+            ),
             "unit": "shares",
             "basis": "EURONEXT_DAILY_ACTIVITY",
         }
@@ -307,17 +313,23 @@ def _volume_stats(
         value = _meta_number(meta, "volume_shares", "quantity_shares")
         if value is not None and value >= 0:
             volume_rows.append((str(row["trading_date"]), value))
-        if len(volume_rows) >= 20:
+        if len(volume_rows) >= THREE_MONTH_TRADING_SESSIONS:
             break
+    average = mean(value for _, value in volume_rows) if volume_rows else None
     return {
         "latest": volume_rows[0][1] if volume_rows else None,
         "latest_date": volume_rows[0][0] if volume_rows else None,
-        "average_20d": mean(value for _, value in volume_rows) if volume_rows else None,
+        "average_3m": average,
         "average_sessions": len(volume_rows),
+        "latest_above_average": (
+            volume_rows[0][1] > average if average is not None else None
+        ),
         "unit": "shares",
-        "basis": "B3_COTAHIST_QUANTITY"
-        if symbol == "BMOB3"
-        else "STORED_MARKET_PRICE_METADATA",
+        "basis": (
+            "B3_COTAHIST_QUANTITY"
+            if symbol == "BMOB3"
+            else "STORED_MARKET_PRICE_METADATA"
+        ),
     }
 
 
@@ -339,9 +351,11 @@ def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
         "low": min(lows) if lows else None,
         "high": max(highs) if highs else None,
         "sessions": len(lows),
-        "basis": "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK"
-        if used_session_range
-        else "DAILY_CLOSE",
+        "basis": (
+            "SESSION_HIGH_LOW_WITH_CLOSE_FALLBACK"
+            if used_session_range
+            else "DAILY_CLOSE"
+        ),
     }
 
 
@@ -381,7 +395,8 @@ def market_quote_details(database_path: str | None = None) -> dict[str, Any]:
         "symbols": quotes,
         "methodology": {
             "average_volume": (
-                "Gjennomsnitt av inntil 20 siste tilgjengelige handelssesjoner."
+                "Gjennomsnitt av inntil 63 siste tilgjengelige handelssesjoner, "
+                "tilsvarende omtrent tre måneder."
             ),
             "range_52w": (
                 "52-ukers intervallet bruker offisiell dags høy/lav når den finnes "
