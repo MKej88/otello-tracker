@@ -153,11 +153,12 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
             try:
                 time_index = int(str(observation_key).split(":")[0])
                 trading_date = time_values[time_index]
+                date.fromisoformat(trading_date)
                 raw_value = observation[0] if isinstance(observation, list) else observation
                 rate = Decimal(str(raw_value))
             except (IndexError, InvalidOperation, TypeError, ValueError) as exc:
                 raise ValueError("Ugyldig observasjon fra Norges Bank") from exc
-            if rate <= 0:
+            if not rate.is_finite() or rate <= 0:
                 raise ValueError(f"Ugyldig {base}/NOK-kurs: {rate}")
             rows.append((trading_date, base, rate))
             found_bases.add(base)
