@@ -15,23 +15,33 @@ from brazil_focus_resilience import (
 base.SERIES["ibc_services"]["code"] = 29606
 
 _EXTERNAL_CONSENSUS_KINDS = {"services", "retail", "activity"}
-_FOCUS_EVENT_KINDS = {"copom", "inflation", "gdp", "labor"}
+
+
+def _has_focus_event_feed(event: dict[str, Any]) -> bool:
+    kind = str(event.get("kind") or "")
+    if kind in {"copom", "gdp", "labor"}:
+        return True
+    return kind == "inflation" and base._normalize(event.get("name")) == "ipca"
+
+
+def _has_external_consensus(event: dict[str, Any]) -> bool:
+    if str(event.get("kind") or "") in _EXTERNAL_CONSENSUS_KINDS:
+        return True
+    return base._normalize(event.get("name")) == "ipca-15"
 
 
 def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Describe what kind of market expectation is available for each event.
+    """Describe only consensus that matches the event's actual reference period.
 
-    BCB Focus is a survey of banks and other market participants. For PMS, PMC and
-    IBC-Br there is also economist/bank consensus in commercial poll feeds such as
-    Reuters/LSEG and Trading Economics, but no equivalent free BCB Focus event series
-    is ingested by the tracker. Make that distinction explicit instead of claiming
-    that market consensus does not exist.
+    Annual Focus estimates are useful for the annual Focus table, but are not event
+    consensus for a quarterly GDP release, a monthly IPCA release or a Copom meeting.
+    Never promote those annual estimates into the calendar's consensus column.
     """
     annotated: list[dict[str, Any]] = []
     for raw in events:
         event = dict(raw)
         expectation = event.get("expectation")
-        if isinstance(expectation, dict) and expectation.get("event_consensus"):
+        if isinstance(expectation, dict) and expectation.get("event_consensus") is True:
             fallback_cached = bool(expectation.get("fallback_cached"))
             event["market_consensus"] = {
                 "available": True,
@@ -39,77 +49,64 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
                 "coverage": "BCB_FOCUS_EVENT_CACHED" if fallback_cached else "BCB_FOCUS_EVENT",
                 "provider": str(expectation.get("provider") or "BCB Focus"),
                 "note": (
-                    "Sist gode hendelsesnære Focus-median fra banker, forvaltere og andre "
+                    "Sist gode periodematchende Focus-median fra banker, forvaltere og andre "
                     "markedsaktører; live Olinda-data var ikke tilgjengelig."
                     if fallback_cached
                     else "Median fra banker, forvaltere og andre markedsaktører i BCB Focus, "
-                    "koblet til denne referanseperioden/hendelsen."
+                    "koblet til denne referanseperioden eller Copom-reunioen."
                 ),
             }
-        elif isinstance(expectation, dict) and expectation.get("value") is not None:
-            # Grunnvisningen legger allerede på siste årlige Focus-median som et
-            # retningsgivende anslag. Behold tallet når den mer presise hendelsesfeed
-            # er tom, men merk det tydelig som årsestimat og ikke hendelseskonsensus.
-            event["market_consensus"] = {
-                "available": True,
-                "ingested": True,
-                "coverage": "BCB_FOCUS_ANNUAL_PROXY",
-                "provider": "BCB Focus",
-                "note": (
-                    "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi "
-                    "en hendelsesnær median ikke var tilgjengelig."
-                ),
-            }
-        elif str(event.get("kind") or "") in _EXTERNAL_CONSENSUS_KINDS:
+        elif _has_external_consensus(event):
+            event.pop("expectation", None)
             event["market_consensus"] = {
                 "available": True,
                 "ingested": False,
                 "coverage": "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED",
                 "provider": None,
                 "note": (
-                    "Markedskonsensus fra banker/økonomer finnes hos blant annet "
-                    "Reuters/LSEG og Trading Economics, men ikke via en gratis BCB Focus-serie "
-                    "som trackeren kan hente automatisk."
+                    "Markedskonsensus fra banker/økonomer finnes hos kommersielle poll-feeder, "
+                    "men ikke via en gratis periodematchende BCB Focus-serie som trackeren "
+                    "henter automatisk."
                 ),
             }
-        elif str(event.get("kind") or "") in _FOCUS_EVENT_KINDS:
+        elif _has_focus_event_feed(event):
+            event.pop("expectation", None)
             event["market_consensus"] = {
                 "available": True,
                 "ingested": False,
                 "coverage": "BCB_FOCUS_EVENT_TEMPORARILY_UNAVAILABLE",
                 "provider": "BCB Focus",
                 "note": (
-                    "Denne hendelsestypen dekkes av BCB Focus, men en hendelsesnær verdi "
-                    "var ikke tilgjengelig i siste API-kall eller i siste gode cache."
+                    "BCB Focus dekker denne hendelsen, men en periodematchende median var ikke "
+                    "tilgjengelig i siste API-kall eller i siste gode cache."
                 ),
             }
         else:
+            event.pop("expectation", None)
             event["market_consensus"] = {
                 "available": False,
                 "ingested": False,
                 "coverage": "NOT_AVAILABLE_IN_CURRENT_FREE_FEEDS",
                 "provider": None,
-                "note": "Ingen relevant forventningsserie er koblet til denne hendelsen ennå.",
+                "note": "Ingen periodematchende forventningsserie er koblet til denne hendelsen ennå.",
             }
         annotated.append(event)
     return annotated
 
 
-def _fill_annual_focus_proxies(
-    events: list[dict[str, Any]], focus_values: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Fyll tomme kalenderfelt fra den robuste, årlige Focus-reserven."""
+def _prepare_calendar_rows(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove annual Focus proxies before event-specific enrichment.
+
+    The base dashboard still uses annual Focus for its annual table and directional
+    macro signals. Calendar rows are stricter: an expectation survives only when it
+    explicitly declares that it matches the event reference period.
+    """
     output: list[dict[str, Any]] = []
     for raw in events:
         event = dict(raw)
-        if not isinstance(event.get("expectation"), dict):
-            event_date = str(event.get("date") or "")
-            if len(event_date) >= 4 and event_date[:4].isdigit():
-                event["expectation"] = base._focus_expectation_for_event(
-                    event,
-                    focus_values,
-                    int(event_date[:4]),
-                )
+        expectation = event.get("expectation")
+        if not (isinstance(expectation, dict) and expectation.get("event_consensus") is True):
+            event.pop("expectation", None)
         output.append(event)
     return output
 
@@ -121,6 +118,23 @@ def _recompute_focus_signals(result: dict[str, Any], focus_values: dict[str, Any
     for key, metric in metrics.items():
         if isinstance(metric, dict):
             metric["signal"] = base._metric_signal(str(key), metric, focus_values, target_year)
+
+
+def _calendar_note(*, restored: int = 0) -> str:
+    fallback_note = (
+        " Ved midlertidig Olinda-feil brukes siste gode lagrede periodematchende forventning."
+        if restored
+        else ""
+    )
+    return (
+        "For BNP, IPCA, arbeidsledighet og Copom vises bare markedsforventninger fra BCB Focus "
+        "som matcher den konkrete referanseperioden eller Copom-reunioen. Årlige Focus-estimater "
+        "brukes ikke som hendelseskonsensus. For PMS, PMC, IBC-Br og IPCA-15 finnes det "
+        "markedskonsensus i kommersielle poll-feeder, men ingen gratis periodematchende Focus-serie "
+        "som trackeren henter automatisk."
+        f"{fallback_note} Rader merket estimated er en rullerende forhåndsvisning og må bekreftes "
+        "i den offisielle kalenderen."
+    )
 
 
 async def brazil_dashboard(
@@ -166,13 +180,8 @@ async def brazil_dashboard(
     if not isinstance(calendar, list) or not calendar:
         return result
 
-    focus = result.get("focus")
-    focus_values = focus.get("values") if isinstance(focus, dict) else {}
-    if not isinstance(focus_values, dict):
-        focus_values = {}
-    calendar_rows = _fill_annual_focus_proxies(
-        [dict(item) for item in calendar if isinstance(item, dict)],
-        focus_values,
+    calendar_rows = _prepare_calendar_rows(
+        [dict(item) for item in calendar if isinstance(item, dict)]
     )
     try:
         enriched, status = await enrich_calendar_expectations(
@@ -201,21 +210,7 @@ async def brazil_dashboard(
         status["fallback"] = bool(restored and not status.get("ready"))
         result["calendar"] = _annotate_market_consensus(enriched)
         result.setdefault("source_status", {})["focus_event_expectations"] = status
-        if status.get("ready") or restored:
-            fallback_note = (
-                " Ved midlertidig Olinda-feil brukes siste gode lagrede hendelsesforventning."
-                if restored
-                else ""
-            )
-            result["calendar_note"] = (
-                "For IPCA/IPCA-15, arbeidsledighet, BNP og Copom brukes hendelsesnære "
-                "markedsforventninger fra BCB Focus når tilgjengelig. Focus er medianer fra "
-                "banker, forvaltere og andre markedsaktører. For PMS, PMC og IBC-Br finnes "
-                "også markedskonsensus fra økonom-/bankpoller, men den er ikke tilgjengelig "
-                "via en gratis Focus-serie i dagens automatiske feed."
-                f"{fallback_note} Rader merket estimated er en rullerende forhåndsvisning og "
-                "må bekreftes i den offisielle kalenderen."
-            )
+        result["calendar_note"] = _calendar_note(restored=restored)
     except Exception as exc:
         try:
             restored_rows, restored = await apply_cached_event_expectations(
@@ -230,6 +225,7 @@ async def brazil_dashboard(
             restored_rows, restored = calendar_rows, 0
             restore_error = f"{type(restore_exc).__name__}: {restore_exc}"
         result["calendar"] = _annotate_market_consensus(restored_rows)
+        result["calendar_note"] = _calendar_note(restored=restored)
         fallback_status = {
             "ready": bool(restored),
             "fallback": bool(restored),
