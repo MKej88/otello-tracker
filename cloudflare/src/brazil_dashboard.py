@@ -15,7 +15,7 @@ FOCUS_URL = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/oda
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 SERIES = {
-    "selic": {"code": 1178, "label": "Selic", "unit": "% p.a.", "mode": "level"},
+    "selic": {"code": 432, "label": "Selic", "unit": "% p.a.", "mode": "level"},
     "ipca_12m": {"code": 13522, "label": "IPCA 12 mnd.", "unit": "%", "mode": "level"},
     "ibc_br": {"code": 24364, "label": "IBC-Br", "unit": "% m/m", "mode": "mom"},
     "ibc_services": {"code": 29605, "label": "IBC-Br tjenester", "unit": "% m/m", "mode": "mom"},
