@@ -225,6 +225,7 @@ jobs:
               'quotes': json.loads(Path('/tmp/worker-quotes.json').read_text()),
           }
           report_status = json.loads(Path('/tmp/worker-report-status.json').read_text())
+          news_events = json.loads(Path('/tmp/worker-news-events.json').read_text())
           expected_dir = Path('/tmp/otello-worker-expected')
           expected = {
               name: json.loads((expected_dir / f'{name}.json').read_text())
@@ -279,6 +280,13 @@ jobs:
           source_status = actual['bemobi_source_status']
           assert source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, source_status
           assert len(source_status.get('items') or []) == 4, source_status
+
+          # JCP remains the internal action code, but it must not leak into the
+          # user-facing Worker response. This assertion belongs in the real
+          # workerd smoke test because the reference payload set does not
+          # currently include the news/events endpoint.
+          serialized_news_events = json.dumps(news_events, ensure_ascii=False)
+          assert '"label": "JCP"' not in serialized_news_events, news_events
 
           index = Path('/tmp/worker-index.html').read_text()
           fallback = Path('/tmp/worker-spa-fallback.html').read_text()
