@@ -15,6 +15,7 @@ from bemobi_cvm_financials import (  # noqa: E402
     BEMOBI_CVM_CODE,
     derive_standardized_balance_quarters,
     derive_standardized_cashflow_quarters,
+    parse_capex_accounts_archive,
     parse_statement_accounts_archive,
 )
 
@@ -37,10 +38,17 @@ FIELDS = [
 ]
 
 
-def _row(*, year: int, period_end: str, account: str, value: str, statement: str):
+def _row(
+    *,
+    year: int,
+    period_end: str,
+    account: str,
+    value: str,
+    statement: str,
+    label: str | None = None,
+):
     labels = {
         "6.01": "Caixa Líquido Atividades Operacionais",
-        "6.02.02": "Investimentos / Capex",
         "1.01.01": "Caixa e Equivalentes de Caixa",
         "2.01.04": "Empréstimos e Financiamentos",
         "2.02.01": "Empréstimos e Financiamentos",
@@ -58,7 +66,7 @@ def _row(*, year: int, period_end: str, account: str, value: str, statement: str
         "DT_INI_EXERC": f"{year}-01-01",
         "DT_FIM_EXERC": period_end,
         "CD_CONTA": account,
-        "DS_CONTA": labels[account],
+        "DS_CONTA": label or labels[account],
         "VL_CONTA": value,
         "ST_CONTA_FIXA": "S",
     }
@@ -80,7 +88,7 @@ def _archive(*, year: int, document_type: str, files: dict[str, list[dict]]) -> 
     return buffer.getvalue()
 
 
-def test_cvm_cashflow_derives_standalone_quarter_and_capex() -> None:
+def test_cvm_cashflow_derives_standalone_quarter_and_finds_current_capex_by_description() -> None:
     payload = _archive(
         year=2026,
         document_type="itr",
@@ -88,25 +96,117 @@ def test_cvm_cashflow_derives_standalone_quarter_and_capex() -> None:
             "DFC": [
                 _row(year=2026, period_end="2026-03-31", account="6.01", value="20000", statement="DFC"),
                 _row(year=2026, period_end="2026-06-30", account="6.01", value="47000", statement="DFC"),
-                _row(year=2026, period_end="2026-03-31", account="6.02.02", value="-3000", statement="DFC"),
-                _row(year=2026, period_end="2026-06-30", account="6.02.02", value="-8000", statement="DFC"),
+                _row(
+                    year=2026,
+                    period_end="2026-03-31",
+                    account="6.02.02",
+                    value="-500",
+                    statement="DFC",
+                    label="Empréstimos a receber",
+                ),
+                _row(
+                    year=2026,
+                    period_end="2026-06-30",
+                    account="6.02.02",
+                    value="-1172",
+                    statement="DFC",
+                    label="Empréstimos a receber",
+                ),
+                _row(
+                    year=2026,
+                    period_end="2026-03-31",
+                    account="6.02.10",
+                    value="-12000",
+                    statement="DFC",
+                    label="Aquisição de imobilizado e intangível",
+                ),
+                _row(
+                    year=2026,
+                    period_end="2026-06-30",
+                    account="6.02.10",
+                    value="-27947",
+                    statement="DFC",
+                    label="Aquisição de imobilizado e intangível",
+                ),
             ]
         },
     )
-    rows = parse_statement_accounts_archive(
+    operating_rows = parse_statement_accounts_archive(
         payload,
         year=2026,
         document_type="itr",
         statement="DFC",
-        account_codes={"6.01", "6.02.02"},
+        account_codes={"6.01"},
     )
-    quarters = derive_standardized_cashflow_quarters(year=2026, itr_observations=rows)
+    capex_rows = parse_capex_accounts_archive(payload, year=2026, document_type="itr")
+    assert [row.account_code for row in capex_rows] == ["6.02.10", "6.02.10"]
+
+    quarters = derive_standardized_cashflow_quarters(
+        year=2026,
+        itr_observations=operating_rows,
+        itr_capex_observations=capex_rows,
+    )
     assert quarters["1Q26"]["reported_operating_cash_flow_mbrl"] == 20.0
     assert quarters["2Q26"]["reported_operating_cash_flow_mbrl"] == 27.0
     assert quarters["2Q26"]["reported_operating_cash_flow_account"] == "6.01"
-    assert quarters["1Q26"]["reported_capex_cash_outflow_mbrl"] == -3.0
-    assert quarters["2Q26"]["reported_capex_cash_outflow_mbrl"] == -5.0
-    assert quarters["2Q26"]["reported_capex_cash_outflow_account"] == "6.02.02"
+    assert quarters["1Q26"]["reported_capex_cash_outflow_mbrl"] == -12.0
+    assert quarters["2Q26"]["reported_capex_cash_outflow_mbrl"] == -15.947
+    assert quarters["2Q26"]["reported_capex_cash_outflow_account"] == "6.02.10"
+    assert quarters["2Q26"]["reported_capex_cash_outflow_selection"] == "CVM_DFC_DESCRIPTION_MATCH"
+
+
+def test_cvm_capex_description_survives_historical_account_code_change() -> None:
+    payload = _archive(
+        year=2022,
+        document_type="dfp",
+        files={
+            "DFC": [
+                _row(
+                    year=2022,
+                    period_end="2022-12-31",
+                    account="6.02.02",
+                    value="-47354",
+                    statement="DFC",
+                    label="Aquisição de imobilizado e intangível",
+                ),
+            ]
+        },
+    )
+    rows = parse_capex_accounts_archive(payload, year=2022, document_type="dfp")
+    assert len(rows) == 1
+    assert rows[0].account_code == "6.02.02"
+    assert rows[0].value_mbrl == -47.354
+
+
+def test_cvm_capex_sums_split_tangible_and_intangible_lines_when_no_combined_line() -> None:
+    payload = _archive(
+        year=2026,
+        document_type="itr",
+        files={
+            "DFC": [
+                _row(
+                    year=2026,
+                    period_end="2026-06-30",
+                    account="6.02.20",
+                    value="-7000",
+                    statement="DFC",
+                    label="Aquisição de imobilizado",
+                ),
+                _row(
+                    year=2026,
+                    period_end="2026-06-30",
+                    account="6.02.21",
+                    value="-5000",
+                    statement="DFC",
+                    label="Aquisição de intangível",
+                ),
+            ]
+        },
+    )
+    rows = parse_capex_accounts_archive(payload, year=2026, document_type="itr")
+    assert len(rows) == 1
+    assert rows[0].account_code == "6.02.20+6.02.21"
+    assert rows[0].value_mbrl == -12.0
 
 
 def test_cvm_balance_builds_cash_borrowings_and_net_debt() -> None:
