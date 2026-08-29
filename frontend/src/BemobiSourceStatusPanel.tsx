@@ -31,6 +31,7 @@ type CvmQuarter = {
   reported_net_income_parent_mbrl?: number | null;
   reported_operating_cash_flow_mbrl?: number | null;
   reported_capex_cash_outflow_mbrl?: number | null;
+  reported_capex_cash_outflow_account?: string | null;
   reported_cash_mbrl?: number | null;
   reported_borrowings_current_mbrl?: number | null;
   reported_borrowings_noncurrent_mbrl?: number | null;
@@ -125,11 +126,14 @@ function CvmAccountingSnapshot({ quarters }: { quarters: CvmQuarter[] }) {
           <div><span>Rapportert EBIT TTM · konto 3.05</span><strong>R$ {numberValue(ebitTtm)}m</strong></div>
           <div><span>Resultat til Bemobi-aksjonærer TTM · 3.11.01</span><strong>R$ {numberValue(netIncomeTtm)}m</strong></div>
           <div><span>Operasjonell kontantstrøm TTM · 6.01</span><strong>R$ {numberValue(operatingCashFlowTtm)}m</strong></div>
-          <div><span>Capex TTM · 6.02.02</span><strong>R$ {numberValue(capexTtm)}m</strong></div>
+          <div><span>Capex TTM · CVM DFC</span><strong>R$ {numberValue(capexTtm)}m</strong></div>
           <div><span>FCF TTM · CFO minus capex</span><strong>R$ {numberValue(fcfTtm)}m</strong></div>
           <div><span>Kontanter ved kvartalsslutt · 1.01.01</span><strong>R$ {numberValue(latest?.reported_cash_mbrl)}m</strong></div>
           <div><span>Lånegjeld ved kvartalsslutt</span><strong>R$ {numberValue(latest?.reported_borrowings_mbrl)}m</strong></div>
           <div><span>Netto kontant (CVM-lånegjeld minus kontanter)</span><strong>R$ {numberValue(netCash)}m</strong></div>
+          {latest?.reported_capex_cash_outflow_account && (
+            <div><span>Capex-konto i siste filing</span><strong>{latest.reported_capex_cash_outflow_account}</strong></div>
+          )}
         </div>
       ) : (
         <p className="bemobiFootnote">
@@ -138,9 +142,9 @@ function CvmAccountingSnapshot({ quarters }: { quarters: CvmQuarter[] }) {
       )}
 
       <p className="bemobiFootnote">
-        Dette er standardiserte, konsoliderte CVM-regnskapstall. Capex fra 6.02.02 brukes som
-        regulatorisk avstemming; Bemobis justerte capex kan ha et annet omfang. Justerte KPI-er som
-        justert EBITDA og justert resultat beholdes derfor fra Bemobis offisielle resultatdokument.
+        Dette er standardiserte, konsoliderte CVM-regnskapstall. Capex identifiseres fra DFC-beskrivelsen
+        for kjøp av imobilizado/intangível fordi kontokoden kan endres mellom rapporter; faktisk kode
+        lagres som proveniens. Bemobis justerte capex kan ha et annet omfang, så CVM brukes som kontroll.
       </p>
     </div>
   );
