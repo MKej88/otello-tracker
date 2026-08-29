@@ -38,6 +38,11 @@ export default function OverviewPage() {
   const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
   const { data: forecast } = usePollingResource<Forecast>("/api/buybacks/forecast", REFRESH_MS);
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
+  const brlNokStatus = summaryRefreshFailed
+    ? summary
+      ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
+      : "Kurs utilgjengelig"
+    : `Siste kurs ${formatDate(brlNokDate)}`;
 
   return (
     <div className="investorPage overviewV2">
@@ -63,7 +68,7 @@ export default function OverviewPage() {
         <article className="card kpi">
           <span className="label">BRL/NOK</span>
           <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
-          <small>{summaryRefreshFailed ? "Viser siste gode kurs" : "Siste kurs"} {formatDate(brlNokDate)}</small>
+          <small>{brlNokStatus}</small>
         </article>
         <article className="card kpi"><span className="label">NAV-rabatt</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></article>
         <article className="card kpi"><span className="label">Bemobi-verdi</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></article>

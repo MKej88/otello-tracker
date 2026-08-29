@@ -231,7 +231,7 @@ async function main() {
   if (overviewLabels.body.includes("OTELLO / BEMOBI") || overviewLabels.body.includes("ESTIMERT NAV")) {
     throw new Error(`Gamle globale NAV-etiketter er fortsatt synlige: ${JSON.stringify(overviewLabels)}`);
   }
-  if (!overviewLabels.kpis.includes("BRL/NOK") || overviewLabels.kpis.includes("OTEC-KURS")) {
+  if (!overviewLabels.kpis.includes("BRL/NOK") || overviewLabels.kpis.includes("OTEC-kurs")) {
     throw new Error(`Oversiktskortene er ikke oppdatert: ${JSON.stringify(overviewLabels.kpis)}`);
   }
 
