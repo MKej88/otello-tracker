@@ -354,8 +354,9 @@ async def sync_marketscreener_consensus(
     placeholders = ",".join("?" for _ in keys)
     await repository.run(
         f"DELETE FROM bemobi_investor_facts "
-        f"WHERE fact_type='FORWARD_CONSENSUS' AND fact_key NOT IN ({placeholders})",
-        tuple(keys),
+        f"WHERE fact_type='FORWARD_CONSENSUS' AND fact_key NOT IN ({placeholders}) "
+        f"AND (as_of_date IS NULL OR as_of_date <= ?)",
+        (*keys, target_date),
     )
     return {
         "status": "ok",
