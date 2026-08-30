@@ -81,3 +81,18 @@ def test_html_preloads_first_screen_data_before_javascript() -> None:
     assert 'as="fetch"' in source
     assert 'crossorigin="anonymous"' in source
     assert 'fetchpriority="high"' in source
+
+
+def test_navigation_starts_history_data_before_route_is_mounted() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    nav_source = (FRONTEND_SRC / "NavPageV2.tsx").read_text(encoding="utf-8")
+    history_source = (FRONTEND_SRC / "EstimatedHistoryPage.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "preloadJson(discountHistoryUrl(investorPeriods()[0]))" in app_source
+    assert "preloadJson(discountHistoryUrl(investorPeriods()[4]))" in app_source
+    assert "preload(initialView)" in app_source
+    assert "preload(view)" in app_source
+    assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in nav_source
+    assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in history_source

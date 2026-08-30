@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { investorPeriods, type InvestorPeriod } from "./investorPeriods";
+import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatNumber } from "./uiFormat";
 
@@ -125,26 +126,22 @@ export default function EstimatedHistoryPage() {
 
   useEffect(() => {
     let active = true;
-    const controller = new AbortController();
     const load = async () => {
       setLoading(true);
       try {
-        const ytdParameter = period.key === "ytd" ? "&year_to_date=true" : "";
-        const response = await fetch(`/api/dashboard/discount-history?days=${period.days}&max_points=72${ytdParameter}`, { signal: controller.signal });
-        if (!response.ok) throw new Error("Historikk API-feil");
-        const payload = await response.json() as Payload;
+        const payload = await fetchPreloadedJson<Payload>(discountHistoryUrl(period));
         if (!active) return;
         if (payload.estimated) setCache((current) => ({ ...current, [period.key]: payload.estimated! }));
         setFailed(false);
       } catch (error) {
-        if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
+        if (!active) return;
         setFailed(true);
       } finally {
         if (active) setLoading(false);
       }
     };
     void load();
-    return () => { active = false; controller.abort(); };
+    return () => { active = false; };
   }, [period.key, period.days]);
 
   const stats = data?.statistics;
