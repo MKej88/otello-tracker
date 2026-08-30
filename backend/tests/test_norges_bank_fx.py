@@ -68,6 +68,19 @@ def test_norges_bank_parser_reads_direct_aud_brl_and_usd_nok() -> None:
     assert all(row.quote_currency == "NOK" for row in rows)
 
 
+def test_norges_bank_parser_uses_dimension_order_from_payload() -> None:
+    payload = _sample_payload()
+    dimensions = payload["structure"]["dimensions"]["series"]
+    dimensions[:] = [dimensions[1], dimensions[3], dimensions[0], dimensions[2]]
+    series = payload["dataSets"][0]["series"]
+    series["1:0:0:0"] = series.pop("0:1:0:0")
+    series["2:0:0:0"] = series.pop("0:2:0:0")
+
+    rows = parse_norges_bank_sdmx_json(payload)
+
+    assert {row.base_currency for row in rows} == {"AUD", "BRL", "USD"}
+
+
 def test_norges_bank_parser_fails_closed_on_unit_multiplier() -> None:
     with pytest.raises(ValueError, match="UNIT_MULT"):
         parse_norges_bank_sdmx_json(_sample_payload("2"))
@@ -85,9 +98,7 @@ def test_norges_bank_parser_rejects_invalid_trading_date() -> None:
 @pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
 def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
     payload = _sample_payload()
-    payload["dataSets"][0]["series"]["0:1:0:0"]["observations"]["0"] = [
-        invalid_rate
-    ]
+    payload["dataSets"][0]["series"]["0:1:0:0"]["observations"]["0"] = [invalid_rate]
 
     with pytest.raises(ValueError, match="Ugyldig BRL/NOK-kurs"):
         parse_norges_bank_sdmx_json(payload)
