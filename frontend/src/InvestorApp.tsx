@@ -37,7 +37,10 @@ function preload(view: View) {
     void loadHistoryPage();
     preloadJson(discountHistoryUrl(investorPeriods()[4]));
   }
-  if (view === "Tilbakekjøpsprogram") void loadBuybackPage();
+  if (view === "Tilbakekjøpsprogram") {
+    void loadBuybackPage();
+    preloadJson("/api/buybacks/dashboard");
+  }
   if (view === "Bemobi") void loadBemobiPage();
   if (view === "Brasil") void loadBrazilPage();
   if (view === "Konsensus") void loadConsensusPage();
