@@ -281,14 +281,39 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
     }
     if (driver.key === "other_cash") {
       const operatingCost = detailNumber(driver, "operating_cost_mnok");
+      const interestIncome = detailNumber(driver, "interest_income_mnok");
       const otherMovements = detailNumber(driver, "other_movements_mnok");
       const scale = driver.amount_mnok ? driver.per_share_nok / driver.amount_mnok : 0;
+      const breakdown: DriverBreakdown[] = [];
+      if (operatingCost != null) {
+        breakdown.push({
+          label: "Estimert drift",
+          movement: "Driftskostnader i perioden",
+          amount_mnok: operatingCost,
+          per_share_nok: operatingCost * scale,
+        });
+      }
+      if (interestIncome != null && Math.abs(interestIncome) > 1e-9) {
+        breakdown.push({
+          label: "Renteinntekter",
+          movement: "Rapportert renteinntekt, periodisert",
+          amount_mnok: interestIncome,
+          per_share_nok: interestIncome * scale,
+        });
+      }
+      if (otherMovements != null) {
+        breakdown.push({
+          label: "Andre kontantbevegelser",
+          movement: interestIncome == null
+            ? "Resterende kontantendring"
+            : "Resterende kontantendring etter drift og renter",
+          amount_mnok: otherMovements,
+          per_share_nok: otherMovements * scale,
+        });
+      }
       result.push({
         ...driver,
-        breakdown: operatingCost == null || otherMovements == null ? undefined : [
-          { label: "Estimert drift", movement: "Driftskostnader i perioden", amount_mnok: operatingCost, per_share_nok: operatingCost * scale },
-          { label: "Andre kontantbevegelser", movement: "Resterende kontantendring", amount_mnok: otherMovements, per_share_nok: otherMovements * scale },
-        ],
+        breakdown: breakdown.length > 0 ? breakdown : undefined,
       });
       continue;
     }
@@ -448,7 +473,7 @@ export default function NavPageV2() {
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske NAV-observasjoner for valgt periode.</p>
