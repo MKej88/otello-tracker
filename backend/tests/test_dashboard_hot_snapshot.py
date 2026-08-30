@@ -33,6 +33,10 @@ class FakeRepository:
         return {"success": True}
 
 
+def current_timestamp() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> None:
     repository = FakeRepository()
     calls: list[str] = []
@@ -113,7 +117,7 @@ def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) 
     repository = FakeRepository()
     existing = {
         "version": hot.SNAPSHOT_VERSION,
-        "generated_at": "2026-08-23T08:00:00.000Z",
+        "generated_at": current_timestamp(),
         "summary": {"ready": True},
         "economic": {"ready": True},
         "quotes": {"ready": True},
@@ -148,7 +152,7 @@ def test_dashboard_bootstrap_reuses_hot_snapshot_without_rebuild(monkeypatch) ->
     repository = FakeRepository()
     existing = {
         "version": hot.SNAPSHOT_VERSION,
-        "generated_at": "2026-08-23T16:00:00.000Z",
+        "generated_at": current_timestamp(),
         "summary": {"ready": True, "nav_per_share": 31.5},
         "economic": {"ready": True, "nav_per_share": 32.1},
         "quotes": {"ready": True, "symbols": {"OTEC": {"last": 24.0}}},
@@ -247,6 +251,34 @@ def test_hot_snapshot_status_reports_missing_and_version_mismatch() -> None:
     assert mismatch["valid"] is False
     assert mismatch["stored_version"] == hot.SNAPSHOT_VERSION - 1
     assert mismatch["reason"] == "version_mismatch"
+
+
+def test_stale_snapshot_is_ignored_and_reported() -> None:
+    repository = FakeRepository()
+    generated_at = "2026-08-23T08:00:00.000Z"
+    repository.rows[hot.STATE_KEY] = {
+        "value": json.dumps(
+            {
+                "version": hot.SNAPSHOT_VERSION,
+                "generated_at": generated_at,
+                "summary": {"ready": True},
+                "economic": {"ready": True},
+                "quotes": {"ready": True},
+                "forecast": {"ready": True},
+            }
+        ),
+        "updated_at": generated_at,
+    }
+    now = datetime(2026, 8, 23, 10, 0, tzinfo=UTC)
+
+    assert asyncio.run(hot.load_dashboard_hot_snapshot(repository, now=now)) is None
+    status = asyncio.run(hot.dashboard_hot_snapshot_status(repository, now=now))
+
+    assert status["cache_status"] == "MISS"
+    assert status["valid"] is False
+    assert status["reason"] == "stale"
+    assert status["age_seconds"] == 7200
+    assert status["max_age_seconds"] == hot.SNAPSHOT_MAX_AGE_SECONDS
 
 
 def test_invalid_or_old_snapshot_is_ignored() -> None:

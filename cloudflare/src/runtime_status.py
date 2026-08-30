@@ -57,7 +57,9 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _active_writer_owner(lock_row: dict[str, Any] | None, *, now: datetime) -> str | None:
+def _active_writer_owner(
+    lock_row: dict[str, Any] | None, *, now: datetime
+) -> str | None:
     if not lock_row or not lock_row.get("value"):
         return None
     token = str(lock_row["value"])
@@ -82,7 +84,9 @@ def _job_freshness(
 
     status = str(row.get("status") or "MISSING").upper()
     timestamp = _parse_timestamp(
-        row.get("started_at") if status == "RUNNING" else row.get("finished_at") or row.get("started_at")
+        row.get("started_at")
+        if status == "RUNNING"
+        else row.get("finished_at") or row.get("started_at")
     )
     if timestamp is None:
         return {"stale": True, "age_minutes": None, "reason": "missing_timestamp"}
@@ -93,7 +97,11 @@ def _job_freshness(
     return {
         "stale": stale,
         "age_minutes": int(age.total_seconds() // 60),
-        "reason": "running_too_long" if stale and status == "RUNNING" else "too_old" if stale else None,
+        "reason": (
+            "running_too_long"
+            if stale and status == "RUNNING"
+            else "too_old" if stale else None
+        ),
     }
 
 
@@ -117,14 +125,22 @@ def _public_preflight_warnings(
         safe_details = details if isinstance(details, dict) else {}
 
         if code == "bemobi_cvm_current_year":
-            period = f" for {target_year}" if target_year.isdigit() and len(target_year) == 4 else ""
+            period = (
+                f" for {target_year}"
+                if target_year.isdigit() and len(target_year) == 4
+                else ""
+            )
             message = f"Bemobi / CVM: Ingen CVM-dokumenter funnet{period}."
         elif code == "dashboard_quality":
             data_status = str(safe_details.get("data_status") or "").upper()
             if data_status == "ESTIMATED":
-                message = "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer."
+                message = (
+                    "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer."
+                )
             elif data_status == "DEGRADED":
-                message = "Dashboardkvalitet: Datakvaliteten er redusert og bør kontrolleres."
+                message = (
+                    "Dashboardkvalitet: Datakvaliteten er redusert og bør kontrolleres."
+                )
             else:
                 message = "Dashboardkvalitet: Nattkontrollen registrerte en kvalitetsadvarsel."
         elif code == "buyback_forecast_current_state":
@@ -184,17 +200,19 @@ def _job_payload(
             for code in PUBLIC_SOURCE_CODES
             if code in source_health
         },
-        "preflight": {
-            "ready": bool(preflight.get("ready")),
-            "blocker_count": len(preflight.get("blockers") or []),
-            "warning_count": len(preflight.get("warnings") or []),
-            "warnings": _public_preflight_warnings(
-                preflight,
-                target_date=metadata.get("target_date"),
-            ),
-        }
-        if preflight
-        else None,
+        "preflight": (
+            {
+                "ready": bool(preflight.get("ready")),
+                "blocker_count": len(preflight.get("blockers") or []),
+                "warning_count": len(preflight.get("warnings") or []),
+                "warnings": _public_preflight_warnings(
+                    preflight,
+                    target_date=metadata.get("target_date"),
+                ),
+            }
+            if preflight
+            else None
+        ),
         **freshness,
     }
 
@@ -237,16 +255,14 @@ async def _latest_job(repository, job_name: str) -> dict[str, Any] | None:
 
 
 async def _latest_norges_bank_health(repository) -> dict[str, Any] | None:
-    return await repository.first(
-        """
+    return await repository.first("""
         SELECT sh.checked_at, sh.status, sh.error_message, sh.metadata_json
         FROM source_health sh
         JOIN sources s ON s.id=sh.source_id
         WHERE s.code='NORGES_BANK'
         ORDER BY sh.id DESC
         LIMIT 1
-        """
-    )
+        """)
 
 
 async def _writer_lock(repository) -> dict[str, Any] | None:
@@ -284,7 +300,9 @@ async def runtime_status_summary(
     )
     expected_fx_date = expected_norges_bank_date(current)
     latest_common_date = fx.get("latest_common_date")
-    fx_current = latest_common_date is not None and str(latest_common_date) >= expected_fx_date
+    fx_current = (
+        latest_common_date is not None and str(latest_common_date) >= expected_fx_date
+    )
 
     health_status = str((norges_bank_health or {}).get("status") or "MISSING").upper()
     full_status = str(full.get("status") or "MISSING").upper()
@@ -297,6 +315,7 @@ async def runtime_status_summary(
         not fx_current
         or bool(full.get("stale"))
         or bool(fast.get("stale"))
+        or not bool(hot_snapshot.get("valid"))
         or full_status in {"FAILED", "PARTIAL"}
         or fast_status in {"FAILED", "PARTIAL"}
         or health_status in {"DOWN", "DEGRADED"}

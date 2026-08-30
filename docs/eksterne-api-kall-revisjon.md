@@ -22,7 +22,7 @@ Vurderingene nedenfor bruker disse korte resultatene:
 
 | Kilde | Kall og data | Nettverksfeil, 429 og 5xx | Responsvalidering | Integritet, alder og duplikater | Vurdering |
 |---|---|---|---|---|---|
-| NewsWeb | Lister, meldinger og PDF-vedlegg | Backend har eksplisitt timeout. Worker lar Fetch/Workflow avbryte kallet. HTTP-feil stopper kjøringen. Ingen lokal retry-løkke. | JSON, meldings-ID, utsteder, marked, meldingstekst og PDF-signatur valideres. Overflow deles i mindre datovinduer. | Meldinger dedupliseres på ID, og korrigerte meldinger utelates. | **Reelt funn rettet:** Manglende `messages`, manglende `overflow`, `null` eller tekst i stedet for boolsk verdi ble tidligere tolket som et gyldig, tomt/ikke-paginert svar. Det kunne skjule meldinger. Nå feiler både backend og Worker kontrollert. |
+| NewsWeb | Lister, meldinger og PDF-vedlegg | Backend har eksplisitt timeout. Worker lar Fetch/Workflow avbryte kallet. HTTP-feil stopper kjøringen. Ingen lokal retry-løkke. | JSON, meldings-ID, publiseringstid, utsteder, marked, meldingstekst og PDF-signatur valideres. Overflow deles i mindre datovinduer. | Meldinger dedupliseres på ID, og korrigerte meldinger utelates. | **Reelle funn rettet:** Delvise listesvar avvises. Backend avviser nå også manglende, tom eller ikke-tekstlig publiseringstid, lik Worker. |
 | Norges Bank | BRL/NOK og USD/NOK SDMX-JSON | HTTP-feil stopper nedlasting; backend bruker timeout. Ingen tett retry-løkke. | Struktur, observasjoner, datoer og tall tolkes og valideres før lagring. | Oppdateringen bruker kilde/dato som identitet og har ferskhetskontroll i visningen. | **Korrekt / kontrollert feil.** |
 | ECB | Valutakurser via Norges Bank-oppsettet | Samme avgrensede nettverksmønster; ingen egen endeløs retry. | Tomme eller ugyldige observasjoner avvises. | Datoankere hindrer at en vilkårlig eldre observasjon presenteres som dagens kurs. | **Korrekt / beholder siste gode.** |
 | Banco Central do Brasil (SGS og Focus) | Makroserier og forventninger | HTTP-feil stopper enkeltkilden; dashboardet kan markere delresultat som utilgjengelig. Ingen lokal retry-løkke. | JSON-type, gyldige rader, datoer og numeriske verdier kontrolleres. | Kildedato følger resultatet. Delkilder samles med eksplisitt feilstatus i stedet for oppdiktede nullverdier. | **Korrekt / kontrollert delvis respons.** |
@@ -52,6 +52,19 @@ gammel kode. Parseren krever nå at `messages` faktisk er en liste, at hvert ele
 er et objekt, og at `overflow` faktisk er en boolsk verdi. Dermed blir det ingen
 lagring eller presentasjon basert på et tvetydig svar, og neste planlagte kjøring kan
 forsøke på nytt.
+
+### Backend kunne godta en melding uten gyldig publiseringstid
+
+Backend-parseren gjorde manglende eller tom `publishedTime` om til en tom tekst.
+Hvis leverandøren endret datatypen til et objekt, ble objektet gjort om til tekst.
+Begge deler kunne gå videre som meldingens publiseringstid og bli brukt ved
+sortering eller lagring. Dette er et realistisk delvis eller typeendret svar, og
+Worker-parseren avviste allerede samme situasjon.
+
+En parameterisert pytest-test gjenskapte alle tre variantene (`null`, tom tekst og
+objekt) mot backend-parseren: ingen av dem ga feil før rettelsen. Backend krever nå
+en ikke-tom tekstverdi og feiler kontrollert før meldingen kan lagres. Det er ikke
+lagt til retry, fordi samme ugyldige svar ellers bare ville blitt hentet på nytt.
 
 ## Retry- og rate-limit-konklusjon
 
