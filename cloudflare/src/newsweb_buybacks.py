@@ -354,6 +354,21 @@ async def ingest_weekly_buyback(
     message: NewsWebMessage,
     parsed: BuybackStatus,
 ) -> dict[str, Any]:
+    latest_total = await repository.first(
+        """
+        SELECT total_shares FROM otello_share_counts
+        WHERE effective_from<=?
+        ORDER BY effective_from DESC, id DESC LIMIT 1
+        """,
+        (parsed.period_end,),
+    )
+    if latest_total is None:
+        raise ValueError("Mangler registrert totalaksjetall før buyback-perioden")
+    total_shares = int(latest_total["total_shares"])
+    outstanding = total_shares - parsed.treasury_shares_after
+    if outstanding <= 0:
+        raise ValueError("Buyback-parser ga ugyldig antall utestående aksjer")
+
     max_price = _parse_max_program_price(message.body)
     metadata = {
         "parser": "otec-buyback-status-v2-program-cap",
@@ -599,21 +614,6 @@ async def ingest_weekly_buyback(
         )
         for duplicate in cash_rows[1:]:
             await repository.run("DELETE FROM cash_movements WHERE id=?", (int(duplicate["id"]),))
-
-    latest_total = await repository.first(
-        """
-        SELECT total_shares FROM otello_share_counts
-        WHERE effective_from<=?
-        ORDER BY effective_from DESC, id DESC LIMIT 1
-        """,
-        (parsed.period_end,),
-    )
-    if latest_total is None:
-        raise ValueError("Mangler registrert totalaksjetall før buyback-perioden")
-    total_shares = int(latest_total["total_shares"])
-    outstanding = total_shares - parsed.treasury_shares_after
-    if outstanding <= 0:
-        raise ValueError("Buyback-parser ga ugyldig antall utestående aksjer")
 
     share_rows = await repository.all(
         """
