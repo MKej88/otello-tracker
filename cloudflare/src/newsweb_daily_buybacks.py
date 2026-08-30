@@ -491,6 +491,19 @@ async def _store_daily_rows(
     r2_key: str,
 ) -> int:
     written = 0
+    existing_rows = await repository.all(
+        """
+        SELECT id, trade_date, shares, avg_price_nok, amount_nok, trade_count
+        FROM buyback_daily_transactions
+        WHERE weekly_buyback_id=?
+        ORDER BY trade_date, id
+        """,
+        (weekly_buyback_id,),
+    )
+    existing_by_date: dict[str, dict[str, Any]] = {}
+    for row in existing_rows:
+        existing_by_date.setdefault(str(row["trade_date"]), row)
+
     for item in daily:
         metadata = {
             "newsweb_message_id": message.message_id,
@@ -500,15 +513,7 @@ async def _store_daily_rows(
             "weekly_reconciliation": validation,
             "parser": PARSER_VERSION,
         }
-        existing = await repository.first(
-            """
-            SELECT id, shares, avg_price_nok, amount_nok, trade_count
-            FROM buyback_daily_transactions
-            WHERE weekly_buyback_id=? AND trade_date=?
-            LIMIT 1
-            """,
-            (weekly_buyback_id, item.trade_date),
-        )
+        existing = existing_by_date.get(item.trade_date)
         if existing is not None:
             economic_match = (
                 int(existing["shares"]) == item.shares

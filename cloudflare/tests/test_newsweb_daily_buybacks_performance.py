@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.newsweb_daily_buybacks import (
+    DailyBuybackTransaction,
     MESSAGE_FETCH_CONCURRENCY,
     _fetch_discovered_messages,
+    _store_daily_rows,
 )
 
 
@@ -40,3 +43,49 @@ def test_message_details_are_fetched_concurrently_with_a_limit() -> None:
     assert results[0:2] == [1, 2]
     assert isinstance(results[2], RuntimeError)
     assert results[3:] == list(range(4, MESSAGE_FETCH_CONCURRENCY * 2 + 2))
+
+
+def test_existing_daily_rows_are_loaded_in_one_query() -> None:
+    class CountingRepository:
+        def __init__(self) -> None:
+            self.read_queries = 0
+            self.write_queries = 0
+
+        async def all(
+            self, sql: str, parameters: tuple[object, ...]
+        ) -> list[dict[str, object]]:
+            self.read_queries += 1
+            assert parameters == (42,)
+            return []
+
+        async def run(self, sql: str, parameters: tuple[object, ...]) -> None:
+            self.write_queries += 1
+
+    repository = CountingRepository()
+    daily = [
+        DailyBuybackTransaction(
+            trade_date=f"2026-08-{day:02d}",
+            shares=100,
+            avg_price_nok=Decimal("10"),
+            amount_nok=Decimal("1000"),
+            trade_count=1,
+        )
+        for day in range(24, 29)
+    ]
+
+    written = asyncio.run(
+        _store_daily_rows(
+            repository,
+            weekly_buyback_id=42,
+            attachment_document_id=7,
+            message=SimpleNamespace(message_id=10),
+            attachment=SimpleNamespace(attachment_id=11, name="handler.pdf"),
+            daily=daily,
+            validation={"quality": "CONFIRMED"},
+            r2_key="newsweb/handler.pdf",
+        )
+    )
+
+    assert written == 5
+    assert repository.read_queries == 1
+    assert repository.write_queries == 5
