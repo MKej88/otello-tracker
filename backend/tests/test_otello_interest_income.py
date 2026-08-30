@@ -104,48 +104,51 @@ class _Repository:
         self.created: list[dict] = []
 
     async def all(self, sql, parameters=()):
-        assert "ECONOMIC_NAV_INTEREST_INCOME_ANCHOR" in sql
-        return []
-
-    async def first(self, sql, parameters=()):
-        assert "FROM source_documents WHERE id=?" in sql
-        assert parameters == (77,)
-        return {
-            "external_id": "newsweb-report:12345:67890",
-            "url": "https://newsweb.oslobors.no/report.pdf",
-        }
+        if "ECONOMIC_NAV_INTEREST_INCOME_ANCHOR" in sql:
+            return [
+                {"metadata_json": json.dumps(item["metadata"])}
+                for item in self.created
+                if item["document_type"] == "ECONOMIC_NAV_INTEREST_INCOME_ANCHOR"
+            ]
+        if "OTELLO_FINANCIAL_REPORT" in sql:
+            return [
+                {
+                    "id": 77,
+                    "external_id": "newsweb-report:12345:67890",
+                    "url": "https://newsweb.oslobors.no/report.pdf",
+                    "metadata_json": json.dumps(
+                        {
+                            "auto_apply_status": "APPLIED",
+                            "facts": {"source_period": "2H26"},
+                        }
+                    ),
+                }
+            ]
+        raise AssertionError(sql)
 
     async def create_source_document(self, **kwargs):
         self.created.append(kwargs)
         return 88
 
 
-def test_new_auto_applied_report_creates_idempotent_interest_anchor_input() -> None:
+def test_applied_report_self_heals_missing_interest_anchor_on_later_run() -> None:
     repository = _Repository()
-    report_result = {
-        "results": [
-            {
-                "status": "applied",
-                "report_document_id": 77,
-                "facts": {"source_period": "2H26"},
-            }
-        ]
-    }
 
     async def loader(message_id: int, attachment_id: int) -> str:
         assert (message_id, attachment_id) == (12345, 67890)
         return SECOND_HALF_2026_INTEREST
 
-    result = asyncio.run(
+    first = asyncio.run(
         sync_interest_income_anchors_from_report_result(
             repository,
-            report_result,
+            {"results": []},
             report_text_loader=loader,
         )
     )
 
-    assert result["status"] == "ok"
-    assert result["written"] == 1
+    assert first["status"] == "ok"
+    assert first["written"] == 1
+    assert first["retry_missing_from_prior_runs"] is True
     assert len(repository.created) == 1
     created = repository.created[0]
     assert created["external_id"] == "economic-nav-interest:2H26"
@@ -157,6 +160,18 @@ def test_new_auto_applied_report_creates_idempotent_interest_anchor_input() -> N
     assert metadata["auto_extracted"] is True
     assert metadata["attribution_policy"] == ATTRIBUTION_POLICY
     assert json.loads(json.dumps(metadata))["fx_segments"][0]["usd_nok"] == "9.9345"
+
+    second = asyncio.run(
+        sync_interest_income_anchors_from_report_result(
+            repository,
+            {"results": []},
+            report_text_loader=loader,
+        )
+    )
+    assert second["status"] == "ok"
+    assert second["written"] == 0
+    assert second["existing"] == 1
+    assert len(repository.created) == 1
 
 
 def test_scheduled_pipeline_runs_interest_sync_after_report_ingestion() -> None:
