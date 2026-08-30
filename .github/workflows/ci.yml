@@ -318,7 +318,16 @@ jobs:
             echo '::error::GitHub runner mangler Chromium/Chrome for browser-smoke.'
             exit 1
           fi
-          CHROME_BIN="$chrome_bin" node ../frontend/tools/browser-smoke.mjs http://127.0.0.1:8787/
+          browser_log=/tmp/browser-smoke.log
+          if ! CHROME_BIN="$chrome_bin" CHROME_DEBUG_PORT=0 node ../frontend/tools/browser-smoke.mjs http://127.0.0.1:8787/ 2>&1 | tee "$browser_log"; then
+            if grep -qE 'Chrome DevTools startet ikke|Chrome avsluttet før DevTools startet' "$browser_log"; then
+              echo '::warning::Chrome DevTools startet ikke stabilt; prøver browser-smoke én gang til med ny dynamisk port.'
+              sleep 2
+              CHROME_BIN="$chrome_bin" CHROME_DEBUG_PORT=0 node ../frontend/tools/browser-smoke.mjs http://127.0.0.1:8787/
+            else
+              exit 1
+            fi
+          fi
 
   docker-reference:
     name: Docker regression reference
