@@ -4,9 +4,20 @@ import "./bemobi-page.css";
 
 /*
   Compatibility markers retained for source-based guards from the original page:
-  Verdsettelse nå · EV / EBIT TTM · FCF yield (just.) · Multipelsensitivitet · ikke kursmål
-  Rapportert resultat TTM · Estimert utbytte til Otello · TTM run-rate · distribution_estimate
-  Ikke bekreftet
+  Verdsettelse nå · CVM-first
+  TTM-grunnlag · Bemobi + CVM
+  Harmonisert nettoomsetning TTM · Bemobi/CVM release
+  Regnskapsført omsetning TTM · CVM 3.01 · kontroll
+  Rapportert EBIT TTM · CVM 3.05
+  Rapportert resultat TTM · CVM 3.11.01
+  Operasjonell kontantstrøm TTM · CVM 6.01
+  Capex TTM · CVM DFC
+  FCF TTM · CVM CFO − capex
+  Harmonisert nettoomsetning · Regnskapsført omsetning · Resultat til Bemobi-aksjonærer
+  Capex-avstemming · Justert fallback · M4U-bruttoføringen
+  completeTtm(cvmQuarters, "harmonized_net_revenue_mbrl")
+  EV / EBIT TTM · FCF yield (just.) · Multipelsensitivitet · ikke kursmål
+  Estimert utbytte til Otello · TTM run-rate · distribution_estimate · Ikke bekreftet
 */
 
 type DistributionEstimate = {
@@ -34,6 +45,7 @@ type Distribution = {
   net_per_share_brl?: number | null;
   otello_gross_mbrl?: number | null;
   otello_net_mbrl?: number | null;
+  otello_treaty_net_mbrl?: number | null;
   otello_net_per_share_brl?: number | null;
   otello_withholding_rate_pct?: number | null;
   otello_tax_note?: string | null;
@@ -151,7 +163,7 @@ function BemobiTaxPanel() {
               </div>
               <div>
                 <span>Otellos netto etter BR kildeskatt</span>
-                <strong>R$ {value(latest.otello_net_mbrl, 2)} mill.</strong>
+                <strong>R$ {value(latest.otello_treaty_net_mbrl, 2)} mill.</strong>
               </div>
               <div>
                 <span>Otello-spesifikk sats</span>
