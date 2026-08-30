@@ -681,6 +681,29 @@ async def _change(repository, start: dict[str, Any], current: dict[str, Any], re
     )
 
 
+def _history_start_point(
+    points: list[dict[str, Any]],
+    requested_start: str,
+    *,
+    year_to_date: bool,
+) -> dict[str, Any]:
+    requested_day = date.fromisoformat(requested_start)
+    if year_to_date:
+        closing_points = [
+            point
+            for point in points
+            if date.fromisoformat(str(point["date"])) <= requested_day
+        ]
+        if closing_points:
+            return max(closing_points, key=lambda point: str(point["date"]))
+    return min(
+        points,
+        key=lambda point: abs(
+            (date.fromisoformat(str(point["date"])) - requested_day).days
+        ),
+    )
+
+
 async def estimated_nav_history(
     repository, *, days: int, year_to_date: bool = False
 ) -> dict[str, Any]:
@@ -718,7 +741,7 @@ async def estimated_nav_history(
     if not full_points:
         return {"ready": False, "reason": "estimated_history_not_ready", "requested_start": requested_start, "current_date": current_date, "failures": failures[:10], "points": []}
     current = next((item for item in reversed(full_points) if item["date"] == current_date), full_points[-1])
-    start = min(full_points, key=lambda item: abs((date.fromisoformat(item["date"]) - date.fromisoformat(requested_start)).days))
+    start = _history_start_point(full_points, requested_start, year_to_date=year_to_date)
     public_points = [{"date": item["date"], "nav_per_share": item["nav_per_share"], "otec_price": item["otec_price"], "discount_pct": item["discount_pct"]} for item in full_points]
     change = await _change(repository, start, current, requested_start)
     return {

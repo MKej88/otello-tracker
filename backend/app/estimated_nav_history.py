@@ -668,6 +668,29 @@ def _change(
     )
 
 
+def _history_start_point(
+    points: list[dict[str, Any]],
+    requested_start: str,
+    *,
+    year_to_date: bool,
+) -> dict[str, Any]:
+    requested_day = date.fromisoformat(requested_start)
+    if year_to_date:
+        closing_points = [
+            point
+            for point in points
+            if date.fromisoformat(str(point["date"])) <= requested_day
+        ]
+        if closing_points:
+            return max(closing_points, key=lambda point: str(point["date"]))
+    return min(
+        points,
+        key=lambda point: abs(
+            (date.fromisoformat(str(point["date"])) - requested_day).days
+        ),
+    )
+
+
 def estimated_nav_history(
     database_path: str | None = None,
     *,
@@ -724,11 +747,10 @@ def estimated_nav_history(
         (item for item in reversed(full_points) if item["date"] == current_date),
         full_points[-1],
     )
-    start = min(
+    start = _history_start_point(
         full_points,
-        key=lambda item: abs(
-            (date.fromisoformat(item["date"]) - date.fromisoformat(requested_start)).days
-        ),
+        requested_start,
+        year_to_date=year_to_date,
     )
     public_points = [
         {
