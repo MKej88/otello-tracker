@@ -190,6 +190,30 @@ def test_holding_history_creates_new_period_when_percentage_changes_with_same_sh
     assert repository.writes[1][1][2] == "38.35"
 
 
+def test_holding_history_rejects_older_identical_observation() -> None:
+    repository = _HoldingRepository()
+
+    try:
+        asyncio.run(
+            _sync_holding(
+                repository,
+                {
+                    "shares": 32_719_588,
+                    "ownership_pct": 38.22,
+                    "bemobi_total_shares": 85_608_392,
+                },
+                document_id=66,
+                target_date="2026-07-31",
+            )
+        )
+    except ValueError as exc:
+        assert "starter etter kontrollens måldato" in str(exc)
+    else:
+        raise AssertionError("En eldre observasjon skal ikke endre nyere historikk")
+
+    assert repository.writes == []
+
+
 def test_marketscreener_parser_extracts_complete_forward_years() -> None:
     html = """
     <table>

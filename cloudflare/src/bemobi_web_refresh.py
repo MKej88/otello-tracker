@@ -688,6 +688,10 @@ async def _sync_holding(repository, payload: dict[str, Any], document_id: int, t
     pct_text = format(pct, ".6f").rstrip("0").rstrip(".")
 
     if current is not None:
+        effective_from = str(current["effective_from"])
+        if effective_from > target_date:
+            raise ValueError("Aktiv Bemobi-beholdning starter etter kontrollens måldato")
+
         current_shares = int(current["shares"])
         current_pct = float(current["ownership_pct"])
         same_pct = abs(current_pct - pct) <= OWNERSHIP_PCT_TOLERANCE
@@ -698,9 +702,6 @@ async def _sync_holding(repository, payload: dict[str, Any], document_id: int, t
             )
             return 0
 
-        effective_from = str(current["effective_from"])
-        if effective_from > target_date:
-            raise ValueError("Aktiv Bemobi-beholdning starter etter kontrollens måldato")
         if effective_from == target_date:
             await repository.run(
                 """
