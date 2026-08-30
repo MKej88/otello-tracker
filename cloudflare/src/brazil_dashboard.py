@@ -92,12 +92,12 @@ def _parse_sgs_rows(payload: Any) -> list[dict[str, Any]]:
             continue
         try:
             parsed = datetime.strptime(raw_date, "%d/%m/%Y").date().isoformat()
-        except ValueError:
-            parsed = raw_date
+        except ValueError as exc:
+            raise ValueError(f"BCB SGS returnerte ugyldig dato: {raw_date!r}") from exc
         rows.append({"date": parsed, "value": value})
     if not rows:
         raise ValueError("BCB SGS returnerte ingen gyldige observasjoner")
-    return rows
+    return sorted(rows, key=lambda row: str(row["date"]))
 
 
 def _series_payload(key: str, rows: list[dict[str, Any]], *, source_url: str | None = None) -> dict[str, Any]:

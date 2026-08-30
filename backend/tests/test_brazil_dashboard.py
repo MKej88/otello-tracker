@@ -83,6 +83,23 @@ def test_sgs_request_and_rows_are_capped_at_as_of_date() -> None:
     assert result["value"] == 14.5
 
 
+def test_sgs_rows_are_sorted_when_provider_changes_response_order() -> None:
+    import asyncio
+
+    async def fetcher(_url: str, **_kwargs: object) -> _Response:
+        return _Response([
+            {"data": "28/08/2026", "valor": "14.5"},
+            {"data": "27/08/2026", "valor": "14.0"},
+        ])
+
+    result = asyncio.run(
+        _load_sgs_series("selic", as_of_date="2026-08-29", fetcher=fetcher)
+    )
+
+    assert result["date"] == "2026-08-28"
+    assert result["value"] == 14.5
+
+
 def test_focus_request_and_parser_are_capped_at_as_of_date() -> None:
     import asyncio
     from urllib.parse import parse_qs, unquote, urlparse
