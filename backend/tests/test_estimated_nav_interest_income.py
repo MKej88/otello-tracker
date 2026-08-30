@@ -109,7 +109,7 @@ def test_period_interest_income_attributes_reported_interest_to_one_year_window(
 
     assert result["ready"] is True
     assert result["interest_nok"] == expected_2h25 + expected_1h26
-    assert result["interest_nok"] / Decimal("1000000") == pytest.approx(5.4197841574)
+    assert float(result["interest_nok"] / Decimal("1000000")) == pytest.approx(5.4197841574)
     assert len(result["segments"]) == 4
 
 
