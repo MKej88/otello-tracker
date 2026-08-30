@@ -93,7 +93,11 @@ def test_public_job_payload_includes_safe_nightly_summary() -> None:
             '{"target_date":"2026-08-20",'
             '"source_health":{"NORGES_BANK":"OK","BEMOBI_IR":"DOWN",'
             '"PRIVATE_SOURCE":"secret"},'
-            '"preflight":{"ready":true,"blockers":[],"warnings":["check"]}}'
+            '"preflight":{"ready":true,"blockers":[],"warnings":['
+            '{"name":"bemobi_cvm_current_year","status":"WARN",'
+            '"details":{"count":0,"private":"secret-cvm-detail"}},'
+            '{"name":"private_internal_check","status":"WARN",'
+            '"details":{"token":"secret-preflight-token"}}]}}'
         ),
     }
 
@@ -112,9 +116,55 @@ def test_public_job_payload_includes_safe_nightly_summary() -> None:
     assert payload["preflight"] == {
         "ready": True,
         "blocker_count": 0,
-        "warning_count": 1,
+        "warning_count": 2,
+        "warnings": [
+            {
+                "code": "bemobi_cvm_current_year",
+                "message": "Bemobi / CVM: Ingen CVM-dokumenter funnet for 2026.",
+            }
+        ],
     }
     assert "PRIVATE_SOURCE" not in payload["source_health"]
+    assert "secret-cvm-detail" not in str(payload["preflight"])
+    assert "secret-preflight-token" not in str(payload["preflight"])
+    assert "private_internal_check" not in str(payload["preflight"])
+
+
+def test_public_job_payload_explains_known_quality_warnings() -> None:
+    now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+    row = {
+        "status": "SUCCESS",
+        "started_at": "2026-08-21T03:30:00Z",
+        "finished_at": "2026-08-21T03:34:50Z",
+        "records_written": 162,
+        "error_message": None,
+        "metadata_json": (
+            '{"target_date":"2026-08-20","preflight":{"ready":true,"blockers":[],"warnings":['
+            '{"name":"dashboard_quality","status":"WARN","details":{"data_status":"ESTIMATED"}},'
+            '{"name":"buyback_forecast_current_state","status":"WARN",'
+            '"details":{"status":"PRIVATE_UPSTREAM_STATUS","error":"secret"}}]}}'
+        ),
+    }
+
+    payload = _job_payload(
+        row,
+        now=now,
+        completed_max_age=FULL_MAX_AGE,
+        running_max_age=FULL_RUNNING_MAX_AGE,
+    )
+
+    assert payload["preflight"]["warnings"] == [
+        {
+            "code": "dashboard_quality",
+            "message": "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer.",
+        },
+        {
+            "code": "buyback_forecast_current_state",
+            "message": "Tilbakekjøpsprognose: Prognosemotoren er ikke klar i gjeldende tilstand.",
+        },
+    ]
+    assert "PRIVATE_UPSTREAM_STATUS" not in str(payload["preflight"])
+    assert "secret" not in str(payload["preflight"])
 
 
 def _running_full_payload(now: datetime) -> tuple[dict, dict]:
