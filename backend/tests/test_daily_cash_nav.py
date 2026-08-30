@@ -180,6 +180,28 @@ def test_daily_nav_prefers_euronext_otec_over_investing_duplicate(tmp_path) -> N
         assert components["otec"]["price_type"] == "CLOSE"
 
 
+def test_daily_nav_does_not_rewrite_unchanged_snapshot(tmp_path) -> None:
+    database = str(tmp_path / "unchanged-nav.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        _seed_nav_dependencies(connection, "2024-06-28")
+        _insert_price(connection, "2024-06-28", "OTEC", "8", "EURONEXT")
+        connection.commit()
+
+    rebuild_daily_cash(database, end_date="2025-12-31")
+    first = rebuild_daily_core_nav(
+        database, start_date="2024-06-28", end_date="2024-06-28"
+    )
+    second = rebuild_daily_core_nav(
+        database, start_date="2024-06-28", end_date="2024-06-28"
+    )
+
+    assert first["written"] == 1
+    assert second["written"] == 0
+
+
 def test_daily_nav_prefers_official_euronext_last_over_same_day_investing_close(tmp_path) -> None:
     database = str(tmp_path / "nav-last.db")
     init_database(database)
