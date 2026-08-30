@@ -34,7 +34,8 @@ def test_curated_history_seeds_source_backed_life360_holdings(tmp_path: Path) ->
         )
         assert historical["external_id"] == "otello-annual-2024"
         assert historical["source_code"] == "OTELLO_IR"
-        assert "attribution" in historical["source_locator"].lower()
+        assert "0.05%" in historical["source_locator"]
+        assert "carried backward" in historical["source_locator"].lower()
 
         historical_provenance = connection.execute(
             """
