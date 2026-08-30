@@ -75,7 +75,22 @@ def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) 
     assert any(item["last_good_at"] is not None for item in result["items"])
 
 
-def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(tmp_path: Path) -> None:
+def test_source_status_has_stable_source_order_and_labels(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+
+    result = bemobi_source_status(database)
+
+    assert [(item["key"], item["label"]) for item in result["items"]] == [
+        ("ir", "Eierandel og analytikerdekning"),
+        ("result_release", "Resultater"),
+        ("consensus", "Årsestimater / konsensus"),
+        ("xp_preview", "Forhåndsestimat neste kvartal"),
+    ]
+
+
+def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(
+    tmp_path: Path,
+) -> None:
     database = _database(tmp_path)
     with get_connection(database) as connection:
         source_id = connection.execute(
