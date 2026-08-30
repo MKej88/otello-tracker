@@ -70,12 +70,17 @@ def _apply_distribution_tax(distribution: dict[str, Any] | None) -> dict[str, An
     distribution["otello_net_per_share_brl"] = (
         None if gross_per_share is None else gross_per_share * factor
     )
-    distribution["otello_net_mbrl"] = None if gross_mbrl is None else gross_mbrl * factor
+    # Keep otello_net_mbrl as the published/general corporate-action net for backwards
+    # compatibility and auditability. The treaty-specific cash estimate is separate.
+    distribution["otello_treaty_net_mbrl"] = (
+        None if gross_mbrl is None else gross_mbrl * factor
+    )
     distribution["otello_tax_basis"] = "NO_BR_TREATY"
     distribution["otello_tax_scope"] = "BRAZIL_WITHHOLDING_ONLY"
     distribution["otello_tax_note"] = (
         "Otello-spesifikk netto bruker modellert brasiliansk kildeskatt etter Norge–Brasil-"
-        "behandlingen. Publisert netto per Bemobi-aksje beholdes separat som kildefaktum."
+        "behandlingen. Publisert netto per Bemobi-aksje og publisert generell nettoandel "
+        "beholdes separat som kildefakta."
     )
     return distribution
 
