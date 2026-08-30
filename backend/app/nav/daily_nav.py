@@ -302,7 +302,7 @@ def rebuild_daily_core_nav(
             if not result["ready"]:
                 skipped.append(result)
                 continue
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO nav_snapshots(
                     as_of_at, nav_total_nok, nav_per_share_nok, otec_price_nok,
@@ -324,6 +324,10 @@ def rebuild_daily_core_nav(
                     nav_scope = excluded.nav_scope,
                     components_json = excluded.components_json,
                     quality_notes = excluded.quality_notes
+                WHERE nav_snapshots.inputs_hash <> excluded.inputs_hash
+                   OR nav_snapshots.status <> excluded.status
+                   OR nav_snapshots.nav_scope <> excluded.nav_scope
+                   OR nav_snapshots.quality_notes <> excluded.quality_notes
                 """,
                 (
                     f"{current}T23:59:59Z",
@@ -342,7 +346,7 @@ def rebuild_daily_core_nav(
                     result["quality_notes"],
                 ),
             )
-            written += 1
+            written += cursor.rowcount
         connection.commit()
     return {
         "calculation_version": CALCULATION_VERSION,
