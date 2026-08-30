@@ -16,9 +16,10 @@ def test_jcp_uses_otello_treaty_rate_not_generic_published_net() -> None:
     result = dashboard._apply_distribution_tax(distribution)
     assert result is not None
     assert result["net_per_share_brl"] == 0.825
+    assert result["otello_net_mbrl"] == 8.25
     assert result["otello_withholding_rate_pct"] == 15.0
     assert result["otello_net_per_share_brl"] == 0.85
-    assert result["otello_net_mbrl"] == 8.5
+    assert result["otello_treaty_net_mbrl"] == 8.5
 
 
 def test_ordinary_2026_dividend_uses_ten_percent_brazil_withholding() -> None:
@@ -32,7 +33,7 @@ def test_ordinary_2026_dividend_uses_ten_percent_brazil_withholding() -> None:
     assert result is not None
     assert result["otello_withholding_rate_pct"] == 10.0
     assert result["otello_net_per_share_brl"] == 1.8
-    assert result["otello_net_mbrl"] == 18.0
+    assert result["otello_treaty_net_mbrl"] == 18.0
 
 
 def test_pre_2026_approved_dividend_is_grandfathered_at_zero_percent() -> None:
@@ -46,7 +47,7 @@ def test_pre_2026_approved_dividend_is_grandfathered_at_zero_percent() -> None:
     result = dashboard._apply_distribution_tax(distribution)
     assert result is not None
     assert result["otello_withholding_rate_pct"] == 0.0
-    assert result["otello_net_mbrl"] == 10.0
+    assert result["otello_treaty_net_mbrl"] == 10.0
 
 
 def test_distribution_estimate_exposes_dividend_and_jcp_net_scenarios() -> None:
@@ -81,6 +82,7 @@ def test_cloudflare_overlay_keeps_same_tax_model() -> None:
     ).read_text(encoding="utf-8")
     assert "OTELLO_BRAZIL_DIVIDEND_WITHHOLDING_PCT = 10.0" in source
     assert "OTELLO_BRAZIL_JCP_WITHHOLDING_PCT = 15.0" in source
+    assert '"otello_treaty_net_mbrl"' in source
     assert '"otello_net_dividend_mnok"' in source
     assert '"otello_net_jcp_mnok"' in source
 
@@ -95,4 +97,5 @@ def test_frontend_renders_net_tax_scenarios() -> None:
     assert "Netto · ordinært utbytte" in source
     assert "Netto · JCP" in source
     assert "Otello-spesifikk sats" in source
+    assert "otello_treaty_net_mbrl" in source
     assert "Publisert netto per Bemobi-aksje · generell sats" in source
