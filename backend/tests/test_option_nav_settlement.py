@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import sqlite3
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -25,6 +26,33 @@ from option_settlement import (  # noqa: E402
 from option_settlement import (  # noqa: E402
     settlement_inputs_from_daily_row as worker_daily_inputs,
 )
+
+
+def test_daily_option_inputs_support_dicts_and_sqlite_rows() -> None:
+    values = {
+        "option_inputs_json": '{"option_count": 4100000}',
+        "option_strike_nok": "12.56",
+        "option_liability_nok": "2500000",
+    }
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    row = connection.execute(
+        """
+        SELECT :option_inputs_json AS option_inputs_json,
+               :option_strike_nok AS option_strike_nok,
+               :option_liability_nok AS option_liability_nok
+        """,
+        values,
+    ).fetchone()
+    expected = (Decimal("2500000"), 4_100_000, Decimal("12.56"))
+
+    try:
+        assert reference_daily_inputs(values) == expected
+        assert reference_daily_inputs(row) == expected
+        assert worker_daily_inputs(values) == expected
+        assert worker_daily_inputs(row) == expected
+    finally:
+        connection.close()
 
 
 def test_option_inputs_reject_non_finite_numbers_and_fractional_counts() -> None:

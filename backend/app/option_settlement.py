@@ -34,6 +34,11 @@ def _non_negative_integer(raw: Any) -> int | None:
     return int(value)
 
 
+def _row_value(row: Any, key: str) -> Any:
+    """Read a value from either a dictionary or a SQLite row."""
+    return row.get(key) if isinstance(row, dict) else row[key]
+
+
 def settlement_inputs_from_components(
     components: dict[str, Any],
 ) -> tuple[int, Decimal] | None:
@@ -53,22 +58,10 @@ def settlement_inputs_from_components(
 def settlement_inputs_from_daily_row(row: Any) -> tuple[Decimal, int, Decimal] | None:
     if row is None:
         return None
-    inputs = _object(
-        row["option_inputs_json"]
-        if not isinstance(row, dict)
-        else row.get("option_inputs_json")
-    )
+    inputs = _object(_row_value(row, "option_inputs_json"))
     count_raw = inputs.get("option_count")
-    strike_raw = (
-        row["option_strike_nok"]
-        if not isinstance(row, dict)
-        else row.get("option_strike_nok")
-    )
-    liability_raw = (
-        row["option_liability_nok"]
-        if not isinstance(row, dict)
-        else row.get("option_liability_nok")
-    )
+    strike_raw = _row_value(row, "option_strike_nok")
+    liability_raw = _row_value(row, "option_liability_nok")
     accounting_liability_nok = _non_negative_decimal(liability_raw or "0")
     option_count = _non_negative_integer(count_raw)
     strike_nok = _non_negative_decimal(strike_raw)
