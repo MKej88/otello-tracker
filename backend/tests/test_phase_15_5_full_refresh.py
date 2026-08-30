@@ -225,7 +225,7 @@ def _cvm_payload() -> bytes:
         "",
         "Apresentação de Resultados 2T26",
         "2026-08-17T18:00:00",
-        "Apresentasjon",
+        "Apresentação",
         "123456",
         "1",
         "https://example.test/download?numProtocolo=123456&numSequencia=1",
