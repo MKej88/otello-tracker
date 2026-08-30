@@ -4,9 +4,12 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from src.newsweb_daily_buybacks import (
     MESSAGE_FETCH_CONCURRENCY,
     _fetch_discovered_messages,
+    sync_daily_buyback_cash,
 )
 
 
@@ -40,3 +43,54 @@ def test_message_details_are_fetched_concurrently_with_a_limit() -> None:
     assert results[0:2] == [1, 2]
     assert isinstance(results[2], RuntimeError)
     assert results[3:] == list(range(4, MESSAGE_FETCH_CONCURRENCY * 2 + 2))
+
+
+class FailingCashRepository:
+    def __init__(self) -> None:
+        self.deleted_ids: list[int] = []
+
+    async def first(
+        self, query: str, parameters: tuple[object, ...]
+    ) -> dict[str, object] | None:
+        if "FROM buybacks" in query:
+            return {
+                "buyback_id": 7,
+                "period_end": "2026-08-28",
+                "weekly_shares": 10,
+            }
+        return None
+
+    async def all(
+        self, query: str, parameters: tuple[object, ...]
+    ) -> list[dict[str, object]]:
+        if "FROM buyback_daily_transactions" in query:
+            return [
+                {
+                    "trade_date": "2026-08-28",
+                    "shares": 10,
+                    "amount_nok": "100.00",
+                    "source_document_id": 99,
+                    "quality": "RECONCILED",
+                }
+            ]
+        if "movement_type='OTELLO_BUYBACK'" in query:
+            return [{"id": 42}]
+        if "movement_type='OTELLO_BUYBACK_DAILY'" in query:
+            return []
+        return []
+
+    async def run(self, query: str, parameters: tuple[object, ...]) -> None:
+        if query.startswith("DELETE FROM cash_movements"):
+            self.deleted_ids.append(int(parameters[0]))
+            return
+        if "INSERT INTO cash_movements" in query:
+            raise RuntimeError("simulert D1-feil")
+
+
+def test_weekly_cash_survives_failure_while_daily_rows_are_written() -> None:
+    repository = FailingCashRepository()
+
+    with pytest.raises(RuntimeError, match="simulert D1-feil"):
+        asyncio.run(sync_daily_buyback_cash(repository, weekly_buyback_id=7))
+
+    assert repository.deleted_ids == []

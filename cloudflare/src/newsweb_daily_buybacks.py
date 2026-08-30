@@ -592,9 +592,6 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
         """,
         (weekly_buyback_id, str(week["period_end"])),
     )
-    for row in weekly_rows:
-        await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
-
     daily_cash_rows = await repository.all(
         """
         SELECT id, movement_date FROM cash_movements
@@ -663,6 +660,15 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
         if str(row["movement_date"]) not in seen_dates:
             await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
             removed += 1
+
+    # Behold den avstemte ukesummen helt til alle dagsradene er lagret. D1-kallene
+    # kjøres enkeltvis, så en feil under innsetting må ikke etterlate uken uten
+    # noen kontantbevegelse.
+    for row in weekly_rows:
+        await repository.run(
+            "DELETE FROM cash_movements WHERE id=?", (int(row["id"]),)
+        )
+
     return {
         "weeks_synced": 1,
         "weekly_cash_rows_deleted": len(weekly_rows),
