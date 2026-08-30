@@ -103,6 +103,13 @@ def test_ecb_parser_rejects_invalid_reference_rates(invalid_value: str) -> None:
         parse_ecb_csv(text)
 
 
+def test_ecb_parser_rejects_invalid_trading_date() -> None:
+    text = "CURRENCY,TIME_PERIOD,OBS_VALUE\nNOK,2025-02-30,10.8\n"
+
+    with pytest.raises(ValueError, match="Ugyldig ECB-handelsdato"):
+        parse_ecb_csv(text)
+
+
 def test_euronext_csv_parser_handles_semicolon_and_decimal_comma() -> None:
     text = "Date;Closing Price\n29/12/2025;16,90\n30/12/2025;17,20\n"
     prices = parse_euronext_historical_csv(text, date_order="DMY")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation, getcontext
 from io import StringIO
 from urllib.parse import urlencode
@@ -39,6 +40,11 @@ def parse_ecb_csv(text: str) -> dict[str, dict[str, Decimal]]:
         currency = row["CURRENCY"].strip().upper()
         if currency not in {"BRL", "NOK", "USD"}:
             continue
+        trading_date = row["TIME_PERIOD"].strip()
+        try:
+            date.fromisoformat(trading_date)
+        except ValueError as exc:
+            raise ValueError(f"Ugyldig ECB-handelsdato: {trading_date}") from exc
         raw_value = row["OBS_VALUE"].strip()
         if not raw_value:
             continue
@@ -48,7 +54,7 @@ def parse_ecb_csv(text: str) -> dict[str, dict[str, Decimal]]:
             raise ValueError(f"Ugyldig ECB-kurs for {currency}: {raw_value}") from exc
         if not value.is_finite() or value <= 0:
             raise ValueError(f"Ugyldig ECB-kurs for {currency}: {raw_value}")
-        rows.setdefault(row["TIME_PERIOD"], {})[currency] = value
+        rows.setdefault(trading_date, {})[currency] = value
     return rows
 
 
