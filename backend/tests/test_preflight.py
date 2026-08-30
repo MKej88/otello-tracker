@@ -60,6 +60,26 @@ def test_cash_anchor_fx_gaps_require_historical_usd_rates(tmp_path) -> None:
         assert cash_anchor_fx_gaps(connection) == []
 
 
+def test_cash_anchor_fx_gaps_uses_one_query(tmp_path) -> None:
+    database = str(tmp_path / "cash-fx-query-count.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        statements: list[str] = []
+        connection.set_trace_callback(statements.append)
+        gaps = cash_anchor_fx_gaps(connection)
+        connection.set_trace_callback(None)
+
+    select_queries = [
+        statement
+        for statement in statements
+        if statement.lstrip().upper().startswith("SELECT")
+    ]
+    assert gaps
+    assert len(select_queries) == 1
+
+
 def test_bootstrap_fetches_full_ecb_and_every_b3_year(monkeypatch, tmp_path) -> None:
     database = str(tmp_path / "bootstrap.db")
     calls: dict[str, object] = {"b3": []}
