@@ -279,7 +279,23 @@ jobs:
           assert actual['bemobi_consensus'].get('ready') is True, actual['bemobi_consensus']
           source_status = actual['bemobi_source_status']
           assert source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, source_status
-          assert len(source_status.get('items') or []) == 4, source_status
+          expected_source_keys = [
+              'norges_bank',
+              'b3',
+              'euronext',
+              'yahoo_finance',
+              'newsweb',
+              'otello_ir',
+              'life360_ir',
+              'ir',
+              'result_release',
+              'consensus',
+              'xp_preview',
+          ]
+          actual_source_keys = [
+              item.get('key') for item in source_status.get('items') or []
+          ]
+          assert actual_source_keys == expected_source_keys, source_status
 
           # JCP remains the internal action code, but it must not leak into the
           # user-facing Worker response. This assertion belongs in the real

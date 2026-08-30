@@ -439,7 +439,23 @@ jobs:
           assert bemobi_dashboard.get('ready') is True, bemobi_dashboard
           assert bemobi_consensus.get('ready') is True, bemobi_consensus
           assert bemobi_source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, bemobi_source_status
-          assert len(bemobi_source_status.get('items') or []) == 11, bemobi_source_status
+          expected_source_keys = [
+              'norges_bank',
+              'b3',
+              'euronext',
+              'yahoo_finance',
+              'newsweb',
+              'otello_ir',
+              'life360_ir',
+              'ir',
+              'result_release',
+              'consensus',
+              'xp_preview',
+          ]
+          actual_source_keys = [
+              item.get('key') for item in bemobi_source_status.get('items') or []
+          ]
+          assert actual_source_keys == expected_source_keys, bemobi_source_status
           assert quotes.get('ready') is True, quotes
 
           as_of = date.fromisoformat(str(summary['as_of_date'])[:10])
