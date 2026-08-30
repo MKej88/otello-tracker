@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import "./buyback-page.css";
 
@@ -186,11 +187,7 @@ export default function BuybackPage() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch("/api/buybacks/dashboard")
-        .then((response) => {
-          if (!response.ok) throw new Error("Buyback dashboard API-feil");
-          return response.json() as Promise<Dashboard>;
-        })
+      fetchPreloadedJson<Dashboard>("/api/buybacks/dashboard")
         .then((result) => {
           if (!active) return;
           setData(result);

@@ -96,3 +96,18 @@ def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     assert "preload(view)" in app_source
     assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in nav_source
     assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in history_source
+
+
+def test_navigation_starts_buyback_data_in_parallel_with_route_code() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    buyback_source = (FRONTEND_SRC / "BuybackPage.tsx").read_text(encoding="utf-8")
+
+    buyback_preload = app_source.index('if (view === "Tilbakekjøpsprogram")')
+    buyback_route = app_source.index('window.location.hash = viewSlugs[view]')
+
+    assert buyback_preload < buyback_route
+    assert 'preloadJson("/api/buybacks/dashboard")' in app_source
+    assert (
+        'fetchPreloadedJson<Dashboard>("/api/buybacks/dashboard")'
+        in buyback_source
+    )
