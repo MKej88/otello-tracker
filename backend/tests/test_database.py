@@ -294,6 +294,6 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert payload["table_counts"]["company_news"] == 0
             assert payload["table_counts"]["buyback_daily_transactions"] == 0
             assert payload["table_counts"]["market_activity"] > 500
-            assert payload["table_counts"]["life360_holding_anchors"] == 1
+            assert payload["table_counts"]["life360_holding_anchors"] == 2
     finally:
         settings.database_path = previous_path
