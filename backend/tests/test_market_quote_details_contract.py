@@ -1,11 +1,21 @@
 import asyncio
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-from cloudflare.src.quote_details import _volume_stats
-
 ROOT = Path(__file__).resolve().parents[2]
+WORKER_QUOTE_DETAILS = ROOT / "cloudflare/src/quote_details.py"
+
+
+def _load_worker_volume_stats():
+    spec = importlib.util.spec_from_file_location(
+        "worker_quote_details", WORKER_QUOTE_DETAILS
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module._volume_stats
 
 
 class _BrokenRepository:
@@ -15,7 +25,7 @@ class _BrokenRepository:
 
 def test_worker_otec_volume_database_failure_is_propagated() -> None:
     with pytest.raises(RuntimeError, match="D1 unavailable"):
-        asyncio.run(_volume_stats(_BrokenRepository(), "OTEC", []))
+        asyncio.run(_load_worker_volume_stats()(_BrokenRepository(), "OTEC", []))
 
 
 def test_issue_83_market_quote_contract() -> None:
