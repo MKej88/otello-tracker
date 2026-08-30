@@ -6,7 +6,7 @@
 -- Raw issuer weekly amounts and two stale treasury disclosures are retained in source
 -- metadata. Model rows use the issuer's cumulative program totals as the control.
 
-CREATE TEMP TABLE _otec_buyback_2023_h1_2024 (
+CREATE TABLE _otec_buyback_2023_h1_2024 (
     release_date TEXT NOT NULL,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL PRIMARY KEY,
