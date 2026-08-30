@@ -462,3 +462,22 @@ def test_report_split_state_uses_latest_valid_anchor_and_1h26_other_shares() -> 
     assert result["life360_report_usd"] == Decimal("2049870.08")
     assert result["alliance_report_usd"] == Decimal("1886129.92")
     assert result["residual_report_usd"] == Decimal("-1003000")
+
+
+def test_year_to_date_is_forwarded_to_estimated_history(monkeypatch) -> None:
+    async def base(_repository, *, days, year_to_date):
+        assert days == 242
+        assert year_to_date is True
+        return {"ready": False, "reason": "test_complete"}
+
+    monkeypatch.setattr(
+        estimated_nav_history_display, "_estimated_nav_history", base
+    )
+
+    result = asyncio.run(
+        estimated_nav_history_display.estimated_nav_history(
+            Repository(), days=242, year_to_date=True
+        )
+    )
+
+    assert result["reason"] == "test_complete"

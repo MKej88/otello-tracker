@@ -239,9 +239,11 @@ def dashboard_history(
 def dashboard_discount_history(
     days: int = Query(default=365, ge=30, le=3650),
     max_points: int = Query(default=600, ge=50, le=1000),
+    year_to_date: bool = Query(default=False),
 ) -> dict:
     return get_discount_history(
         settings.database_path,
         days=days,
         max_points=max_points,
+        year_to_date=year_to_date,
     )

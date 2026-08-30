@@ -633,9 +633,17 @@ def _enrich_change(
         }
 
 
-def estimated_nav_history(database_path: str | None = None, *, days: int) -> dict[str, Any]:
+def estimated_nav_history(
+    database_path: str | None = None,
+    *,
+    days: int,
+    year_to_date: bool = False,
+) -> dict[str, Any]:
     """Reference presentation for the investor-facing Estimert NAV composition."""
-    result = deepcopy(_estimated_nav_history(database_path, days=days))
+    history_options = {"days": days}
+    if year_to_date:
+        history_options["year_to_date"] = True
+    result = deepcopy(_estimated_nav_history(database_path, **history_options))
     if not result.get("ready"):
         return result
 

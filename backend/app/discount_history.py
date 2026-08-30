@@ -243,8 +243,12 @@ def _apply_other_share_change_split(
     return True
 
 
-def _estimated_extension(database_path: str | None, days: int) -> dict[str, Any]:
-    result = estimated_nav_history(database_path, days=days)
+def _estimated_extension(
+    database_path: str | None, days: int, *, year_to_date: bool = False
+) -> dict[str, Any]:
+    result = estimated_nav_history(
+        database_path, days=days, year_to_date=year_to_date
+    )
     change = result.get("change") or {}
     if change.get("ready"):
         start_report = _investment_report_for_nav_date(
@@ -264,12 +268,20 @@ def _estimated_extension(database_path: str | None, days: int) -> dict[str, Any]
     return {**result, "statistics": _discount_statistics(result.get("points") or [])}
 
 
-def discount_history(database_path: str | None = None, *, days: int = 365, max_points: int = 600) -> dict[str, Any]:
+def discount_history(
+    database_path: str | None = None,
+    *,
+    days: int = 365,
+    max_points: int = 600,
+    year_to_date: bool = False,
+) -> dict[str, Any]:
     """Validated legacy history plus the user-facing historical Estimert NAV series."""
     days = max(30, min(int(days), 3650))
     max_points = max(50, min(int(max_points), 1000))
     history = dashboard_history(database_path, days=days, max_points=max_points)
-    estimated = _estimated_extension(database_path, days)
+    estimated = _estimated_extension(
+        database_path, days, year_to_date=year_to_date
+    )
     if not history.get("ready"):
         return {**history, "period_days": days, "statistics": _discount_statistics([]), "current_economic": _economic_reference(database_path), "estimated": estimated}
     with get_connection(database_path) as connection:

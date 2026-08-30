@@ -632,9 +632,14 @@ def _enrich_change(
         }
 
 
-async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
+async def estimated_nav_history(
+    repository, *, days: int, year_to_date: bool = False
+) -> dict[str, Any]:
     """Present the investor NAV with report cash and investments split into explicit rows."""
-    result = deepcopy(await _estimated_nav_history(repository, days=days))
+    history_options = {"days": days}
+    if year_to_date:
+        history_options["year_to_date"] = True
+    result = deepcopy(await _estimated_nav_history(repository, **history_options))
     if not result.get("ready"):
         return result
 

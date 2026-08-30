@@ -358,8 +358,11 @@ def estimated_nav_history(
     database_path: str | None = None,
     *,
     days: int,
+    year_to_date: bool = False,
 ) -> dict[str, Any]:
-    result = _display_history(database_path, days=days)
+    result = _display_history(
+        database_path, days=days, year_to_date=year_to_date
+    )
     if not result.get("ready"):
         return result
 

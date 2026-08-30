@@ -681,13 +681,20 @@ async def _change(repository, start: dict[str, Any], current: dict[str, Any], re
     )
 
 
-async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
+async def estimated_nav_history(
+    repository, *, days: int, year_to_date: bool = False
+) -> dict[str, Any]:
     days = max(30, min(int(days), 3650))
     latest = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS max_date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL'", (FULL_CALCULATION_VERSION,))
     current_date = latest.get("max_date") if latest is not None else None
     if current_date is None:
         return {"ready": False, "reason": "missing_full_nav", "points": []}
-    requested_start = (date.fromisoformat(str(current_date)) - timedelta(days=days)).isoformat()
+    current_day = date.fromisoformat(str(current_date))
+    requested_start = (
+        date(current_day.year, 1, 1).isoformat()
+        if year_to_date
+        else (current_day - timedelta(days=days)).isoformat()
+    )
     rows = await repository.all("SELECT DISTINCT substr(as_of_at,1,10) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)>=? AND substr(as_of_at,1,10)<=? ORDER BY date", (FULL_CALCULATION_VERSION, requested_start, current_date))
     predecessor = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)<=?", (FULL_CALCULATION_VERSION, requested_start))
     dates = [str(row["date"]) for row in rows if row.get("date")]
