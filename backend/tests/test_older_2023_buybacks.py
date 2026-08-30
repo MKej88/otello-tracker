@@ -112,5 +112,5 @@ def test_2023_calendar_program_seeds_cash_and_share_counts(tmp_path) -> None:
     # A 3Y-style period beginning inside the 28 Aug-1 Sep weekly status must not
     # attribute the whole crossing week. The remaining complete 2023 weeks are exact.
     assert period["buyback_cash_nok"] == Decimal("-5680128")
-    assert period["weekly_rows"] == 17
+    assert period["weekly_buyback_rows"] == 17
     assert period["cross_start_weekly_excluded"] == 1
