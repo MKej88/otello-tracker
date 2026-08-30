@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
 import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
 import OverviewPage from "./OverviewPage";
+import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
+import { preloadJson } from "./navigationDataPreload";
 import "./investor-v2.css";
 
 const loadNavPage = () => import("./NavPageV2");
@@ -27,8 +29,14 @@ function ViewFallback() {
 }
 
 function preload(view: View) {
-  if (view === "NAV") void loadNavPage();
-  if (view === "Historikk") void loadHistoryPage();
+  if (view === "NAV") {
+    void loadNavPage();
+    preloadJson(discountHistoryUrl(investorPeriods()[0]));
+  }
+  if (view === "Historikk") {
+    void loadHistoryPage();
+    preloadJson(discountHistoryUrl(investorPeriods()[4]));
+  }
   if (view === "Tilbakekjøpsprogram") void loadBuybackPage();
   if (view === "Bemobi") void loadBemobiPage();
   if (view === "Brasil") void loadBrazilPage();
@@ -51,10 +59,11 @@ function ActiveView({ view }: { view: View }) {
   return <DataQualityPage />;
 }
 
+const initialView = viewFromHash(window.location.hash);
+preload(initialView);
+
 export default function InvestorApp() {
-  const [activeView, setActiveView] = useState<View>(() =>
-    viewFromHash(window.location.hash),
-  );
+  const [activeView, setActiveView] = useState<View>(initialView);
 
   useEffect(() => {
     const handleHashChange = () =>
@@ -69,6 +78,7 @@ export default function InvestorApp() {
 
   function selectView(view: View) {
     if (view === activeView) return;
+    preload(view);
     window.location.hash = viewSlugs[view];
   }
 

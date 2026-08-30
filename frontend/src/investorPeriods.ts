@@ -16,3 +16,8 @@ export function investorPeriods(): InvestorPeriod[] {
     { key: "3y", label: "3 ÅR", days: 1095 },
   ];
 }
+
+export function discountHistoryUrl(period: InvestorPeriod): string {
+  const yearToDate = period.key === "ytd" ? "&year_to_date=true" : "";
+  return `/api/dashboard/discount-history?days=${period.days}&max_points=72${yearToDate}`;
+}
