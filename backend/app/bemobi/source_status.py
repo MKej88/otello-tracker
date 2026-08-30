@@ -162,34 +162,41 @@ def _latest_fact(
 
 
 def _operational_source_items(connection) -> list[dict[str, Any]]:
+    source_codes = tuple(
+        source.source_code for source in _OPERATIONAL_SOURCE_DEFINITIONS
+    )
+    placeholders = ",".join("?" for _ in source_codes)
+    rows = connection.execute(
+        f"""
+        SELECT s.code,
+               s.base_url,
+               sh.checked_at,
+               sh.status,
+               sh.error_message,
+               sd.fetched_at,
+               sd.published_at
+        FROM sources s
+        LEFT JOIN source_health sh ON sh.id = (
+            SELECT id FROM source_health
+            WHERE source_id = s.id
+            ORDER BY checked_at DESC, id DESC
+            LIMIT 1
+        )
+        LEFT JOIN source_documents sd ON sd.id = (
+            SELECT id FROM source_documents
+            WHERE source_id = s.id
+            ORDER BY fetched_at DESC, id DESC
+            LIMIT 1
+        )
+        WHERE s.code IN ({placeholders})
+        """,
+        source_codes,
+    ).fetchall()
+    values_by_code = {str(row["code"]): dict(row) for row in rows}
+
     items: list[dict[str, Any]] = []
     for source in _OPERATIONAL_SOURCE_DEFINITIONS:
-        row = connection.execute(
-            """
-            SELECT s.base_url,
-                   sh.checked_at,
-                   sh.status,
-                   sh.error_message,
-                   sd.fetched_at,
-                   sd.published_at
-            FROM sources s
-            LEFT JOIN source_health sh ON sh.id = (
-                SELECT id FROM source_health
-                WHERE source_id = s.id
-                ORDER BY checked_at DESC, id DESC
-                LIMIT 1
-            )
-            LEFT JOIN source_documents sd ON sd.id = (
-                SELECT id FROM source_documents
-                WHERE source_id = s.id
-                ORDER BY fetched_at DESC, id DESC
-                LIMIT 1
-            )
-            WHERE s.code = ?
-            """,
-            (source.source_code,),
-        ).fetchone()
-        values = {} if row is None else dict(row)
+        values = values_by_code.get(source.source_code, {})
         health_status = str(values.get("status") or "UNKNOWN").upper()
         status = "ERROR" if health_status == "DOWN" else health_status
         detail = values.get("error_message")
