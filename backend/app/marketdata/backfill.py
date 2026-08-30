@@ -109,6 +109,13 @@ def import_ecb_fx_csv(
     """Legacy historical import retained for already archived ECB source files."""
     payload = text.encode("utf-8")
     rows = derive_nok_cross_rates(parse_ecb_csv(text))
+    imported_bases = {row.base_currency for row in rows}
+    missing_bases = sorted({"BRL", "USD"} - imported_bases)
+    if missing_bases:
+        raise ValueError(
+            "ECB-responsen er tom eller ufullstendig; mangler krysskurs for "
+            + ", ".join(missing_bases)
+        )
     digest = _sha256(payload)
     written = 0
     with get_connection(database_path) as connection:
