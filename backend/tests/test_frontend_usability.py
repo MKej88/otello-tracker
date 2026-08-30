@@ -59,6 +59,14 @@ def test_shared_formatting_and_resource_messages_are_used() -> None:
     assert 'kind="error"' in history
 
 
+def test_data_quality_shows_safe_preflight_warning_messages() -> None:
+    quality = read_frontend("DataQualityPage.tsx")
+
+    assert "warnings?: Array<{ code: string; message: string }>" in quality
+    assert "nightly?.preflight?.warnings ?? []" in quality
+    assert ".map((warning) => warning.message)" in quality
+
+
 def test_history_chart_has_a_text_summary() -> None:
     history = read_frontend("EstimatedHistoryPage.tsx")
 

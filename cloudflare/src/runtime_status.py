@@ -97,6 +97,47 @@ def _job_freshness(
     }
 
 
+def _public_preflight_warnings(
+    preflight: dict[str, Any],
+    *,
+    target_date: Any = None,
+) -> list[dict[str, str]]:
+    """Expose only curated, non-sensitive explanations for known preflight warnings."""
+    raw_warnings = preflight.get("warnings")
+    if not isinstance(raw_warnings, list):
+        return []
+
+    target_year = str(target_date or "")[:4]
+    public_warnings: list[dict[str, str]] = []
+    for warning in raw_warnings:
+        if not isinstance(warning, dict):
+            continue
+        code = str(warning.get("name") or "").strip()
+        details = warning.get("details")
+        safe_details = details if isinstance(details, dict) else {}
+
+        if code == "bemobi_cvm_current_year":
+            period = f" for {target_year}" if target_year.isdigit() and len(target_year) == 4 else ""
+            message = f"Bemobi / CVM: Ingen CVM-dokumenter funnet{period}."
+        elif code == "dashboard_quality":
+            data_status = str(safe_details.get("data_status") or "").upper()
+            if data_status == "ESTIMATED":
+                message = "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer."
+            elif data_status == "DEGRADED":
+                message = "Dashboardkvalitet: Datakvaliteten er redusert og bør kontrolleres."
+            else:
+                message = "Dashboardkvalitet: Nattkontrollen registrerte en kvalitetsadvarsel."
+        elif code == "buyback_forecast_current_state":
+            message = "Tilbakekjøpsprognose: Prognosemotoren er ikke klar i gjeldende tilstand."
+        else:
+            # Unknown checks may contain arbitrary upstream details. Keep those private.
+            continue
+
+        public_warnings.append({"code": code, "message": message})
+
+    return public_warnings
+
+
 def _job_payload(
     row: dict[str, Any] | None,
     *,
@@ -147,6 +188,10 @@ def _job_payload(
             "ready": bool(preflight.get("ready")),
             "blocker_count": len(preflight.get("blockers") or []),
             "warning_count": len(preflight.get("warnings") or []),
+            "warnings": _public_preflight_warnings(
+                preflight,
+                target_date=metadata.get("target_date"),
+            ),
         }
         if preflight
         else None,
