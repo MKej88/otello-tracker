@@ -660,6 +660,11 @@ async def _upsert_fact(
             notes=excluded.notes,
             source_document_id=excluded.source_document_id,
             updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE bemobi_investor_facts.as_of_date IS NULL
+           OR (
+               excluded.as_of_date IS NOT NULL
+               AND excluded.as_of_date >= bemobi_investor_facts.as_of_date
+           )
         """,
         (
             fact_type, fact_key, as_of_date, published_date,
