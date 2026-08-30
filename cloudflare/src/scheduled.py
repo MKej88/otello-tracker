@@ -23,6 +23,7 @@ try:
         maybe_finalize_otec_eod,
         refresh_otec_with_gap_recovery,
     )
+    from .otello_interest_income import sync_interest_income_anchors_from_report_result
     from .otello_report_ingestion import process_pending_otello_reports
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
@@ -42,6 +43,7 @@ except ImportError:
         maybe_finalize_otec_eod,
         refresh_otec_with_gap_recovery,
     )
+    from otello_interest_income import sync_interest_income_anchors_from_report_result
     from otello_report_ingestion import process_pending_otello_reports
     from performance_repository import PerformanceD1WriteRepository
 
@@ -362,6 +364,17 @@ async def run_fast_refresh(
                     }
                 )
 
+    interest_result = await _safe_async_step(
+        "otello_interest",
+        lambda: sync_interest_income_anchors_from_report_result(repository, report_result),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+    if isinstance(interest_result, dict):
+        records_written += int(interest_result.get("written") or 0)
+        _append_nested_errors("otello_interest", interest_result, errors=errors)
+
     if renew_lock is not None:
         await renew_lock("after Otello reports")
 
@@ -487,6 +500,7 @@ async def run_fast_refresh(
         "source_errors": errors,
         "dirty_nav_enabled": True,
         "automatic_report_ingestion": archive_bucket is not None,
+        "automatic_interest_income_ingestion": True,
         "performance": {
             "total_ms_before_finish_job": total_ms,
             "step_timings_ms": timings_ms,
