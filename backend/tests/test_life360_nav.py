@@ -10,7 +10,7 @@ CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
-from life360_nav import life360_nav_adjustment  # noqa: E402
+from life360_nav import life360_market_value, life360_nav_adjustment  # noqa: E402
 
 
 class _Repository:
@@ -30,6 +30,18 @@ class _Repository:
             return {"as_of_date": "2025-12-31"}
         if "FROM life360_holding_anchors" in sql:
             day = str(parameters[0])
+            if day < "2025-12-31":
+                return {
+                    "id": 2,
+                    "effective_from": "2022-12-31",
+                    "effective_to": "2025-12-30",
+                    "shares": 37_028,
+                    "quality": "DERIVED_MEDIUM_CONFIDENCE",
+                    "basis": "CONTINUITY_DERIVED_FROM_REPORTED_OWNERSHIP_AND_2025_FAIR_VALUE",
+                    "source_document_id": 19,
+                    "source_locator": "Annual Report 2024 continuity attribution",
+                    "notes": "historical attribution test",
+                }
             if day == "2025-12-31":
                 shares = 37_028
                 effective_from = "2025-12-31"
@@ -52,7 +64,18 @@ class _Repository:
                 "notes": "test",
             }
         if "FROM market_prices" in sql:
-            day = str(parameters[0])
+            symbol, currency, day = map(str, parameters[:3])
+            if symbol == "360.AX":
+                return {
+                    "trading_date": day,
+                    "observed_at": f"{day}T06:00:00Z",
+                    "price": "20.00",
+                    "quality": "SECONDARY",
+                    "source_document_id": 9,
+                    "source_code": "YAHOO_FINANCE",
+                }
+            assert symbol == "LIF"
+            assert currency == "USD"
             if day == "2025-12-31":
                 return {
                     "trading_date": "2025-12-31",
@@ -62,20 +85,21 @@ class _Repository:
                     "source_document_id": 10,
                     "source_code": "YAHOO_FINANCE",
                 }
-            if self.missing_current_price:
+            if self.missing_current_price and day >= "2026-01-01":
                 return None
             return {
-                "trading_date": "2026-08-21",
-                "observed_at": "2026-08-21T20:00:01Z",
+                "trading_date": day,
+                "observed_at": f"{day}T20:00:01Z",
                 "price": "44.66",
                 "quality": "SECONDARY",
                 "source_document_id": 11,
                 "source_code": "YAHOO_FINANCE",
             }
         if "FROM fx_rates" in sql:
+            base_currency, day = map(str, parameters[:2])
             return {
-                "rate_date": "2026-08-21",
-                "rate": "10.0",
+                "rate_date": day,
+                "rate": "6.5" if base_currency == "AUD" else "10.0",
                 "source_document_id": 12,
                 "source_code": "NORGES_BANK",
             }
@@ -160,3 +184,30 @@ def test_life360_does_not_restate_pre_fair_value_history() -> None:
     assert result["reason"] == "life360_fair_value_policy_not_active"
     assert result["adjustment_nok"] == Decimal("0")
     assert result["history_available_from"] == "2019-05-10"
+
+
+def test_historical_life360_uses_three_asx_cdis_per_common_share() -> None:
+    result = asyncio.run(life360_market_value(_Repository(), as_of_date="2023-08-30"))
+
+    expected = Decimal(37_028) * Decimal("3") * Decimal("20") * Decimal("6.5")
+    assert result["ready"] is True
+    assert result["market_symbol"] == "360.AX"
+    assert result["currency"] == "AUD"
+    assert result["quote_units_per_common"] == Decimal("3")
+    assert result["holding_quality"] == "DERIVED_MEDIUM_CONFIDENCE"
+    assert result["market_value_nok"] == expected
+    assert result["method"] == "ASX_CDI_3_TO_1_TIMES_AUD_NOK"
+    assert result["accounting_nav_restatement"] is False
+
+
+def test_historical_life360_switches_to_nasdaq_common_shares_from_listing() -> None:
+    result = asyncio.run(life360_market_value(_Repository(), as_of_date="2025-06-30"))
+
+    expected = Decimal(37_028) * Decimal("44.66") * Decimal("10")
+    assert result["ready"] is True
+    assert result["market_symbol"] == "LIF"
+    assert result["currency"] == "USD"
+    assert result["quote_units_per_common"] == Decimal("1")
+    assert result["market_value_nok"] == expected
+    assert result["method"] == "NASDAQ_COMMON_TIMES_USD_NOK"
+    assert result["accounting_nav_restatement"] is False
