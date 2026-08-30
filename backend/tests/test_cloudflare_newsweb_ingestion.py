@@ -468,6 +468,41 @@ def test_worker_weekly_buyback_writes_actual_d1_schema_idempotently() -> None:
         repository.connection.close()
 
 
+def test_worker_weekly_buyback_fails_before_writes_without_share_count() -> None:
+    repository = SqliteD1Repository()
+    try:
+        parsed = parse_newsweb_weekly_status(DECIMAL_COMMA_WEEK_2025)
+        message = _message(
+            678030,
+            "Otello Corporation share buyback program status",
+            body=DECIMAL_COMMA_WEEK_2025,
+            published="2025-07-18T16:00:00Z",
+        )
+
+        with pytest.raises(ValueError, match="Mangler registrert totalaksjetall"):
+            asyncio.run(ingest_weekly_buyback(repository, message, parsed))
+
+        counts = {
+            table: repository.connection.execute(
+                f"SELECT COUNT(*) FROM {table}"
+            ).fetchone()[0]
+            for table in (
+                "source_documents",
+                "buyback_programs",
+                "buybacks",
+                "cash_movements",
+            )
+        }
+        assert counts == {
+            "source_documents": 0,
+            "buyback_programs": 0,
+            "buybacks": 0,
+            "cash_movements": 0,
+        }
+    finally:
+        repository.connection.close()
+
+
 def test_worker_newsweb_does_not_overwrite_stronger_euronext_buyback_fact() -> None:
     repository = SqliteD1Repository()
     try:
