@@ -33,6 +33,9 @@ D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_p
 D1_BEMOBI_REPORTED_NET_INCOME = (
     ROOT / "cloudflare" / "migrations" / "0023_bemobi_reported_net_income_seed.sql"
 )
+D1_BEMOBI_HARMONIZED_REVENUE = (
+    ROOT / "cloudflare" / "migrations" / "0024_bemobi_harmonized_revenue_seed.sql"
+)
 D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
@@ -68,6 +71,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))
         connection.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))
         connection.executescript(D1_BEMOBI_REPORTED_NET_INCOME.read_text(encoding="utf-8"))
+        connection.executescript(D1_BEMOBI_HARMONIZED_REVENUE.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
