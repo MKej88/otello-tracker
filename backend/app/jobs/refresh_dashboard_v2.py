@@ -15,11 +15,18 @@ from app.jobs.refresh_dashboard import run_refresh as run_core_refresh
 from app.jobs.refresh_helpers import (
     eod_is_authoritative as _eod_is_authoritative,
     previous_oslo_trading_day as _previous_oslo_trading_day,
+    safe_step as _safe_step,
 )
 from app.marketdata.bmob3_close import refresh_bmob3_official_close
-from app.marketdata.bmob3_feed import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+from app.marketdata.bmob3_feed import (
+    maybe_finalize_bmob3_eod,
+    refresh_bmob3_intraday_price,
+)
 from app.marketdata.euronext_delayed import download_euronext_delayed_equities
-from app.marketdata.otec_feed import finalize_otec_eod_from_payload, refresh_otec_intraday_price
+from app.marketdata.otec_feed import (
+    finalize_otec_eod_from_payload,
+    refresh_otec_intraday_price,
+)
 
 
 def _record_error(result: dict[str, Any], step: str, exc: Exception) -> None:
@@ -51,7 +58,10 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
     pre_errors: list[dict[str, str]] = []
 
     existing_activity = market_activity_status(database_path)
-    if existing_activity["status"] == "empty" or (existing_activity.get("count") or 0) < 500:
+    if (
+        existing_activity["status"] == "empty"
+        or (existing_activity.get("count") or 0) < 500
+    ):
         pre_steps["otec_activity_seed"] = seed_otec_activity_history(database_path)
     else:
         pre_steps["otec_activity_seed"] = {
@@ -62,11 +72,11 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         }
 
     if requested_live_otec and target_day == today:
-        try:
-            pre_steps["otec_delayed"] = refresh_otec_intraday_price(database_path)
-        except Exception as exc:
-            pre_errors.append({"step": "otec_delayed", "error": str(exc)})
-            pre_steps["otec_delayed"] = None
+        pre_steps["otec_delayed"] = _safe_step(
+            "otec_delayed",
+            lambda: refresh_otec_intraday_price(database_path),
+            pre_errors,
+        )
     elif requested_live_otec:
         pre_steps["otec_delayed"] = {
             "skipped": True,
@@ -76,28 +86,28 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["otec_delayed"] = {"skipped": True}
 
     if requested_b3 and target_day == today:
-        try:
-            pre_steps["bmob3_official_close"] = refresh_bmob3_official_close(
+        pre_steps["bmob3_official_close"] = _safe_step(
+            "bmob3_official_close",
+            lambda: refresh_bmob3_official_close(
                 database_path,
                 target_date=target_day.isoformat(),
-            )
-        except Exception as exc:
-            pre_errors.append({"step": "bmob3_official_close", "error": str(exc)})
-            pre_steps["bmob3_official_close"] = None
+            ),
+            pre_errors,
+        )
 
-        try:
+        def refresh_bmob3_delayed() -> Any:
             bmob3_eod = maybe_finalize_bmob3_eod(database_path)
             pre_steps["bmob3_eod"] = bmob3_eod
             if _eod_is_authoritative(bmob3_eod):
-                pre_steps["bmob3_delayed"] = {
+                return {
                     "skipped": True,
                     "reason": "eod_finalized_for_session",
                 }
-            else:
-                pre_steps["bmob3_delayed"] = refresh_bmob3_intraday_price(database_path)
-        except Exception as exc:
-            pre_errors.append({"step": "bmob3_delayed", "error": str(exc)})
-            pre_steps["bmob3_delayed"] = None
+            return refresh_bmob3_intraday_price(database_path)
+
+        pre_steps["bmob3_delayed"] = _safe_step(
+            "bmob3_delayed", refresh_bmob3_delayed, pre_errors
+        )
     elif requested_b3:
         pre_steps["bmob3_official_close"] = {
             "skipped": True,
@@ -116,8 +126,13 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["bmob3_eod"] = {"skipped": True}
         pre_steps["bmob3_delayed"] = {"skipped": True}
 
-    if target_day == today and today.weekday() < 5 and not activity_check_done(database_path):
-        try:
+    if (
+        target_day == today
+        and today.weekday() < 5
+        and not activity_check_done(database_path)
+    ):
+
+        def refresh_previous_day_activity() -> dict[str, Any]:
             url, payload = download_euronext_delayed_equities("PREVIOUS_TRADING_DAY")
             activity = ingest_previous_trading_day_activity(
                 payload,
@@ -132,13 +147,16 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
                 database_path=database_path,
                 source_selection="PREVIOUS_TRADING_DAY",
             )
-            pre_steps["otec_previous_day_activity"] = {
+            return {
                 "activity": activity,
                 "eod_price": prior_eod,
             }
-        except Exception as exc:
-            pre_errors.append({"step": "otec_previous_day_activity", "error": str(exc)})
-            pre_steps["otec_previous_day_activity"] = None
+
+        pre_steps["otec_previous_day_activity"] = _safe_step(
+            "otec_previous_day_activity",
+            refresh_previous_day_activity,
+            pre_errors,
+        )
     else:
         pre_steps["otec_previous_day_activity"] = {
             "skipped": True,
