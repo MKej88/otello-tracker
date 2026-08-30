@@ -310,17 +310,14 @@ def _volume_stats(
     connection, symbol: str, history: list[dict[str, Any]]
 ) -> dict[str, Any]:
     if symbol == "OTEC":
-        try:
-            rows = [dict(row) for row in connection.execute("""
-                    SELECT trading_date, volume_shares
-                    FROM market_activity ma
-                    JOIN instruments i ON i.id=ma.instrument_id
-                    WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
-                    ORDER BY trading_date DESC, ma.id DESC
-                    LIMIT 126
-                    """)]
-        except Exception:
-            rows = []
+        rows = [dict(row) for row in connection.execute("""
+                SELECT trading_date, volume_shares
+                FROM market_activity ma
+                JOIN instruments i ON i.id=ma.instrument_id
+                WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
+                ORDER BY trading_date DESC, ma.id DESC
+                LIMIT 126
+                """)]
         deduped: dict[str, float] = {}
         for row in rows:
             if row["trading_date"] in deduped:

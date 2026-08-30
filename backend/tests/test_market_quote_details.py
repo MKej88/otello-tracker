@@ -3,14 +3,26 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from app.buybacks.activity import seed_otec_activity_history
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.db.repository import upsert_market_price
 from app.marketdata.b3_cotahist import parse_cotahist_line
-from app.marketdata.quote_details import market_quote_details
+from app.marketdata.quote_details import _volume_stats, market_quote_details
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _BrokenConnection:
+    def execute(self, *_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+
+def test_otec_volume_database_failure_is_propagated() -> None:
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        _volume_stats(_BrokenConnection(), "OTEC", [])
 
 
 def _put(chars: list[str], start: int, end: int, value: str) -> None:
