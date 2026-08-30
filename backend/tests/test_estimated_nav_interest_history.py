@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -65,8 +66,8 @@ def test_manifest_interest_history_is_contiguous_from_2h23_through_1h26() -> Non
         "1H26",
     ]
     for previous, current in zip(anchors, anchors[1:], strict=False):
-        previous_end = __import__("datetime").date.fromisoformat(previous["source_period_end"])
-        current_start = __import__("datetime").date.fromisoformat(current["source_period_start"])
+        previous_end = date.fromisoformat(previous["source_period_end"])
+        current_start = date.fromisoformat(current["source_period_start"])
         assert (current_start - previous_end).days == 1
 
 
