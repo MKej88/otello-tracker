@@ -7,7 +7,6 @@ import app.marketdata.bmob3_feed as feed
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
-
 B3_TZ = ZoneInfo("America/Sao_Paulo")
 
 
@@ -86,20 +85,47 @@ def test_intraday_refresh_persists_delayed_last(tmp_path, monkeypatch) -> None:
     assert result["delay_minutes"] == 15
 
     with get_connection(database) as connection:
-        row = connection.execute(
-            """
+        row = connection.execute("""
             SELECT mp.price_type, mp.price, mp.quality, mp.observed_at, mp.metadata_json
             FROM market_prices mp
             JOIN instruments i ON i.id=mp.instrument_id
             WHERE i.symbol='BMOB3' AND mp.trading_date='2026-08-17'
             ORDER BY mp.id DESC LIMIT 1
-            """
-        ).fetchone()
+            """).fetchone()
     assert row["price_type"] == "LAST"
     assert Decimal(row["price"]) == Decimal("22.59")
     assert row["quality"] == "DIRECT"
     assert row["observed_at"] == "2026-08-17T14:30:03Z"
     assert '"public_delay_minutes": 15' in row["metadata_json"]
+
+
+def test_intraday_refresh_rejects_stale_same_day_response(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "bmob3-stale.db")
+    init_database(database)
+    payload = _payload(timestamp="2026-08-17 10:30:00")
+    monkeypatch.setattr(
+        feed,
+        "download_bmob3_web_quote",
+        lambda **_kwargs: ("https://cotacao.b3.com.br/example", payload),
+    )
+
+    result = feed.refresh_bmob3_intraday_price(
+        database,
+        now=datetime(2026, 8, 17, 12, 0, tzinfo=B3_TZ),
+    )
+
+    assert result["status"] == "stale"
+    assert result["reason"] == "provider_timestamp_stale"
+    with get_connection(database) as connection:
+        count = connection.execute("""
+            SELECT COUNT(*)
+            FROM market_prices mp
+            JOIN instruments i ON i.id = mp.instrument_id
+            WHERE i.symbol = 'BMOB3' AND mp.trading_date = '2026-08-17'
+            """).fetchone()[0]
+    assert count == 0
 
 
 def test_intraday_skips_before_window_and_after_eod(monkeypatch) -> None:
@@ -156,15 +182,39 @@ def test_eod_finalization_stores_last_not_close(tmp_path, monkeypatch) -> None:
     }
 
     with get_connection(database) as connection:
-        rows = connection.execute(
-            """
+        rows = connection.execute("""
             SELECT mp.price_type, mp.price, mp.metadata_json
             FROM market_prices mp
             JOIN instruments i ON i.id=mp.instrument_id
             WHERE i.symbol='BMOB3' AND mp.trading_date='2026-08-17'
-            """
-        ).fetchall()
+            """).fetchall()
     assert len(rows) == 1
     assert rows[0]["price_type"] == "LAST"
     assert Decimal(rows[0]["price"]) == Decimal("22.61")
     assert "FINAL_DELAYED_WEB_QUOTE_NOT_COTAHIST_CLOSE" in rows[0]["metadata_json"]
+
+
+def test_eod_finalization_rejects_same_day_morning_response(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "bmob3-stale-eod.db")
+    init_database(database)
+    payload = _payload(timestamp="2026-08-17 11:45:03")
+    monkeypatch.setattr(
+        feed,
+        "download_bmob3_web_quote",
+        lambda **_kwargs: ("https://cotacao.b3.com.br/example", payload),
+    )
+
+    result = feed.finalize_bmob3_eod_price(database, target_date="2026-08-17")
+
+    assert result["status"] == "stale"
+    assert result["reason"] == "provider_timestamp_before_eod_cutoff"
+    with get_connection(database) as connection:
+        count = connection.execute("""
+            SELECT COUNT(*)
+            FROM market_prices mp
+            JOIN instruments i ON i.id = mp.instrument_id
+            WHERE i.symbol = 'BMOB3' AND mp.trading_date = '2026-08-17'
+            """).fetchone()[0]
+    assert count == 0

@@ -20,6 +20,7 @@ BMOB3_SYMBOL = "BMOB3"
 B3_TZ = ZoneInfo("America/Sao_Paulo")
 B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/BMOB3"
 B3_PUBLIC_DELAY_MINUTES = 15
+MAX_PROVIDER_CLOCK_AGE = timedelta(minutes=30)
 MAX_QUOTE_BYTES = 256 * 1024
 # B3's public equities page explicitly states that displayed data is 15 minutes delayed.
 # The endpoint is B3-hosted but is not a documented contractual B2B API, so it is treated
@@ -83,10 +84,12 @@ def parse_bmob3_web_quote(payload: bytes | str) -> Bmob3WebQuote:
     if ((data.get("BizSts") or {}).get("cd")) != "OK":
         raise ValueError(f"B3 quote status is not OK: {data.get('BizSts')!r}")
 
-    timestamp = ((data.get("Msg") or {}).get("dtTm"))
+    timestamp = (data.get("Msg") or {}).get("dtTm")
     if not timestamp:
         raise ValueError("B3 quote response is missing Msg.dtTm")
-    provider_datetime = datetime.strptime(str(timestamp), "%Y-%m-%d %H:%M:%S").replace(tzinfo=B3_TZ)
+    provider_datetime = datetime.strptime(str(timestamp), "%Y-%m-%d %H:%M:%S").replace(
+        tzinfo=B3_TZ
+    )
 
     selected: dict[str, Any] | None = None
     for item in data.get("Trad") or []:
@@ -119,8 +122,14 @@ def parse_bmob3_web_quote(payload: bytes | str) -> Bmob3WebQuote:
         average_price=_decimal(quotation.get("avrgPric")),
         price_change_pct=_decimal(quotation.get("prcFlcn")),
         total_trades=total_trades,
-        description=str(security.get("desc")) if security.get("desc") is not None else None,
-        market_name=str((security.get("mkt") or {}).get("nm")) if (security.get("mkt") or {}).get("nm") is not None else None,
+        description=(
+            str(security.get("desc")) if security.get("desc") is not None else None
+        ),
+        market_name=(
+            str((security.get("mkt") or {}).get("nm"))
+            if (security.get("mkt") or {}).get("nm") is not None
+            else None
+        ),
         raw=data,
     )
 
@@ -149,11 +158,21 @@ def download_bmob3_web_quote(timeout: int = 20, attempts: int = 3) -> tuple[str,
             if not payload.lstrip().startswith(b"{"):
                 raise RuntimeError("B3 quote endpoint did not return JSON")
             return B3_QUOTE_URL, payload
-        except (IncompleteRead, HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError) as exc:
+        except (
+            IncompleteRead,
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
             last_error = exc
             if attempt < attempts:
                 time.sleep(min(2 ** (attempt - 1), 4))
-    raise RuntimeError(f"B3 BMOB3 quote failed after {attempts} attempts") from last_error
+    raise RuntimeError(
+        f"B3 BMOB3 quote failed after {attempts} attempts"
+    ) from last_error
 
 
 def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
@@ -168,8 +187,12 @@ def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
         "open_price": str(quote.open_price) if quote.open_price is not None else None,
         "min_price": str(quote.min_price) if quote.min_price is not None else None,
         "max_price": str(quote.max_price) if quote.max_price is not None else None,
-        "average_price": str(quote.average_price) if quote.average_price is not None else None,
-        "price_change_pct": str(quote.price_change_pct) if quote.price_change_pct is not None else None,
+        "average_price": (
+            str(quote.average_price) if quote.average_price is not None else None
+        ),
+        "price_change_pct": (
+            str(quote.price_change_pct) if quote.price_change_pct is not None else None
+        ),
         "total_trades": quote.total_trades,
         "description": quote.description,
         "market_name": quote.market_name,
@@ -227,12 +250,24 @@ def refresh_bmob3_intraday_price(
     day = current.date()
 
     if not is_b3_trading_day(day):
-        return {"status": "skipped", "reason": "not_b3_trading_day", "target_date": day.isoformat()}
+        return {
+            "status": "skipped",
+            "reason": "not_b3_trading_day",
+            "target_date": day.isoformat(),
+        }
     start = ASH_WEDNESDAY_START if is_ash_wednesday(day) else INTRADAY_START
     if current.time().replace(tzinfo=None) < start:
-        return {"status": "skipped", "reason": "before_b3_quote_window", "target_date": day.isoformat()}
+        return {
+            "status": "skipped",
+            "reason": "before_b3_quote_window",
+            "target_date": day.isoformat(),
+        }
     if current.time().replace(tzinfo=None) >= EOD_FINALIZE_AFTER:
-        return {"status": "skipped", "reason": "eod_window_has_priority", "target_date": day.isoformat()}
+        return {
+            "status": "skipped",
+            "reason": "eod_window_has_priority",
+            "target_date": day.isoformat(),
+        }
 
     url, payload = download_bmob3_web_quote(timeout=timeout)
     quote = parse_bmob3_web_quote(payload)
@@ -243,7 +278,18 @@ def refresh_bmob3_intraday_price(
             "target_date": day.isoformat(),
             "provider_date": quote.trading_date,
         }
-    price_id = _persist_intraday_quote(quote, payload, source_url=url, database_path=database_path)
+    provider_age = current - quote.provider_datetime
+    if provider_age < timedelta(0) or provider_age > MAX_PROVIDER_CLOCK_AGE:
+        return {
+            "status": "stale",
+            "reason": "provider_timestamp_stale",
+            "target_date": day.isoformat(),
+            "provider_at": quote.provider_at,
+            "provider_age_seconds": int(provider_age.total_seconds()),
+        }
+    price_id = _persist_intraday_quote(
+        quote, payload, source_url=url, database_path=database_path
+    )
     return {
         "status": "ok",
         "feed_mode": "delayed_intraday",
@@ -281,7 +327,11 @@ def finalize_bmob3_eod_price(
     timeout: int = 20,
 ) -> dict[str, Any]:
     if bmob3_eod_check_done(database_path, target_date):
-        return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "eod_already_finalized",
+            "target_date": target_date,
+        }
 
     url, payload = download_bmob3_web_quote(timeout=timeout)
     quote = parse_bmob3_web_quote(payload)
@@ -291,6 +341,13 @@ def finalize_bmob3_eod_price(
             "reason": "provider_date_mismatch",
             "target_date": target_date,
             "provider_date": quote.trading_date,
+        }
+    if quote.provider_datetime.time().replace(tzinfo=None) < EOD_FINALIZE_AFTER:
+        return {
+            "status": "stale",
+            "reason": "provider_timestamp_before_eod_cutoff",
+            "target_date": target_date,
+            "provider_at": quote.provider_at,
         }
 
     digest = hashlib.sha256(payload).hexdigest()
@@ -351,7 +408,15 @@ def maybe_finalize_bmob3_eod(
     target_date = day.isoformat()
 
     if not is_b3_trading_day(day):
-        return {"status": "skipped", "reason": "not_b3_trading_day", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "not_b3_trading_day",
+            "target_date": target_date,
+        }
     if current.time().replace(tzinfo=None) < EOD_FINALIZE_AFTER:
-        return {"status": "skipped", "reason": "before_b3_eod_cutoff", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "before_b3_eod_cutoff",
+            "target_date": target_date,
+        }
     return finalize_bmob3_eod_price(database_path, target_date=target_date)
