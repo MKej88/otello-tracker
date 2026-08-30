@@ -18,6 +18,7 @@ type Job = {
     ready?: boolean;
     blocker_count?: number;
     warning_count?: number;
+    warnings?: Array<{ code: string; message: string }>;
   } | null;
 };
 type Runtime = {
@@ -84,9 +85,12 @@ export default function DataQualityPage() {
   const nightly = runtime?.full_refresh;
   const nightlySources = Object.entries(nightly?.source_health ?? {});
   const healthySourceCount = nightlySources.filter(([, status]) => status === "OK").length;
-  const nightlyWarnings = nightlySources
-    .filter(([, sourceStatus]) => sourceStatus !== "OK")
-    .map(([code, sourceStatus]) => `${SOURCE_LABELS[code] ?? code}: ${statusLabel(sourceStatus)}`);
+  const nightlyWarnings = [
+    ...nightlySources
+      .filter(([, sourceStatus]) => sourceStatus !== "OK")
+      .map(([code, sourceStatus]) => `${SOURCE_LABELS[code] ?? code}: ${statusLabel(sourceStatus)}`),
+    ...(nightly?.preflight?.warnings ?? []).map((warning) => warning.message).filter(Boolean),
+  ];
   const operationalWarnings = [
     runtime?.fast_refresh?.stale ? "30-minutterskjøringen er eldre enn forventet." : null,
     runtime?.fast_refresh?.has_error ? "Siste 30-minutterskjøring registrerte en feil." : null,
