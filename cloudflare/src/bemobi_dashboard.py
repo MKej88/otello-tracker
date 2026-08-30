@@ -12,6 +12,10 @@ BEMOBI_PAYOUT_POLICY_YEAR = 2026
 OTELLO_BRAZIL_DIVIDEND_WITHHOLDING_PCT = 10.0
 OTELLO_BRAZIL_JCP_WITHHOLDING_PCT = 15.0
 
+# Preserve public helper seams used by the financial-integrity parity suite.
+_valuation_payload = _base._valuation_payload
+_distribution_estimate_payload = _base._distribution_estimate_payload
+
 
 def _number(value: Any) -> float | None:
     return _base._number(value)
