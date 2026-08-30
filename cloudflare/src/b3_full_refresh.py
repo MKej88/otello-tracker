@@ -142,6 +142,17 @@ async def refresh_bmob3_close(
         rows = parse_bmob3_daily_zip(payload)
         if not rows:
             continue
+        unexpected_dates = {
+            row.trading_date
+            for row in rows
+            if row.trading_date != candidate.isoformat()
+        }
+        if unexpected_dates:
+            raise ValueError(
+                "B3 COTAHIST-dato matcher ikke forespurt handelsdag: "
+                f"forventet {candidate.isoformat()}, fant "
+                f"{', '.join(sorted(unexpected_dates))}"
+            )
         latest = max(rows, key=lambda item: item.trading_date)
         digest = hashlib.sha256(payload).hexdigest()
         archived = (
