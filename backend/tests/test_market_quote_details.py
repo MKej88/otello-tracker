@@ -10,7 +10,11 @@ from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.db.repository import upsert_market_price
 from app.marketdata.b3_cotahist import parse_cotahist_line
-from app.marketdata.quote_details import _volume_stats, market_quote_details
+from app.marketdata.quote_details import (
+    _volume_stats,
+    _volume_summary,
+    market_quote_details,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,6 +27,41 @@ class _BrokenConnection:
 def test_otec_volume_database_failure_is_propagated() -> None:
     with pytest.raises(RuntimeError, match="database unavailable"):
         _volume_stats(_BrokenConnection(), "OTEC", [])
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        (
+            [("2026-08-20", 120.0), ("2026-08-19", 80.0)],
+            {
+                "latest": 120.0,
+                "latest_date": "2026-08-20",
+                "average_3m": 100.0,
+                "average_sessions": 2,
+                "latest_above_average": True,
+                "unit": "shares",
+                "basis": "TEST_DATA",
+            },
+        ),
+        (
+            [],
+            {
+                "latest": None,
+                "latest_date": None,
+                "average_3m": None,
+                "average_sessions": 0,
+                "latest_above_average": None,
+                "unit": "shares",
+                "basis": "TEST_DATA",
+            },
+        ),
+    ],
+)
+def test_volume_summary_preserves_volume_contract(
+    rows: list[tuple[str, float]], expected: dict[str, object]
+) -> None:
+    assert _volume_summary(rows, basis="TEST_DATA") == expected
 
 
 def _put(chars: list[str], start: int, end: int, value: str) -> None:
