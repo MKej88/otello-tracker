@@ -376,6 +376,10 @@ def _apply_other_share_change_split(
     return True
 
 
+async def _not_required_life360_state() -> dict[str, Any]:
+    return {"ready": False, "reason": "historical_life360_not_required"}
+
+
 async def _estimated_extension(
     repository, days: int, *, year_to_date: bool = False
 ) -> dict[str, Any]:
@@ -386,12 +390,26 @@ async def _estimated_extension(
     if change.get("ready"):
         resolved_start = str(change.get("resolved_start") or "")
         current_date = str(change.get("current_date") or "")
+        historical_life360_required = bool(
+            resolved_start and resolved_start < LIFE360_FAIR_VALUE_POLICY_START
+        )
 
-        if resolved_start and resolved_start < LIFE360_FAIR_VALUE_POLICY_START:
-            start_life360, current_life360 = await asyncio.gather(
-                life360_market_value(repository, as_of_date=resolved_start),
-                life360_market_value(repository, as_of_date=current_date),
-            )
+        start_life360, current_life360, start_report, current_report = await asyncio.gather(
+            (
+                life360_market_value(repository, as_of_date=resolved_start)
+                if historical_life360_required
+                else _not_required_life360_state()
+            ),
+            (
+                life360_market_value(repository, as_of_date=current_date)
+                if historical_life360_required
+                else _not_required_life360_state()
+            ),
+            _investment_report_for_nav_date(repository, resolved_start),
+            _investment_report_for_nav_date(repository, current_date),
+        )
+
+        if historical_life360_required:
             if not apply_historical_life360_change_split(
                 change,
                 start_life360,
@@ -410,10 +428,6 @@ async def _estimated_extension(
                 "policy": "CURRENT_FAIR_VALUE_MODEL",
             }
 
-        start_report, current_report = await asyncio.gather(
-            _investment_report_for_nav_date(repository, resolved_start),
-            _investment_report_for_nav_date(repository, current_date),
-        )
         if not _apply_other_share_change_split(
             change, start_report, current_report
         ) and "other_share_split_status" not in change:
