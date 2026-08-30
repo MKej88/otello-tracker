@@ -61,7 +61,7 @@ def _period_bounds(source_period: str) -> tuple[date, date, int, tuple[str, str]
 
 
 def _interest_k(lines: list[str]) -> Decimal | None:
-    label = re.compile(r"^interest income received\b", re.I)
+    label = re.compile(r"\binterest income received\b", re.I)
     for index, line in enumerate(lines):
         match = label.search(line)
         if match is None:
@@ -143,9 +143,15 @@ def parse_report_interest_income(text: str, source_period: str) -> dict[str, Any
         }
 
     if source_period.upper().startswith("1H"):
-        segment_dates = ((date(end.year, 1, 1), date(end.year, 3, 31)), (date(end.year, 4, 1), end))
+        segment_dates = (
+            (date(end.year, 1, 1), date(end.year, 3, 31)),
+            (date(end.year, 4, 1), end),
+        )
     else:
-        segment_dates = ((date(end.year, 7, 1), date(end.year, 9, 30)), (date(end.year, 10, 1), end))
+        segment_dates = (
+            (date(end.year, 7, 1), date(end.year, 9, 30)),
+            (date(end.year, 10, 1), end),
+        )
 
     fx_segments = []
     for month, (segment_start, segment_end) in zip(months, segment_dates, strict=True):
@@ -209,52 +215,76 @@ async def _existing_periods(repository) -> set[str]:
     return periods
 
 
+async def _applied_report_documents(repository) -> list[dict[str, Any]]:
+    """Return validated report documents, including earlier runs that still need an interest anchor."""
+    return await repository.all(
+        """
+        SELECT id, external_id, url, metadata_json
+        FROM source_documents
+        WHERE document_type='OTELLO_FINANCIAL_REPORT'
+          AND json_extract(metadata_json, '$.auto_apply_status')='APPLIED'
+        ORDER BY published_at DESC, id DESC
+        LIMIT 24
+        """
+    )
+
+
+def _report_period(document: dict[str, Any]) -> str:
+    try:
+        metadata = json.loads(str(document.get("metadata_json") or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    facts = metadata.get("facts") or {}
+    if not isinstance(facts, dict):
+        return ""
+    return str(facts.get("source_period") or "").strip().upper()
+
+
 async def sync_interest_income_anchors_from_report_result(
     repository,
     report_result: dict[str, Any] | None,
     *,
     report_text_loader: Callable[[int, int], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
-    """Create idempotent source-backed interest anchors for newly auto-applied Otello reports."""
-    results = (report_result or {}).get("results") or []
-    if not isinstance(results, list) or not results:
-        return {"status": "ok", "candidates": 0, "written": 0, "existing": 0, "errors": []}
-
+    """Create and self-heal idempotent interest anchors from validated Otello reports."""
+    _ = report_result  # The applied-report table is authoritative and also enables retries across runs.
     loader = report_text_loader or _default_report_text_loader
     existing_periods = await _existing_periods(repository)
+    documents = await _applied_report_documents(repository)
     written = 0
     existing = 0
     errors: list[dict[str, Any]] = []
     processed: list[dict[str, Any]] = []
 
-    for item in results:
-        if not isinstance(item, dict) or item.get("status") != "applied":
-            continue
-        facts = item.get("facts") or {}
-        source_period = str(facts.get("source_period") or "").strip().upper()
+    for document in documents:
+        source_period = _report_period(document)
         if _PERIOD_RE.fullmatch(source_period) is None:
-            processed.append({"source_period": source_period or None, "status": "skipped_unsupported_period"})
+            processed.append(
+                {
+                    "source_period": source_period or None,
+                    "status": "skipped_unsupported_period",
+                }
+            )
             continue
         if source_period in existing_periods:
             existing += 1
             processed.append({"source_period": source_period, "status": "existing"})
             continue
 
-        report_document_id = int(item.get("report_document_id") or 0)
+        report_document_id = int(document.get("id") or 0)
+        external_id = str(document.get("external_id") or "")
+        match = _NEWSWEB_REPORT_RE.fullmatch(external_id)
         if report_document_id <= 0:
             errors.append({"source_period": source_period, "error": "missing_report_document_id"})
             continue
-        document = await repository.first(
-            "SELECT external_id, url FROM source_documents WHERE id=? LIMIT 1",
-            (report_document_id,),
-        )
-        if document is None:
-            errors.append({"source_period": source_period, "error": "missing_report_source_document"})
-            continue
-        external_id = str(document.get("external_id") or "")
-        match = _NEWSWEB_REPORT_RE.fullmatch(external_id)
         if match is None:
-            errors.append({"source_period": source_period, "error": "invalid_report_external_id"})
+            errors.append(
+                {
+                    "source_period": source_period,
+                    "report_document_id": report_document_id,
+                    "error": "invalid_report_external_id",
+                }
+            )
             continue
         message_id, attachment_id = (int(value) for value in match.groups())
 
@@ -262,14 +292,23 @@ async def sync_interest_income_anchors_from_report_result(
             text = await loader(message_id, attachment_id)
             parsed = parse_report_interest_income(text, source_period)
         except Exception as exc:
-            errors.append({"source_period": source_period, "message_id": message_id, "error": str(exc)[:600]})
+            errors.append(
+                {
+                    "source_period": source_period,
+                    "message_id": message_id,
+                    "report_document_id": report_document_id,
+                    "error": str(exc)[:600],
+                }
+            )
             continue
         if not parsed.get("valid"):
             errors.append(
                 {
                     "source_period": source_period,
                     "message_id": message_id,
-                    "error": "interest_parser_validation_failed:" + ",".join(parsed.get("issues") or []),
+                    "report_document_id": report_document_id,
+                    "error": "interest_parser_validation_failed:"
+                    + ",".join(parsed.get("issues") or []),
                 }
             )
             continue
@@ -309,16 +348,18 @@ async def sync_interest_income_anchors_from_report_result(
                 "status": "inserted",
                 "amount_usd": anchor["amount_usd"],
                 "message_id": message_id,
+                "report_document_id": report_document_id,
             }
         )
 
     status = "ok" if not errors else ("partial" if written or existing else "error")
     return {
         "status": status,
-        "candidates": sum(1 for item in results if isinstance(item, dict) and item.get("status") == "applied"),
+        "candidates": len(documents),
         "written": written,
         "existing": existing,
         "errors": errors,
         "results": processed,
         "parser_version": INTEREST_PARSER_VERSION,
+        "retry_missing_from_prior_runs": True,
     }
