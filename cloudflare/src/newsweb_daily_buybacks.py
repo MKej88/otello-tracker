@@ -593,6 +593,18 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
     for row in weekly_rows:
         await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
 
+    daily_cash_rows = await repository.all(
+        """
+        SELECT id, movement_date FROM cash_movements
+        WHERE movement_type='OTELLO_BUYBACK_DAILY' AND buyback_id=?
+        ORDER BY movement_date, id
+        """,
+        (weekly_buyback_id,),
+    )
+    existing_by_date: dict[str, dict[str, Any]] = {}
+    for cash_row in daily_cash_rows:
+        existing_by_date.setdefault(str(cash_row["movement_date"]), cash_row)
+
     seen_dates: set[str] = set()
     written = 0
     updated = 0
@@ -606,15 +618,7 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
             f"NewsWeb transaction-level Otello buyback: {int(row['shares']):,} shares "
             f"on {trade_date}; weekly status period ending {week['period_end']}."
         )
-        existing = await repository.first(
-            """
-            SELECT id FROM cash_movements
-            WHERE movement_type='OTELLO_BUYBACK_DAILY'
-              AND buyback_id=? AND movement_date=?
-            ORDER BY id LIMIT 1
-            """,
-            (weekly_buyback_id, trade_date),
-        )
+        existing = existing_by_date.get(trade_date)
         if existing is None:
             await repository.run(
                 """
@@ -652,15 +656,8 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
             )
             updated += 1
 
-    stale = await repository.all(
-        """
-        SELECT id, movement_date FROM cash_movements
-        WHERE movement_type='OTELLO_BUYBACK_DAILY' AND buyback_id=?
-        """,
-        (weekly_buyback_id,),
-    )
     removed = 0
-    for row in stale:
+    for row in daily_cash_rows:
         if str(row["movement_date"]) not in seen_dates:
             await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
             removed += 1

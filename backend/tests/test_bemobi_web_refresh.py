@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import sqlite3
 import sys
 import zipfile
 from pathlib import Path
@@ -17,6 +18,7 @@ from bemobi_web_refresh import (  # noqa: E402
     _fetch_result_payload,
     _pdf_text,
     _sync_holding,
+    _upsert_fact,
     parse_analyst_coverage_html,
     parse_bemobi_result_text,
     parse_marketscreener_finances_html,
@@ -24,6 +26,60 @@ from bemobi_web_refresh import (  # noqa: E402
     parse_xp_preview_html,
     sync_latest_result_release,
 )
+
+
+class _FactRepository:
+    def __init__(self) -> None:
+        self.connection = sqlite3.connect(":memory:")
+        self.connection.execute("""
+            CREATE TABLE bemobi_investor_facts (
+                id INTEGER PRIMARY KEY,
+                fact_type TEXT NOT NULL,
+                fact_key TEXT NOT NULL,
+                as_of_date TEXT,
+                published_date TEXT,
+                payload_json TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_url TEXT,
+                quality TEXT NOT NULL,
+                notes TEXT,
+                source_document_id INTEGER,
+                updated_at TEXT,
+                UNIQUE (fact_type, fact_key)
+            )
+            """)
+
+    async def run(self, sql: str, parameters=()):
+        return self.connection.execute(sql, parameters)
+
+
+def test_fact_upsert_does_not_replace_newer_observation_with_older_data() -> None:
+    repository = _FactRepository()
+
+    async def write_fact(as_of_date: str, shares: int) -> None:
+        await _upsert_fact(
+            repository,
+            fact_type="OWNERSHIP",
+            fact_key="current",
+            as_of_date=as_of_date,
+            published_date=None,
+            payload={"shares": shares},
+            source_name="Bemobi IR",
+            source_url="https://example.test/ownership",
+            source_document_id=1,
+            quality="OFFICIAL_IR_AUTO",
+            notes="Regresjonstest",
+        )
+
+    asyncio.run(write_fact("2026-08-20", 200))
+    asyncio.run(write_fact("2026-08-19", 100))
+
+    row = repository.connection.execute("""
+        SELECT as_of_date, payload_json
+        FROM bemobi_investor_facts
+        WHERE fact_type='OWNERSHIP' AND fact_key='current'
+        """).fetchone()
+    assert row == ("2026-08-20", '{"shares":200}')
 
 
 def test_official_ir_ownership_parser_validates_share_math() -> None:
