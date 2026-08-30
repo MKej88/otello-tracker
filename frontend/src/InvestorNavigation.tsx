@@ -1,4 +1,7 @@
+import { useEffect, useRef } from "react";
 import { menu, type View } from "./investorViews";
+
+const HOVER_PRELOAD_DELAY_MS = 120;
 
 type InvestorNavigationProps = {
   activeView: View;
@@ -11,6 +14,24 @@ export default function InvestorNavigation({
   onPreload,
   onSelect,
 }: InvestorNavigationProps) {
+  const hoverTimer = useRef<number | null>(null);
+
+  function cancelHoverPreload() {
+    if (hoverTimer.current == null) return;
+    window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  }
+
+  function scheduleHoverPreload(view: View) {
+    cancelHoverPreload();
+    hoverTimer.current = window.setTimeout(() => {
+      onPreload(view);
+      hoverTimer.current = null;
+    }, HOVER_PRELOAD_DELAY_MS);
+  }
+
+  useEffect(() => cancelHoverPreload, []);
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -23,9 +44,13 @@ export default function InvestorNavigation({
             aria-current={item === activeView ? "page" : undefined}
             className={item === activeView ? "navItem active" : "navItem"}
             key={item}
-            onClick={() => onSelect(item)}
+            onClick={() => {
+              cancelHoverPreload();
+              onSelect(item);
+            }}
             onFocus={() => onPreload(item)}
-            onMouseEnter={() => onPreload(item)}
+            onMouseEnter={() => scheduleHoverPreload(item)}
+            onMouseLeave={cancelHoverPreload}
             type="button"
           >
             <span aria-hidden="true" className="navDot" />
