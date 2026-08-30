@@ -144,6 +144,9 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
 
     rows: list[CrossRate] = []
     found_bases: set[str] = set()
+    dates_by_base: dict[str, set[str]] = {
+        currency: set() for currency in FX_BASE_CURRENCIES
+    }
     for series_key, series in series_map.items():
         if not isinstance(series, dict):
             continue
@@ -192,6 +195,7 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
                 raise ValueError(f"Ugyldig {base}/NOK-kurs: {rate}")
             rows.append(CrossRate(trading_date, base, "NOK", rate))
             found_bases.add(base)
+            dates_by_base[base].add(trading_date)
 
     if not rows:
         raise ValueError(
@@ -201,6 +205,27 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
     if missing:
         raise ValueError(
             f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}"
+        )
+    all_dates = set().union(*dates_by_base.values())
+    incomplete_dates = {
+        trading_date: [
+            currency
+            for currency in FX_BASE_CURRENCIES
+            if trading_date not in dates_by_base[currency]
+        ]
+        for trading_date in sorted(all_dates)
+        if any(
+            trading_date not in dates_by_base[currency]
+            for currency in FX_BASE_CURRENCIES
+        )
+    }
+    if incomplete_dates:
+        details = "; ".join(
+            f"{trading_date} mangler {', '.join(currencies)}"
+            for trading_date, currencies in incomplete_dates.items()
+        )
+        raise ValueError(
+            f"Norges Bank-returneringen har ufullstendige valutadatoer: {details}"
         )
     return sorted(rows, key=lambda item: (item.trading_date, item.base_currency))
 

@@ -95,6 +95,17 @@ def test_norges_bank_parser_rejects_invalid_trading_date() -> None:
         parse_norges_bank_sdmx_json(payload)
 
 
+def test_norges_bank_parser_rejects_date_missing_one_currency() -> None:
+    payload = _sample_payload()
+    del payload["dataSets"][0]["series"]["0:2:0:0"]["observations"]["1"]
+
+    with pytest.raises(
+        ValueError,
+        match=r"ufullstendige valutadatoer: 2026-08-19 mangler USD",
+    ):
+        parse_norges_bank_sdmx_json(payload)
+
+
 @pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
 def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
     payload = _sample_payload()
