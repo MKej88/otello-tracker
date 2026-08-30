@@ -16,6 +16,43 @@ class _SourceDefinition:
     label: str
 
 
+@dataclass(frozen=True)
+class _OperationalSourceDefinition:
+    key: str
+    source_code: str
+    source_label: str
+    label: str
+
+
+_OPERATIONAL_SOURCE_DEFINITIONS = (
+    _OperationalSourceDefinition(
+        "norges_bank", "NORGES_BANK", "Norges Bank", "Valutakurser (BRL/NOK og USD/NOK)"
+    ),
+    _OperationalSourceDefinition("b3", "B3", "B3", "Bemobi-kurs og markedsdata"),
+    _OperationalSourceDefinition(
+        "euronext", "EURONEXT", "Euronext / OTEC", "OTEC-kurs og handler"
+    ),
+    _OperationalSourceDefinition(
+        "yahoo_finance",
+        "YAHOO_FINANCE",
+        "Life360 / Yahoo Finance",
+        "Life360-kurs",
+    ),
+    _OperationalSourceDefinition(
+        "newsweb", "NEWSWEB", "NewsWeb", "Børsmeldinger og tilbakekjøp"
+    ),
+    _OperationalSourceDefinition(
+        "otello_ir", "OTELLO_IR", "Otello IR", "Rapporter og selskapsinformasjon"
+    ),
+    _OperationalSourceDefinition(
+        "life360_ir",
+        "LIFE360_IR_LSEG",
+        "Life360 IR / LSEG",
+        "Reservekilde for Life360-kurs",
+    ),
+)
+
+
 _SOURCE_DEFINITIONS = (
     _SourceDefinition(
         "ir",
@@ -124,6 +161,63 @@ def _latest_fact(
     return None if row is None else dict(row)
 
 
+def _operational_source_items(connection) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for source in _OPERATIONAL_SOURCE_DEFINITIONS:
+        row = connection.execute(
+            """
+            SELECT s.base_url,
+                   sh.checked_at,
+                   sh.status,
+                   sh.error_message,
+                   sd.fetched_at,
+                   sd.published_at
+            FROM sources s
+            LEFT JOIN source_health sh ON sh.id = (
+                SELECT id FROM source_health
+                WHERE source_id = s.id
+                ORDER BY checked_at DESC, id DESC
+                LIMIT 1
+            )
+            LEFT JOIN source_documents sd ON sd.id = (
+                SELECT id FROM source_documents
+                WHERE source_id = s.id
+                ORDER BY fetched_at DESC, id DESC
+                LIMIT 1
+            )
+            WHERE s.code = ?
+            """,
+            (source.source_code,),
+        ).fetchone()
+        values = {} if row is None else dict(row)
+        health_status = str(values.get("status") or "UNKNOWN").upper()
+        status = "ERROR" if health_status == "DOWN" else health_status
+        detail = values.get("error_message")
+        if status == "UNKNOWN":
+            detail = "Ingen kildekontroll er registrert ennå."
+        elif status == "OK":
+            detail = "Siste kontroll fullført uten feil."
+        elif not detail:
+            detail = "Kilden har et registrert avvik; siste gode data beholdes."
+        items.append(
+            {
+                "key": source.key,
+                "label": source.label,
+                "source": source.source_label,
+                "status": status,
+                "checked_at": values.get("checked_at"),
+                "last_good_at": values.get("fetched_at"),
+                "data_date": values.get("published_at"),
+                "quality": None,
+                "url": values.get("base_url"),
+                "uses_last_good": status in {"DEGRADED", "ERROR"}
+                and values.get("fetched_at") is not None,
+                "detail": detail,
+            }
+        )
+    return items
+
+
 def _status_for_connection(connection) -> dict[str, Any]:
     row = connection.execute("""
         SELECT sh.checked_at, sh.status, sh.error_message, sh.metadata_json
@@ -143,7 +237,7 @@ def _status_for_connection(connection) -> dict[str, Any]:
         except (TypeError, ValueError):
             metadata = {}
 
-    items: list[dict[str, Any]] = []
+    items = _operational_source_items(connection)
     for source in _SOURCE_DEFINITIONS:
         result = _sub_result(metadata, source.key)
         status, detail, uses_last_good = _display_status(source.key, result)
