@@ -122,6 +122,19 @@ def test_newsweb_message_and_list_payload_validate_otec() -> None:
         parse_message_payload({"data": {"message": bad}})
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"overflow": False},
+        {"messages": [], "overflow": "false"},
+        {"messages": None, "overflow": False},
+    ],
+)
+def test_newsweb_list_rejects_partial_or_changed_response(data: object) -> None:
+    with pytest.raises(ValueError, match="Uventet NewsWeb list-respons"):
+        parse_list_payload({"data": data})
+
+
 def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path) -> None:
     db = str(tmp_path / "newsweb-cash.db")
     init_database(db)

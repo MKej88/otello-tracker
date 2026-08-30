@@ -148,11 +148,16 @@ def parse_message_payload(payload: dict[str, Any]) -> NewsWebMessage:
 def parse_list_payload(payload: dict[str, Any]) -> tuple[list[NewsWebMessage], bool]:
     try:
         data = payload["data"]
-        raw_messages = data.get("messages") or []
+        raw_messages = data["messages"]
+        overflow = data["overflow"]
     except (KeyError, TypeError) as exc:
         raise ValueError("Uventet NewsWeb list-respons") from exc
+    if not isinstance(raw_messages, list) or not isinstance(overflow, bool):
+        raise ValueError("Uventet NewsWeb list-respons")
+    if not all(isinstance(item, dict) for item in raw_messages):
+        raise ValueError("Uventet NewsWeb list-respons")
     messages = [_message_from_dict(item, require_body=False) for item in raw_messages]
-    return messages, bool(data.get("overflow"))
+    return messages, overflow
 
 
 async def fetch_message(
