@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 try:
@@ -541,7 +542,7 @@ async def run_scheduled(
         return {"status": "SKIPPED", "reason": "unknown_cron", "cron": cron}
 
     repository = PerformanceD1WriteRepository(database)
-    owner = f"fast:{_scheduled_iso(scheduled_time_ms)}"
+    owner = f"fast:{_scheduled_iso(scheduled_time_ms)}:{uuid4().hex}"
     lock = await acquire_refresh_lock(
         repository,
         owner=owner,
