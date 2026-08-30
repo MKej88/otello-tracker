@@ -10,7 +10,7 @@ from typing import Any
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from newsweb_client import _post_json  # noqa: E402
+from newsweb_client import _post_json, parse_list_payload  # noqa: E402
 
 
 def _response(payload: dict[str, Any]) -> SimpleNamespace:
@@ -48,6 +48,45 @@ class NewsWebStatusHeaderTest(unittest.IsolatedAsyncioTestCase):
             await _post_json("https://example.com", fetcher=fetcher),
             payload,
         )
+
+
+class NewsWebPartialResponseTest(unittest.TestCase):
+    def test_rejects_message_without_published_time(self) -> None:
+        payload = {
+            "data": {
+                "messages": [
+                    {
+                        "messageId": 123,
+                        "issuerId": 7759,
+                        "issuerSign": "OTEC",
+                        "markets": ["XOSL"],
+                    }
+                ],
+                "overflow": False,
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "mangler gyldig publiseringstid"):
+            parse_list_payload(payload)
+
+    def test_rejects_changed_published_time_datatype(self) -> None:
+        payload = {
+            "data": {
+                "messages": [
+                    {
+                        "messageId": 124,
+                        "issuerId": 7759,
+                        "issuerSign": "OTEC",
+                        "markets": ["XOSL"],
+                        "publishedTime": {"value": "2026-08-30T10:00:00Z"},
+                    }
+                ],
+                "overflow": False,
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "mangler gyldig publiseringstid"):
+            parse_list_payload(payload)
 
 
 if __name__ == "__main__":
