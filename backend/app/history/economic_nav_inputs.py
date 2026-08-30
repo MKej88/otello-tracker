@@ -83,6 +83,7 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
                 "amount_usd": str(item["amount_usd"]),
                 "source_measure": item["source_measure"],
                 "source_locator": item["source_locator"],
+                "source_precision": item.get("source_precision"),
                 "fx_segments": item["fx_segments"],
                 "notes": item.get("notes"),
                 "curated": True,
