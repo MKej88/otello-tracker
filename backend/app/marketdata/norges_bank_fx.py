@@ -42,6 +42,16 @@ def _dimension_values(dimension: dict) -> list[str]:
     return [str(item.get("id") or "") for item in values if isinstance(item, dict)]
 
 
+def _series_dimension_value(
+    dimension_values: dict[str, list[str]],
+    dimension_positions: dict[str, int],
+    indexes: list[int],
+    dimension_id: str,
+) -> str:
+    position = dimension_positions[dimension_id]
+    return dimension_values[dimension_id][indexes[position]]
+
+
 def _series_unit_multiplier(structure: dict, series: dict) -> int:
     attributes = structure.get("attributes") or {}
     series_attributes = (
@@ -106,10 +116,10 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
         for item in series_dimensions
         if isinstance(item, dict)
     ]
-    required = {"FREQ", "BASE_CUR", "QUOTE_CUR", "TENOR"}
-    if not required.issubset(set(dimension_ids)):
+    required = ("FREQ", "BASE_CUR", "QUOTE_CUR", "TENOR")
+    if not set(required).issubset(dimension_ids):
         raise ValueError(f"Uventede Norges Bank-seriedimensjoner: {dimension_ids}")
-    positions = {name: dimension_ids.index(name) for name in required}
+    dimension_positions = {name: dimension_ids.index(name) for name in required}
     values_by_dimension = {
         str(item.get("id") or ""): _dimension_values(item)
         for item in series_dimensions
@@ -139,12 +149,21 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
             continue
         try:
             indexes = [int(value) for value in str(series_key).split(":")]
-            freq = values_by_dimension["FREQ"][indexes[positions["FREQ"]]]
-            base = values_by_dimension["BASE_CUR"][indexes[positions["BASE_CUR"]]]
-            quote = values_by_dimension["QUOTE_CUR"][indexes[positions["QUOTE_CUR"]]]
-            tenor = values_by_dimension["TENOR"][indexes[positions["TENOR"]]]
+            series_values = {
+                dimension_id: _series_dimension_value(
+                    values_by_dimension,
+                    dimension_positions,
+                    indexes,
+                    dimension_id,
+                )
+                for dimension_id in required
+            }
         except (IndexError, KeyError, ValueError) as exc:
             raise ValueError(f"Ugyldig Norges Bank-serienøkkel: {series_key}") from exc
+        freq = series_values["FREQ"]
+        base = series_values["BASE_CUR"]
+        quote = series_values["QUOTE_CUR"]
+        tenor = series_values["TENOR"]
         if base not in FX_BASE_CURRENCIES:
             continue
         if freq != "B" or quote != "NOK" or tenor != "SP":

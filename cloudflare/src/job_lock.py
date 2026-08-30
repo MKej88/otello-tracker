@@ -183,4 +183,4 @@ async def release_refresh_lock(repository, token: str | None) -> bool:
         "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
         (LOCK_KEY,),
     )
-    return row is None or str(row.get("value") or "") != token
+    return row is None

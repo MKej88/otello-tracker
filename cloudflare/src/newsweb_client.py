@@ -85,8 +85,15 @@ async def _post_json(
         raise ValueError("NewsWeb API returnerte ugyldig JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("NewsWeb API-respons er ikke et JSON-objekt")
-    header = payload.get("header") or {}
-    if int(header.get("result.val", 0)) != 0 or int(header.get("http.code", 200)) >= 400:
+    header = payload.get("header")
+    if not isinstance(header, dict):
+        raise ValueError("NewsWeb API-respons mangler statusheader")
+    try:
+        result_value = int(header["result.val"])
+        http_code = int(header["http.code"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("NewsWeb API-respons har ugyldig statusheader") from exc
+    if result_value != 0 or http_code >= 400:
         raise ValueError(f"NewsWeb API-feil: {header}")
     return payload
 
