@@ -306,6 +306,20 @@ def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, A
     return _preferred_daily_rows([*market_rows, *activity_rows], symbol)
 
 
+def _volume_summary(volume_rows: list[tuple[str, float]], basis: str) -> dict[str, Any]:
+    values = [value for _, value in volume_rows]
+    average = mean(values) if values else None
+    return {
+        "latest": values[0] if values else None,
+        "latest_date": volume_rows[0][0] if volume_rows else None,
+        "average_3m": average,
+        "average_sessions": len(values),
+        "latest_above_average": (values[0] > average if average is not None else None),
+        "unit": "shares",
+        "basis": basis,
+    }
+
+
 def _volume_stats(
     connection, symbol: str, history: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -327,19 +341,10 @@ def _volume_stats(
                 deduped[str(row["trading_date"])] = value
             if len(deduped) >= THREE_MONTH_TRADING_SESSIONS:
                 break
-        values = list(deduped.values())
-        average = mean(values) if values else None
-        return {
-            "latest": values[0] if values else None,
-            "latest_date": next(iter(deduped), None),
-            "average_3m": average,
-            "average_sessions": len(values),
-            "latest_above_average": (
-                values[0] > average if average is not None else None
-            ),
-            "unit": "shares",
-            "basis": "EURONEXT_DAILY_ACTIVITY",
-        }
+        return _volume_summary(
+            list(deduped.items()),
+            basis="EURONEXT_DAILY_ACTIVITY",
+        )
 
     volume_rows: list[tuple[str, float]] = []
     for row in reversed(history):
@@ -349,22 +354,10 @@ def _volume_stats(
             volume_rows.append((str(row["trading_date"]), value))
         if len(volume_rows) >= THREE_MONTH_TRADING_SESSIONS:
             break
-    average = mean(value for _, value in volume_rows) if volume_rows else None
-    return {
-        "latest": volume_rows[0][1] if volume_rows else None,
-        "latest_date": volume_rows[0][0] if volume_rows else None,
-        "average_3m": average,
-        "average_sessions": len(volume_rows),
-        "latest_above_average": (
-            volume_rows[0][1] > average if average is not None else None
-        ),
-        "unit": "shares",
-        "basis": (
-            "B3_COTAHIST_QUANTITY"
-            if symbol == "BMOB3"
-            else "STORED_MARKET_PRICE_METADATA"
-        ),
-    }
+    basis = (
+        "B3_COTAHIST_QUANTITY" if symbol == "BMOB3" else "STORED_MARKET_PRICE_METADATA"
+    )
+    return _volume_summary(volume_rows, basis=basis)
 
 
 def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:

@@ -8,7 +8,11 @@ from typing import Any
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from otello_report_ingestion import _upsert_post_report_cash_events  # noqa: E402
+import otello_report_ingestion  # noqa: E402
+from otello_report_ingestion import (  # noqa: E402
+    _apply_report,
+    _upsert_post_report_cash_events,
+)
 
 
 class Repository:
@@ -72,3 +76,80 @@ def test_unchanged_cash_event_is_not_written_again() -> None:
 
     assert result["events"][0]["status"] == "existing"
     assert repository.runs == []
+
+
+def test_apply_report_marks_partial_when_nav_rebuild_fails(monkeypatch) -> None:
+    statuses: list[str] = []
+
+    async def nearest_fx(*_args: Any) -> dict[str, str]:
+        return {"rate": "10"}
+
+    async def no_receivables(*_args: Any) -> int:
+        return 0
+
+    async def prepared_events(*_args: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def anchor_id(*_args: Any) -> int:
+        return 11
+
+    async def ona_ids(*_args: Any) -> tuple[int, int]:
+        return (12, 13)
+
+    async def cash_events(*_args: Any) -> dict[str, Any]:
+        return {"count": 0, "events": []}
+
+    async def cost_ok(*_args: Any) -> dict[str, str]:
+        return {"status": "ok"}
+
+    async def nav_fails(*_args: Any) -> dict[str, Any]:
+        raise RuntimeError("NAV kunne ikke bygges")
+
+    async def record_status(_repository: Any, _document_id: int, status: str) -> None:
+        statuses.append(status)
+
+    monkeypatch.setattr(otello_report_ingestion, "_nearest_usd_nok", nearest_fx)
+    monkeypatch.setattr(
+        otello_report_ingestion,
+        "_active_bemobi_receivable_count",
+        no_receivables,
+    )
+    monkeypatch.setattr(
+        otello_report_ingestion,
+        "_prepare_post_report_cash_events",
+        prepared_events,
+    )
+    monkeypatch.setattr(otello_report_ingestion, "_upsert_cash_anchor", anchor_id)
+    monkeypatch.setattr(otello_report_ingestion, "_upsert_ona_anchor", ona_ids)
+    monkeypatch.setattr(
+        otello_report_ingestion,
+        "_upsert_post_report_cash_events",
+        cash_events,
+    )
+    monkeypatch.setattr(otello_report_ingestion, "_upsert_cost_anchors", cost_ok)
+    monkeypatch.setattr(
+        otello_report_ingestion,
+        "_backfill_affected_nav",
+        nav_fails,
+    )
+    monkeypatch.setattr(
+        otello_report_ingestion,
+        "_set_report_document_apply_status",
+        record_status,
+    )
+
+    result = asyncio.run(
+        _apply_report(
+            object(),
+            report_doc_id=7,
+            facts={"report_date": "2026-08-29"},
+            target_date="2026-08-30",
+        )
+    )
+
+    assert result["status"] == "partial"
+    assert result["nav_backfill"]["status"] == "error"
+    assert result["warnings"] == [
+        {"step": "nav_backfill", "error": "NAV kunne ikke bygges"}
+    ]
+    assert statuses == ["APPLIED", "PARTIAL"]
