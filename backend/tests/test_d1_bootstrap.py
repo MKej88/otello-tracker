@@ -174,26 +174,33 @@ def test_manifest_detects_target_tampering(tmp_path: Path) -> None:
     sql_path = tmp_path / "bootstrap.sql"
     manifest_path = tmp_path / "manifest.json"
     expected = write_bootstrap_package(source, sql_path, manifest_path)
+    target = tmp_path / "d1.db"
+    _import_into_d1_shape(sql_path.read_text(encoding="utf-8"), target)
 
-    connection = sqlite3.connect(source)
+    connection = sqlite3.connect(target)
     try:
-        connection.execute("UPDATE cash_anchors SET amount_nok = amount_nok + 1 WHERE id = 1")
+        connection.execute(
+            "UPDATE nav_snapshots SET nav_per_share_nok = '999.99' WHERE nav_scope = 'FULL'"
+        )
         connection.commit()
+        connection.row_factory = sqlite3.Row
         actual = build_manifest(connection)
     finally:
         connection.close()
 
-    result = compare_manifest(expected, actual)
-    assert result["ok"] is False
-    assert result["logical_hash_match"] is False
-    assert result["key_metrics_match"] is True
-    assert [item["table"] for item in result["table_mismatches"]] == ["cash_anchors"]
+    comparison = compare_manifest(expected, actual)
+    assert comparison["ok"] is False
+    assert comparison["logical_hash_match"] is False
+    assert comparison["key_metrics_match"] is False
+    assert any(item["table"] == "nav_snapshots" for item in comparison["table_mismatches"])
 
 
-def test_manifest_file_round_trip(tmp_path: Path) -> None:
+def test_manifest_file_is_portable_json(tmp_path: Path) -> None:
     source = _build_fixture(tmp_path)
     sql_path = tmp_path / "bootstrap.sql"
     manifest_path = tmp_path / "manifest.json"
     expected = write_bootstrap_package(source, sql_path, manifest_path)
 
-    assert load_manifest_file(manifest_path) == expected
+    loaded = load_manifest_file(manifest_path)
+    assert loaded == expected
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["format_version"] == "d1-bootstrap-v1"
