@@ -70,6 +70,36 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
             )
             written.append(document_id)
 
+        for item in manifest.get("interest_income_anchors", []):
+            source = documents[item["source_key"]]
+            metadata = {
+                "economic_nav_input_version": manifest["version"],
+                "manifest_sha256": manifest_sha,
+                "input_kind": "INTEREST_INCOME_ANCHOR",
+                "source_period": item["source_period"],
+                "source_period_start": item["source_period_start"],
+                "source_period_end": item["source_period_end"],
+                "period_days": int(item["period_days"]),
+                "amount_usd": str(item["amount_usd"]),
+                "source_measure": item["source_measure"],
+                "source_locator": item["source_locator"],
+                "fx_segments": item["fx_segments"],
+                "notes": item.get("notes"),
+                "curated": True,
+                "attribution_policy": "REPORTED_HALF_YEAR_INTEREST_PRORATED_BY_DAY_USING_REPORTED_PERIOD_FX",
+            }
+            document_id = create_source_document(
+                connection,
+                source_code=source["source_code"],
+                external_id=f"economic-nav-interest:{item['source_period']}",
+                document_type="ECONOMIC_NAV_INTEREST_INCOME_ANCHOR",
+                title=f"Economic NAV interest-income anchor {item['source_period']}",
+                url=source["url"],
+                published_at=f"{item['source_period_end']}T00:00:00Z",
+                metadata=metadata,
+            )
+            written.append(document_id)
+
         for item in manifest["cash_fx_exposure_anchors"]:
             total = Decimal(str(item["total_cash_usd"]))
             exposures = item["exposures"]
@@ -156,6 +186,7 @@ def seed_economic_nav_inputs(database_path: str | None = None) -> dict[str, Any]
         "manifest_sha256": manifest_sha,
         "documents": len(written),
         "operating_cost_anchors": len(manifest["operating_cost_anchors"]),
+        "interest_income_anchors": len(manifest.get("interest_income_anchors", [])),
         "cash_fx_exposure_anchors": len(manifest["cash_fx_exposure_anchors"]),
         "fx_backtest_outcomes": len(manifest.get("fx_backtest_outcomes", [])),
     }
