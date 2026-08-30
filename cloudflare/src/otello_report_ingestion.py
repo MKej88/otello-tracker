@@ -691,7 +691,7 @@ async def _upsert_post_report_cash_events(
         external_id = f"otello-report-post-cash:{event_type}:{movement_date}"
         existing = await repository.first(
             """
-            SELECT id, amount_original, currency, amount_nok
+            SELECT id, amount_original, currency, amount_nok, fx_rate_to_nok
             FROM cash_movements WHERE external_movement_id=? LIMIT 1
             """,
             (external_id,),
@@ -702,12 +702,36 @@ async def _upsert_post_report_cash_events(
                 or Decimal(str(existing.get("amount_original") or "0")) != amount_usd
             ):
                 raise ValueError(f"Konflikt i eksisterende kontantbevegelse {external_id}")
+            fx_rate = Decimal(str(fx["rate"]))
+            stored_amount_nok = Decimal(str(existing.get("amount_nok") or "0"))
+            stored_fx_rate = Decimal(str(existing.get("fx_rate_to_nok") or "0"))
+            status = "existing"
+            if stored_amount_nok != amount_nok or stored_fx_rate != fx_rate:
+                await repository.run(
+                    """
+                    UPDATE cash_movements
+                    SET amount_nok=?, fx_rate_to_nok=?, description=?, source_document_id=?
+                    WHERE id=?
+                    """,
+                    (
+                        _decimal_text(amount_nok),
+                        _decimal_text(fx_rate),
+                        str(event["description"]),
+                        report_doc_id,
+                        int(existing["id"]),
+                    ),
+                )
+                status = "updated"
             results.append(
                 {
-                    "status": "existing",
+                    "status": status,
                     "id": int(existing["id"]),
                     "external_movement_id": external_id,
                     "movement_date": movement_date,
+                    "amount_usd": _decimal_text(amount_usd),
+                    "amount_nok": _decimal_text(amount_nok),
+                    "fx_rate": str(fx["rate"]),
+                    "fx_date": str(fx["rate_date"]),
                 }
             )
             continue
