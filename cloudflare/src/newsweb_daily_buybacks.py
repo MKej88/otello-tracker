@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import re
 from collections import Counter, defaultdict
@@ -48,6 +49,7 @@ except ImportError:
     from r2_archive import archive_bytes
 
 RECONCILIATION_LOOKBACK_DAYS = 45
+MESSAGE_FETCH_CONCURRENCY = 6
 RECONCILIATION_MIN_TOLERANCE_NOK = Decimal("1.00")
 RECONCILIATION_RELATIVE_TOLERANCE = Decimal("0.00001")
 AVERAGE_PRICE_TOLERANCE_NOK = Decimal("0.02")
@@ -805,6 +807,24 @@ async def _ingest_message(
     )
 
 
+async def _fetch_discovered_messages(
+    discovered: list[Any],
+    *,
+    fetcher: Callable[..., Awaitable[Any]] | None,
+) -> list[NewsWebMessage | Exception]:
+    """Hent meldingsdetaljer parallelt, men med skånsom begrensning."""
+    semaphore = asyncio.Semaphore(MESSAGE_FETCH_CONCURRENCY)
+
+    async def fetch_one(item: Any) -> NewsWebMessage | Exception:
+        try:
+            async with semaphore:
+                return await fetch_message(item.message_id, fetcher=fetcher)
+        except Exception as exc:
+            return exc
+
+    return await asyncio.gather(*(fetch_one(item) for item in discovered))
+
+
 async def enrich_newsweb_buybacks_with_r2(
     repository,
     bucket,
@@ -813,7 +833,6 @@ async def enrich_newsweb_buybacks_with_r2(
     lookback_days: int = RECONCILIATION_LOOKBACK_DAYS,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    target = date.fromisoformat(target_date)
     existing = await repository.first(
         "SELECT MAX(trade_date) AS latest_date FROM buyback_daily_transactions"
     )
@@ -830,11 +849,13 @@ async def enrich_newsweb_buybacks_with_r2(
         message_title=BUYBACK_TITLE,
         fetcher=fetcher,
     )
+    messages = await _fetch_discovered_messages(discovered, fetcher=fetcher)
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    for item in discovered:
+    for item, message in zip(discovered, messages, strict=True):
         try:
-            message = await fetch_message(item.message_id, fetcher=fetcher)
+            if isinstance(message, Exception):
+                raise message
             results.append(
                 await _ingest_message(
                     repository,

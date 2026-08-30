@@ -6,7 +6,6 @@ from typing import Any
 
 from app.db.connection import get_connection
 
-
 _TRACKED_FORWARD_METRICS = (
     ("revenue_mbrl", "Omsetning"),
     ("ebitda_mbrl", "EBITDA"),
@@ -33,14 +32,12 @@ def _json_object(raw: Any) -> dict[str, Any]:
 
 def _event_metadata(database_path: str | None) -> dict[str, dict[str, Any]]:
     with get_connection(database_path) as connection:
-        rows = connection.execute(
-            """
+        rows = connection.execute("""
             SELECT period, result_date, result_source, result_source_url,
                    model_revision_json, quality, notes
             FROM bemobi_consensus_events
             ORDER BY result_date, id
-            """
-        ).fetchall()
+            """).fetchall()
     return {
         str(row["period"]): {
             "result_date": str(row["result_date"]),
@@ -56,14 +53,12 @@ def _event_metadata(database_path: str | None) -> dict[str, dict[str, Any]]:
 
 def _forward_snapshots(database_path: str | None) -> list[dict[str, Any]]:
     with get_connection(database_path) as connection:
-        rows = connection.execute(
-            """
+        rows = connection.execute("""
             SELECT source_name, observed_date, payload_json, content_hash,
                    source_url, quality
             FROM bemobi_forward_consensus_snapshots
             ORDER BY observed_date, id
-            """
-        ).fetchall()
+            """).fetchall()
     snapshots: list[dict[str, Any]] = []
     for row in rows:
         payload = _json_object(row["payload_json"])
@@ -83,7 +78,9 @@ def _forward_snapshots(database_path: str | None) -> list[dict[str, Any]]:
     return snapshots
 
 
-def _snapshot_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+def _snapshot_changes(
+    before: dict[str, Any], after: dict[str, Any]
+) -> list[dict[str, Any]]:
     before_years = {
         int(item["year"]): item
         for item in before.get("years") or []
@@ -159,27 +156,24 @@ def _price_rows(database_path: str | None, result_date: str) -> list[dict[str, A
     target = date.fromisoformat(result_date)
     start = (target - timedelta(days=10)).isoformat()
     end = (target + timedelta(days=18)).isoformat()
-    try:
-        with get_connection(database_path) as connection:
-            rows = connection.execute(
-                """
-                SELECT mp.trading_date, mp.price, mp.price_type, mp.observed_at,
-                       s.code AS source_code
-                FROM market_prices mp
-                JOIN instruments i ON i.id = mp.instrument_id
-                JOIN sources s ON s.id = mp.source_id
-                WHERE i.symbol = 'BMOB3'
-                  AND mp.trading_date BETWEEN ? AND ?
-                  AND mp.price_type IN ('CLOSE', 'LAST')
-                ORDER BY mp.trading_date ASC,
-                         CASE WHEN s.code = 'B3' THEN 0 ELSE 1 END,
-                         CASE WHEN mp.price_type = 'CLOSE' THEN 0 ELSE 1 END,
-                         mp.observed_at DESC
-                """,
-                (start, end),
-            ).fetchall()
-    except Exception:
-        return []
+    with get_connection(database_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT mp.trading_date, mp.price, mp.price_type, mp.observed_at,
+                   s.code AS source_code
+            FROM market_prices mp
+            JOIN instruments i ON i.id = mp.instrument_id
+            JOIN sources s ON s.id = mp.source_id
+            WHERE i.symbol = 'BMOB3'
+              AND mp.trading_date BETWEEN ? AND ?
+              AND mp.price_type IN ('CLOSE', 'LAST')
+            ORDER BY mp.trading_date ASC,
+                     CASE WHEN s.code = 'B3' THEN 0 ELSE 1 END,
+                     CASE WHEN mp.price_type = 'CLOSE' THEN 0 ELSE 1 END,
+                     mp.observed_at DESC
+            """,
+            (start, end),
+        ).fetchall()
 
     best_by_date: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -222,7 +216,9 @@ def _market_reaction(database_path: str | None, result_date: str) -> dict[str, A
         "day1": day1,
         "day5": day5,
         "reaction_1d_pct": _pct_change(pre["price_brl"], day1["price_brl"]),
-        "reaction_5d_pct": None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"]),
+        "reaction_5d_pct": (
+            None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"])
+        ),
         "method": (
             "Resultatene ble publisert etter handel i de historiske periodene. "
             "Reaksjon måles derfor fra sluttkurs på rapportdato til første og femte påfølgende handelsdag."
@@ -238,7 +234,10 @@ def _target_revision(model: dict[str, Any], result_date: str) -> dict[str, Any]:
         float(after) if after is not None else None,
     )
     model["days_after_result"] = (
-        (date.fromisoformat(str(model["after_date"])) - date.fromisoformat(result_date)).days
+        (
+            date.fromisoformat(str(model["after_date"]))
+            - date.fromisoformat(result_date)
+        ).days
         if model.get("after_date")
         else None
     )
@@ -279,7 +278,9 @@ def build_consensus_history(
 
     return {
         "events": events,
-        "forward_revision_tracker": _forward_tracker(database_path, current_forward or []),
+        "forward_revision_tracker": _forward_tracker(
+            database_path, current_forward or []
+        ),
         "method_note": (
             "Historiske rapport-/modellhendelser ligger i databasen, ikke i Python-kode. "
             "Kvartalsforventningene er foreløpig XP-spesifikke; MarketScreener-revisjoner "

@@ -4,7 +4,7 @@ import argparse
 import json
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.bemobi import bemobi_cvm_news_status, collect_bemobi_cvm_news_incremental
 from app.buybacks import buyback_status, collect_recent_buybacks
@@ -12,6 +12,7 @@ from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history_if_needed
 from app.history.newsweb_2021_events import seed_2021_newsweb_events
+from app.jobs.refresh_helpers import safe_step as _safe_step
 from app.marketdata.b3_cotahist import download_cotahist_year
 from app.marketdata.backfill import (
     import_b3_bmob3_zip,
@@ -42,14 +43,6 @@ from app.newsweb import (
     sync_newsweb_daily_buyback_cash,
 )
 from app.settings import settings
-
-
-def _safe_step(name: str, fn: Callable[[], Any], errors: list[dict[str, str]]) -> Any:
-    try:
-        return fn()
-    except Exception as exc:  # network/provider errors must not block later rebuilds
-        errors.append({"step": name, "error": str(exc)})
-        return None
 
 
 def _staleness(summary: dict[str, Any], target_date: str) -> dict[str, Any]:
