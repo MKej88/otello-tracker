@@ -12,7 +12,9 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 import scheduled  # noqa: E402
 
 
-def test_fast_cron_acquires_from_actual_time_renews_and_releases_latest_token(monkeypatch) -> None:
+def test_fast_cron_acquires_from_actual_time_renews_and_releases_latest_token(
+    monkeypatch,
+) -> None:
     events: list[tuple] = []
 
     class FakeRepository:
@@ -78,6 +80,46 @@ def test_fast_cron_acquires_from_actual_time_renews_and_releases_latest_token(mo
         "fast-owner|lease-2",
     ]
     assert events[-1] == ("release", "fast-owner|lease-3")
+
+
+def test_redelivered_fast_cron_uses_a_distinct_lock_owner(monkeypatch) -> None:
+    owners: list[str] = []
+
+    class FakeRepository:
+        def __init__(self, database):
+            self.database = database
+
+    async def acquire(repository, **kwargs):
+        owners.append(kwargs["owner"])
+        return {
+            "acquired": False,
+            "held_by": "existing-writer",
+            "expires_at": "later",
+        }
+
+    monkeypatch.setattr(scheduled, "PerformanceD1WriteRepository", FakeRepository)
+    monkeypatch.setattr(scheduled, "acquire_refresh_lock", acquire)
+
+    event_time = 1787506200000
+    first = asyncio.run(
+        scheduled.run_scheduled(
+            object(),
+            cron=scheduled.FAST_REFRESH_CRON,
+            scheduled_time_ms=event_time,
+        )
+    )
+    second = asyncio.run(
+        scheduled.run_scheduled(
+            object(),
+            cron=scheduled.FAST_REFRESH_CRON,
+            scheduled_time_ms=event_time,
+        )
+    )
+
+    assert first["reason"] == "refresh_lock_held"
+    assert second["reason"] == "refresh_lock_held"
+    assert len(set(owners)) == 2
+    assert all(owner.startswith("fast:2026-08-23T17:30:00.000Z:") for owner in owners)
 
 
 def test_fast_cron_stops_when_writer_lease_is_lost(monkeypatch) -> None:

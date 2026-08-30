@@ -114,6 +114,7 @@ def test_worker_buyback_parser_and_weekly_reconciliation() -> None:
 class _SQLiteAsyncWriteRepository:
     def __init__(self, database_path: str) -> None:
         self.database_path = database_path
+        self.read_queries = 0
 
     def _connect(self):
         connection = sqlite3.connect(self.database_path)
@@ -121,6 +122,7 @@ class _SQLiteAsyncWriteRepository:
         return connection
 
     async def all(self, sql: str, parameters=()):
+        self.read_queries += 1
         connection = self._connect()
         try:
             return [dict(row) for row in connection.execute(sql, parameters).fetchall()]
@@ -202,15 +204,17 @@ def test_daily_buyback_cash_replaces_weekly_fallback(tmp_path: Path) -> None:
         )
         connection.commit()
 
+    repository = _SQLiteAsyncWriteRepository(database)
     result = asyncio.run(
         sync_daily_buyback_cash(
-            _SQLiteAsyncWriteRepository(database),
+            repository,
             weekly_buyback_id=buyback_id,
         )
     )
     assert result["weeks_synced"] == 1
     assert result["weekly_cash_rows_deleted"] == 1
     assert result["daily_cash_rows_written"] == 2
+    assert repository.read_queries == 4
 
     with get_connection(database) as connection:
         rows = connection.execute(
