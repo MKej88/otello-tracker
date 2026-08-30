@@ -4,7 +4,6 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-
 _TRACKED_FORWARD_METRICS = (
     ("revenue_mbrl", "Omsetning"),
     ("ebitda_mbrl", "EBITDA"),
@@ -30,14 +29,12 @@ def _json_object(raw: Any) -> dict[str, Any]:
 
 
 async def _event_metadata(repository) -> dict[str, dict[str, Any]]:
-    rows = await repository.all(
-        """
+    rows = await repository.all("""
         SELECT period, result_date, result_source, result_source_url,
                model_revision_json, quality, notes
         FROM bemobi_consensus_events
         ORDER BY result_date, id
-        """
-    )
+        """)
     return {
         str(row["period"]): {
             "result_date": str(row["result_date"]),
@@ -52,14 +49,12 @@ async def _event_metadata(repository) -> dict[str, dict[str, Any]]:
 
 
 async def _forward_snapshots(repository) -> list[dict[str, Any]]:
-    rows = await repository.all(
-        """
+    rows = await repository.all("""
         SELECT source_name, observed_date, payload_json, content_hash,
                source_url, quality
         FROM bemobi_forward_consensus_snapshots
         ORDER BY observed_date, id
-        """
-    )
+        """)
     snapshots: list[dict[str, Any]] = []
     for row in rows:
         payload = _json_object(row.get("payload_json"))
@@ -79,7 +74,9 @@ async def _forward_snapshots(repository) -> list[dict[str, Any]]:
     return snapshots
 
 
-def _snapshot_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+def _snapshot_changes(
+    before: dict[str, Any], after: dict[str, Any]
+) -> list[dict[str, Any]]:
     before_years = {
         int(item["year"]): item
         for item in before.get("years") or []
@@ -116,7 +113,9 @@ def _snapshot_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
     return changes
 
 
-async def _forward_tracker(repository, current_forward: list[dict[str, Any]]) -> dict[str, Any]:
+async def _forward_tracker(
+    repository, current_forward: list[dict[str, Any]]
+) -> dict[str, Any]:
     snapshots = await _forward_snapshots(repository)
     if not snapshots:
         return {
@@ -190,10 +189,7 @@ async def _price_rows(repository, result_date: str) -> list[dict[str, Any]]:
 
 
 async def _market_reaction(repository, result_date: str) -> dict[str, Any]:
-    try:
-        rows = await _price_rows(repository, result_date)
-    except Exception:
-        rows = []
+    rows = await _price_rows(repository, result_date)
     before = [row for row in rows if row["date"] <= result_date]
     after = [row for row in rows if row["date"] > result_date]
     if not before or not after:
@@ -212,7 +208,9 @@ async def _market_reaction(repository, result_date: str) -> dict[str, Any]:
         "day1": day1,
         "day5": day5,
         "reaction_1d_pct": _pct_change(pre["price_brl"], day1["price_brl"]),
-        "reaction_5d_pct": None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"]),
+        "reaction_5d_pct": (
+            None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"])
+        ),
         "method": (
             "Resultatene ble publisert etter handel i de historiske periodene. "
             "Reaksjon måles derfor fra sluttkurs på rapportdato til første og femte påfølgende handelsdag."
@@ -228,7 +226,10 @@ def _target_revision(model: dict[str, Any], result_date: str) -> dict[str, Any]:
         float(after) if after is not None else None,
     )
     model["days_after_result"] = (
-        (date.fromisoformat(str(model["after_date"])) - date.fromisoformat(result_date)).days
+        (
+            date.fromisoformat(str(model["after_date"]))
+            - date.fromisoformat(result_date)
+        ).days
         if model.get("after_date")
         else None
     )
@@ -268,7 +269,9 @@ async def build_consensus_history(
         )
     return {
         "events": events,
-        "forward_revision_tracker": await _forward_tracker(repository, current_forward or []),
+        "forward_revision_tracker": await _forward_tracker(
+            repository, current_forward or []
+        ),
         "method_note": (
             "Historiske rapport-/modellhendelser ligger i databasen, ikke i Python-kode. "
             "Kvartalsforventningene er foreløpig XP-spesifikke; MarketScreener-revisjoner "

@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
+import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
-from app.bemobi.consensus_history import build_consensus_history
+import pytest
+
+from app.bemobi.consensus_history import _market_reaction, build_consensus_history
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
-
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _FailingRepository:
+    async def all(self, *_args, **_kwargs) -> list[dict]:
+        raise RuntimeError("databasen er utilgjengelig")
 
 
 def _beat_miss(period: str = "2Q26") -> list[dict]:
@@ -33,10 +42,14 @@ def _beat_miss(period: str = "2Q26") -> list[dict]:
 def _seed_bmob3_prices(database: str) -> None:
     with get_connection(database) as connection:
         instrument_id = int(
-            connection.execute("SELECT id FROM instruments WHERE symbol='BMOB3'").fetchone()["id"]
+            connection.execute(
+                "SELECT id FROM instruments WHERE symbol='BMOB3'"
+            ).fetchone()["id"]
         )
         source_id = int(
-            connection.execute("SELECT id FROM sources WHERE code='B3'").fetchone()["id"]
+            connection.execute("SELECT id FROM sources WHERE code='B3'").fetchone()[
+                "id"
+            ]
         )
         rows = [
             ("2026-08-11", "20.00"),
@@ -108,12 +121,39 @@ def test_4q25_public_model_revision_keeps_paytime_caveat(tmp_path) -> None:
     assert "Paytime" in revenue["note"]
 
 
+def test_backend_propagates_price_query_failure() -> None:
+    with patch(
+        "app.bemobi.consensus_history.get_connection",
+        side_effect=RuntimeError("databasen er utilgjengelig"),
+    ):
+        with pytest.raises(RuntimeError, match="databasen er utilgjengelig"):
+            _market_reaction(None, "2026-08-11")
+
+
+def test_worker_propagates_price_query_failure() -> None:
+    module_path = ROOT / "cloudflare/src/bemobi_consensus_history.py"
+    spec = importlib.util.spec_from_file_location(
+        "worker_consensus_history", module_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with pytest.raises(RuntimeError, match="databasen er utilgjengelig"):
+        asyncio.run(module._market_reaction(_FailingRepository(), "2026-08-11"))
+
+
 def test_history_is_exposed_in_backend_worker_and_frontend() -> None:
     backend = (ROOT / "backend/app/bemobi/consensus.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
-    worker_history = (ROOT / "cloudflare/src/bemobi_consensus_history.py").read_text(encoding="utf-8")
+    worker_history = (ROOT / "cloudflare/src/bemobi_consensus_history.py").read_text(
+        encoding="utf-8"
+    )
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
-    panel = (ROOT / "frontend/src/ConsensusHistoryPanel.tsx").read_text(encoding="utf-8")
+    panel = (ROOT / "frontend/src/ConsensusHistoryPanel.tsx").read_text(
+        encoding="utf-8"
+    )
 
     assert '"history_link": build_consensus_history(' in backend
     assert '"history_link": await build_consensus_history(' in worker
