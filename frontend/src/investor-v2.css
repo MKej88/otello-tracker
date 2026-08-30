@@ -99,7 +99,11 @@
 .qualityMetricGrid > div,.qualityReportMeta > div { border:1px solid rgba(255,255,255,.075); border-radius:11px; padding:13px; display:grid; gap:5px; }
 .qualityMetricGrid span,.qualityMetricGrid small,.qualityReportMeta span { opacity:.64; font-size:12px; }
 .qualityMetricGrid strong { font-size:16px; }
-.qualityAlert { padding:12px 14px; border:1px solid rgba(235,177,83,.25); border-radius:10px; margin:14px 0 0; font-size:12px; line-height:1.45; }
+.qualityAlert { padding:12px 14px; border:1px solid rgba(235,177,83,.25); background:rgba(235,177,83,.055); border-radius:10px; margin:14px 0 0; font-size:12px; line-height:1.45; }
+.qualityAlert p { margin:5px 0 0; }
+.qualityAlert ul { margin:7px 0 0; padding-left:18px; }
+.qualitySectionLead { margin:4px 0 0; opacity:.68; font-size:13px; }
+.qualityMetricGrid.fastRefreshGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .qualityReportMeta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)) auto; gap:10px; margin-top:16px; align-items:stretch; }
 .qualityReportMeta a { display:grid; place-items:center; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:10px 14px; text-decoration:none; color:inherit; }
 .qualitySteps { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin-top:12px; }

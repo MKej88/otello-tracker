@@ -1,11 +1,12 @@
 .sourceStatusTable { margin-top: 16px; }
-.sourceStatusHead, .sourceStatusRow { display: grid; grid-template-columns: minmax(160px, 1.25fr) minmax(120px, .9fr) minmax(130px, .9fr) minmax(145px, 1fr) minmax(145px, 1fr); gap: 14px; align-items: start; }
+.sourceStatusHead, .sourceStatusRow { display: grid; grid-template-columns: minmax(110px, .8fr) minmax(165px, 1.25fr) minmax(110px, .8fr) minmax(130px, .9fr) minmax(140px, 1fr) minmax(140px, 1fr); gap: 14px; align-items: start; }
 .sourceStatusHead { padding: 0 10px 9px; color: #657690; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .sourceStatusRow { padding: 14px 10px; border-top: 1px solid rgba(255,255,255,.075); font-size: 12px; }
 .sourceStatusRow > span { display: grid; gap: 4px; }
 .sourceStatusName strong { font-size: 13px; }
 .sourceStatusSource a { color: inherit; text-decoration: none; }
-.sourceStatusBadge { justify-self: start; padding: 4px 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; font-size: 10px; }
+.sourceStatusBadge { justify-self: start; display:flex; align-items:center; gap:6px; padding: 4px 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; font-size: 10px; }
+.sourceStatusBadge i { width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); }
 .sourceStatus-ok { color: #70c997; border-color: rgba(112,201,151,.3); }
 .sourceStatus-degraded, .sourceStatus-waiting { color: #d5a85d; border-color: rgba(213,168,93,.3); }
 .sourceStatus-error { color: #ff9d9d; border-color: rgba(255,157,157,.3); }
@@ -16,19 +17,9 @@
   color: #d5a85d;
 }
 
-.bemobiSourceCvmSnapshot {
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid rgba(255,255,255,.075);
-}
-
-.bemobiSourceCvmSnapshot .placeholderRows {
-  margin-top: 14px;
-}
-
 @media (max-width: 760px) {
   .sourceStatusHead { display: none; }
   .sourceStatusRow { grid-template-columns: 1fr 1fr; gap: 12px; }
-  .sourceStatusName, .sourceStatusDetail { grid-column: 1 / -1; }
+  .sourceStatusSource, .sourceStatusName, .sourceStatusDetail { grid-column: 1 / -1; }
   .mobileSourceLabel { display: block; color: #657690; font-size: 10px; font-weight: 600; text-transform: uppercase; }
 }

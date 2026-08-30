@@ -84,6 +84,14 @@ export default function DataQualityPage() {
   const nightly = runtime?.full_refresh;
   const nightlySources = Object.entries(nightly?.source_health ?? {});
   const healthySourceCount = nightlySources.filter(([, status]) => status === "OK").length;
+  const nightlyWarnings = nightlySources
+    .filter(([, sourceStatus]) => sourceStatus !== "OK")
+    .map(([code, sourceStatus]) => `${SOURCE_LABELS[code] ?? code}: ${statusLabel(sourceStatus)}`);
+  const operationalWarnings = [
+    runtime?.fast_refresh?.stale ? "30-minutterskjøringen er eldre enn forventet." : null,
+    runtime?.fast_refresh?.has_error ? "Siste 30-minutterskjøring registrerte en feil." : null,
+    runtime?.fx?.current === false ? "Valutakursene er eldre enn forventet dato." : null,
+  ].filter((warning): warning is string => warning !== null);
 
   return (
     <div className="investorPage dataQualityPage">
@@ -119,38 +127,32 @@ export default function DataQualityPage() {
             ))}
           </div>
         )}
-        {nightly?.preflight && (
-          <div className="nightlyControl">
-            <strong>Datakontroll</strong>
-            <span>Preflight: {nightly.preflight.ready ? "OK" : "FEIL"}</span>
-            <span>Blokkeringer: {nightly.preflight.blocker_count ?? 0}</span>
-            <span>Advarsler: {nightly.preflight.warning_count ?? 0}</span>
+        {nightly?.preflight && (nightly.preflight.warning_count || nightly.preflight.blocker_count) ? (
+          <div className="qualityAlert" role="status">
+            <strong>Dette krever oppmerksomhet</strong>
+            <p>
+              Nattkontrollen fant {nightly.preflight.blocker_count ?? 0} blokkeringer og {nightly.preflight.warning_count ?? 0} advarsler.
+              {nightly.preflight.ready
+                ? " Advarslene stoppet ikke oppdateringen."
+                : " Oppdateringen er ikke godkjent, og siste gode data beholdes."}
+            </p>
+            {nightlyWarnings.length > 0 && <ul>{nightlyWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+            {nightlyWarnings.length === 0 && <p>Detaljene gjelder nattens datakontroll og finnes i den lagrede nattdiagnosen.</p>}
           </div>
-        )}
-      </section>
-
-      <section className="card qualityMethod">
-        <div className="cardHeader"><div><span className="label">SLIK FUNGERER DET</span><h2>Fra kilde til tall på siden</h2></div></div>
-        <div className="qualityMethodSteps">
-          <div><span>1</span><strong>Henter</strong><p>Automatiske jobber leser offisielle rapporter, markedsdata og valuta.</p></div>
-          <div><span>2</span><strong>Kontrollerer</strong><p>Dataene valideres før de lagres. Ved feil beholdes siste gode verdi.</p></div>
-          <div><span>3</span><strong>Oppdaterer</strong><p>Godkjente data brukes til å bygge NAV og visningene på investorsidene.</p></div>
-        </div>
-        <p className="qualityMethodNote">«Sist hentet» viser når en verdi sist ble lagret fra kilden. «Sist kontrollert» viser siste forsøk – også når kilden ikke ga nye data.</p>
+        ) : null}
       </section>
 
       <BemobiSourceStatusPanel />
 
       <section className="card">
-        <div className="cardHeader"><div><span className="label">DRIFT</span><h2>Automatiske jobber og ferskhet</h2></div><span className="pill">{runtimeFailed ? "SISTE GODE" : statusLabel(runtime?.status)}</span></div>
-        <div className="qualityMetricGrid">
-          <div><span>Full oppdatering</span><strong>{statusLabel(runtime?.full_refresh?.status)}</strong><small>{formatDateTime(runtime?.full_refresh?.finished_at ?? runtime?.full_refresh?.started_at)}</small></div>
-          <div><span>30-min oppdatering</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
-          <div><span>Førsteside-cache</span><strong>{snapshot?.cache_status ?? "UKJENT"}</strong><small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `v${snapshot.stored_version ?? "?"} · ${Math.round(snapshot.age_seconds / 60)} min gammel`}</small></div>
-          <div><span>Norges Bank</span><strong>{statusLabel(runtime?.norges_bank?.status)}</strong><small>{formatDateTime(runtime?.norges_bank?.checked_at)}</small></div>
-          <div><span>Valuta BRL/USD → NOK</span><strong>{formatDate(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {formatDate(runtime?.fx?.expected_date)}</small></div>
+        <div className="cardHeader"><div><span className="label">HVER 30. MINUTT</span><h2>Løpende oppdatering</h2></div><span className="pill">{runtimeFailed ? "SISTE GODE" : statusLabel(runtime?.fast_refresh?.status)}</span></div>
+        <p className="qualitySectionLead">Oppdaterer markedsdata, valuta og førstesiden gjennom dagen.</p>
+        <div className="qualityMetricGrid fastRefreshGrid">
+          <div><span>Siste kjøring</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
+          <div><span>Førsteside</span><strong>{snapshot?.cache_status ?? "UKJENT"}</strong><small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `${Math.round(snapshot.age_seconds / 60)} min gammel`}</small></div>
+          <div><span>Valuta</span><strong>{formatDate(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {formatDate(runtime?.fx?.expected_date)}</small></div>
         </div>
-        {(runtime?.full_refresh?.stale || runtime?.fast_refresh?.stale || runtime?.full_refresh?.has_error || runtime?.fast_refresh?.has_error || runtime?.fx?.current === false) && <p className="qualityAlert">Minst ett driftsignal krever oppfølging. Den detaljerte nattdiagnosen lagres også i GitHub.</p>}
+        {operationalWarnings.length > 0 && <div className="qualityAlert" role="status"><strong>Dette gjelder advarselen</strong><ul>{operationalWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       </section>
 
       <section className="card">
