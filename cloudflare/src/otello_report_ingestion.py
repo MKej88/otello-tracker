@@ -702,12 +702,30 @@ async def _upsert_post_report_cash_events(
                 or Decimal(str(existing.get("amount_original") or "0")) != amount_usd
             ):
                 raise ValueError(f"Konflikt i eksisterende kontantbevegelse {external_id}")
+            await repository.run(
+                """
+                UPDATE cash_movements
+                SET amount_nok=?, fx_rate_to_nok=?, description=?, source_document_id=?
+                WHERE id=?
+                """,
+                (
+                    _decimal_text(amount_nok),
+                    _decimal_text(Decimal(str(fx["rate"]))),
+                    str(event["description"]),
+                    report_doc_id,
+                    int(existing["id"]),
+                ),
+            )
             results.append(
                 {
-                    "status": "existing",
+                    "status": "updated",
                     "id": int(existing["id"]),
                     "external_movement_id": external_id,
                     "movement_date": movement_date,
+                    "amount_usd": _decimal_text(amount_usd),
+                    "amount_nok": _decimal_text(amount_nok),
+                    "fx_rate": str(fx["rate"]),
+                    "fx_date": str(fx["rate_date"]),
                 }
             )
             continue
