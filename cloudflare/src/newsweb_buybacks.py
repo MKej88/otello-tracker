@@ -211,6 +211,11 @@ def _parse_first_program_week(clean: str) -> BuybackStatus | None:
         clean,
         re.I,
     )
+    treasury = re.search(
+        r"At present date, Otello owns ([\d,]+) treasury shares",
+        clean,
+        re.I,
+    )
     if not (ref and period and maximum):
         return None
     reference_date = _iso_date(ref.group(1))
@@ -233,7 +238,9 @@ def _parse_first_program_week(clean: str) -> BuybackStatus | None:
         cumulative_program_avg_price_nok=avg_price,
         cumulative_program_amount_nok=amount,
         max_program_shares=_integer(maximum.group(1)),
-        treasury_shares_after=shares,
+        treasury_shares_after=(
+            _integer(treasury.group(1)) if treasury is not None else shares
+        ),
     )
 
 
