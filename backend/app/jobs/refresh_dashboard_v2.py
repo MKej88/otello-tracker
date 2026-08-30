@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from app.buybacks import (
@@ -12,10 +12,13 @@ from app.buybacks import (
 )
 from app.db.migration_runner import init_database
 from app.jobs.refresh_dashboard import run_refresh as run_core_refresh
+from app.jobs.refresh_helpers import (
+    eod_is_authoritative as _eod_is_authoritative,
+    previous_oslo_trading_day as _previous_oslo_trading_day,
+)
 from app.marketdata.bmob3_close import refresh_bmob3_official_close
 from app.marketdata.bmob3_feed import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
 from app.marketdata.euronext_delayed import download_euronext_delayed_equities
-from app.marketdata.oslo_calendar import is_oslo_bors_trading_day
 from app.marketdata.otec_feed import finalize_otec_eod_from_payload, refresh_otec_intraday_price
 
 
@@ -23,21 +26,6 @@ def _record_error(result: dict[str, Any], step: str, exc: Exception) -> None:
     result.setdefault("source_errors", []).append({"step": step, "error": str(exc)})
     if result.get("status") == "ok":
         result["status"] = "degraded"
-
-
-def _previous_oslo_trading_day(day: date) -> date:
-    candidate = day - timedelta(days=1)
-    while not is_oslo_bors_trading_day(candidate):
-        candidate -= timedelta(days=1)
-    return candidate
-
-
-def _eod_is_authoritative(result: Any) -> bool:
-    if not isinstance(result, dict):
-        return False
-    if result.get("status") in {"ok", "no_trade"}:
-        return True
-    return result.get("status") == "skipped" and result.get("reason") == "eod_already_finalized"
 
 
 def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
