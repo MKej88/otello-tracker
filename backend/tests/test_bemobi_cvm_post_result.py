@@ -31,6 +31,11 @@ class _Repository:
 def test_post_result_refresh_invalidates_same_day_throttle_before_cvm_retry(monkeypatch) -> None:
     repository = _Repository()
     calls = []
+    harmonized_calls = []
+
+    async def fake_harmonized(repo, *, period: str):
+        harmonized_calls.append((repo, period))
+        return {"status": "updated", "rows_written": 1, "value_mbrl": 240.0}
 
     async def fake_refresh(repo, *, target_date: str, fetcher=None):
         calls.append((repo, target_date, fetcher))
@@ -46,6 +51,7 @@ def test_post_result_refresh_invalidates_same_day_throttle_before_cvm_retry(monk
             "fact_status": {"3Q26": "updated"},
         }
 
+    monkeypatch.setattr(post_result, "_merge_harmonized_revenue_from_result", fake_harmonized)
     monkeypatch.setattr(post_result, "refresh_bemobi_reported_net_income", fake_refresh)
 
     result = asyncio.run(
@@ -56,11 +62,14 @@ def test_post_result_refresh_invalidates_same_day_throttle_before_cvm_retry(monk
         )
     )
 
+    assert harmonized_calls == [(repository, "3Q26")]
     assert len(calls) == 1
     assert result["status"] == "ok"
+    assert result["rows_written"] == 2
     assert result["trigger"] == "new_result_release"
     assert result["trigger_period"] == "3Q26"
     assert result["trigger_period_status"] == "updated"
+    assert result["harmonized_revenue"]["status"] == "updated"
     assert result["retry_throttle_reset"] is True
 
 
@@ -70,7 +79,11 @@ def test_post_result_refresh_does_not_reset_throttle_without_new_quarter(monkeyp
     async def unexpected_refresh(*args, **kwargs):
         raise AssertionError("CVM refresh should not run without the new TTM quarter")
 
+    async def unexpected_harmonized(*args, **kwargs):
+        raise AssertionError("Harmonized revenue should not run without the new TTM quarter")
+
     monkeypatch.setattr(post_result, "refresh_bemobi_reported_net_income", unexpected_refresh)
+    monkeypatch.setattr(post_result, "_merge_harmonized_revenue_from_result", unexpected_harmonized)
 
     result = asyncio.run(
         post_result.refresh_cvm_financials_after_new_result(

@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -22,12 +23,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         "0001", "0002", "0003", "0004", "0005", "0006", "0007",
         "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
         "0016", "0017", "0019", "0020", "0021", "0022", "0023", "0024",
-        "0025", "0026", "0027", "0028", "0029",
+        "0025", "0026", "0027", "0028", "0029", "0030",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0029"
+    assert status["latest_migration"] == "0030"
     assert status["table_counts"]["sources"] == 19
     assert status["table_counts"]["instruments"] == 4
     assert status["table_counts"]["bemobi_investor_facts"] == 18
@@ -164,6 +165,41 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         connection.rollback()
 
 
+def test_existing_0029_database_receives_harmonized_revenue_backfill(tmp_path) -> None:
+    database_path = str(tmp_path / "otello.db")
+    init_database(database_path)
+
+    with get_connection(database_path) as connection:
+        rows = connection.execute(
+            "SELECT id, payload_json FROM bemobi_investor_facts "
+            "WHERE fact_type = 'TTM_QUARTER' AND fact_key IN ('3Q25', '4Q25', '1Q26', '2Q26')"
+        ).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            for key in tuple(payload):
+                if key.startswith("harmonized_net_revenue_"):
+                    del payload[key]
+            connection.execute(
+                "UPDATE bemobi_investor_facts SET payload_json = ? WHERE id = ?",
+                (json.dumps(payload), row["id"]),
+            )
+        connection.execute("DELETE FROM schema_migrations WHERE version = '0030'")
+        connection.commit()
+
+    assert init_database(database_path) == ["0030"]
+    with get_connection(database_path) as connection:
+        values = [
+            json.loads(row["payload_json"])["harmonized_net_revenue_mbrl"]
+            for row in connection.execute(
+                "SELECT payload_json FROM bemobi_investor_facts "
+                "WHERE fact_type = 'TTM_QUARTER' "
+                "AND fact_key IN ('3Q25', '4Q25', '1Q26', '2Q26') "
+                "ORDER BY as_of_date"
+            )
+        ]
+    assert values == [187.5, 199.2, 222.0, 227.3]
+
+
 def test_financial_values_are_stored_as_exact_decimal_text(tmp_path) -> None:
     database_path = str(tmp_path / "otello.db")
     init_database(database_path)
@@ -251,7 +287,7 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0029"
+            assert payload["latest_migration"] == "0030"
             assert payload["table_counts"]["sources"] == 19
             assert payload["table_counts"]["instruments"] == 4
             assert payload["table_counts"]["bemobi_investor_facts"] == 18
