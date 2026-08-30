@@ -1095,8 +1095,14 @@ async def _apply_report(
         backfill = {"status": "error", "error": str(exc)[:800]}
         warnings.append({"step": "nav_backfill", "error": str(exc)[:800]})
 
+    final_status = "APPLIED" if not warnings else "PARTIAL"
+    if final_status != "APPLIED":
+        # APPLIED is needed temporarily while the NAV rebuild reads the new anchors.
+        # Do not leave that success marker behind when a dependent update failed.
+        await _set_report_document_apply_status(repository, report_doc_id, final_status)
+
     return {
-        "status": "applied",
+        "status": final_status.lower(),
         "report_date": report_date,
         "cash_anchor_id": cash_id,
         "ona_reported_anchor_id": ona_reported_id,
@@ -1266,17 +1272,25 @@ async def process_pending_otello_reports(
             )
             continue
 
-        applied += 1
         warning_count = len(applied_result.get("warnings") or [])
         post_cash_count = int((applied_result.get("post_report_cash_events") or {}).get("count") or 0)
+        fully_applied = applied_result.get("status") == "applied" and warning_count == 0
+        if fully_applied:
+            applied += 1
+        else:
+            review_required += 1
         await _set_news_status(
             repository,
             company_news_id,
-            status="APPLIED",
+            status="APPLIED" if fully_applied else "REVIEW_REQUIRED",
             summary=(
-                f"Otello {facts['source_period']} automatisk innlest: cash, ONA, opsjonsanker "
-                f"og driftskostnadsgrunnlag oppdatert; {post_cash_count} bekreftet(e) etterfølgende "
-                f"kontantbevegelse(r) lagt inn; NAV bygget på nytt. warnings={warning_count}"
+                f"Otello {facts['source_period']} automatisk innlest: cash, ONA og opsjonsanker "
+                f"oppdatert; {post_cash_count} bekreftet(e) etterfølgende kontantbevegelse(r) "
+                + (
+                    "lagt inn; driftskostnadsgrunnlag og NAV bygget på nytt."
+                    if fully_applied
+                    else "lagt inn, men en avhengig oppdatering feilet og krever kontroll."
+                )
             ),
             notes=(
                 f"parser={REPORT_PARSER_VERSION}; report_document_id={report_doc_id}; "
@@ -1288,7 +1302,7 @@ async def process_pending_otello_reports(
         processed.append(
             {
                 "message_id": message_id,
-                "status": "applied",
+                "status": "applied" if fully_applied else "review_required",
                 "report_document_id": report_doc_id,
                 "archive": archive,
                 "facts": _facts_for_json(facts),
