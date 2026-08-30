@@ -5,6 +5,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
@@ -66,7 +68,12 @@ class FakeRepository:
             else:
                 held_owner, separator, held_until = self.lock.partition("|")
                 stale = self.updated_at is None or self.updated_at <= stale_before_iso
-                if not separator or held_until <= now_iso or stale or held_owner == clean_owner:
+                if (
+                    not separator
+                    or held_until <= now_iso
+                    or stale
+                    or held_owner == clean_owner
+                ):
                     self.lock = token
                     self.updated_at = now_iso
             return None
@@ -176,3 +183,67 @@ def test_fresh_heartbeat_keeps_unexpired_lock_exclusive() -> None:
 
     assert result["acquired"] is False
     assert repository.jobs[0]["status"] == "RUNNING"
+
+
+def test_empty_owner_is_rejected_before_the_repository_is_used() -> None:
+    class RepositoryThatMustNotBeUsed:
+        async def run(self, sql: str, parameters=()):
+            raise AssertionError(f"Unexpected database write: {sql} {parameters}")
+
+        async def first(self, sql: str, parameters=()):
+            raise AssertionError(f"Unexpected database read: {sql} {parameters}")
+
+    with pytest.raises(ValueError, match="owner cannot be empty"):
+        asyncio.run(
+            acquire_refresh_lock(
+                RepositoryThatMustNotBeUsed(),
+                owner="  ",
+                ttl_seconds=20 * 60,
+                now=datetime(2026, 8, 24, 5, 30, tzinfo=UTC),
+            )
+        )
+
+
+def test_heartbeat_at_the_stale_boundary_releases_the_abandoned_lock() -> None:
+    repository = FakeRepository(
+        held_lock="full:2026-08-24:dead-instance|2026-08-24T07:56:00Z",
+        held_updated_at="2026-08-24T05:00:00Z",
+    )
+
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:2026-08-24T05:30:00Z",
+            ttl_seconds=20 * 60,
+            now=datetime(2026, 8, 24, 5, 30, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["held_by"] == "fast:2026-08-24T05:30:00Z"
+
+
+def test_reconciliation_failure_does_not_forfeit_the_acquired_writer_lock() -> None:
+    class ReconciliationFailureRepository(FakeRepository):
+        async def run(self, sql: str, parameters=()):
+            normalized = " ".join(sql.split()).upper()
+            if normalized.startswith("UPDATE JOB_RUNS"):
+                raise TimeoutError("database timed out while reconciling")
+            return await super().run(sql, parameters)
+
+    repository = ReconciliationFailureRepository()
+
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:2026-08-24T05:30:00Z",
+            ttl_seconds=20 * 60,
+            now=datetime(2026, 8, 24, 5, 30, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["token"] == repository.lock
+    assert result["orphan_reconciliation_error"] == (
+        "TimeoutError: database timed out while reconciling"
+    )
