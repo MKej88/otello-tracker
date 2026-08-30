@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from app.buybacks.euronext import BuybackStatus, ingest_buyback_status
 from app.buybacks.older_2022 import OLDER_2022_OFFICIAL_BUYBACKS
+from app.buybacks.older_2023_reconciled import reconciled_older_2023_buybacks
 from app.buybacks.older_2024_reconciled import reconciled_older_2024_buybacks
 from app.buybacks.older_2025_reconciled import reconciled_older_2025_buybacks
 
@@ -144,6 +145,7 @@ def seed_known_official_buybacks(database_path: str | None = None) -> list[dict]
     results: list[dict] = []
     all_rows = [
         *OLDER_2022_OFFICIAL_BUYBACKS,
+        *reconciled_older_2023_buybacks(),
         *reconciled_older_2024_buybacks(),
         *reconciled_older_2025_buybacks(),
         *KNOWN_OFFICIAL_BUYBACKS,
