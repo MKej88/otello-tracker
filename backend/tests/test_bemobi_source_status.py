@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.bemobi.source_status import bemobi_source_status
+from app.bemobi.source_status import _operational_source_items, bemobi_source_status
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
@@ -143,3 +143,18 @@ def test_source_status_includes_health_for_operational_sources(tmp_path: Path) -
     assert by_key["norges_bank"]["source"] == "Norges Bank"
     assert by_key["norges_bank"]["status"] == "OK"
     assert by_key["norges_bank"]["checked_at"] == "2026-08-20T18:00:00Z"
+
+
+def test_operational_source_status_uses_one_database_query(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        queries: list[str] = []
+        connection.set_trace_callback(queries.append)
+
+        items = _operational_source_items(connection)
+
+    select_queries = [
+        query for query in queries if query.lstrip().upper().startswith("SELECT")
+    ]
+    assert len(items) == 7
+    assert len(select_queries) == 1
