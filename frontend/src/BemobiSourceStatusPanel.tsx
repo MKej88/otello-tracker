@@ -27,6 +27,13 @@ type SourceStatus = {
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const USED_ON: Record<string, string> = {
+  norges_bank: "NAV og oversikt",
+  b3: "NAV og Bemobi",
+  euronext: "NAV, historikk og tilbakekjøp",
+  yahoo_finance: "NAV og oversikt",
+  newsweb: "Nyheter, rapporter og tilbakekjøp",
+  otello_ir: "NAV og rapporter",
+  life360_ir: "NAV og oversikt",
   ir: "Bemobi",
   result_release: "Bemobi og NAV",
   consensus: "Konsensus og Bemobi",
@@ -153,7 +160,7 @@ export default function BemobiSourceStatusPanel() {
       </div>
 
       <p className="bemobiFootnote">
-        Offisielle kilder prioriteres. Hvis MarketScreener eller en annen sekundær kilde feiler,
+        Oversikten viser alle automatiske kilder som brukes i løsningen. Offisielle kilder prioriteres. Hvis MarketScreener eller en annen sekundær kilde feiler,
         beholdes siste validerte verdi i stedet for å nullstille eller erstatte den med usikre data.
       </p>
     </section>

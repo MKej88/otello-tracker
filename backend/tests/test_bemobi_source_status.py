@@ -70,7 +70,7 @@ def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) 
 
     assert result["overall_status"] == "UNKNOWN"
     assert result["checked_at"] is None
-    assert len(result["items"]) == 4
+    assert len(result["items"]) == 11
     assert all(item["status"] == "UNKNOWN" for item in result["items"])
     assert any(item["last_good_at"] is not None for item in result["items"])
 
@@ -81,6 +81,13 @@ def test_source_status_has_stable_source_order_and_labels(tmp_path: Path) -> Non
     result = bemobi_source_status(database)
 
     assert [(item["key"], item["label"]) for item in result["items"]] == [
+        ("norges_bank", "Valutakurser (BRL/NOK og USD/NOK)"),
+        ("b3", "Bemobi-kurs og markedsdata"),
+        ("euronext", "OTEC-kurs og handler"),
+        ("yahoo_finance", "Life360-kurs"),
+        ("newsweb", "Børsmeldinger og tilbakekjøp"),
+        ("otello_ir", "Rapporter og selskapsinformasjon"),
+        ("life360_ir", "Reservekilde for Life360-kurs"),
         ("ir", "Eierandel og analytikerdekning"),
         ("result_release", "Resultater"),
         ("consensus", "Årsestimater / konsensus"),
@@ -108,4 +115,31 @@ def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(
     result = bemobi_source_status(database)
 
     assert result["overall_status"] == "UNKNOWN"
-    assert all(item["status"] == "UNKNOWN" for item in result["items"])
+    assert all(
+        item["status"] == "UNKNOWN"
+        for item in result["items"]
+        if item["key"] in {"ir", "result_release", "consensus", "xp_preview"}
+    )
+
+
+def test_source_status_includes_health_for_operational_sources(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        source_id = connection.execute(
+            "SELECT id FROM sources WHERE code='NORGES_BANK'"
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO source_health(source_id, checked_at, status, metadata_json)
+            VALUES (?, ?, ?, '{}')
+            """,
+            (source_id, "2026-08-20T18:00:00Z", "OK"),
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+    by_key = {item["key"]: item for item in result["items"]}
+
+    assert by_key["norges_bank"]["source"] == "Norges Bank"
+    assert by_key["norges_bank"]["status"] == "OK"
+    assert by_key["norges_bank"]["checked_at"] == "2026-08-20T18:00:00Z"
