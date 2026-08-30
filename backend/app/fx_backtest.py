@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from bisect import bisect_right
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 
 from app.db.connection import get_connection
 
@@ -26,7 +27,9 @@ def _float(value: Decimal | str | int | float | None) -> float | None:
 
 
 def _nearest_fx(connection, base: str, day: str):
-    floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
+    floor_date = (
+        date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+    ).isoformat()
     return connection.execute(
         """
         SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate, s.code AS source_code
@@ -49,13 +52,11 @@ def _nearest_fx(connection, base: str, day: str):
 
 
 def _anchors(connection) -> dict[str, dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT id, metadata_json FROM source_documents
         WHERE document_type='ECONOMIC_NAV_CASH_FX_ANCHOR'
         ORDER BY id DESC
-        """
-    ).fetchall()
+        """).fetchall()
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
         metadata = _metadata(row["metadata_json"])
@@ -66,13 +67,11 @@ def _anchors(connection) -> dict[str, dict[str, Any]]:
 
 
 def _outcomes(connection) -> list[dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT id, metadata_json FROM source_documents
         WHERE document_type='ECONOMIC_NAV_FX_BACKTEST_OUTCOME'
         ORDER BY id DESC
-        """
-    ).fetchall()
+        """).fetchall()
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
         metadata = _metadata(row["metadata_json"])
@@ -95,7 +94,67 @@ def _rates(connection, day: str) -> tuple[Decimal, Decimal, str, str] | None:
     )
 
 
-def _value_usd(balances: dict[str, Decimal], usd_nok: Decimal, brl_nok: Decimal) -> Decimal:
+def _load_rate_lookup(
+    connection, start: str, end: str
+) -> Callable[[str], tuple[Decimal, Decimal, str, str] | None]:
+    """Last aktuelle valutakurser én gang og gjør datooppslag i minnet."""
+    floor_date = (
+        date.fromisoformat(start) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+    ).isoformat()
+    rows = connection.execute(
+        """
+        SELECT fr.base_currency, substr(fr.observed_at,1,10) AS rate_date,
+               fr.rate, s.code AS source_code
+        FROM fx_rates fr
+        JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency IN ('USD','BRL')
+          AND fr.quote_currency='NOK'
+          AND substr(fr.observed_at,1,10) BETWEEN ? AND ?
+        ORDER BY fr.base_currency, substr(fr.observed_at,1,10),
+                 CASE s.code
+                   WHEN 'NORGES_BANK' THEN 0
+                   WHEN 'ECB' THEN 1
+                   ELSE 5
+                 END,
+                 fr.observed_at DESC,
+                 fr.id DESC
+        """,
+        (floor_date, end),
+    ).fetchall()
+
+    by_currency: dict[str, dict[str, Decimal]] = {"USD": {}, "BRL": {}}
+    for row in rows:
+        rates = by_currency[str(row["base_currency"])]
+        rate_date = str(row["rate_date"])
+        if rate_date not in rates:
+            rates[rate_date] = Decimal(str(row["rate"]))
+    dates = {currency: sorted(rates) for currency, rates in by_currency.items()}
+
+    def lookup(day: str) -> tuple[Decimal, Decimal, str, str] | None:
+        matched: dict[str, tuple[str, Decimal]] = {}
+        minimum = (
+            date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+        ).isoformat()
+        for currency in ("USD", "BRL"):
+            currency_dates = dates[currency]
+            index = bisect_right(currency_dates, day) - 1
+            if index < 0 or currency_dates[index] < minimum:
+                return None
+            rate_date = currency_dates[index]
+            matched[currency] = (rate_date, by_currency[currency][rate_date])
+        return (
+            matched["USD"][1],
+            matched["BRL"][1],
+            matched["USD"][0],
+            matched["BRL"][0],
+        )
+
+    return lookup
+
+
+def _value_usd(
+    balances: dict[str, Decimal], usd_nok: Decimal, brl_nok: Decimal
+) -> Decimal:
     return (
         balances["USD"]
         + balances["NOK"] / usd_nok
@@ -103,7 +162,9 @@ def _value_usd(balances: dict[str, Decimal], usd_nok: Decimal, brl_nok: Decimal)
     )
 
 
-def _initial_balances(anchor: dict[str, Any], usd_nok: Decimal, brl_nok: Decimal) -> dict[str, Decimal]:
+def _initial_balances(
+    anchor: dict[str, Any], usd_nok: Decimal, brl_nok: Decimal
+) -> dict[str, Decimal]:
     balances = {"NOK": Decimal("0"), "USD": Decimal("0"), "BRL": Decimal("0")}
     for item in anchor.get("exposures") or []:
         currency = str(item.get("currency") or "").upper()
@@ -145,18 +206,36 @@ def _movement_original(item: dict[str, Any]) -> Decimal | None:
     return Decimal(str(amount_nok)) / Decimal(str(fx))
 
 
-def _period_backtest(connection, outcome: dict[str, Any], anchors: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _period_backtest(
+    connection,
+    outcome: dict[str, Any],
+    anchors: dict[str, dict[str, Any]],
+    rate_lookup: (
+        Callable[[str], tuple[Decimal, Decimal, str, str] | None] | None
+    ) = None,
+) -> dict[str, Any]:
     start = str(outcome["period_start"])[:10]
     end = str(outcome["period_end"])[:10]
     start_anchor = anchors.get(start)
     end_anchor = anchors.get(end)
     if start_anchor is None or end_anchor is None:
-        return {"ready": False, "period_start": start, "period_end": end, "reason": "missing_fx_anchor"}
+        return {
+            "ready": False,
+            "period_start": start,
+            "period_end": end,
+            "reason": "missing_fx_anchor",
+        }
 
-    start_rates = _rates(connection, start)
-    end_rates = _rates(connection, end)
+    lookup = rate_lookup or (lambda day: _rates(connection, day))
+    start_rates = lookup(start)
+    end_rates = lookup(end)
     if start_rates is None or end_rates is None:
-        return {"ready": False, "period_start": start, "period_end": end, "reason": "missing_historical_fx_rates"}
+        return {
+            "ready": False,
+            "period_start": start,
+            "period_end": end,
+            "reason": "missing_historical_fx_rates",
+        }
 
     usd_nok, brl_nok, usd_rate_date, brl_rate_date = start_rates
     balances = _initial_balances(start_anchor, usd_nok, brl_nok)
@@ -172,7 +251,7 @@ def _period_backtest(connection, outcome: dict[str, Any], anchors: dict[str, dic
         by_date.setdefault(str(item["movement_date"]), []).append(item)
 
     for movement_date, items in sorted(by_date.items()):
-        current_rates = _rates(connection, movement_date)
+        current_rates = lookup(movement_date)
         if current_rates is None:
             skipped_movements += len(items)
             continue
@@ -202,7 +281,9 @@ def _period_backtest(connection, outcome: dict[str, Any], anchors: dict[str, dic
     error = fx_effect - actual_cash_fx
     abs_error = abs(error)
     denominator = abs(actual_cash_fx) if actual_cash_fx != 0 else Decimal("1")
-    accuracy = max(Decimal("0"), Decimal("100") * (Decimal("1") - abs_error / denominator))
+    accuracy = max(
+        Decimal("0"), Decimal("100") * (Decimal("1") - abs_error / denominator)
+    )
     sign_correct = (fx_effect >= 0) == (actual_cash_fx >= 0)
     model_end_cash = _value_usd(balances, final_usd_nok, final_brl_nok)
     actual_end_cash = Decimal(str(end_anchor["total_cash_usd"]))
@@ -237,13 +318,25 @@ def fx_backtest_summary(database_path: str | None = None) -> dict[str, Any]:
         outcomes = _outcomes(connection)
         if not outcomes:
             return {"ready": False, "reason": "missing_reported_fx_outcomes"}
-        periods = [_period_backtest(connection, outcome, anchors) for outcome in outcomes]
+        starts = [str(outcome["period_start"])[:10] for outcome in outcomes]
+        ends = [str(outcome["period_end"])[:10] for outcome in outcomes]
+        rate_lookup = _load_rate_lookup(connection, min(starts), max(ends))
+        periods = [
+            _period_backtest(connection, outcome, anchors, rate_lookup)
+            for outcome in outcomes
+        ]
 
     ready_periods = [item for item in periods if item.get("ready")]
     if not ready_periods:
-        return {"ready": False, "reason": "no_backtest_period_ready", "periods": periods}
+        return {
+            "ready": False,
+            "reason": "no_backtest_period_ready",
+            "periods": periods,
+        }
 
-    mae = sum(Decimal(str(item["absolute_error_usd_m"])) for item in ready_periods) / Decimal(len(ready_periods))
+    mae = sum(
+        Decimal(str(item["absolute_error_usd_m"])) for item in ready_periods
+    ) / Decimal(len(ready_periods))
     sign_hits = sum(1 for item in ready_periods if item.get("sign_correct"))
     return {
         "ready": True,
