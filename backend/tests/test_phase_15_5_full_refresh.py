@@ -52,6 +52,10 @@ def _norges_bank_payload() -> dict:
                             "attributes": [0, 0, 0, 0],
                             "observations": {"0": [Decimal("10.00")]},
                         },
+                        "0:2:0:0": {
+                            "attributes": [0, 0, 0, 0],
+                            "observations": {"0": [Decimal("6.55")]},
+                        },
                     }
                 }
             ],
@@ -59,7 +63,10 @@ def _norges_bank_payload() -> dict:
                 "dimensions": {
                     "series": [
                         {"id": "FREQ", "values": [{"id": "B"}]},
-                        {"id": "BASE_CUR", "values": [{"id": "BRL"}, {"id": "USD"}]},
+                        {
+                            "id": "BASE_CUR",
+                            "values": [{"id": "BRL"}, {"id": "USD"}, {"id": "AUD"}],
+                        },
                         {"id": "QUOTE_CUR", "values": [{"id": "NOK"}]},
                         {"id": "TENOR", "values": [{"id": "SP"}]},
                     ],
@@ -84,6 +91,7 @@ def test_norges_bank_direct_rates_match_reference_values() -> None:
     payload = _norges_bank_payload()
     rows = parse_norges_bank_sdmx_json(payload)
     assert rows == [
+        ("2026-08-17", "AUD", Decimal("6.55")),
         ("2026-08-17", "BRL", Decimal("1.82")),
         ("2026-08-17", "USD", Decimal("10.00")),
     ]

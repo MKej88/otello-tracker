@@ -17,9 +17,13 @@ def _sample_payload(unit_mult: str = "0") -> dict:
                 "series": {
                     "0:0:0:0": {
                         "attributes": [0],
-                        "observations": {"0": [1.82], "1": [1.84]},
+                        "observations": {"0": [6.71], "1": [6.76]},
                     },
                     "0:1:0:0": {
+                        "attributes": [0],
+                        "observations": {"0": [1.82], "1": [1.84]},
+                    },
+                    "0:2:0:0": {
                         "attributes": [0],
                         "observations": {"0": [10.25], "1": [10.31]},
                     },
@@ -30,7 +34,10 @@ def _sample_payload(unit_mult: str = "0") -> dict:
             "dimensions": {
                 "series": [
                     {"id": "FREQ", "values": [{"id": "B"}]},
-                    {"id": "BASE_CUR", "values": [{"id": "BRL"}, {"id": "USD"}]},
+                    {
+                        "id": "BASE_CUR",
+                        "values": [{"id": "AUD"}, {"id": "BRL"}, {"id": "USD"}],
+                    },
                     {"id": "QUOTE_CUR", "values": [{"id": "NOK"}]},
                     {"id": "TENOR", "values": [{"id": "SP"}]},
                 ],
@@ -48,10 +55,12 @@ def _sample_payload(unit_mult: str = "0") -> dict:
     }
 
 
-def test_norges_bank_parser_reads_direct_brl_and_usd_nok() -> None:
+def test_norges_bank_parser_reads_direct_aud_brl_and_usd_nok() -> None:
     rows = parse_norges_bank_sdmx_json(json.dumps(_sample_payload()))
     values = {(row.trading_date, row.base_currency): row.rate for row in rows}
 
+    assert values[("2026-08-18", "AUD")] == Decimal("6.71")
+    assert values[("2026-08-19", "AUD")] == Decimal("6.76")
     assert values[("2026-08-18", "BRL")] == Decimal("1.82")
     assert values[("2026-08-19", "BRL")] == Decimal("1.84")
     assert values[("2026-08-18", "USD")] == Decimal("10.25")
@@ -76,7 +85,9 @@ def test_norges_bank_parser_rejects_invalid_trading_date() -> None:
 @pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
 def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
     payload = _sample_payload()
-    payload["dataSets"][0]["series"]["0:0:0:0"]["observations"]["0"] = [invalid_rate]
+    payload["dataSets"][0]["series"]["0:1:0:0"]["observations"]["0"] = [
+        invalid_rate
+    ]
 
     with pytest.raises(ValueError, match="Ugyldig BRL/NOK-kurs"):
         parse_norges_bank_sdmx_json(payload)
@@ -84,7 +95,7 @@ def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
 
 def test_norges_bank_url_requests_direct_nok_pairs() -> None:
     url = build_norges_bank_url("2026-08-01", "2026-08-20")
-    assert "/EXR/B.BRL+USD.NOK.SP?" in url
+    assert "/EXR/B.AUD+BRL+USD.NOK.SP?" in url
     assert "format=sdmx-json" in url
     assert "startPeriod=2026-08-01" in url
     assert "endPeriod=2026-08-20" in url

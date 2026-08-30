@@ -47,6 +47,8 @@ def _provenance_once(
     source_document_id: int,
     source_locator: str | None,
     shares: int,
+    extraction_method: str,
+    confidence: str,
 ) -> None:
     row = connection.execute(
         """
@@ -68,9 +70,16 @@ def _provenance_once(
         INSERT INTO provenance_records(
             entity_table, entity_id, field_name, source_document_id,
             source_locator, extraction_method, confidence, extracted_value
-        ) VALUES ('life360_holding_anchors', ?, 'shares', ?, ?, 'CALCULATED', 'HIGH', ?)
+        ) VALUES ('life360_holding_anchors', ?, 'shares', ?, ?, ?, ?, ?)
         """,
-        (entity_id, source_document_id, source_locator, str(shares)),
+        (
+            entity_id,
+            source_document_id,
+            source_locator,
+            extraction_method,
+            confidence,
+            str(shares),
+        ),
     )
 
 
@@ -93,7 +102,6 @@ def seed_life360_holdings(database_path: str | None = None) -> dict[str, Any]:
                 metadata={
                     "life360_holdings_manifest_version": manifest["version"],
                     "curated": True,
-                    "extraction_method_detail": "DERIVED_HIGH_CONFIDENCE",
                 },
             )
 
@@ -137,12 +145,19 @@ def seed_life360_holdings(database_path: str | None = None) -> dict[str, Any]:
                     (*values, entity_id),
                 )
 
+            quality = str(item["quality"])
+            confidence = str(
+                item.get("provenance_confidence")
+                or ("MEDIUM" if "MEDIUM" in quality else "HIGH")
+            )
             _provenance_once(
                 connection,
                 entity_id=entity_id,
                 source_document_id=document_id,
                 source_locator=item.get("source_locator"),
                 shares=int(item["shares"]),
+                extraction_method=str(item.get("extraction_method") or "CALCULATED"),
+                confidence=confidence,
             )
 
         connection.commit()

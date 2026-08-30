@@ -7,8 +7,8 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.BRL+USD.NOK.SP"
-FX_BASE_CURRENCIES = ("BRL", "USD")
+NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.AUD+BRL+USD.NOK.SP"
+FX_BASE_CURRENCIES = ("AUD", "BRL", "USD")
 
 
 @dataclass(frozen=True)
@@ -176,7 +176,7 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
 
     if not rows:
         raise ValueError(
-            "Norges Bank-returneringen inneholdt ingen BRL/NOK eller USD/NOK-rader"
+            "Norges Bank-returneringen inneholdt ingen AUD/NOK, BRL/NOK eller USD/NOK-rader"
         )
     missing = sorted(set(FX_BASE_CURRENCIES) - found_bases)
     if missing:

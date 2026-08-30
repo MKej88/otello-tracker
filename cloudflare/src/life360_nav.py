@@ -6,12 +6,22 @@ from typing import Any
 
 LIFE360_FAIR_VALUE_POLICY_START = "2025-12-31"
 LIFE360_HISTORY_START = "2019-05-10"
+LIFE360_NASDAQ_START = "2024-06-06"
+LIFE360_CDIS_PER_COMMON = Decimal("3")
 MAX_MARKET_LOOKBACK_DAYS = 7
 MAX_FX_LOOKBACK_DAYS = 7
 
 
-async def _lif_price(repository, as_of_date: str) -> dict[str, Any] | None:
-    floor = (date.fromisoformat(as_of_date) - timedelta(days=MAX_MARKET_LOOKBACK_DAYS)).isoformat()
+async def _market_price(
+    repository,
+    as_of_date: str,
+    *,
+    symbol: str,
+    currency: str,
+) -> dict[str, Any] | None:
+    floor = (
+        date.fromisoformat(as_of_date) - timedelta(days=MAX_MARKET_LOOKBACK_DAYS)
+    ).isoformat()
     return await repository.first(
         """
         SELECT mp.trading_date, mp.observed_at, mp.price, mp.quality,
@@ -19,28 +29,39 @@ async def _lif_price(repository, as_of_date: str) -> dict[str, Any] | None:
         FROM market_prices mp
         JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
-        WHERE i.symbol='LIF' AND mp.currency='USD'
+        WHERE i.symbol=? AND mp.currency=?
           AND mp.price_type IN ('CLOSE','LAST')
           AND mp.trading_date <= ? AND mp.trading_date >= ?
         ORDER BY mp.trading_date DESC,
-                 CASE s.code WHEN 'YAHOO_FINANCE' THEN 0 ELSE 5 END,
+                 CASE s.code WHEN 'YAHOO_FINANCE' THEN 0 WHEN 'LIFE360_IR_LSEG' THEN 1 ELSE 5 END,
                  CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
                  mp.observed_at DESC, mp.id DESC
         LIMIT 1
         """,
-        (as_of_date, floor),
+        (symbol, currency, as_of_date, floor),
     )
 
 
-async def _usd_nok(repository, as_of_date: str) -> dict[str, Any] | None:
-    floor = (date.fromisoformat(as_of_date) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
+async def _lif_price(repository, as_of_date: str) -> dict[str, Any] | None:
+    return await _market_price(repository, as_of_date, symbol="LIF", currency="USD")
+
+
+async def _fx_rate(
+    repository,
+    as_of_date: str,
+    *,
+    base_currency: str,
+) -> dict[str, Any] | None:
+    floor = (
+        date.fromisoformat(as_of_date) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+    ).isoformat()
     return await repository.first(
         """
         SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate,
                fr.source_document_id, s.code AS source_code
         FROM fx_rates fr
         JOIN sources s ON s.id=fr.source_id
-        WHERE fr.base_currency='USD' AND fr.quote_currency='NOK'
+        WHERE fr.base_currency=? AND fr.quote_currency='NOK'
           AND substr(fr.observed_at,1,10) <= ?
           AND substr(fr.observed_at,1,10) >= ?
         ORDER BY substr(fr.observed_at,1,10) DESC,
@@ -48,8 +69,12 @@ async def _usd_nok(repository, as_of_date: str) -> dict[str, Any] | None:
                  fr.observed_at DESC, fr.id DESC
         LIMIT 1
         """,
-        (as_of_date, floor),
+        (base_currency, as_of_date, floor),
     )
+
+
+async def _usd_nok(repository, as_of_date: str) -> dict[str, Any] | None:
+    return await _fx_rate(repository, as_of_date, base_currency="USD")
 
 
 async def _report_anchor_date(repository, as_of_date: str) -> str | None:
@@ -80,6 +105,108 @@ async def _life360_holding(repository, as_of_date: str) -> dict[str, Any] | None
         """,
         (as_of_date, as_of_date),
     )
+
+
+def _market_listing(as_of_date: str) -> tuple[str, str, Decimal, str]:
+    if as_of_date < LIFE360_NASDAQ_START:
+        return "360.AX", "AUD", LIFE360_CDIS_PER_COMMON, "ASX_CDI"
+    return "LIF", "USD", Decimal("1"), "NASDAQ_COMMON"
+
+
+async def life360_market_value(repository, *, as_of_date: str) -> dict[str, Any]:
+    """Historical Life360 market value for attribution without restating accounting NAV."""
+    if as_of_date < LIFE360_HISTORY_START:
+        return {
+            "ready": False,
+            "reason": "life360_market_history_not_started",
+            "as_of_date": as_of_date,
+            "history_available_from": LIFE360_HISTORY_START,
+        }
+
+    symbol, currency, quote_units_per_common, listing_role = _market_listing(as_of_date)
+    holding = await _life360_holding(repository, as_of_date)
+    price = await _market_price(
+        repository,
+        as_of_date,
+        symbol=symbol,
+        currency=currency,
+    )
+    fx = await _fx_rate(repository, as_of_date, base_currency=currency)
+
+    missing: list[str] = []
+    if holding is None:
+        missing.append("life360_holding")
+    if price is None:
+        missing.append(f"{symbol.lower()}_price")
+    if fx is None:
+        missing.append(f"{currency.lower()}_nok")
+    if missing:
+        return {
+            "ready": False,
+            "reason": "missing_" + "_and_".join(missing),
+            "as_of_date": as_of_date,
+            "market_symbol": symbol,
+            "currency": currency,
+            "listing_role": listing_role,
+            "history_available_from": LIFE360_HISTORY_START,
+            "shares": None if holding is None else int(holding["shares"]),
+            "holding_quality": None if holding is None else str(holding["quality"]),
+            "holding_basis": None if holding is None else str(holding["basis"]),
+        }
+
+    common_share_count = int(holding["shares"])
+    common_shares = Decimal(common_share_count)
+    quote_units = common_shares * quote_units_per_common
+    market_price = Decimal(str(price["price"]))
+    fx_rate = Decimal(str(fx["rate"]))
+    market_value_quote = quote_units * market_price
+    market_value_nok = market_value_quote * fx_rate
+    price_date = str(price["trading_date"])
+    price_age_days = max(
+        0,
+        (date.fromisoformat(as_of_date) - date.fromisoformat(price_date)).days,
+    )
+
+    return {
+        "ready": True,
+        "quality": "MARK_TO_MARKET_HISTORICAL_ATTRIBUTION",
+        "as_of_date": as_of_date,
+        "history_available_from": LIFE360_HISTORY_START,
+        "shares": common_share_count,
+        "common_shares": common_share_count,
+        "holding_effective_from": str(holding["effective_from"]),
+        "holding_effective_to": holding.get("effective_to"),
+        "holding_quality": str(holding["quality"]),
+        "holding_basis": str(holding["basis"]),
+        "holding_source_document_id": holding.get("source_document_id"),
+        "holding_source_locator": holding.get("source_locator"),
+        "holding_notes": holding.get("notes"),
+        "market_symbol": symbol,
+        "listing_role": listing_role,
+        "currency": currency,
+        "quote_units_per_common": quote_units_per_common,
+        "quote_units": quote_units,
+        "price": market_price,
+        "price_per_common_quote": market_price * quote_units_per_common,
+        "price_date": price_date,
+        "price_age_days": price_age_days,
+        "price_source": str(price.get("source_code") or ""),
+        "price_quality": str(price.get("quality") or ""),
+        "price_source_document_id": price.get("source_document_id"),
+        "fx_rate": fx_rate,
+        "fx_date": str(fx["rate_date"]),
+        "fx_source": str(fx.get("source_code") or ""),
+        "fx_source_document_id": fx.get("source_document_id"),
+        "market_value_quote": market_value_quote,
+        "market_value_nok": market_value_nok,
+        "stale": price_age_days > MAX_MARKET_LOOKBACK_DAYS,
+        "method": (
+            "ASX_CDI_3_TO_1_TIMES_AUD_NOK"
+            if symbol == "360.AX"
+            else "NASDAQ_COMMON_TIMES_USD_NOK"
+        ),
+        "accounting_nav_restatement": False,
+    }
 
 
 async def life360_nav_adjustment(repository, *, as_of_date: str) -> dict[str, Any]:

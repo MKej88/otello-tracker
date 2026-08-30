@@ -1,6 +1,30 @@
 {
-  "version": "2026-08-26.1",
+  "version": "2026-08-30.1",
   "documents": [
+    {
+      "key": "otello_ar22",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2022",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2022",
+      "url": "https://otello.cdn.prismic.io/otello/196c0cad-457f-4949-8515-f2a41e674256_Otello%2BCorporation%2BASA%2BAnnual%2BReport%2B2022.pdf"
+    },
+    {
+      "key": "otello_ar23",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2023",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2023",
+      "url": "https://otello.cdn.prismic.io/otello/e41bbcb5-89ca-4a99-af47-2d4471b5c3e8_Otello%2BCorporation%2BASA%2BAnnual%2BReport%2B2023.pdf"
+    },
+    {
+      "key": "otello_ar24",
+      "source_code": "OTELLO_IR",
+      "external_id": "otello-annual-2024",
+      "document_type": "ANNUAL_REPORT",
+      "title": "Otello Corporation ASA - Annual Report 2024",
+      "url": "https://otello.cdn.prismic.io/otello/aBJT_PIqRLdaBwvK_otellocorporation-2024-12-31-en.pdf"
+    },
     {
       "key": "otello_ar25",
       "source_code": "OTELLO_IR",
@@ -12,6 +36,18 @@
   ],
   "holdings": [
     {
+      "effective_from": "2022-12-31",
+      "effective_to": "2025-12-30",
+      "shares": 37028,
+      "quality": "DERIVED_MEDIUM_CONFIDENCE",
+      "basis": "CONTINUITY_DERIVED_FROM_REPORTED_OWNERSHIP_AND_2025_FAIR_VALUE",
+      "source_key": "otello_ar24",
+      "source_locator": "Annual Reports 2022-2024 report approximately 0.05% ownership in Life360; 37,028 common shares is carried backward from the 2025 fair-value-derived holding because no disposal or change in the Life360 position is disclosed over the period",
+      "extraction_method": "CALCULATED",
+      "provenance_confidence": "MEDIUM",
+      "notes": "Historical share count is an attribution assumption, not an explicitly reported shareholder-register count. Otello reports approximately 0.05% ownership in each of Annual Reports 2022, 2023 and 2024, while the 2025 fair-value disclosure supports a 37,028-share high-confidence derived anchor. Use this continuity anchor only for historical investor attribution; do not treat it as audited exact ownership."
+    },
+    {
       "effective_from": "2025-12-31",
       "effective_to": null,
       "shares": 37028,
@@ -19,6 +55,8 @@
       "basis": "DERIVED_FROM_2025_FAIR_VALUE",
       "source_key": "otello_ar25",
       "source_locator": "Annual Report 2025, Note 4 / investments in other shares; share count derived from disclosed fair value and contemporaneous Life360 market value",
+      "extraction_method": "CALCULATED",
+      "provenance_confidence": "HIGH",
       "notes": "37,028 common shares is a high-confidence derived holding, not an explicitly reported shareholder-register count. Replace or close this anchor when a newer source-backed holding becomes available."
     }
   ]
