@@ -16,8 +16,8 @@ except ImportError:
     from history_rebuild_state import history_rebuild_needed
     from r2_archive import archive_bytes
 
-NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.BRL+USD.NOK.SP"
-FX_BASE_CURRENCIES = ("BRL", "USD")
+NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.AUD+BRL+USD.NOK.SP"
+FX_BASE_CURRENCIES = ("AUD", "BRL", "USD")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 NORGES_BANK_HISTORY_YEARS = 10
 HISTORY_EDGE_TOLERANCE_DAYS = 7
@@ -164,7 +164,7 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
             found_bases.add(base)
 
     if not rows:
-        raise ValueError("Norges Bank-returneringen inneholdt ingen BRL/NOK eller USD/NOK-rader")
+        raise ValueError("Norges Bank-returneringen inneholdt ingen AUD/NOK, BRL/NOK eller USD/NOK-rader")
     missing = sorted(set(FX_BASE_CURRENCIES) - found_bases)
     if missing:
         raise ValueError(f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}")
@@ -205,7 +205,7 @@ async def _norges_bank_coverage(
         FROM fx_rates fr
         JOIN sources s ON s.id=fr.source_id
         WHERE fr.quote_currency='NOK'
-          AND fr.base_currency IN ('BRL','USD')
+          AND fr.base_currency IN ('AUD','BRL','USD')
           AND s.code='NORGES_BANK'
         GROUP BY fr.base_currency
         ORDER BY fr.base_currency
@@ -320,12 +320,12 @@ async def refresh_norges_bank_fx(
         source_code="NORGES_BANK",
         external_id=f"exr-direct:{start}:{target_date}",
         document_type="API_RESPONSE",
-        title="Norges Bank daily reference rates for BRL/NOK and USD/NOK",
+        title="Norges Bank daily reference rates for AUD/NOK, BRL/NOK and USD/NOK",
         url=url,
         published_at=f"{target_date}T00:00:00Z",
         content_sha256=digest,
         metadata={
-            "pairs": ["BRL/NOK", "USD/NOK"],
+            "pairs": ["AUD/NOK", "BRL/NOK", "USD/NOK"],
             "method": "direct NOK quote",
             "from": start,
             "to": target_date,
