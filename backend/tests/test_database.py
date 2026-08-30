@@ -287,7 +287,7 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0029"
+            assert payload["latest_migration"] == "0030"
             assert payload["table_counts"]["sources"] == 19
             assert payload["table_counts"]["instruments"] == 4
             assert payload["table_counts"]["bemobi_investor_facts"] == 18
