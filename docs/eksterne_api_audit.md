@@ -13,6 +13,26 @@ først gjenskapt med en test som feilet.
 
 ## Bekreftet og rettet funn
 
+### ECB-import kunne godta tom eller delvis respons som vellykket
+
+ECB-parseren kontrollerte kolonner, datoer og tall, men importen krevde ikke at
+begge de forventede krysskursene BRL/NOK og USD/NOK faktisk var med. En respons med
+bare CSV-header ble derfor lagret som et vellykket kildedokument med null kurser.
+En delvis respons uten USD ble lagret med bare BRL/NOK. Det er realistisk ved en
+ufullstendig API-respons og kunne få bootstrap/backfill til å se vellykket ut selv
+om databasen manglet data.
+
+To reproduksjonstester bekreftet begge variantene før retting. Importen krever nå
+minst én gyldig rad for hver forventet krysskurs før den oppretter et kildedokument
+eller lagrer kurser.
+
+Vurdering før retting:
+
+1. Situasjonen ble **ikke håndtert korrekt**.
+2. Importen **feilet ikke kontrollert**, men rapporterte null eller én skrevet rad.
+3. Koden kunne **lagre et ufullstendig datasett og registrere responsen som kilde**.
+4. Koden kunne ikke bli stående fast og hadde ingen retry-loop.
+
 ### BCB SGS kunne vise en eldre observasjon som den nyeste
 
 `_series_payload` bruker siste rad som gjeldende verdi. `_parse_sgs_rows` beholdt
@@ -45,7 +65,7 @@ Vurdering før retting:
 | B3 COTAHIST | Dag-/årsarkiv har timeout, størrelsesgrense, ZIP-/radvalidering og avgrensede retries. Importen er idempotent. Tomt/ufullstendig arkiv feiler før markedstall lagres. | Håndtert. |
 | Euronext delayed trades | Tom fil, for stor fil, ugyldig ZIP/CSV, manglende felt, datatyper, valuta, venue og tidsstempler valideres. 429 og 5xx bruker maksimalt tre forsøk og `Retry-After` avgrenses til 60 sekunder. Duplikater håndteres av identitet/upsert. | Håndtert. Ingen pagination i filendepunktet. |
 | Norges Bank SDMX FX | Timeout/HTTP/JSON-feil bobler kontrollert til jobbsteget. Struktur, dimensjoner, datatype, positive kurser og at alle tre valutaer finnes valideres før import. En delvis respons lagres derfor ikke som komplett kjøring. | Håndtert. Ingen eksplisitt retry, så en kortvarig 429/5xx gir én kontrollert mislykket oppdatering og eksisterende data beholdes. |
-| ECB CSV FX | CSV-header, dato, datatype og positive kurser valideres. Tom gyldig CSV kan gi null rader, men brukes kun i eksplisitt bootstrap/backfill og gir ikke falske kurser. HTTP-feil har ingen retry. | Kontrollert, men operatøren må gjenta bootstrap/backfill ved midlertidig feil. |
+| ECB CSV FX | CSV-header, dato, datatype og positive kurser valideres. Tom eller delvis respons avvises nå før kildedokument og kurser lagres. HTTP-feil har ingen retry. | Kontrollert etter retting; operatøren må gjenta bootstrap/backfill ved midlertidig feil. |
 | CVM IPE årsarkiv og dokumenter | Årsarkiv har timeout, størrelse, tomrespons, skjema og tre avgrensede forsøk. Dokumentlenker og innhold valideres før finansielle fakta opprettes; nyeste versjon markeres og supersederte dokumenter kan filtreres. | Håndtert. 404 retries også, men bare tre ganger. |
 | Bemobi IR/CVM/analytikersider | Worker har avgrenset responslesing, tillatte domener, dokumenttypekontroll og streng parsing før lagring. Kandidatlenker dedupliseres og begrenses. Ugyldige/ufullstendige kilder blir kildefeil, ikke finansielle fakta. | Håndtert; ingen uendelig retry/paginering. |
 | NewsWeb liste, melding og vedlegg | Statusheader, responsstørrelse, JSON-struktur, utsteder, marked, ID og PDF-signatur valideres. `overflow` håndteres ved å dele datointervallet rekursivt; overflow på én dato stopper kontrollert. Databaseidentitet hindrer duplikater. | Håndtert. Timeout/429/5xx retries ikke lokalt, men jobbfeilen er kontrollert og gamle data overskrives ikke. |
@@ -60,5 +80,5 @@ bare i noen nedlastere og er begrenset til tre forsøk. Rate-limit-respons hånd
 mest presist i Euronext-kallet; de øvrige kallene stopper eller faller tilbake og
 kan derfor miste én oppdatering, men de spinner ikke og lagrer ikke HTTP-feilsvar
 som markedsdata. Deduplisering skjer hovedsakelig ved dokumentidentitet, hash eller
-database-upsert. Den eneste bekreftede veien til feil presentasjon var SGS-
-rekkefølgen, som nå er testet og rettet.
+database-upsert. De bekreftede dataintegritetsfeilene i ECB-importen og SGS-
+rekkefølgen er nå testet og rettet.

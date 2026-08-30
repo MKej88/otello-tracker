@@ -110,6 +110,41 @@ def test_ecb_parser_rejects_invalid_trading_date() -> None:
         parse_ecb_csv(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "CURRENCY,TIME_PERIOD,OBS_VALUE\n",
+        (
+            "CURRENCY,TIME_PERIOD,OBS_VALUE\n"
+            "BRL,2025-12-30,6.0\n"
+            "NOK,2025-12-30,10.8\n"
+        ),
+    ],
+    ids=["tom-respons", "mangler-usd"],
+)
+def test_ecb_import_rejects_empty_or_partial_response(tmp_path, text: str) -> None:
+    database_path = str(tmp_path / "market.db")
+    init_database(database_path)
+
+    with pytest.raises(ValueError, match="ufullstendig"):
+        import_ecb_fx_csv(
+            text,
+            source_url="https://data-api.ecb.europa.eu/test",
+            database_path=database_path,
+        )
+
+    with get_connection(database_path) as connection:
+        source_documents = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM source_documents sd
+            JOIN sources s ON s.id = sd.source_id
+            WHERE s.code = 'ECB'
+            """
+        ).fetchone()[0]
+        assert source_documents == 0
+
+
 def test_euronext_csv_parser_handles_semicolon_and_decimal_comma() -> None:
     text = "Date;Closing Price\n29/12/2025;16,90\n30/12/2025;17,20\n"
     prices = parse_euronext_historical_csv(text, date_order="DMY")
