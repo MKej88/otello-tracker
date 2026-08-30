@@ -353,8 +353,12 @@ def _apply_bemobi_receivable_split(
     return result
 
 
-async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
-    result = await _display_history(repository, days=days)
+async def estimated_nav_history(
+    repository, *, days: int, year_to_date: bool = False
+) -> dict[str, Any]:
+    result = await _display_history(
+        repository, days=days, year_to_date=year_to_date
+    )
     if not result.get("ready"):
         return result
 

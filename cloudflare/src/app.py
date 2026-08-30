@@ -168,10 +168,16 @@ async def get_discount_history(
     request: Request,
     days: int = Query(default=365, ge=30, le=3650),
     max_points: int = Query(default=600, ge=50, le=1000),
+    year_to_date: bool = Query(default=False),
 ) -> dict:
     from discount_history import discount_history
 
-    return await discount_history(_repository(request), days=days, max_points=max_points)
+    return await discount_history(
+        _repository(request),
+        days=days,
+        max_points=max_points,
+        year_to_date=year_to_date,
+    )
 
 
 @app.get("/api/market/quotes")

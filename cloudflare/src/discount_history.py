@@ -239,8 +239,12 @@ def _apply_other_share_change_split(
     return True
 
 
-async def _estimated_extension(repository, days: int) -> dict[str, Any]:
-    result = await estimated_nav_history(repository, days=days)
+async def _estimated_extension(
+    repository, days: int, *, year_to_date: bool = False
+) -> dict[str, Any]:
+    result = await estimated_nav_history(
+        repository, days=days, year_to_date=year_to_date
+    )
     change = result.get("change") or {}
     if change.get("ready"):
         start_report, current_report = await asyncio.gather(
@@ -262,12 +266,20 @@ async def _estimated_extension(repository, days: int) -> dict[str, Any]:
     return {**result, "statistics": _discount_statistics(result.get("points") or [])}
 
 
-async def discount_history(repository, *, days: int = 365, max_points: int = 600) -> dict[str, Any]:
+async def discount_history(
+    repository,
+    *,
+    days: int = 365,
+    max_points: int = 600,
+    year_to_date: bool = False,
+) -> dict[str, Any]:
     """Validated legacy history plus the user-facing historical Estimert NAV series."""
     days = max(30, min(int(days), 3650))
     max_points = max(50, min(int(max_points), 1000))
     history = await dashboard_history(repository, days=days, max_points=max_points)
-    estimated = await _estimated_extension(repository, days)
+    estimated = await _estimated_extension(
+        repository, days, year_to_date=year_to_date
+    )
     if not history.get("ready"):
         return {**history, "period_days": days, "statistics": _discount_statistics([]), "current_economic": await _economic_reference(repository), "estimated": estimated}
     daily_rows = await repository.all(

@@ -668,7 +668,35 @@ def _change(
     )
 
 
-def estimated_nav_history(database_path: str | None = None, *, days: int) -> dict[str, Any]:
+def _history_start_point(
+    points: list[dict[str, Any]],
+    requested_start: str,
+    *,
+    year_to_date: bool,
+) -> dict[str, Any]:
+    requested_day = date.fromisoformat(requested_start)
+    if year_to_date:
+        closing_points = [
+            point
+            for point in points
+            if date.fromisoformat(str(point["date"])) <= requested_day
+        ]
+        if closing_points:
+            return max(closing_points, key=lambda point: str(point["date"]))
+    return min(
+        points,
+        key=lambda point: abs(
+            (date.fromisoformat(str(point["date"])) - requested_day).days
+        ),
+    )
+
+
+def estimated_nav_history(
+    database_path: str | None = None,
+    *,
+    days: int,
+    year_to_date: bool = False,
+) -> dict[str, Any]:
     days = max(30, min(int(days), 3650))
     with get_connection(database_path) as connection:
         latest = connection.execute(
@@ -678,7 +706,12 @@ def estimated_nav_history(database_path: str | None = None, *, days: int) -> dic
         current_date = latest["max_date"] if latest is not None else None
         if current_date is None:
             return {"ready": False, "reason": "missing_full_nav", "points": []}
-        requested_start = (date.fromisoformat(str(current_date)) - timedelta(days=days)).isoformat()
+        current_day = date.fromisoformat(str(current_date))
+        requested_start = (
+            date(current_day.year, 1, 1).isoformat()
+            if year_to_date
+            else (current_day - timedelta(days=days)).isoformat()
+        )
         rows = connection.execute(
             "SELECT DISTINCT substr(as_of_at,1,10) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)>=? AND substr(as_of_at,1,10)<=? ORDER BY date",
             (FULL_CALCULATION_VERSION, requested_start, current_date),
@@ -714,11 +747,10 @@ def estimated_nav_history(database_path: str | None = None, *, days: int) -> dic
         (item for item in reversed(full_points) if item["date"] == current_date),
         full_points[-1],
     )
-    start = min(
+    start = _history_start_point(
         full_points,
-        key=lambda item: abs(
-            (date.fromisoformat(item["date"]) - date.fromisoformat(requested_start)).days
-        ),
+        requested_start,
+        year_to_date=year_to_date,
     )
     public_points = [
         {

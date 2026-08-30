@@ -681,13 +681,43 @@ async def _change(repository, start: dict[str, Any], current: dict[str, Any], re
     )
 
 
-async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
+def _history_start_point(
+    points: list[dict[str, Any]],
+    requested_start: str,
+    *,
+    year_to_date: bool,
+) -> dict[str, Any]:
+    requested_day = date.fromisoformat(requested_start)
+    if year_to_date:
+        closing_points = [
+            point
+            for point in points
+            if date.fromisoformat(str(point["date"])) <= requested_day
+        ]
+        if closing_points:
+            return max(closing_points, key=lambda point: str(point["date"]))
+    return min(
+        points,
+        key=lambda point: abs(
+            (date.fromisoformat(str(point["date"])) - requested_day).days
+        ),
+    )
+
+
+async def estimated_nav_history(
+    repository, *, days: int, year_to_date: bool = False
+) -> dict[str, Any]:
     days = max(30, min(int(days), 3650))
     latest = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS max_date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL'", (FULL_CALCULATION_VERSION,))
     current_date = latest.get("max_date") if latest is not None else None
     if current_date is None:
         return {"ready": False, "reason": "missing_full_nav", "points": []}
-    requested_start = (date.fromisoformat(str(current_date)) - timedelta(days=days)).isoformat()
+    current_day = date.fromisoformat(str(current_date))
+    requested_start = (
+        date(current_day.year, 1, 1).isoformat()
+        if year_to_date
+        else (current_day - timedelta(days=days)).isoformat()
+    )
     rows = await repository.all("SELECT DISTINCT substr(as_of_at,1,10) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)>=? AND substr(as_of_at,1,10)<=? ORDER BY date", (FULL_CALCULATION_VERSION, requested_start, current_date))
     predecessor = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)<=?", (FULL_CALCULATION_VERSION, requested_start))
     dates = [str(row["date"]) for row in rows if row.get("date")]
@@ -711,7 +741,7 @@ async def estimated_nav_history(repository, *, days: int) -> dict[str, Any]:
     if not full_points:
         return {"ready": False, "reason": "estimated_history_not_ready", "requested_start": requested_start, "current_date": current_date, "failures": failures[:10], "points": []}
     current = next((item for item in reversed(full_points) if item["date"] == current_date), full_points[-1])
-    start = min(full_points, key=lambda item: abs((date.fromisoformat(item["date"]) - date.fromisoformat(requested_start)).days))
+    start = _history_start_point(full_points, requested_start, year_to_date=year_to_date)
     public_points = [{"date": item["date"], "nav_per_share": item["nav_per_share"], "otec_price": item["otec_price"], "discount_pct": item["discount_pct"]} for item in full_points]
     change = await _change(repository, start, current, requested_start)
     return {

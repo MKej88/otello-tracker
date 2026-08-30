@@ -129,7 +129,8 @@ export default function EstimatedHistoryPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/dashboard/discount-history?days=${period.days}&max_points=72`, { signal: controller.signal });
+        const ytdParameter = period.key === "ytd" ? "&year_to_date=true" : "";
+        const response = await fetch(`/api/dashboard/discount-history?days=${period.days}&max_points=72${ytdParameter}`, { signal: controller.signal });
         if (!response.ok) throw new Error("Historikk API-feil");
         const payload = await response.json() as Payload;
         if (!active) return;
