@@ -61,6 +61,7 @@ async def buyback_forecast(
 # serve a payload produced by the previous application version.
 STATE_KEY = "dashboard_hot_snapshot_v3"
 SNAPSHOT_VERSION = 3
+SNAPSHOT_MAX_AGE_SECONDS = 90 * 60
 _COMPONENTS = {"summary", "economic", "quotes", "forecast"}
 
 
@@ -116,7 +117,11 @@ async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
     )
 
 
-async def load_dashboard_hot_snapshot(repository: Any) -> dict[str, Any] | None:
+async def load_dashboard_hot_snapshot(
+    repository: Any,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
     row = await repository.first(
         "SELECT value, updated_at FROM runtime_state WHERE key = ?",
         (STATE_KEY,),
@@ -130,6 +135,15 @@ async def load_dashboard_hot_snapshot(repository: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict) or payload.get("version") != SNAPSHOT_VERSION:
         return None
     if not _COMPONENTS.issubset(payload):
+        return None
+    generated_at = _parse_timestamp(
+        payload.get("generated_at") or row.get("updated_at")
+    )
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    if generated_at is None:
+        return None
+    age_seconds = (current - generated_at).total_seconds()
+    if age_seconds < 0 or age_seconds > SNAPSHOT_MAX_AGE_SECONDS:
         return None
     return payload
 
@@ -209,16 +223,21 @@ async def dashboard_hot_snapshot_status(
     )
     current = (now or datetime.now(UTC)).astimezone(UTC)
     generated = _parse_timestamp(generated_at)
-    age_seconds = (
-        max(0, int((current - generated).total_seconds()))
-        if generated is not None
-        else None
+    raw_age_seconds = (
+        int((current - generated).total_seconds()) if generated is not None else None
     )
+    age_seconds = max(0, raw_age_seconds) if raw_age_seconds is not None else None
 
     if stored_version != SNAPSHOT_VERSION:
         reason = "version_mismatch"
     elif len(present_components) != len(_COMPONENTS):
         reason = "missing_or_invalid_components"
+    elif generated is None:
+        reason = "invalid_generated_at"
+    elif raw_age_seconds is not None and raw_age_seconds < 0:
+        reason = "generated_at_in_future"
+    elif age_seconds is not None and age_seconds > SNAPSHOT_MAX_AGE_SECONDS:
+        reason = "stale"
     else:
         reason = None
 
@@ -230,6 +249,7 @@ async def dashboard_hot_snapshot_status(
         "stored_version": stored_version,
         "generated_at": generated_at,
         "age_seconds": age_seconds,
+        "max_age_seconds": SNAPSHOT_MAX_AGE_SECONDS,
         "components": present_components,
         "reason": reason,
     }
