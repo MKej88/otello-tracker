@@ -111,6 +111,9 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
     markets = tuple(str(item) for item in (raw.get("markets") or []))
     if markets and "XOSL" not in markets:
         raise ValueError(f"NewsWeb-melding {message_id} mangler XOSL-marked")
+    published_time = raw.get("publishedTime")
+    if not isinstance(published_time, str) or not published_time.strip():
+        raise ValueError(f"NewsWeb-melding {message_id} mangler gyldig publiseringstid")
     body = str(raw.get("body") or "")
     if require_body and not body.strip():
         raise ValueError(f"NewsWeb-melding {message_id} mangler meldingstekst")
@@ -132,7 +135,7 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
         issuer_id=issuer_id,
         issuer_sign=issuer_sign,
         issuer_name=str(raw.get("issuerName") or ""),
-        published_at=str(raw.get("publishedTime") or ""),
+        published_at=published_time.strip(),
         markets=markets,
         category_ids=category_ids,
         attachments=attachments,
