@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +33,9 @@ class FakeRepository:
             if latest_date is not None
         ]
 
-    async def first(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+    async def first(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> dict[str, Any] | None:
         if "FROM job_runs" in sql:
             job_name = params[0]
             if job_name == "cloudflare_full_refresh":
@@ -63,6 +66,21 @@ class FakeRepository:
                 "status": "OK",
                 "error_message": None,
                 "metadata_json": "{}",
+            }
+        if "FROM runtime_state" in sql and params[0] == "dashboard_hot_snapshot_v3":
+            generated_at = "2026-08-21T05:55:00Z"
+            return {
+                "value": json.dumps(
+                    {
+                        "version": 3,
+                        "generated_at": generated_at,
+                        "summary": {},
+                        "economic": {},
+                        "quotes": {},
+                        "forecast": {},
+                    }
+                ),
+                "updated_at": generated_at,
             }
         return None
 
@@ -157,11 +175,19 @@ def test_runtime_status_flags_stale_fx() -> None:
 
 def test_runtime_status_is_wired_to_api_frontend_and_fast_refresh() -> None:
     app = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
-    scheduled = (ROOT / "cloudflare" / "src" / "scheduled.py").read_text(encoding="utf-8")
+    scheduled = (ROOT / "cloudflare" / "src" / "scheduled.py").read_text(
+        encoding="utf-8"
+    )
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
-    deferred = (ROOT / "frontend" / "src" / "DeferredDiagnostics.tsx").read_text(encoding="utf-8")
-    panel = (ROOT / "frontend" / "src" / "RuntimeStatusPanel.tsx").read_text(encoding="utf-8")
-    polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(encoding="utf-8")
+    deferred = (ROOT / "frontend" / "src" / "DeferredDiagnostics.tsx").read_text(
+        encoding="utf-8"
+    )
+    panel = (ROOT / "frontend" / "src" / "RuntimeStatusPanel.tsx").read_text(
+        encoding="utf-8"
+    )
+    polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(
+        encoding="utf-8"
+    )
 
     assert '@app.get("/api/dashboard/runtime-status")' in app
     assert "repair_norges_bank_fx_if_stale" in scheduled

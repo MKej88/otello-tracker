@@ -86,7 +86,10 @@ def _post_json(url: str, timeout: int = 30) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("NewsWeb API-respons er ikke et JSON-objekt")
     header = payload.get("header") or {}
-    if int(header.get("result.val", 0)) != 0 or int(header.get("http.code", 200)) >= 400:
+    if (
+        int(header.get("result.val", 0)) != 0
+        or int(header.get("http.code", 200)) >= 400
+    ):
         raise ValueError(f"NewsWeb API-feil: {header}")
     return payload
 
@@ -104,6 +107,9 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
     markets = tuple(str(item) for item in (raw.get("markets") or []))
     if markets and "XOSL" not in markets:
         raise ValueError(f"NewsWeb-melding {message_id} mangler XOSL-marked")
+    published_time = raw.get("publishedTime")
+    if not isinstance(published_time, str) or not published_time.strip():
+        raise ValueError(f"NewsWeb-melding {message_id} mangler gyldig publiseringstid")
     body = str(raw.get("body") or "")
     if require_body and not body.strip():
         raise ValueError(f"NewsWeb-melding {message_id} mangler meldingstekst")
@@ -125,13 +131,17 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
         issuer_id=issuer_id,
         issuer_sign=issuer_sign,
         issuer_name=str(raw.get("issuerName") or ""),
-        published_at=str(raw.get("publishedTime") or ""),
+        published_at=published_time.strip(),
         markets=markets,
         category_ids=category_ids,
         attachments=attachments,
         corrected_by_message_id=int(raw.get("correctedByMessageId") or 0),
         correction_for_message_id=int(raw.get("correctionForMessageId") or 0),
-        client_announcement_id=(str(raw["clientAnnouncementId"]) if raw.get("clientAnnouncementId") else None),
+        client_announcement_id=(
+            str(raw["clientAnnouncementId"])
+            if raw.get("clientAnnouncementId")
+            else None
+        ),
     )
 
 
@@ -159,7 +169,9 @@ def parse_list_payload(payload: dict[str, Any]) -> tuple[list[NewsWebMessage], b
 
 
 def fetch_message(message_id: int, *, timeout: int = 30) -> NewsWebMessage:
-    payload = _post_json(f"{API_BASE}/message?messageId={int(message_id)}", timeout=timeout)
+    payload = _post_json(
+        f"{API_BASE}/message?messageId={int(message_id)}", timeout=timeout
+    )
     message = parse_message_payload(payload)
     if message.message_id != int(message_id):
         raise ValueError(
@@ -172,10 +184,15 @@ def attachment_url(message_id: int, attachment_id: int) -> str:
     return f"{API_BASE}/attachment?messageId={int(message_id)}&attachmentId={int(attachment_id)}"
 
 
-def fetch_attachment(message_id: int, attachment_id: int, *, timeout: int = 30) -> bytes:
+def fetch_attachment(
+    message_id: int, attachment_id: int, *, timeout: int = 30
+) -> bytes:
     request = urllib.request.Request(
         attachment_url(message_id, attachment_id),
-        headers={"Accept": "application/pdf,application/octet-stream", "User-Agent": USER_AGENT},
+        headers={
+            "Accept": "application/pdf,application/octet-stream",
+            "User-Agent": USER_AGENT,
+        },
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = _bounded_read(
@@ -216,13 +233,17 @@ def _discover_window(
     message_title: str,
     timeout: int,
 ) -> list[NewsWebMessage]:
-    messages, overflow = _list_window(start, end, message_title=message_title, timeout=timeout)
+    messages, overflow = _list_window(
+        start, end, message_title=message_title, timeout=timeout
+    )
     if not overflow:
         return messages
     if start >= end:
         raise ValueError(f"NewsWeb list overflow på enkelt dato {start.isoformat()}")
     midpoint = start + timedelta(days=(end - start).days // 2)
-    return _discover_window(start, midpoint, message_title=message_title, timeout=timeout) + _discover_window(
+    return _discover_window(
+        start, midpoint, message_title=message_title, timeout=timeout
+    ) + _discover_window(
         midpoint + timedelta(days=1), end, message_title=message_title, timeout=timeout
     )
 
@@ -249,4 +270,6 @@ def discover_otec_messages(
         if message.corrected_by_message_id:
             continue
         unique[message.message_id] = message
-    return sorted(unique.values(), key=lambda item: (item.published_at, item.message_id))
+    return sorted(
+        unique.values(), key=lambda item: (item.published_at, item.message_id)
+    )

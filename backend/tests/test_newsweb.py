@@ -10,8 +10,10 @@ from app.nav.cash_curve import _known_movements
 from app.newsweb.cash_sync import sync_newsweb_daily_buyback_cash
 from app.newsweb.client import parse_list_payload, parse_message_payload
 from app.newsweb.enrichment import validate_daily_buybacks
-from app.newsweb.trade_parser import DailyBuybackTransaction, parse_buyback_transaction_text
-
+from app.newsweb.trade_parser import (
+    DailyBuybackTransaction,
+    parse_buyback_transaction_text,
+)
 
 TRANSACTION_TEXT = """
 B/S Symbol Qty Price Total consideration Date Time
@@ -68,9 +70,7 @@ def test_newsweb_transaction_text_aggregates_exact_daily_trades() -> None:
 
 def test_newsweb_parser_rejects_sell_or_broken_execbuy() -> None:
     with pytest.raises(ValueError, match="salg"):
-        parse_buyback_transaction_text(
-            "S OTEC 100 17,20 1 720,00 30.06.2025 10:00:00"
-        )
+        parse_buyback_transaction_text("S OTEC 100 17,20 1 720,00 30.06.2025 10:00:00")
 
     broken = TRANSACTION_TEXT.replace("ExecBuy 200", "ExecBuy 199")
     with pytest.raises(ValueError, match="ExecBuy-avstemming"):
@@ -108,7 +108,11 @@ def test_newsweb_message_and_list_payload_validate_otec() -> None:
     assert message.attachments[0].attachment_id == 329535
     assert message.public_url.endswith("/message/678028")
 
-    list_row = {key: value for key, value in raw_message.items() if key not in {"body", "attachments"}}
+    list_row = {
+        key: value
+        for key, value in raw_message.items()
+        if key not in {"body", "attachments"}
+    }
     list_row["numbAttachments"] = 1
     messages, overflow = parse_list_payload(
         {"data": {"messages": [list_row], "overflow": False}}
@@ -135,7 +139,25 @@ def test_newsweb_list_rejects_partial_or_changed_response(data: object) -> None:
         parse_list_payload({"data": data})
 
 
-def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path) -> None:
+@pytest.mark.parametrize("published_time", [None, "", {"value": "2026-07-11"}])
+def test_newsweb_rejects_missing_or_changed_published_time(
+    published_time: object,
+) -> None:
+    raw_message = {
+        "messageId": 678028,
+        "issuerId": 7759,
+        "issuerSign": "OTEC",
+        "publishedTime": published_time,
+        "markets": ["XOSL"],
+    }
+
+    with pytest.raises(ValueError, match="mangler gyldig publiseringstid"):
+        parse_list_payload({"data": {"messages": [raw_message], "overflow": False}})
+
+
+def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(
+    tmp_path,
+) -> None:
     db = str(tmp_path / "newsweb-cash.db")
     init_database(db)
 
@@ -189,8 +211,12 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
             (source_document_id, buyback_id),
         )
         daily = [
-            DailyBuybackTransaction("2025-06-30", 100, Decimal("17.20"), Decimal("1720"), 1),
-            DailyBuybackTransaction("2025-07-01", 200, Decimal("17.30"), Decimal("3460"), 2),
+            DailyBuybackTransaction(
+                "2025-06-30", 100, Decimal("17.20"), Decimal("1720"), 1
+            ),
+            DailyBuybackTransaction(
+                "2025-07-01", 200, Decimal("17.30"), Decimal("3460"), 2
+            ),
         ]
         for item in daily:
             connection.execute(
@@ -201,8 +227,13 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED')
                 """,
                 (
-                    buyback_id, item.trade_date, item.shares, str(item.avg_price_nok),
-                    str(item.amount_nok), item.trade_count, attachment_document_id,
+                    buyback_id,
+                    item.trade_date,
+                    item.shares,
+                    str(item.avg_price_nok),
+                    str(item.amount_nok),
+                    item.trade_count,
+                    attachment_document_id,
                 ),
             )
         connection.commit()
@@ -223,13 +254,11 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
             "SELECT COUNT(*) n FROM cash_movements WHERE movement_type='OTELLO_BUYBACK'"
         ).fetchone()["n"]
         assert weekly_count == 0
-        daily_cash = connection.execute(
-            """
+        daily_cash = connection.execute("""
             SELECT movement_date, amount_nok FROM cash_movements
             WHERE movement_type='OTELLO_BUYBACK_DAILY'
             ORDER BY movement_date
-            """
-        ).fetchall()
+            """).fetchall()
         assert [(row["movement_date"], row["amount_nok"]) for row in daily_cash] == [
             ("2025-06-30", "-1720"),
             ("2025-07-01", "-3460"),
@@ -237,19 +266,22 @@ def test_daily_newsweb_cash_replaces_weekly_summary_and_respects_anchor(tmp_path
 
         movements = _known_movements(connection, "2025-06-30", "2025-12-31")
         buyback_movements = [
-            item for item in movements if item["movement_type"] == "OTELLO_BUYBACK_DAILY"
+            item
+            for item in movements
+            if item["movement_type"] == "OTELLO_BUYBACK_DAILY"
         ]
         assert len(buyback_movements) == 1
         assert buyback_movements[0]["movement_date"] == "2025-07-01"
         assert buyback_movements[0]["amount_nok"] == "-3460"
 
-        connection.execute(
-            """
+        connection.execute("""
             INSERT INTO cash_movements(
                 movement_date, movement_type, amount_nok, currency, description, confidence
             ) VALUES ('2025-07-04','OTELLO_BUYBACK','-5180','NOK','legacy retry','CONFIRMED')
-            """
+            """)
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) n FROM cash_movements WHERE movement_type='OTELLO_BUYBACK'"
+            ).fetchone()["n"]
+            == 0
         )
-        assert connection.execute(
-            "SELECT COUNT(*) n FROM cash_movements WHERE movement_type='OTELLO_BUYBACK'"
-        ).fetchone()["n"] == 0
