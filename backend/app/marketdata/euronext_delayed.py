@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -26,6 +27,7 @@ DOWNLOAD_URL = (
 )
 MAX_ZIP_BYTES = 100 * 1024 * 1024
 MAX_CSV_BYTES = 250 * 1024 * 1024
+MAX_RETRY_DELAY_SECONDS = 60.0
 _REQUIRED_FIELDS = {
     "TradingDateTime",
     "PublicationDateTime",
@@ -90,7 +92,9 @@ def _extract_csv(payload: bytes) -> bytes:
                 )
             info = archive.getinfo(csv_members[0])
             if info.file_size > MAX_CSV_BYTES:
-                raise ValueError("Euronext delayed CSV overstiger sikker størrelsesgrense")
+                raise ValueError(
+                    "Euronext delayed CSV overstiger sikker størrelsesgrense"
+                )
             raw = archive.read(csv_members[0])
     except zipfile.BadZipFile as exc:
         raise ValueError("Euronext delayed-data er ikke en gyldig ZIP") from exc
@@ -145,7 +149,9 @@ def parse_euronext_delayed_trades(payload: bytes) -> list[DelayedTrade]:
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("Ugyldig pris/antall i OTEC-rad fra Euronext") from exc
         if price <= 0 or quantity < 0:
-            raise ValueError("Ugyldig ikke-positiv OTEC-pris eller negativt antall fra Euronext")
+            raise ValueError(
+                "Ugyldig ikke-positiv OTEC-pris eller negativt antall fra Euronext"
+            )
 
         trading_datetime = _canonical_utc(
             row.get("TradingDateTime") or "", field="TradingDateTime"
@@ -153,9 +159,9 @@ def parse_euronext_delayed_trades(payload: bytes) -> list[DelayedTrade]:
         publication_datetime = _canonical_utc(
             row.get("PublicationDateTime") or "", field="PublicationDateTime"
         )
-        if _parse_utc_timestamp(publication_datetime, field="PublicationDateTime") < _parse_utc_timestamp(
-            trading_datetime, field="TradingDateTime"
-        ):
+        if _parse_utc_timestamp(
+            publication_datetime, field="PublicationDateTime"
+        ) < _parse_utc_timestamp(trading_datetime, field="TradingDateTime"):
             raise ValueError("Euronext PublicationDateTime er før TradingDateTime")
 
         trades.append(
@@ -168,8 +174,12 @@ def parse_euronext_delayed_trades(payload: bytes) -> list[DelayedTrade]:
                 price_notation="MONE",
                 currency="NOK",
                 venue=OSLO_VENUE,
-                trade_unique_identifier=(row.get("TradeUniqueIdentifier") or "").strip(),
-                venue_of_publication=(row.get("VenueOfPublication") or "").strip().upper(),
+                trade_unique_identifier=(
+                    row.get("TradeUniqueIdentifier") or ""
+                ).strip(),
+                venue_of_publication=(row.get("VenueOfPublication") or "")
+                .strip()
+                .upper(),
             )
         )
     return trades
@@ -183,7 +193,9 @@ def latest_otec_trade(payload: bytes) -> DelayedTrade | None:
         trades,
         key=lambda item: (
             _parse_utc_timestamp(item.trading_datetime, field="TradingDateTime"),
-            _parse_utc_timestamp(item.publication_datetime, field="PublicationDateTime"),
+            _parse_utc_timestamp(
+                item.publication_datetime, field="PublicationDateTime"
+            ),
             item.trade_unique_identifier,
         ),
     )
@@ -226,15 +238,38 @@ def download_euronext_delayed_equities(
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = response.read(MAX_ZIP_BYTES + 1)
             if len(payload) > MAX_ZIP_BYTES:
-                raise ValueError("Euronext delayed ZIP overstiger sikker størrelsesgrense")
+                raise ValueError(
+                    "Euronext delayed ZIP overstiger sikker størrelsesgrense"
+                )
             if not payload:
                 raise ValueError("Euronext delayed endpoint returnerte tom fil")
             return url, payload
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code != 429 and not 500 <= exc.code <= 599:
+                break
+            if attempt >= attempts:
+                break
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            try:
+                delay = (
+                    float(retry_after)
+                    if retry_after is not None
+                    else 2 ** (attempt - 1)
+                )
+            except ValueError:
+                delay = 2 ** (attempt - 1)
+            time.sleep(min(max(delay, 0.0), MAX_RETRY_DELAY_SECONDS))
         except (OSError, TimeoutError, urllib.error.URLError, ValueError) as exc:
             last_error = exc
             if attempt >= attempts:
                 break
-    raise RuntimeError(f"Euronext delayed-data feilet for {time_selection}: {last_error}")
+            time.sleep(min(2 ** (attempt - 1), MAX_RETRY_DELAY_SECONDS))
+    if isinstance(last_error, urllib.error.HTTPError):
+        detail = f"HTTP {last_error.code}"
+    else:
+        detail = str(last_error)
+    raise RuntimeError(f"Euronext delayed-data feilet for {time_selection}: {detail}")
 
 
 def import_delayed_otec_trade(
@@ -329,5 +364,10 @@ def refresh_otec_delayed_price(
         )
         attempts.append(result)
         if result.get("found"):
-            return {"status": "ok", "selected": normalized, "attempts": attempts, **result}
+            return {
+                "status": "ok",
+                "selected": normalized,
+                "attempts": attempts,
+                **result,
+            }
     return {"status": "no_trade", "selected": None, "attempts": attempts}

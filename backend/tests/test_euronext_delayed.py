@@ -2,6 +2,7 @@ import csv
 import io
 import zipfile
 from decimal import Decimal
+from urllib.error import HTTPError
 
 import pytest
 
@@ -9,12 +10,12 @@ from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.marketdata.euronext_delayed import (
     OTEC_ISIN,
+    download_euronext_delayed_equities,
     import_delayed_otec_trade,
     latest_otec_trade,
     parse_euronext_delayed_trades,
     refresh_otec_delayed_price,
 )
-
 
 HEADER = [
     "TradingDateTime",
@@ -144,6 +145,66 @@ def test_parser_rejects_publication_before_trade() -> None:
         parse_euronext_delayed_trades(payload)
 
 
+def test_download_respects_retry_after_on_rate_limit(monkeypatch) -> None:
+    calls = 0
+    sleeps: list[float] = []
+    expected = _zip([_row()])
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return expected
+
+    def fake_urlopen(_request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise HTTPError(
+                "https://example.test",
+                429,
+                "Too Many Requests",
+                {"Retry-After": "7"},
+                None,
+            )
+        return Response()
+
+    monkeypatch.setattr(
+        "app.marketdata.euronext_delayed.urllib.request.urlopen", fake_urlopen
+    )
+    monkeypatch.setattr("app.marketdata.euronext_delayed.time.sleep", sleeps.append)
+
+    _, payload = download_euronext_delayed_equities(
+        "CURRENT_TRADING_DAY", timeout=1, attempts=2
+    )
+
+    assert payload == expected
+    assert calls == 2
+    assert sleeps == [7.0]
+
+
+def test_download_does_not_retry_permanent_http_error(monkeypatch) -> None:
+    calls = 0
+
+    def fake_urlopen(_request, timeout):
+        nonlocal calls
+        calls += 1
+        raise HTTPError("https://example.test", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(
+        "app.marketdata.euronext_delayed.urllib.request.urlopen", fake_urlopen
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        download_euronext_delayed_equities("CURRENT_TRADING_DAY", timeout=1, attempts=3)
+
+    assert calls == 1
+
+
 def test_import_stores_direct_last_trade_with_audit_metadata(tmp_path) -> None:
     database = str(tmp_path / "euronext-delayed.db")
     init_database(database)
@@ -158,8 +219,7 @@ def test_import_stores_direct_last_trade_with_audit_metadata(tmp_path) -> None:
     assert result["price_nok"] == "17.2345000"
 
     with get_connection(database) as connection:
-        row = connection.execute(
-            """
+        row = connection.execute("""
             SELECT mp.price_type, mp.price, mp.currency, mp.quality, mp.metadata_json,
                    mp.observed_at, mp.trading_date, s.code AS source_code,
                    sd.document_type, sd.url
@@ -168,8 +228,7 @@ def test_import_stores_direct_last_trade_with_audit_metadata(tmp_path) -> None:
             JOIN source_documents sd ON sd.id = mp.source_document_id
             JOIN instruments i ON i.id = mp.instrument_id
             WHERE i.symbol = 'OTEC' AND mp.price_type = 'LAST'
-            """
-        ).fetchone()
+            """).fetchone()
         assert row["price_type"] == "LAST"
         assert Decimal(row["price"]) == Decimal("17.2345000")
         assert row["currency"] == "NOK"
@@ -182,7 +241,9 @@ def test_import_stores_direct_last_trade_with_audit_metadata(tmp_path) -> None:
         assert "OTEC-AUDIT" in row["metadata_json"]
 
 
-def test_refresh_uses_previous_day_only_when_current_has_no_otec(tmp_path, monkeypatch) -> None:
+def test_refresh_uses_previous_day_only_when_current_has_no_otec(
+    tmp_path, monkeypatch
+) -> None:
     database = str(tmp_path / "euronext-fallback.db")
     init_database(database)
     current = _zip([_row(MifidInstrumentID="NO0000000000")])
