@@ -305,17 +305,14 @@ async def _volume_stats(
     repository, symbol: str, history: list[dict[str, Any]]
 ) -> dict[str, Any]:
     if symbol == "OTEC":
-        try:
-            rows = await repository.all("""
-                SELECT ma.id, ma.trading_date, ma.volume_shares
-                FROM market_activity ma
-                JOIN instruments i ON i.id=ma.instrument_id
-                WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
-                ORDER BY ma.trading_date DESC, ma.id DESC
-                LIMIT 126
-                """)
-        except Exception:
-            rows = []
+        rows = await repository.all("""
+            SELECT ma.id, ma.trading_date, ma.volume_shares
+            FROM market_activity ma
+            JOIN instruments i ON i.id=ma.instrument_id
+            WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
+            ORDER BY ma.trading_date DESC, ma.id DESC
+            LIMIT 126
+            """)
         deduped: dict[str, float] = {}
         for row in rows:
             day = str(row["trading_date"])
