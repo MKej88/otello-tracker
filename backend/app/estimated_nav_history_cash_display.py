@@ -12,6 +12,9 @@ from app.estimated_nav_history_display import estimated_nav_history as _display_
 from app.option_settlement import MILLION
 
 TOLERANCE_NOK = Decimal("1000")
+INTEREST_ATTRIBUTION_METHOD = (
+    "REPORTED_HALF_YEAR_INTEREST_PRORATED_BY_DAY_USING_REPORTED_PERIOD_FX"
+)
 
 
 def _decimal(value: Any) -> Decimal:
@@ -144,6 +147,175 @@ def _period_operating_cost(
         cursor = endpoint
 
     return {"ready": True, "cost_nok": total, "segments": segments}
+
+
+def _period_interest_income(
+    connection,
+    *,
+    start_date: str,
+    current_date: str,
+) -> dict[str, Any]:
+    """Attribute reported cash interest to an arbitrary history window without forecasting it."""
+    start = date.fromisoformat(start_date)
+    current = date.fromisoformat(current_date)
+    if current <= start:
+        return {
+            "ready": True,
+            "interest_nok": Decimal("0"),
+            "segments": [],
+            "method": INTEREST_ATTRIBUTION_METHOD,
+        }
+
+    rows = connection.execute(
+        """
+        SELECT id, url, metadata_json
+        FROM source_documents
+        WHERE document_type='ECONOMIC_NAV_INTEREST_INCOME_ANCHOR'
+        ORDER BY published_at, id
+        """
+    ).fetchall()
+    window_start = start + timedelta(days=1)
+    total_nok = Decimal("0")
+    segments: list[dict[str, Any]] = []
+
+    for row in rows:
+        try:
+            metadata = json.loads(str(row["metadata_json"] or "{}"))
+            source_start = date.fromisoformat(str(metadata["source_period_start"]))
+            source_end = date.fromisoformat(str(metadata["source_period_end"]))
+            period_days = int(metadata["period_days"])
+            amount_usd = _decimal(metadata["amount_usd"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return {"ready": False, "reason": "invalid_interest_income_anchor"}
+
+        expected_days = (source_end - source_start).days + 1
+        if source_end < source_start or period_days != expected_days or amount_usd < 0:
+            return {
+                "ready": False,
+                "reason": "invalid_interest_income_anchor_period",
+                "source_period": metadata.get("source_period"),
+            }
+
+        overlap_start = max(window_start, source_start)
+        overlap_end = min(current, source_end)
+        if overlap_end < overlap_start:
+            continue
+
+        fx_segments = metadata.get("fx_segments")
+        if not isinstance(fx_segments, list) or not fx_segments:
+            return {
+                "ready": False,
+                "reason": "missing_interest_income_fx_segments",
+                "source_period": metadata.get("source_period"),
+            }
+
+        daily_usd = amount_usd / Decimal(period_days)
+        overlap_days = (overlap_end - overlap_start).days + 1
+        covered_days = 0
+        anchor_nok = Decimal("0")
+
+        for fx_segment in fx_segments:
+            if not isinstance(fx_segment, dict):
+                return {"ready": False, "reason": "invalid_interest_income_fx_segment"}
+            try:
+                fx_start = date.fromisoformat(str(fx_segment["start_date"]))
+                fx_end = date.fromisoformat(str(fx_segment["end_date"]))
+                usd_nok = _decimal(fx_segment["usd_nok"])
+            except (KeyError, TypeError, ValueError):
+                return {"ready": False, "reason": "invalid_interest_income_fx_segment"}
+            segment_start = max(overlap_start, fx_start)
+            segment_end = min(overlap_end, fx_end)
+            if segment_end < segment_start:
+                continue
+            days = (segment_end - segment_start).days + 1
+            segment_usd = daily_usd * Decimal(days)
+            segment_nok = segment_usd * usd_nok
+            covered_days += days
+            anchor_nok += segment_nok
+            segments.append(
+                {
+                    "source_period": metadata.get("source_period"),
+                    "start_date": segment_start.isoformat(),
+                    "end_date": segment_end.isoformat(),
+                    "days": days,
+                    "reported_half_interest_usd": float(amount_usd),
+                    "daily_interest_usd": float(daily_usd),
+                    "allocated_interest_usd": float(segment_usd),
+                    "usd_nok": float(usd_nok),
+                    "fx_source_label": fx_segment.get("source_label"),
+                    "interest_mnok": float(segment_nok / MILLION),
+                    "source_document_id": int(row["id"]),
+                    "source_url": row["url"],
+                }
+            )
+
+        if covered_days != overlap_days:
+            return {
+                "ready": False,
+                "reason": "interest_income_fx_segments_do_not_cover_overlap",
+                "source_period": metadata.get("source_period"),
+                "overlap_days": overlap_days,
+                "covered_days": covered_days,
+            }
+        total_nok += anchor_nok
+
+    return {
+        "ready": True,
+        "interest_nok": total_nok,
+        "segments": segments,
+        "method": INTEREST_ATTRIBUTION_METHOD,
+    }
+
+
+def _apply_period_interest_income_split(
+    result: dict[str, Any],
+    interest_nok: Decimal,
+    *,
+    segments: list[dict[str, Any]] | None = None,
+    method: str = INTEREST_ATTRIBUTION_METHOD,
+) -> dict[str, Any]:
+    """Split source-backed interest out of the residual cash movement without changing NAV."""
+    change = result.get("change") or {}
+    drivers = change.get("drivers") or []
+    if not change.get("ready") or not isinstance(drivers, list):
+        return result
+    other_cash = next((item for item in drivers if str(item.get("key")) == "other_cash"), None)
+    if other_cash is None:
+        return result
+
+    if abs(interest_nok) <= TOLERANCE_NOK:
+        change["period_interest_income_status"] = {
+            "ready": True,
+            "effect_mnok": 0.0,
+            "segment_count": len(segments or []),
+            "method": method,
+        }
+        return result
+
+    old_details = dict(other_cash.get("details") or {})
+    other_movements_mnok = old_details.get("other_movements_mnok")
+    if other_movements_mnok is None:
+        change["period_interest_income_status"] = {
+            "ready": False,
+            "reason": "missing_other_cash_residual_after_operating_cost_split",
+        }
+        return result
+
+    residual_nok = _decimal(other_movements_mnok) * MILLION - interest_nok
+    other_cash["details"] = {
+        **old_details,
+        "interest_income_mnok": float(interest_nok / MILLION),
+        "other_movements_mnok": float(residual_nok / MILLION),
+        "interest_income_period_method": method,
+        "interest_income_segments": segments or [],
+    }
+    change["period_interest_income_status"] = {
+        "ready": True,
+        "effect_mnok": float(interest_nok / MILLION),
+        "segment_count": len(segments or []),
+        "method": method,
+    }
+    return result
 
 
 def _apply_bemobi_paid_split(
@@ -401,8 +573,14 @@ def estimated_nav_history(
         change = result.get("change") or {}
         start_date = str(change.get("resolved_start") or "")
         period_cost = None
+        period_interest = None
         if change.get("ready") and start_date:
             period_cost = _period_operating_cost(
+                connection,
+                start_date=start_date,
+                current_date=current_date,
+            )
+            period_interest = _period_interest_income(
                 connection,
                 start_date=start_date,
                 current_date=current_date,
@@ -417,6 +595,17 @@ def estimated_nav_history(
             )
         else:
             (result.get("change") or {})["period_operating_cost_status"] = period_cost
+
+    if period_interest is not None:
+        if period_interest.get("ready"):
+            result = _apply_period_interest_income_split(
+                result,
+                _decimal(period_interest.get("interest_nok")),
+                segments=period_interest.get("segments") or [],
+                method=str(period_interest.get("method") or INTEREST_ATTRIBUTION_METHOD),
+            )
+        else:
+            (result.get("change") or {})["period_interest_income_status"] = period_interest
 
     result = _apply_bemobi_paid_split(result, breakdown)
     return _apply_bemobi_receivable_split(result, receivable)
