@@ -5,6 +5,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
+_MISSING = object()
+
+
 def _to_python(value: Any) -> Any:
     """Convert Worker/Pyodide JS proxy values to ordinary Python containers."""
     converter = getattr(value, "to_py", None)
@@ -43,12 +46,24 @@ class D1Repository:
         if parameters:
             statement = statement.bind(*parameters)
         result = await statement.all()
-        rows = _to_python(getattr(result, "results", []))
+        raw_rows = getattr(result, "results", _MISSING)
+        if raw_rows is _MISSING:
+            raise RuntimeError("D1-svaret mangler det forventede 'results'-feltet")
+
+        rows = _to_python(raw_rows)
         if rows is None:
-            return []
+            raise RuntimeError("D1-svaret har null i det forventede 'results'-feltet")
         if isinstance(rows, Mapping):
             rows = [rows]
-        return [dict(row) for row in rows]
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+            raise RuntimeError("D1-svarets 'results'-felt er ikke en liste med rader")
+
+        converted_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                raise RuntimeError("D1-svaret inneholder en rad som ikke er et objekt")
+            converted_rows.append(dict(row))
+        return converted_rows
 
     async def first(
         self,
