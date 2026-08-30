@@ -1,5 +1,5 @@
 {
-  "version": "economic-nav-inputs-2026-08-28.1",
+  "version": "economic-nav-inputs-2026-08-30.1",
   "documents": {
     "otello_ar24": {
       "source_code": "OTELLO_IR",
@@ -26,10 +26,20 @@
       "title": "Otello Corporation ASA - 1H 2025",
       "url": "https://otello.cdn.prismic.io/otello/aKa1FaTt2nPbajuo_Report1H25FINAL.pdf"
     },
+    "otello_2h25": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - 2H 2025",
+      "url": "https://otello.cdn.prismic.io/otello/aZVvCFWLo0XkEnNV_2H25_report.pdf"
+    },
     "otello_1h26": {
       "source_code": "MANUAL",
       "title": "Otello Corporation ASA - 1H 2026",
       "url": "https://financialfilings.com/filings/otello-corporation-asa/interim-quarterly-report/2026/57072581/"
+    },
+    "otello_1h26_official": {
+      "source_code": "OTELLO_IR",
+      "title": "Otello Corporation ASA - 1H 2026",
+      "url": "https://otello.cdn.prismic.io/otello/RlJbV0szFAaAhxyB_Report1H26FINAL.pdf"
     }
   },
   "operating_cost_anchors": [
@@ -136,6 +146,58 @@
       "source_key": "otello_ar25",
       "source_locator": "Annual Report 2025, operating expenses excluding stock-based compensation",
       "notes": "Conservative investor overlay sensitivity."
+    }
+  ],
+  "interest_income_anchors": [
+    {
+      "source_period": "2H25",
+      "source_period_start": "2025-07-01",
+      "source_period_end": "2025-12-31",
+      "period_days": 184,
+      "amount_usd": "339000",
+      "source_measure": "interest income received",
+      "source_key": "otello_2h25",
+      "source_locator": "2H25 consolidated cash-flow statement: Interest income received USD 339 thousand; group-performance section confirms interest income of USD 339 thousand.",
+      "fx_segments": [
+        {
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "usd_nok": "9.9474",
+          "source_label": "For the September period 2025"
+        },
+        {
+          "start_date": "2025-10-01",
+          "end_date": "2025-12-31",
+          "usd_nok": "10.1196",
+          "source_label": "For the December period 2025"
+        }
+      ],
+      "notes": "Reported half-year cash interest. For arbitrary NAV-history windows the USD amount is allocated evenly by calendar day within the reported half and translated using Otello's reported USD/NOK period rates. This is attribution, not a claim about the exact daily interest receipt pattern."
+    },
+    {
+      "source_period": "1H26",
+      "source_period_start": "2026-01-01",
+      "source_period_end": "2026-06-30",
+      "period_days": 181,
+      "amount_usd": "326000",
+      "source_measure": "interest income received",
+      "source_key": "otello_1h26_official",
+      "source_locator": "1H26 consolidated cash-flow statement: Interest income received USD 326 thousand; report states operating cash flow was affected by lower interest income received.",
+      "fx_segments": [
+        {
+          "start_date": "2026-01-01",
+          "end_date": "2026-03-31",
+          "usd_nok": "9.6605",
+          "source_label": "For the March period 2026"
+        },
+        {
+          "start_date": "2026-04-01",
+          "end_date": "2026-06-30",
+          "usd_nok": "9.5815",
+          "source_label": "For the June period 2026"
+        }
+      ],
+      "notes": "Reported half-year cash interest. For arbitrary NAV-history windows the USD amount is allocated evenly by calendar day within the reported half and translated using Otello's reported USD/NOK period rates. This is attribution, not a claim about the exact daily interest receipt pattern."
     }
   ],
   "cash_fx_exposure_anchors": [
