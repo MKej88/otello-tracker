@@ -29,6 +29,7 @@ from newsweb_client import (  # noqa: E402
     NewsWebMessage,
     discover_otec_messages,
     fetch_message,
+    parse_list_payload,
 )
 from newsweb_ingestion import classify_newsweb_message, history_start_for_refresh  # noqa: E402
 from newsweb_daily_buybacks import parse_buyback_transaction_text as parse_worker_transaction_text  # noqa: E402
@@ -346,6 +347,21 @@ def test_newsweb_client_recurses_on_overflow_and_drops_superseded_messages() -> 
         ("2026-08-01", "2026-08-02"),
         ("2026-08-03", "2026-08-04"),
     ]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"overflow": False},
+        {"messages": [], "overflow": "false"},
+        {"messages": None, "overflow": False},
+    ],
+)
+def test_worker_newsweb_list_rejects_partial_or_changed_response(
+    data: object,
+) -> None:
+    with pytest.raises(ValueError, match="Uventet NewsWeb list-respons"):
+        parse_list_payload({"data": data})
 
 
 def test_newsweb_client_rejects_oversized_json_before_reading_body() -> None:
