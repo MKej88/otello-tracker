@@ -150,6 +150,7 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     )
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/BemobiPage.tsx").read_text(encoding="utf-8")
+    page_base = (ROOT / "frontend/src/BemobiPageBase.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/bemobi/dashboard")' in backend_app
     assert '@app.get("/api/bemobi/dashboard")' in worker_app
@@ -170,7 +171,7 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
-    assert 'fetch("/api/bemobi/dashboard")' in page
+    assert 'fetch("/api/bemobi/dashboard")' in page_base
     assert "Verdsettelse nå" in page
     assert "EV / EBIT TTM" in page
     assert "FCF yield (just.)" in page
