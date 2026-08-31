@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.buybacks.activity import market_activity_status, seed_otec_activity_history
+from app.buybacks.activity import (
+    _upsert_activity,
+    market_activity_status,
+    seed_otec_activity_history,
+)
 from app.buybacks.forecast import buyback_forecast
 from app.buybacks.program_terms import parse_program_terms
 from app.db.connection import get_connection
@@ -45,6 +49,63 @@ def test_euronext_activity_seed_has_current_20_day_history(tmp_path) -> None:
     assert status["from"] == "2024-08-19"
     assert status["to"] == "2026-08-24"
     assert status["positive_days"] >= 490
+
+
+def test_delayed_activity_cannot_overwrite_historical_export(tmp_path) -> None:
+    database = str(tmp_path / "activity-priority.db")
+    init_database(database)
+
+    with get_connection(database) as connection:
+        historical_document_id = create_source_document(
+            connection,
+            source_code="EURONEXT",
+            external_id="historical-export",
+            document_type="MARKET_DATA_DERIVED_FILE",
+            title="Historical export",
+            url="https://example.com/historical",
+        )
+        delayed_document_id = create_source_document(
+            connection,
+            source_code="EURONEXT",
+            external_id="delayed-file",
+            document_type="DELAYED_MARKET_ACTIVITY_FILE",
+            title="Delayed trade file",
+            url="https://example.com/delayed",
+        )
+        _upsert_activity(
+            connection,
+            trading_date="2099-08-17",
+            volume_shares=1_000,
+            last_price_nok="17.20",
+            source_document_id=historical_document_id,
+            quality="HISTORICAL_EXPORT",
+            metadata={"source": "complete export"},
+        )
+        _upsert_activity(
+            connection,
+            trading_date="2099-08-17",
+            volume_shares=100,
+            last_price_nok="17.10",
+            source_document_id=delayed_document_id,
+            quality="DELAYED_TRADE_SUM",
+            metadata={"source": "delayed file"},
+        )
+        connection.commit()
+        row = connection.execute(
+            """
+            SELECT volume_shares, last_price_nok, source_document_id,
+                   quality, metadata_json
+            FROM market_activity
+            WHERE trading_date = '2099-08-17'
+            """
+        ).fetchone()
+
+    assert row is not None
+    assert row["volume_shares"] == 1_000
+    assert row["last_price_nok"] == "17.20"
+    assert row["source_document_id"] == historical_document_id
+    assert row["quality"] == "HISTORICAL_EXPORT"
+    assert row["metadata_json"] == '{"source": "complete export"}'
 
 
 def _seed_current_program(database: str) -> None:
