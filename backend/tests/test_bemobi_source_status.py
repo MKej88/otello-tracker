@@ -39,6 +39,17 @@ def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Pat
         },
     }
     with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO source_health(source_id, checked_at, status, metadata_json)
+            SELECT id, '2026-08-20T17:00:00Z', 'OK', '{}'
+            FROM sources
+            WHERE code IN (
+                'NORGES_BANK', 'B3', 'EURONEXT', 'YAHOO_FINANCE',
+                'NEWSWEB', 'OTELLO_IR', 'LIFE360_IR_LSEG'
+            )
+            """
+        )
         source_id = connection.execute("SELECT id FROM sources WHERE code='BEMOBI_IR'").fetchone()[0]
         connection.execute(
             """
