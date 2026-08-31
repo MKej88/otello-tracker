@@ -219,7 +219,8 @@ def buyback_dashboard(
         latest = connection.execute(
             """
             SELECT b.period_start, b.trade_date, b.shares, b.avg_price_nok, b.amount_nok,
-                   b.cumulative_program_shares, b.cumulative_program_amount_nok,
+                   b.cumulative_program_shares, b.cumulative_program_avg_price_nok,
+                   b.cumulative_program_amount_nok,
                    b.treasury_shares_after, p.external_program_id, p.max_shares,
                    p.max_price_nok, p.start_date, p.end_date
             FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
@@ -309,12 +310,21 @@ def buyback_dashboard(
         or 0
     )
     remaining = max(0, max_shares - cumulative) if max_shares else 0
+    cumulative_amount = Decimal(
+        str((latest_payload or {}).get("cumulative_program_amount_nok") or 0)
+    )
+    vwap = cumulative_amount / cumulative if cumulative and cumulative_amount else None
+    average_price = (latest_payload or {}).get("cumulative_program_avg_price_nok")
+    if average_price is None and vwap is not None:
+        average_price = str(vwap)
     program_end = program.get("end_date")
     program_summary = {
         **program,
         "max_shares": max_shares or None,
         "cumulative_shares": cumulative,
         "remaining_shares": remaining if max_shares else None,
+        "average_purchase_price_nok": average_price,
+        "vwap_nok": str(vwap) if vwap is not None else None,
         "progress_pct": (
             round(cumulative / max_shares * 100, 1) if max_shares else None
         ),

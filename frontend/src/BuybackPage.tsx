@@ -10,6 +10,8 @@ type Program = {
   max_shares?: number | null;
   cumulative_shares?: number | null;
   remaining_shares?: number | null;
+  average_purchase_price_nok?: string | number | null;
+  vwap_nok?: string | number | null;
   max_price_nok?: number | null;
   progress_pct?: number | null;
 };
@@ -384,6 +386,8 @@ export default function BuybackPage() {
           <div className="buybackRows">
             <div><span>Kjøpt hittil</span><strong>{count(program?.cumulative_shares)}</strong></div>
             <div><span>Brukt hittil</span><strong>{value(Number(latest?.cumulative_program_amount_nok ?? 0) / 1_000_000, 1)} mill. kr</strong></div>
+            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{value(program?.average_purchase_price_nok, 2)} kr</strong></div>
+            <div><span>Volumvektet snittpris (VWAP)</span><strong>{value(program?.vwap_nok, 2)} kr</strong></div>
             <div><span>Gjenstående kapasitet</span><strong>{count(program?.remaining_shares)}</strong></div>
             <div><span>Program fremdrift</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
             <div><span>Prisgrense</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
