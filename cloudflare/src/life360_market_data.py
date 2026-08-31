@@ -138,12 +138,22 @@ def parse_yahoo_chart(
             f"Yahoo-valuta {currency!r} matcher ikke forventet {expected_currency!r}"
         )
 
-    timezone_name = str(meta.get("exchangeTimezoneName") or "UTC")
+    expected_timezone = {
+        "LIF": "America/New_York",
+        "360.AX": "Australia/Sydney",
+    }.get(expected_symbol)
+    timezone_name = str(meta.get("exchangeTimezoneName") or "")
+    if expected_timezone is None or timezone_name != expected_timezone:
+        raise ValueError(
+            f"Yahoo-tidssone {timezone_name!r} matcher ikke forventet "
+            f"{expected_timezone!r} for {expected_symbol!r}"
+        )
     try:
         exchange_tz = ZoneInfo(timezone_name)
-    except (KeyError, ValueError):
-        exchange_tz = UTC
-        timezone_name = "UTC"
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            "Yahoo-returneringen har ugyldig exchangeTimezoneName"
+        ) from exc
 
     timestamps = result.get("timestamp")
     indicators = result.get("indicators")

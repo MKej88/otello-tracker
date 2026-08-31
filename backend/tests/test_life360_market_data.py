@@ -27,7 +27,15 @@ from life360_market_data import (  # noqa: E402
 )
 
 
-def _payload(*, symbol: str = "LIF", currency: str = "USD") -> bytes:
+def _payload(
+    *,
+    symbol: str = "LIF",
+    currency: str = "USD",
+    timezone_name: str | None = None,
+) -> bytes:
+    exchange_timezone = timezone_name or (
+        "America/New_York" if symbol == "LIF" else "Australia/Sydney"
+    )
     return json.dumps(
         {
             "chart": {
@@ -37,11 +45,7 @@ def _payload(*, symbol: str = "LIF", currency: str = "USD") -> bytes:
                             "symbol": symbol,
                             "currency": currency,
                             "exchangeName": "NMS" if symbol == "LIF" else "ASX",
-                            "exchangeTimezoneName": (
-                                "America/New_York"
-                                if symbol == "LIF"
-                                else "Australia/Sydney"
-                            ),
+                            "exchangeTimezoneName": exchange_timezone,
                         },
                         "timestamp": [1787251800, 1787338200, 1787424600],
                         "indicators": {
@@ -220,6 +224,41 @@ def test_parser_accepts_asx_history_in_aud() -> None:
     assert result["symbol"] == "360.AX"
     assert result["currency"] == "AUD"
     assert result["exchange_timezone"] == "Australia/Sydney"
+
+
+@pytest.mark.parametrize(
+    ("symbol", "currency", "timezone_name"),
+    [
+        ("LIF", "USD", "UTC"),
+        ("360.AX", "AUD", "America/New_York"),
+        ("LIF", "USD", "Ugyldig/Tidssone"),
+    ],
+)
+def test_parser_rejects_wrong_exchange_timezone(
+    symbol: str, currency: str, timezone_name: str
+) -> None:
+    with pytest.raises(ValueError, match="tidssone"):
+        parse_yahoo_chart(
+            _payload(
+                symbol=symbol,
+                currency=currency,
+                timezone_name=timezone_name,
+            ),
+            expected_symbol=symbol,
+            expected_currency=currency,
+        )
+
+
+def test_parser_rejects_missing_exchange_timezone() -> None:
+    payload = json.loads(_payload())
+    del payload["chart"]["result"][0]["meta"]["exchangeTimezoneName"]
+
+    with pytest.raises(ValueError, match="tidssone"):
+        parse_yahoo_chart(
+            json.dumps(payload).encode(),
+            expected_symbol="LIF",
+            expected_currency="USD",
+        )
 
 
 @pytest.mark.parametrize(
