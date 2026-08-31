@@ -21,6 +21,7 @@ D1_OTHER_SHARES = ROOT / "cloudflare" / "migrations" / "0016_other_shares_and_li
 D1_LIFE360_HOLDINGS = ROOT / "cloudflare" / "migrations" / "0017_life360_holding_anchors.sql"
 D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"
 D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"
+D1_BROKER_MODEL = ROOT / "cloudflare" / "migrations" / "0028_replace_aggregator_with_btg_model.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -150,6 +151,7 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
         d1.executescript(D1_LIFE360.read_text(encoding="utf-8"))
         d1.executescript(D1_OTEC_ACTIVITY_SOURCE.read_text(encoding="utf-8"))
         d1.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))
+        d1.executescript(D1_BROKER_MODEL.read_text(encoding="utf-8"))
 
         source_columns = "code, name, source_type, base_url, is_official, is_active, terms_notes"
         reference_sources = [
@@ -322,6 +324,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_LIFE360_IR_LSEG,
             D1_OTHER_SHARES,
             D1_LIFE360_HOLDINGS,
+            D1_BROKER_MODEL,
         )
     ).upper()
 
