@@ -148,7 +148,12 @@ def parse_euronext_delayed_trades(payload: bytes) -> list[DelayedTrade]:
             quantity = Decimal((row.get("MifidQuantity") or "").strip())
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("Ugyldig pris/antall i OTEC-rad fra Euronext") from exc
-        if price <= 0 or quantity < 0:
+        if (
+            not price.is_finite()
+            or not quantity.is_finite()
+            or price <= 0
+            or quantity < 0
+        ):
             raise ValueError(
                 "Ugyldig ikke-positiv OTEC-pris eller negativt antall fra Euronext"
             )

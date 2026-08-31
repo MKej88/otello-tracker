@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
@@ -137,6 +139,29 @@ def test_streamed_euronext_parser_selects_latest_valid_otec_trade() -> None:
     assert latest.trade_unique_identifier == "newer"
     assert str(latest.price) == "17.25"
     assert latest.trading_datetime == "2026-08-17T10:05:00.000000Z"
+
+
+@pytest.mark.parametrize(
+    ("price", "quantity"),
+    [("Infinity", "100"), ("17.25", "Infinity")],
+)
+def test_streamed_euronext_parser_rejects_non_finite_numbers(
+    price: str, quantity: str
+) -> None:
+    payload = _zip_payload(
+        [
+            _otec_row(
+                trade_time="2026-08-17T10:05:00Z",
+                publication_time="2026-08-17T10:20:00Z",
+                price=price,
+                quantity=quantity,
+                trade_id="invalid-number",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="Ugyldig ikke-positiv OTEC-pris"):
+        latest_otec_trade(payload)
 
 
 def test_worker_import_preserves_reference_provenance_and_direct_last_semantics() -> None:
