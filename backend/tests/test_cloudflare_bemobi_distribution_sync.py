@@ -73,7 +73,7 @@ def _fixture(tmp_path: Path, *, include_fx: bool = True) -> str:
             """
             INSERT INTO bemobi_holdings(
                 effective_from, effective_to, shares, ownership_pct, source_document_id, notes
-            ) VALUES ('2026-01-01', NULL, 1000, '0.01', ?, 'Test holding')
+            ) VALUES ('2026-08-17', NULL, 1000, '0.01', ?, 'Test holding')
             """,
             (document_id,),
         )
