@@ -9,7 +9,10 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from app.buybacks.coverage import buyback_coverage_gaps
-from app.buybacks.euronext import ingest_euronext_buyback_status, parse_euronext_buyback_status
+from app.buybacks.euronext import (
+    ingest_euronext_buyback_status,
+    parse_euronext_buyback_status,
+)
 from app.buybacks.official_backfill import seed_known_official_buybacks
 from app.db.connection import get_connection
 
@@ -19,6 +22,7 @@ MFN_OTELLO_URL = f"{MFN_BASE}/all/a/otello-corporation"
 MFN_BUYBACK_MARKER = "otec-otello-corporation-share-buyback-program-status"
 EURONEXT_BUYBACK_SLUG = "otello-corporation-share-buyback-program-status"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
+MAX_HTML_BYTES = 3 * 1024 * 1024
 
 
 class _TextExtractor(HTMLParser):
@@ -44,7 +48,12 @@ def _fetch(url: str, timeout: int = 30) -> str:
         },
     )
     with urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8", errors="replace")
+        payload = response.read(MAX_HTML_BYTES + 1)
+    if len(payload) > MAX_HTML_BYTES:
+        raise ValueError("MFN-respons overstiger sikker størrelsesgrense")
+    if not payload.strip():
+        raise ValueError("MFN returnerte en tom respons")
+    return payload.decode("utf-8", errors="replace")
 
 
 def extract_page_text(html_text: str) -> str:
@@ -69,7 +78,9 @@ def _publication_timestamp(text: str) -> str:
     match = re.search(r"(20\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})", text)
     if not match:
         raise ValueError("Fant ikke publiseringstidspunkt i MFN-mirror")
-    local = datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}").replace(tzinfo=OSLO_TZ)
+    local = datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}").replace(
+        tzinfo=OSLO_TZ
+    )
     return local.isoformat()
 
 
@@ -86,7 +97,9 @@ def _canonical_euronext_url(text: str) -> str:
 def _assert_oslo_bors_mirror(text: str) -> None:
     normalized = " ".join(text.split())
     if not re.search(r"(?:Källa|Source)\s+Oslo\s+Børs", normalized, re.I):
-        raise ValueError("MFN-artikkelen er ikke merket med Oslo Børs som upstream-kilde")
+        raise ValueError(
+            "MFN-artikkelen er ikke merket med Oslo Børs som upstream-kilde"
+        )
 
 
 def _latest_reported_cash_anchor(database_path: str | None = None) -> str | None:
@@ -134,7 +147,9 @@ def collect_recent_buybacks(
                     "financial_fields_require_strict_parser": True,
                 },
             )
-            results.append({"mirror_url": mirror_url, "canonical_url": canonical_url, **result})
+            results.append(
+                {"mirror_url": mirror_url, "canonical_url": canonical_url, **result}
+            )
         except Exception as exc:
             errors.append({"url": mirror_url, "error": str(exc)})
 
@@ -172,23 +187,23 @@ def buyback_status(database_path: str | None = None) -> dict:
         else historical_gaps
     )
     with get_connection(database_path) as connection:
-        aggregate = connection.execute(
-            """
+        aggregate = connection.execute("""
             SELECT COUNT(*) AS n, MIN(trade_date) AS min_date, MAX(trade_date) AS max_date,
                    SUM(shares) AS shares, SUM(CAST(amount_nok AS REAL)) AS amount_nok
             FROM buybacks
-            """
-        ).fetchone()
-        latest = connection.execute(
-            """
+            """).fetchone()
+        latest = connection.execute("""
             SELECT trade_date, shares, avg_price_nok, amount_nok,
                    cumulative_program_shares, cumulative_program_avg_price_nok,
                    cumulative_program_amount_nok, treasury_shares_after
             FROM buybacks ORDER BY trade_date DESC, id DESC LIMIT 1
-            """
-        ).fetchone()
+            """).fetchone()
         return {
-            "status": "ok" if aggregate["n"] and not current_gaps else ("incomplete" if aggregate["n"] else "empty"),
+            "status": (
+                "ok"
+                if aggregate["n"] and not current_gaps
+                else ("incomplete" if aggregate["n"] else "empty")
+            ),
             "latest_reported_cash_anchor": latest_anchor,
             "historical_coverage_complete": not historical_gaps,
             "historical_coverage_gaps": historical_gaps,
