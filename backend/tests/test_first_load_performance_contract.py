@@ -130,3 +130,18 @@ def test_navigation_shares_bemobi_request_while_route_code_loads() -> None:
         'fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")'
         in base_source
     )
+
+
+def test_navigation_starts_consensus_data_in_parallel_with_route_code() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    page_source = (FRONTEND_SRC / "ConsensusPage.tsx").read_text(encoding="utf-8")
+
+    consensus_preload = app_source.index('if (view === "Konsensus")')
+    consensus_route = app_source.index('window.location.hash = viewSlugs[view]')
+
+    assert consensus_preload < consensus_route
+    assert 'preloadJson("/api/bemobi/consensus")' in app_source
+    assert (
+        'fetchPreloadedJson<ConsensusPayload>("/api/bemobi/consensus")'
+        in page_source
+    )

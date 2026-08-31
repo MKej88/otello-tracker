@@ -46,7 +46,10 @@ function preload(view: View) {
     preloadJson("/api/bemobi/dashboard");
   }
   if (view === "Brasil") void loadBrazilPage();
-  if (view === "Konsensus") void loadConsensusPage();
+  if (view === "Konsensus") {
+    void loadConsensusPage();
+    preloadJson("/api/bemobi/consensus");
+  }
   if (view === "Datakvalitet") void loadDataQualityPage();
   if (view === "Nyheter") void loadNewsEventsPage();
 }
