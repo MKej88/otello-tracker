@@ -151,6 +151,8 @@ def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(tmp_path: Pa
     assert result["program"]["cumulative_shares"] == 600_393
     assert result["program"]["remaining_shares"] == 1_591_653
     assert result["program"]["progress_pct"] == 27.4
+    assert result["program"]["average_purchase_price_nok"] == "17"
+    assert result["program"]["vwap_nok"] == "17"
     assert result["latest_week"]["shares"] == 59_512
     assert result["latest_week"]["market_volume_shares"] > 59_512
     # Weekly market share is a descriptive ratio, not the Safe Harbour legal test.
