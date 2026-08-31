@@ -145,6 +145,41 @@ def test_parser_rejects_publication_before_trade() -> None:
         parse_euronext_delayed_trades(payload)
 
 
+def test_latest_trade_compares_instants_across_timezone_boundary() -> None:
+    """The newest trade must be chosen by instant, not timestamp text or local date."""
+    payload = _zip(
+        [
+            _row(
+                TradingDateTime="2026-08-18T00:05:00+02:00",
+                PublicationDateTime="2026-08-18T00:05:01+02:00",
+                MifidPrice="17.1000000",
+                TradeUniqueIdentifier="LOCAL-NEXT-DAY",
+            ),
+            _row(
+                TradingDateTime="2026-08-17T22:10:00Z",
+                PublicationDateTime="2026-08-17T22:10:01Z",
+                MifidPrice="17.3000000",
+                TradeUniqueIdentifier="ACTUALLY-LATEST",
+            ),
+        ]
+    )
+
+    latest = latest_otec_trade(payload)
+
+    assert latest is not None
+    assert latest.trade_unique_identifier == "ACTUALLY-LATEST"
+    assert latest.price == Decimal("17.3000000")
+    assert latest.trading_date == "2026-08-17"
+
+
+def test_parser_rejects_partial_otec_row_without_trading_timestamp() -> None:
+    """A partial API row must fail closed instead of becoming a misleading price."""
+    payload = _zip([_row(TradingDateTime="")])
+
+    with pytest.raises(ValueError, match="mangler TradingDateTime"):
+        parse_euronext_delayed_trades(payload)
+
+
 def test_download_respects_retry_after_on_rate_limit(monkeypatch) -> None:
     calls = 0
     sleeps: list[float] = []
@@ -239,6 +274,38 @@ def test_import_stores_direct_last_trade_with_audit_metadata(tmp_path) -> None:
         assert row["trading_date"] == "2026-08-17"
         assert "DELAYED_PUBLIC_TRADE_FILE" in row["metadata_json"]
         assert "OTEC-AUDIT" in row["metadata_json"]
+
+
+def test_reimporting_identical_trade_is_idempotent(tmp_path) -> None:
+    """A retry of the same payload must not duplicate price or audit records."""
+    database = str(tmp_path / "euronext-idempotent.db")
+    init_database(database)
+    payload = _zip([_row(TradeUniqueIdentifier="OTEC-RETRY")])
+
+    first = import_delayed_otec_trade(
+        payload,
+        time_selection="CURRENT_TRADING_DAY",
+        source_url="https://example.test/current",
+        database_path=database,
+    )
+    second = import_delayed_otec_trade(
+        payload,
+        time_selection="CURRENT_TRADING_DAY",
+        source_url="https://example.test/current",
+        database_path=database,
+    )
+
+    assert second["price_id"] == first["price_id"]
+    with get_connection(database) as connection:
+        price_count = connection.execute(
+            "SELECT COUNT(*) FROM market_prices WHERE price_type = 'LAST'"
+        ).fetchone()[0]
+        document_count = connection.execute(
+            "SELECT COUNT(*) FROM source_documents "
+            "WHERE document_type = 'DELAYED_MARKET_DATA_FILE'"
+        ).fetchone()[0]
+    assert price_count == 1
+    assert document_count == 1
 
 
 def test_refresh_uses_previous_day_only_when_current_has_no_otec(
