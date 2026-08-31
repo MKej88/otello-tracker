@@ -14,10 +14,10 @@ def _database(tmp_path: Path) -> str:
     return database
 
 
-def test_source_status_exposes_nested_full_refresh_results(tmp_path: Path) -> None:
+def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Path) -> None:
     database = _database(tmp_path)
     metadata = {
-        "phase": "16.2",
+        "phase": "16.3",
         "target_date": "2026-08-20",
         "result": {
             "ir": {"status": "ok", "rows_written": 5},
@@ -27,8 +27,8 @@ def test_source_status_exposes_nested_full_refresh_results(tmp_path: Path) -> No
                 "rows_written": 0,
             },
             "consensus": {
-                "status": "not_available",
-                "error": "MarketScreener svarte ikke",
+                "status": "skipped",
+                "reason": "source_specific_public_broker_models",
                 "rows_written": 0,
             },
             "xp_preview": {
@@ -39,35 +39,33 @@ def test_source_status_exposes_nested_full_refresh_results(tmp_path: Path) -> No
         },
     }
     with get_connection(database) as connection:
-        source_id = connection.execute(
-            "SELECT id FROM sources WHERE code='BEMOBI_IR'"
-        ).fetchone()[0]
+        source_id = connection.execute("SELECT id FROM sources WHERE code='BEMOBI_IR'").fetchone()[0]
         connection.execute(
             """
             INSERT INTO source_health(source_id, checked_at, status, metadata_json)
             VALUES (?, ?, ?, ?)
             """,
-            (source_id, "2026-08-20T17:00:00Z", "DEGRADED", json.dumps(metadata)),
+            (source_id, "2026-08-20T17:00:00Z", "OK", json.dumps(metadata)),
         )
         connection.commit()
 
     result = bemobi_source_status(database)
     by_key = {item["key"]: item for item in result["items"]}
 
-    assert result["overall_status"] == "PARTIAL"
+    assert result["overall_status"] == "OK"
     assert result["checked_at"] == "2026-08-20T17:00:00Z"
     assert by_key["ir"]["status"] == "OK"
     assert by_key["result_release"]["status"] == "OK"
-    assert by_key["consensus"]["status"] == "DEGRADED"
-    assert by_key["consensus"]["uses_last_good"] is True
+    assert by_key["consensus"]["status"] == "OK"
+    assert by_key["consensus"]["source"] == "BTG Pactual"
+    assert by_key["consensus"]["uses_last_good"] is False
+    assert "Kildeverifiserte meglermodeller" in by_key["consensus"]["detail"]
     assert by_key["xp_preview"]["status"] == "WAITING"
 
 
 def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) -> None:
     database = _database(tmp_path)
-
     result = bemobi_source_status(database)
-
     assert result["overall_status"] == "UNKNOWN"
     assert result["checked_at"] is None
     assert len(result["items"]) == 11
@@ -77,9 +75,7 @@ def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) 
 
 def test_source_status_has_stable_source_order_and_labels(tmp_path: Path) -> None:
     database = _database(tmp_path)
-
     result = bemobi_source_status(database)
-
     assert [(item["key"], item["label"]) for item in result["items"]] == [
         ("norges_bank", "Valutakurser (BRL/NOK og USD/NOK)"),
         ("b3", "Bemobi-kurs og markedsdata"),
@@ -90,19 +86,15 @@ def test_source_status_has_stable_source_order_and_labels(tmp_path: Path) -> Non
         ("life360_ir", "Reservekilde for Life360-kurs"),
         ("ir", "Eierandel og analytikerdekning"),
         ("result_release", "Resultater"),
-        ("consensus", "Årsestimater / konsensus"),
+        ("consensus", "Årsestimater / meglermodeller"),
         ("xp_preview", "Forhåndsestimat neste kvartal"),
     ]
 
 
-def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(
-    tmp_path: Path,
-) -> None:
+def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(tmp_path: Path) -> None:
     database = _database(tmp_path)
     with get_connection(database) as connection:
-        source_id = connection.execute(
-            "SELECT id FROM sources WHERE code='BEMOBI_IR'"
-        ).fetchone()[0]
+        source_id = connection.execute("SELECT id FROM sources WHERE code='BEMOBI_IR'").fetchone()[0]
         connection.execute(
             """
             INSERT INTO source_health(source_id, checked_at, status, metadata_json)
@@ -113,7 +105,6 @@ def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(
         connection.commit()
 
     result = bemobi_source_status(database)
-
     assert result["overall_status"] == "UNKNOWN"
     assert all(
         item["status"] == "UNKNOWN"
@@ -125,9 +116,7 @@ def test_source_status_does_not_turn_green_when_health_row_lacks_subresults(
 def test_source_status_includes_health_for_operational_sources(tmp_path: Path) -> None:
     database = _database(tmp_path)
     with get_connection(database) as connection:
-        source_id = connection.execute(
-            "SELECT id FROM sources WHERE code='NORGES_BANK'"
-        ).fetchone()[0]
+        source_id = connection.execute("SELECT id FROM sources WHERE code='NORGES_BANK'").fetchone()[0]
         connection.execute(
             """
             INSERT INTO source_health(source_id, checked_at, status, metadata_json)
@@ -139,7 +128,6 @@ def test_source_status_includes_health_for_operational_sources(tmp_path: Path) -
 
     result = bemobi_source_status(database)
     by_key = {item["key"]: item for item in result["items"]}
-
     assert by_key["norges_bank"]["source"] == "Norges Bank"
     assert by_key["norges_bank"]["status"] == "OK"
     assert by_key["norges_bank"]["checked_at"] == "2026-08-20T18:00:00Z"
@@ -150,11 +138,8 @@ def test_operational_source_status_uses_one_database_query(tmp_path: Path) -> No
     with get_connection(database) as connection:
         queries: list[str] = []
         connection.set_trace_callback(queries.append)
-
         items = _operational_source_items(connection)
 
-    select_queries = [
-        query for query in queries if query.lstrip().upper().startswith("SELECT")
-    ]
+    select_queries = [query for query in queries if query.lstrip().upper().startswith("SELECT")]
     assert len(items) == 7
     assert len(select_queries) == 1
