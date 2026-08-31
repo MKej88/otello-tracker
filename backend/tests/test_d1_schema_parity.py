@@ -22,6 +22,7 @@ D1_LIFE360_HOLDINGS = ROOT / "cloudflare" / "migrations" / "0017_life360_holding
 D1_OTEC_ACTIVITY_SOURCE = ROOT / "cloudflare" / "migrations" / "0018_otec_market_activity_source.sql"
 D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_price_backfill.sql"
 D1_BROKER_MODEL = ROOT / "cloudflare" / "migrations" / "0028_replace_aggregator_with_btg_model.sql"
+D1_NAV_SNAPSHOT_UPDATED_AT = ROOT / "cloudflare" / "migrations" / "0029_nav_snapshot_updated_at.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -45,6 +46,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_BEMOBI_CONSENSUS.read_text(encoding="utf-8"))
     connection.executescript(D1_OTHER_SHARES.read_text(encoding="utf-8"))
     connection.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
+    connection.executescript(D1_NAV_SNAPSHOT_UPDATED_AT.read_text(encoding="utf-8"))
     return connection
 
 
@@ -325,6 +327,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_OTHER_SHARES,
             D1_LIFE360_HOLDINGS,
             D1_BROKER_MODEL,
+            D1_NAV_SNAPSHOT_UPDATED_AT,
         )
     ).upper()
 
