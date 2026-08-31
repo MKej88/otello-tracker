@@ -128,8 +128,8 @@ async def enrich_newsweb_buybacks_if_due(
 
     The parser-versioned completion marker fingerprints the latest canonical weekly
     buyback row, so a same-date correction to economics/provenance also triggers a new
-    PDF pass. A successful run advances the marker even when there is no attachment;
-    partial/error runs never advance it and remain retryable the next day.
+    PDF pass. Only a successful reconciliation advances the marker; missing
+    transaction attachments and other partial/error runs remain retryable.
     """
     state = await _coverage_state(repository)
     weekly = str(state.get("latest_weekly_date") or "")
