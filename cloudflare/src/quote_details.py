@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -435,9 +436,10 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
 
 
 async def market_quote_details(repository) -> dict[str, Any]:
-    quotes: dict[str, Any] = {}
-    for symbol in _SYMBOLS:
-        quotes[symbol] = await _quote(repository, symbol)
+    quote_results = await asyncio.gather(
+        *(_quote(repository, symbol) for symbol in _SYMBOLS)
+    )
+    quotes = dict(zip(_SYMBOLS, quote_results, strict=True))
     return {
         "ready": any(item.get("ready") for item in quotes.values()),
         "symbols": quotes,

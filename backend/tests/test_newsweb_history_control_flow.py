@@ -115,6 +115,44 @@ def test_nytt_forsoek_etter_delvis_feil_lagrer_meldingen_uten_duplikat(
     assert count == 1
 
 
+def test_standardoppdatering_prover_eldre_feilet_melding_paa_nytt(
+    tmp_path, monkeypatch
+) -> None:
+    """En gammel timeout må ikke falle ut når nyere meldinger flytter startdatoen."""
+    database = str(tmp_path / "beholdt-nytt-forsoek.db")
+    init_database(database)
+    old_message = _message(301, "2026-01-02T08:00:00Z")
+    new_message = _message(302, "2026-08-20T08:00:00Z")
+    discovery_starts: list[str] = []
+    old_attempts = 0
+
+    def fake_discover(start: str, _end: str, **_kwargs) -> list[NewsWebMessage]:
+        discovery_starts.append(start)
+        return [old_message, new_message] if start <= "2026-01-02" else [new_message]
+
+    def fake_fetch(message_id: int, **_kwargs) -> NewsWebMessage:
+        nonlocal old_attempts
+        if message_id == old_message.message_id:
+            old_attempts += 1
+            if old_attempts == 1:
+                raise TimeoutError("midlertidig timeout")
+            return old_message
+        return new_message
+
+    monkeypatch.setattr(history, "discover_otec_messages", fake_discover)
+    monkeypatch.setattr(history, "fetch_message", fake_fetch)
+
+    first = history.collect_newsweb_history(database, to_date="2026-08-31")
+    second = history.collect_newsweb_history(database, to_date="2026-08-31")
+
+    assert first["archived"] == 1
+    assert len(first["errors"]) == 1
+    assert discovery_starts == ["2020-01-01", "2026-01-02"]
+    assert second["archived"] == 2
+    assert second["errors"] == []
+    assert old_attempts == 2
+
+
 def test_tomt_api_svar_gir_tydelig_nullresultat_uten_databaseinnhold(
     tmp_path, monkeypatch
 ) -> None:
