@@ -284,6 +284,101 @@ def test_degraded_full_refresh_counts_as_completed_maintenance_window(tmp_path) 
     assert calls == 1
 
 
+def test_failed_maintenance_is_retried_on_the_next_dispatch(tmp_path) -> None:
+    database = str(tmp_path / "scheduler-retry.db")
+    config = SchedulerConfig(
+        database,
+        1800,
+        True,
+        full_interval_seconds=86400,
+        backup_interval_seconds=86400,
+    )
+    fixed = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    attempts = 0
+
+    def full_refresh(_path: str):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("temporary timeout")
+        return {"status": "ok", "source_errors": [], "dashboard": {"ready": True}}
+
+    def backup(_path: str, *, backup_dir: str | None = None):
+        return {
+            "status": "ok",
+            "backup_path": backup_dir or "backup.db",
+            "size_bytes": 1,
+            "integrity_check": "ok",
+        }
+
+    first = run_maintenance_if_due(
+        config, full_refresh_fn=full_refresh, backup_fn=backup, now_fn=lambda: fixed
+    )
+    second = run_maintenance_if_due(
+        config, full_refresh_fn=full_refresh, backup_fn=backup, now_fn=lambda: fixed
+    )
+
+    assert first[0]["event"] == "maintenance_failed"
+    assert first[0]["error"] == "temporary timeout"
+    assert second[0]["event"] == "maintenance_complete"
+    assert attempts == 2
+
+    with get_connection(database) as connection:
+        rows = connection.execute(
+            "SELECT status, error_message FROM job_runs "
+            "WHERE job_name='full_refresh' ORDER BY id"
+        ).fetchall()
+    assert [(row["status"], row["error_message"]) for row in rows] == [
+        ("FAILED", "temporary timeout"),
+        ("SUCCESS", None),
+    ]
+
+
+def test_stale_running_maintenance_is_reclaimed_at_interval_boundary(tmp_path) -> None:
+    database = str(tmp_path / "scheduler-stale-running.db")
+    config = SchedulerConfig(
+        database,
+        1800,
+        True,
+        full_interval_seconds=86400,
+        backup_interval_seconds=86400,
+    )
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    started_at = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    calls = 0
+
+    init_database(database)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO job_runs(job_name, started_at, status, metadata_json)
+            VALUES ('full_refresh', ?, 'RUNNING', '{}')
+            """,
+            (started_at.isoformat(),),
+        )
+        connection.execute(
+            """
+            INSERT INTO job_runs(job_name, started_at, finished_at, status)
+            VALUES ('database_backup', ?, ?, 'SUCCESS')
+            """,
+            (now.isoformat(), now.isoformat()),
+        )
+        connection.commit()
+
+    def full_refresh(_path: str):
+        nonlocal calls
+        calls += 1
+        return {"status": "ok", "source_errors": [], "dashboard": {"ready": True}}
+
+    records = run_maintenance_if_due(
+        config, full_refresh_fn=full_refresh, now_fn=lambda: now
+    )
+
+    assert calls == 1
+    assert len(records) == 1
+    assert records[0]["event"] == "maintenance_complete"
+
+
 def test_persist_fast_cycle_records_compact_job_state(tmp_path) -> None:
     database = str(tmp_path / "fast.db")
     persist_fast_cycle(
