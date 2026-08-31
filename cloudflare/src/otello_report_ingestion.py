@@ -590,26 +590,33 @@ async def _set_report_document_apply_status(repository, report_doc_id: int, stat
 
 
 async def _cleanup_report_anchors(repository, report_doc_id: int) -> None:
-    await repository.run(
-        "DELETE FROM cash_movements WHERE source_document_id=? AND external_movement_id LIKE 'otello-report-post-cash:%'",
-        (report_doc_id,),
-    )
-    await repository.run(
-        """
-        DELETE FROM other_net_assets_anchors
-        WHERE reported_anchor_id IN (
-            SELECT id FROM other_net_assets_reported_anchors WHERE source_document_id=?
-        )
-        """,
-        (report_doc_id,),
-    )
-    await repository.run(
-        "DELETE FROM other_net_assets_reported_anchors WHERE source_document_id=?",
-        (report_doc_id,),
-    )
-    await repository.run(
-        "DELETE FROM cash_anchors WHERE source_document_id=?",
-        (report_doc_id,),
+    await repository.run_batch(
+        [
+            (
+                "DELETE FROM cash_movements WHERE source_document_id=? "
+                "AND external_movement_id LIKE 'otello-report-post-cash:%'",
+                (report_doc_id,),
+            ),
+            (
+                """
+                DELETE FROM other_net_assets_anchors
+                WHERE reported_anchor_id IN (
+                    SELECT id FROM other_net_assets_reported_anchors
+                    WHERE source_document_id=?
+                )
+                """,
+                (report_doc_id,),
+            ),
+            (
+                "DELETE FROM other_net_assets_reported_anchors "
+                "WHERE source_document_id=?",
+                (report_doc_id,),
+            ),
+            (
+                "DELETE FROM cash_anchors WHERE source_document_id=?",
+                (report_doc_id,),
+            ),
+        ]
     )
     await _set_report_document_apply_status(repository, report_doc_id, "STAGED")
 
