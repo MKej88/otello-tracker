@@ -18,13 +18,11 @@ def _bemobi_dashboard() -> dict:
             "price_date": "2026-08-18",
             "price_source": "B3",
         },
-        "otello": {
-            "bemobi_total_shares": 85_608_392,
-        },
+        "otello": {"bemobi_total_shares": 85_608_392},
     }
 
 
-def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(tmp_path, monkeypatch) -> None:
+def test_bemobi_consensus_builds_targets_broker_multiples_and_beat_miss(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "bemobi-consensus.db")
     init_database(database)
     monkeypatch.setattr(consensus_module, "bemobi_dashboard", lambda _path=None: _bemobi_dashboard())
@@ -50,26 +48,30 @@ def test_bemobi_consensus_builds_targets_forward_multiples_and_beat_miss(tmp_pat
     assert [item["institution"] for item in analysts] == ["BTG Pactual", "Itaú BBA", "Morgan Stanley", "XP"]
     assert analysts[-1]["target_price_brl"] == 31.0
 
-    years = result["forward_consensus"]["years"]
+    broker = result["broker_estimates"]
+    assert broker["source"] == "BTG Pactual"
+    assert broker["published_date"] == "2026-05-12"
+    assert broker["broker_count"] == 1
+    years = broker["years"]
     assert [item["year"] for item in years] == [2026, 2027]
     assert years[0]["revenue_mbrl"] == 814.0
-    assert years[0]["ebitda_mbrl"] == 288.2
-    assert years[0]["ebit_mbrl"] == 205.4
-    assert years[0]["net_income_mbrl"] == 174.3
-    assert years[0]["eps_brl"] == 2.07
-    assert years[0]["net_debt_mbrl"] == -226.0
+    assert years[0]["ebitda_mbrl"] == 267.0
+    assert years[0]["net_income_mbrl"] == 173.0
+    assert years[0]["eps_brl"] == 2.1
+    assert years[0]["net_debt_mbrl"] == -343.0
+    assert years[0]["ev_ebit"] is None
     assert abs(years[0]["market_cap_mbrl"] - 1951.8713376) < 1e-9
-    assert abs(years[0]["enterprise_value_mbrl"] - 1725.8713376) < 1e-9
-    assert abs(years[0]["pe"] - 11.19834387607573) < 1e-12
-    assert abs(years[0]["ev_ebitda"] - 5.988450165163082) < 1e-12
-    assert abs(years[0]["ev_ebit"] - 8.40248947224927) < 1e-12
-    assert abs(years[0]["earnings_yield_pct"] - 8.929891875676468) < 1e-12
+    assert abs(years[0]["enterprise_value_mbrl"] - 1608.8713376) < 1e-9
+    assert abs(years[0]["pe"] - 11.282493280924855) < 1e-12
+    assert abs(years[0]["ev_ebitda"] - 6.02573534681648) < 1e-12
+    assert abs(years[0]["earnings_yield_pct"] - 8.863289125025982) < 1e-12
 
-    assert years[1]["revenue_mbrl"] == 1002.0
-    assert years[1]["ebitda_mbrl"] == 342.5
-    assert abs(years[1]["pe"] - 10.187219924843424) < 1e-12
-    assert abs(years[1]["ev_ebitda"] - 5.091595146277372) < 1e-12
-    assert abs(years[1]["ev_ebit"] - 6.782852343835083) < 1e-12
+    assert years[1]["revenue_mbrl"] == 916.0
+    assert years[1]["ebitda_mbrl"] == 308.0
+    assert years[1]["net_income_mbrl"] == 189.0
+    assert years[1]["net_debt_mbrl"] == -322.0
+    assert abs(years[1]["pe"] - 10.327361574603175) < 1e-12
+    assert abs(years[1]["ev_ebitda"] - 5.291790057142857) < 1e-12
 
     assert result["next_quarter"]["period"] == "3Q26"
     assert result["next_quarter"]["status"] == "WAITING_FOR_PUBLIC_ESTIMATES"
@@ -86,9 +88,7 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
-    migration = (ROOT / "cloudflare/migrations/0009_bemobi_investor_facts.sql").read_text(
-        encoding="utf-8"
-    )
+    migration = (ROOT / "cloudflare/migrations/0028_replace_aggregator_with_btg_model.sql").read_text(encoding="utf-8")
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
 
@@ -96,17 +96,17 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/bemobi/consensus")' in worker_app
     assert "load_bemobi_facts" in worker_service
     assert "latest_bemobi_fact" in worker_service
-    assert "ANALYST_COVERAGE =" not in worker_service
-    assert "FORWARD_CONSENSUS =" not in worker_service
-    assert "BEAT_MISS_HISTORY =" not in worker_service
     assert 'load_bemobi_facts(repository, "FORWARD_CONSENSUS")' in worker_service
-    assert "'ANALYST', 'BTG Pactual'" in migration
-    assert "'FORWARD_CONSENSUS', '2027'" in migration
-    assert "'BEAT_MISS', '2Q26'" in migration
+    assert '"broker_estimates"' in worker_service
+    assert "BTG Pactual" in migration
+    assert "PUBLIC_BROKER_MODEL" in migration
+    assert "lower(source_name) = 'marketscreener'" in migration.lower()
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
-    assert "Forward konsensus" in page
+    assert "Meglerestimater" in page
+    assert "Forward konsensus" not in page
+    assert "MarketScreener" not in page
     assert "Beat / miss" in page
     assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
     assert "nextQuarterEstimates.map" in page
