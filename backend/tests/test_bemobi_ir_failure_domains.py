@@ -124,8 +124,12 @@ def test_runtime_reports_analyst_failure_without_degrading_bemobi_source(monkeyp
     async def no_xp(*args, **kwargs):
         return {"status": "skipped", "rows_written": 0}
 
+    async def no_distribution_cash(*args, **kwargs):
+        return {"status": "ok", "rows_written": 0, "rows_updated": 0}
+
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ir_with_analyst_warning)
     monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
+    monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", no_distribution_cash)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-29"))
