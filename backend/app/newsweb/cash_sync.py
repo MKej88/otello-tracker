@@ -27,46 +27,62 @@ def sync_newsweb_daily_buyback_cash(
             filter_sql = "WHERE b.id = ?"
             params = (weekly_buyback_id,)
 
-        weeks = connection.execute(
+        daily_rows = connection.execute(
             f"""
             SELECT b.id AS buyback_id, b.trade_date AS period_end,
-                   COUNT(d.id) AS daily_count,
-                   SUM(d.shares) AS daily_shares,
-                   b.shares AS weekly_shares, b.amount_nok AS weekly_amount_nok
+                   b.shares AS weekly_shares,
+                   d.trade_date, d.shares, d.avg_price_nok, d.amount_nok,
+                   d.trade_count, d.source_document_id, d.quality
             FROM buybacks b
             JOIN buyback_daily_transactions d ON d.weekly_buyback_id = b.id
             {filter_sql}
-            GROUP BY b.id, b.trade_date, b.shares, b.amount_nok
-            ORDER BY b.trade_date, b.id
+            ORDER BY b.trade_date, b.id, d.trade_date, d.id
             """,
             params,
         ).fetchall()
+
+        rows_by_week: dict[int, list[Any]] = {}
+        for row in daily_rows:
+            rows_by_week.setdefault(int(row["buyback_id"]), []).append(row)
+
+        existing_rows = connection.execute(
+            f"""
+            SELECT cm.id, cm.buyback_id, cm.movement_date
+            FROM cash_movements cm
+            WHERE cm.movement_type = 'OTELLO_BUYBACK_DAILY'
+              AND EXISTS (
+                  SELECT 1
+                  FROM buybacks b
+                  JOIN buyback_daily_transactions d ON d.weekly_buyback_id = b.id
+                  WHERE b.id = cm.buyback_id
+                    {"AND b.id = ?" if weekly_buyback_id is not None else ""}
+              )
+            ORDER BY cm.id
+            """,
+            params,
+        ).fetchall()
+        existing_by_week_and_date: dict[tuple[int, str], int] = {}
+        existing_by_week: dict[int, list[Any]] = {}
+        for row in existing_rows:
+            buyback_id = int(row["buyback_id"])
+            existing_by_week.setdefault(buyback_id, []).append(row)
+            existing_by_week_and_date.setdefault(
+                (buyback_id, str(row["movement_date"])), int(row["id"])
+            )
 
         weekly_deleted = 0
         daily_written = 0
         daily_updated = 0
         synced_weeks: list[dict[str, Any]] = []
 
-        for week in weeks:
-            buyback_id = int(week["buyback_id"])
-            if int(week["daily_shares"] or 0) != int(week["weekly_shares"]):
+        for buyback_id, rows in rows_by_week.items():
+            week = rows[0]
+            daily_shares = sum(int(row["shares"]) for row in rows)
+            if daily_shares != int(week["weekly_shares"]):
                 raise ValueError(
                     f"NewsWeb cash-sync nekter uke {week['period_end']}: "
-                    f"daglige aksjer {week['daily_shares']} != uke {week['weekly_shares']}"
+                    f"daglige aksjer {daily_shares} != uke {week['weekly_shares']}"
                 )
-
-            rows = connection.execute(
-                """
-                SELECT trade_date, shares, avg_price_nok, amount_nok, trade_count,
-                       source_document_id, quality
-                FROM buyback_daily_transactions
-                WHERE weekly_buyback_id = ?
-                ORDER BY trade_date, id
-                """,
-                (buyback_id,),
-            ).fetchall()
-            if not rows:
-                continue
             if any(row["quality"] == "REQUIRES_REVIEW" for row in rows):
                 raise ValueError(
                     f"NewsWeb cash-sync nekter uke {week['period_end']}: daglig rad krever kontroll"
@@ -95,16 +111,8 @@ def sync_newsweb_daily_buyback_cash(
                     f"NewsWeb transaction-level Otello buyback: {row['shares']:,} shares "
                     f"on {trade_date}; weekly status period ending {week['period_end']}."
                 )
-                existing = connection.execute(
-                    """
-                    SELECT id FROM cash_movements
-                    WHERE movement_type = 'OTELLO_BUYBACK_DAILY'
-                      AND buyback_id = ? AND movement_date = ?
-                    ORDER BY id LIMIT 1
-                    """,
-                    (buyback_id, trade_date),
-                ).fetchone()
-                if existing is None:
+                existing_id = existing_by_week_and_date.get((buyback_id, trade_date))
+                if existing_id is None:
                     connection.execute(
                         """
                         INSERT INTO cash_movements(
@@ -136,19 +144,12 @@ def sync_newsweb_daily_buyback_cash(
                             amount,
                             description,
                             row["source_document_id"],
-                            existing["id"],
+                            existing_id,
                         ),
                     )
                     daily_updated += 1
 
-            stale = connection.execute(
-                """
-                SELECT id, movement_date FROM cash_movements
-                WHERE movement_type = 'OTELLO_BUYBACK_DAILY' AND buyback_id = ?
-                """,
-                (buyback_id,),
-            ).fetchall()
-            for item in stale:
+            for item in existing_by_week.get(buyback_id, []):
                 if item["movement_date"] not in seen_dates:
                     connection.execute("DELETE FROM cash_movements WHERE id = ?", (item["id"],))
 
@@ -157,7 +158,7 @@ def sync_newsweb_daily_buyback_cash(
                     "buyback_id": buyback_id,
                     "period_end": week["period_end"],
                     "daily_count": len(rows),
-                    "daily_shares": int(week["daily_shares"]),
+                    "daily_shares": daily_shares,
                     "weekly_shares": int(week["weekly_shares"]),
                 }
             )
