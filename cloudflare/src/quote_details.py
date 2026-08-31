@@ -303,7 +303,10 @@ async def _daily_history(
 
 
 async def _volume_stats(
-    repository, symbol: str, history: list[dict[str, Any]]
+    repository,
+    symbol: str,
+    history: list[dict[str, Any]],
+    latest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if symbol == "OTEC":
         rows = await repository.all("""
@@ -348,21 +351,48 @@ async def _volume_stats(
             break
     values = [value for _, value in volume_rows]
     average = sum(values) / len(values) if values else None
-    return {
-        "latest": volume_rows[0][1] if volume_rows else None,
-        "latest_date": volume_rows[0][0] if volume_rows else None,
+    latest_value = volume_rows[0][1] if volume_rows else None
+    latest_date = volume_rows[0][0] if volume_rows else None
+    basis = (
+        "B3_COTAHIST_QUANTITY"
+        if symbol == "BMOB3"
+        else "STORED_MARKET_PRICE_METADATA"
+    )
+    source = "B3" if symbol == "BMOB3" else None
+    provisional = False
+
+    if symbol == "BMOB3" and latest is not None:
+        latest_meta = _metadata(latest.get("metadata_json"))
+        intraday_volume = _meta_number(latest_meta, "volume_shares")
+        if (
+            intraday_volume is not None
+            and intraday_volume >= 0
+            and latest_meta.get("volume_provisional") is True
+            and latest_meta.get("volume_source") == "YAHOO_FINANCE"
+        ):
+            latest_value = intraday_volume
+            latest_date = str(latest.get("trading_date"))
+            basis = "YAHOO_FINANCE_INTRADAY"
+            source = "YAHOO_FINANCE"
+            provisional = True
+
+    result = {
+        "latest": latest_value,
+        "latest_date": latest_date,
         "average_3m": average,
         "average_sessions": len(values),
         "latest_above_average": (
-            volume_rows[0][1] > average if average is not None else None
+            latest_value > average
+            if latest_value is not None and average is not None
+            else None
         ),
         "unit": "shares",
-        "basis": (
-            "B3_COTAHIST_QUANTITY"
-            if symbol == "BMOB3"
-            else "STORED_MARKET_PRICE_METADATA"
-        ),
+        "basis": basis,
     }
+    if symbol == "BMOB3":
+        result["source"] = source
+        result["provisional"] = provisional
+    return result
 
 
 def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
@@ -430,7 +460,7 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
             "source": latest_close.get("source_code") if latest_close else None,
             "basis": latest_close.get("close_basis") if latest_close else None,
         },
-        "volume": await _volume_stats(repository, symbol, history),
+        "volume": await _volume_stats(repository, symbol, history, latest),
         "range_52w": _range_52w(history),
     }
 

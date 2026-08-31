@@ -60,20 +60,32 @@ def _yahoo_payload(
     symbol: str = "BMOB3.SA",
     currency: str = "BRL",
     timezone_name: str | None = "America/Sao_Paulo",
+    volume: int | None = 187_654,
+    minute_volumes: tuple[int, int] = (80_000, 107_654),
 ) -> bytes:
+    meta = {
+        "symbol": symbol,
+        "currency": currency,
+        "exchangeTimezoneName": timezone_name,
+        "regularMarketPrice": price,
+        "regularMarketTime": timestamp,
+    }
+    if volume is not None:
+        meta["regularMarketVolume"] = volume
     data = {
         "chart": {
             "result": [
                 {
-                    "meta": {
-                        "symbol": symbol,
-                        "currency": currency,
-                        "exchangeTimezoneName": timezone_name,
-                        "regularMarketPrice": price,
-                        "regularMarketTime": timestamp,
-                    },
+                    "meta": meta,
                     "timestamp": [timestamp - 60, timestamp],
-                    "indicators": {"quote": [{"close": [price - 0.05, price]}]},
+                    "indicators": {
+                        "quote": [
+                            {
+                                "close": [price - 0.05, price],
+                                "volume": list(minute_volumes),
+                            }
+                        ]
+                    },
                 }
             ],
             "error": None,
@@ -137,11 +149,22 @@ def test_yahoo_parser_requires_bmob3_brl_and_uses_latest_timestamped_close() -> 
     assert str(quote.price) == "24.15"
     assert quote.trading_date == "2026-08-18"
     assert quote.observed_at == "2026-08-18T17:30:00Z"
+    assert quote.volume_shares == 187_654
+    assert quote.volume_basis == "YAHOO_REGULAR_MARKET_VOLUME"
 
     with pytest.raises(ValueError, match="symbol"):
         parse_bmob3_yahoo_quote(_yahoo_payload(symbol="WRONG.SA"))
     with pytest.raises(ValueError, match="valuta"):
         parse_bmob3_yahoo_quote(_yahoo_payload(currency="USD"))
+
+
+def test_yahoo_parser_sums_minute_volume_when_regular_market_volume_is_missing() -> None:
+    quote = parse_bmob3_yahoo_quote(
+        _yahoo_payload(volume=None, minute_volumes=(12_345, 67_890))
+    )
+
+    assert quote.volume_shares == 80_235
+    assert quote.volume_basis == "YAHOO_1M_VOLUME_SUM"
 
 
 @pytest.mark.parametrize("timezone_name", [None, "UTC", "Ugyldig/Tidssone"])
@@ -169,12 +192,18 @@ def test_worker_fetch_does_not_send_forbidden_connection_header() -> None:
 
 def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     payload = _payload()
+    yahoo_payload = _yahoo_payload(timestamp=1786988700, volume=155_000)
     repository = FakeRepository()
     calls: list[str] = []
 
     async def fake_fetch(url: str, **kwargs):
         calls.append(url)
-        return FakeResponse(payload)
+        host = _host(url)
+        if host == "cotacao.b3.com.br":
+            return FakeResponse(payload)
+        if host == "query1.finance.yahoo.com":
+            return FakeResponse(yahoo_payload)
+        raise AssertionError(f"unexpected host: {host}")
 
     result = asyncio.run(
         refresh_bmob3_intraday_price(
@@ -188,8 +217,11 @@ def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     assert result["price_type"] == "LAST"
     assert result["quality"] == "DIRECT"
     assert result["price_brl"] == "23.45"
-    assert len(calls) == 1
+    assert result["volume_shares"] == 155_000
+    assert result["volume_source"] == "YAHOO_FINANCE"
+    assert len(calls) == 2
     assert _host(calls[0]) == "cotacao.b3.com.br"
+    assert _host(calls[1]) == "query1.finance.yahoo.com"
     assert len(repository.documents) == 1
     assert len(repository.prices) == 1
     document = repository.documents[0]
@@ -202,6 +234,9 @@ def test_bmob3_intraday_worker_write_matches_reference_semantics() -> None:
     assert price["quality"] == "DIRECT"
     assert price["metadata"]["public_delay_minutes"] == 15
     assert price["metadata"]["payload_policy"] == "BOUNDED_JSON_RESPONSE"
+    assert price["metadata"]["volume_shares"] == 155_000
+    assert price["metadata"]["volume_source"] == "YAHOO_FINANCE"
+    assert price["metadata"]["volume_provisional"] is True
 
 
 def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
@@ -231,6 +266,8 @@ def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
     assert result["quality"] == "DIRECT"
     assert result["price_brl"] == "24.15"
     assert result["trading_date"] == "2026-08-18"
+    assert result["volume_shares"] == 187_654
+    assert result["volume_source"] == "YAHOO_FINANCE"
     assert "HTTP 526" in result["fallback_reason"]
     assert len(calls) == 2
     assert repository.documents[0]["source_code"] == "YAHOO_FINANCE"
@@ -238,6 +275,8 @@ def test_bmob3_intraday_http_526_uses_same_day_yahoo_fallback() -> None:
     assert repository.prices[0]["quality"] == "DIRECT"
     assert repository.prices[0]["metadata"]["fallback_only"] is True
     assert repository.prices[0]["metadata"]["source_policy"] == "UNOFFICIAL_SECONDARY_FALLBACK"
+    assert repository.prices[0]["metadata"]["volume_shares"] == 187_654
+    assert repository.prices[0]["metadata"]["volume_provisional"] is True
 
 
 def test_bmob3_intraday_yahoo_query2_is_used_when_query1_fails() -> None:
