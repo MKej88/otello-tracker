@@ -102,6 +102,7 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
         </div>
         <div className="marketQuoteUpdated">
           <span>
+            Sist oppdatert:{" "}
             {quote.last_price_type === "CLOSE"
               ? "Tidspunkt for sluttkurs"
               : "Tidspunkt for siste handel"}
