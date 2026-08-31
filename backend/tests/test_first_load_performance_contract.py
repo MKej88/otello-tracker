@@ -110,6 +110,15 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
 
 
+def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
+    quotes = (FRONTEND_SRC / "MarketQuotePanel.tsx").read_text(encoding="utf-8")
+
+    assert "usePollingResource<Payload>(" in quotes
+    assert '    "/api/market/quotes",' in quotes
+    assert "    true," in quotes
+    assert 'fetch("/api/market/quotes")' not in quotes
+
+
 def test_html_preloads_first_screen_data_before_javascript() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     preload_start = source.index('rel="preload"')

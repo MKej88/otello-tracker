@@ -23,6 +23,22 @@ Vurderingene nedenfor bruker disse fire spørsmålene:
 
 ## Bekreftet problem og retting
 
+### NewsWeb kunne godta en ugyldig publiseringstid
+
+Både backend- og Worker-parseren kontrollerte bare at `publishedTime` var en
+ikke-tom tekst. En realistisk delrespons som `"ikke-et-tidspunkt"` gikk derfor
+videre som om den var gyldig. Verdien brukes til sortering og lagring, så en slik
+melding kunne bli plassert feil eller lagret med misvisende tidsdata.
+
+- **Før:** (1) nei, (2) nei, (3) ja, ugyldig tekst kunne brukes som tidspunkt,
+  (4) ingen retry-løkke.
+- **Gjenskaping:** Tester med en ellers gyldig melding og det ugyldige tidspunktet
+  feilet først fordi begge parserne godtok meldingen.
+- **Rettet:** Parserne krever nå et ISO 8601-tidspunkt med tidssone. Ugyldig eller
+  tidssoneløs tekst gir en kontrollert `ValueError` før sortering eller lagring.
+- **Etter:** (1) ja, (2) ja, (3) nei, (4) nei. Det er ikke lagt til retry, siden
+  samme ugyldige leverandørsvar ikke blir bedre av et umiddelbart nytt kall.
+
 ### MFN-listen for tilbakekjøp kunne godta tom HTTP 200
 
 `backend/app/buybacks/collector.py` henter både MFNs selskapsliste og hver artikkel.
@@ -44,7 +60,7 @@ Det er realistisk ved feil i mellomlager, proxy eller leverandør.
 
 | Klient / ekstern kilde | Timeout, 429 og 5xx | Innhold, skjema og delvis svar | Stale, duplikater og sideinndeling | Samlet vurdering |
 |---|---|---|---|---|
-| `backend/app/newsweb/client.py` – Oslo Børs NewsWeb | Alle kall har timeout. HTTP-feil bobler kontrollert opp, men klienten gjør ingen lokal retry eller særbehandling av 429. | Størrelsesgrenser, JSON-type, API-status, utsteder, marked, ID, tidspunkt, meldingstekst og PDF-signatur valideres. Tomt/ugyldig/delvis svar lagres ikke. | `overflow` deler datovinduet rekursivt; overflow på én dato stopper kontrollert. Meldings-ID dedupliseres og korrigerte meldinger filtreres. | **Kontrollert feil, lav risiko for feil data.** Manglende lokal retry gir heller manglende oppdatering enn feil lagring. |
+| `backend/app/newsweb/client.py` – Oslo Børs NewsWeb | Alle kall har timeout. HTTP-feil bobler kontrollert opp, men klienten gjør ingen lokal retry eller særbehandling av 429. | Størrelsesgrenser, JSON-type, API-status, utsteder, marked, ID, ISO 8601-tidspunkt med tidssone, meldingstekst og PDF-signatur valideres. Tomt/ugyldig/delvis svar lagres ikke. | `overflow` deler datovinduet rekursivt; overflow på én dato stopper kontrollert. Meldings-ID dedupliseres og korrigerte meldinger filtreres. | **Kontrollert feil, lav risiko for feil data.** Manglende lokal retry gir heller manglende oppdatering enn feil lagring. |
 | `backend/app/marketdata/b3_cotahist.py` – B3 COTAHIST | Timeout og avgrenset eksponentiell retry. 404 for upublisert dagsfil er forventet. Andre 4xx retries likevel, og 429 respekterer ikke `Retry-After`. | Dagsfil har bytegrense og ZIP-/formatkontroll. Årsfil er med hensikt ubegrenset for historisk bootstrap. Fastbreddeformat, dato og quotation factor valideres. | Ingen sideinndeling i filendepunktet. Importlaget bruker idempotent oppdatering. | **Kontrollert feil.** Kan prøve tre/fire ganger unødvendig ved permanent 4xx; dette skriver ikke feil data og løkken er avgrenset. |
 | `backend/app/marketdata/bmob3_feed.py` – B3 webkurs | Timeout og maksimalt tre retries. Alle HTTP-feil behandles likt; `Retry-After` brukes ikke. | Bytegrense, JSON, leverandørstatus, instrument, positiv pris og tidspunkt valideres. Valgfrie felter med endret datatype blir `None`. | Dato og maksimal alder kontrolleres før lagring. Dokumenthash og upsert hindrer skadelige duplikater. | **God databeskyttelse.** Ved 429/permanent 4xx kan den vente noen få sekunder unødvendig, men kan ikke låse seg. |
 | `backend/app/marketdata/euronext_delayed.py` – Euronext delayed trades | Timeout, tre avgrensede forsøk, retry bare for 429/5xx og støtte for `Retry-After` med tak på 60 sekunder. | Tom respons, ZIP/CSV-størrelse, påkrevde felt, UTF-8, ISIN, valuta, venue, positive verdier og tidsrekkefølge valideres. | Nyeste handel velges deterministisk. Payload-hash gjør gjentakelse idempotent. Endepunktet er filbasert, ikke paginert. | **Håndteres korrekt og feiler kontrollert.** |

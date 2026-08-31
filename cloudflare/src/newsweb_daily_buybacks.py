@@ -713,14 +713,10 @@ async def _ingest_message(
     candidates = _attachment_candidates(message)
     candidate_log = [{"id": item.attachment_id, "name": item.name} for item in candidates]
     if not candidates:
-        return {
-            "status": "ok",
-            "message_id": message.message_id,
-            "buyback_id": int(weekly["id"]),
-            "daily_status": "NO_TRANSACTION_ATTACHMENT",
-            "daily_rows_written": 0,
-            "attachment_candidates": [],
-        }
+        raise ValueError(
+            f"NewsWeb-melding {message.message_id} rapporterer tilbakekjøp, "
+            "men mangler transaksjonsvedlegg"
+        )
 
     attempts: list[dict[str, Any]] = []
     for attachment in candidates:
