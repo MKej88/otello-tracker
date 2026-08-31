@@ -1,0 +1,543 @@
+name: Apply NAV confirmed cash fix
+
+on:
+  push:
+    branches:
+      - fix/nav-confirmed-cash-movements
+    paths:
+      - .github/workflows/apply-nav-confirmed-cash-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: fix/nav-confirmed-cash-movements
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Apply targeted changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          display_paths = [
+              Path('backend/app/estimated_nav_history_cash_display.py'),
+              Path('cloudflare/src/estimated_nav_history_cash_display.py'),
+          ]
+          for path in display_paths:
+              text = path.read_text(encoding='utf-8')
+              old = '"label": "Bemobi – tilgode utbytte/renter"'
+              if old not in text:
+                  raise SystemExit(f'Missing receivable label in {path}')
+              text = text.replace(old, '"label": "Bekreftede øvrige kontantbevegelser"', 1)
+              paid = '"display_policy": "EXPLICIT_POST_REPORT_CASH_MOVEMENT",'
+              if paid not in text:
+                  raise SystemExit(f'Missing paid display policy in {path}')
+              text = text.replace(
+                  paid,
+                  '"phase": "PAID",\n                "phase_label": "Utbetalt",\n                "display_policy": "EXPLICIT_POST_REPORT_CASH_MOVEMENT",',
+                  1,
+              )
+              receivable = '"display_policy": "EXPLICIT_RECEIVABLE_FROM_EX_DATE_UNTIL_PAYMENT",'
+              if receivable not in text:
+                  raise SystemExit(f'Missing receivable display policy in {path}')
+              text = text.replace(
+                  receivable,
+                  '"phase": "RECEIVABLE",\n            "phase_label": "Fordring",\n            "display_policy": "EXPLICIT_RECEIVABLE_FROM_EX_DATE_UNTIL_PAYMENT",',
+                  1,
+              )
+              path.write_text(text, encoding='utf-8')
+
+          receivable_test = Path('backend/tests/test_estimated_nav_bemobi_receivable_display.py')
+          text = receivable_test.read_text(encoding='utf-8')
+          text = text.replace(
+              'assert bemobi["label"] == "Bemobi – tilgode utbytte/renter"',
+              'assert bemobi["label"] == "Bekreftede øvrige kontantbevegelser"\n    assert bemobi["details"]["phase"] == "RECEIVABLE"\n    assert bemobi["details"]["phase_label"] == "Fordring"',
+              1,
+          )
+          receivable_test.write_text(text, encoding='utf-8')
+
+          paid_test = Path('backend/tests/test_estimated_nav_bemobi_cash_display.py')
+          text = paid_test.read_text(encoding='utf-8')
+          marker = 'assert bemobi["details"]["withholding_mnok"] == -2.0'
+          if marker not in text:
+              raise SystemExit('Missing paid Bemobi assertion marker')
+          text = text.replace(
+              marker,
+              marker + '\n    assert bemobi["details"]["phase"] == "PAID"\n    assert bemobi["details"]["phase_label"] == "Utbetalt"',
+              1,
+          )
+          paid_test.write_text(text, encoding='utf-8')
+
+          nav_refresh = Path('cloudflare/src/nav_refresh.py')
+          text = nav_refresh.read_text(encoding='utf-8')
+          import_marker = '''except ImportError:\n    from option_liability import OPTION_PROGRAM, decimal_text, option_liability_for_day\n'''
+          if import_marker not in text:
+              raise SystemExit('Missing nav_refresh import marker')
+          text = text.replace(
+              import_marker,
+              import_marker + '''\ntry:\n    from .bemobi_distribution_sync import sync_confirmed_bemobi_distributions\nexcept ImportError:\n    from bemobi_distribution_sync import sync_confirmed_bemobi_distributions\n''',
+              1,
+          )
+          steps_marker = '''    steps: dict[str, Any] = {}\n    steps["daily_cash"] = await refresh_daily_cash_if_dirty(repository, nav_date)\n'''
+          if steps_marker not in text:
+              raise SystemExit('Missing nav_refresh steps marker')
+          text = text.replace(
+              steps_marker,
+              '''    steps: dict[str, Any] = {}\n    steps["confirmed_bemobi_distributions"] = await sync_confirmed_bemobi_distributions(\n        repository, target_date=nav_date\n    )\n    steps["daily_cash"] = await refresh_daily_cash_if_dirty(repository, nav_date)\n''',
+              1,
+          )
+          nav_refresh.write_text(text, encoding='utf-8')
+
+          Path('cloudflare/src/bemobi_distribution_sync.py').write_text(r'''from __future__ import annotations
+
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import Any
+
+try:
+    from .option_liability import decimal_text
+except ImportError:
+    from option_liability import decimal_text
+
+MAX_FX_LOOKBACK_DAYS = 7
+
+# Source-backed recovery seed for the 2Q26 JCP. The generic lifecycle below handles
+# every BMOB3 DIVIDEND/JCP row already present in corporate_actions; this seed only
+# closes the production gap where the August 2026 notice existed in the SQLite
+# reference manifest but had not been materialized into D1.
+AUG_2026_JCP: dict[str, Any] = {
+    "external_action_id": "bemobi-2026-08-28-jcp-2q26",
+    "action_type": "JCP",
+    "announcement_date": "2026-08-11",
+    "record_date": "2026-08-14",
+    "ex_date": "2026-08-17",
+    "payment_date": "2026-08-28",
+    "gross_amount_per_share": "0.19178292",
+    "net_amount_per_share": "0.15822091",
+    "gross_total_amount": "16000000.00",
+    "net_total_amount": "13200000.00",
+    "withholding_rate": "0.175",
+    "currency": "BRL",
+    "tax_treatment": "PUBLISHED_NET",
+    "source_code": "CVM",
+    "source_external_id": "bemobi-jcp-notice-2026-aug-cvm-1556263-v2",
+    "source_title": "Bemobi notice to shareholders - August 2026 JCP 2Q26",
+    "source_url": "https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&descTipo=IPE&CodigoInstituicao=1&numProtocolo=1556263&numSequencia=1080969&numVersao=2",
+    "published_at": "2026-08-12",
+}
+
+
+async def _nearest_brl_nok(repository, payment_date: str) -> dict[str, Any] | None:
+    floor = (date.fromisoformat(payment_date) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
+    return await repository.first(
+        """
+        SELECT id, substr(observed_at, 1, 10) AS rate_date, rate
+        FROM fx_rates
+        WHERE base_currency='BRL' AND quote_currency='NOK'
+          AND substr(observed_at, 1, 10) <= ?
+          AND substr(observed_at, 1, 10) >= ?
+        ORDER BY observed_at DESC, id DESC
+        LIMIT 1
+        """,
+        (payment_date, floor),
+    )
+
+
+async def _holding(repository, entitlement_date: str) -> dict[str, Any] | None:
+    return await repository.first(
+        """
+        SELECT id, shares
+        FROM bemobi_holdings
+        WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+        ORDER BY effective_from DESC, id DESC
+        LIMIT 1
+        """,
+        (entitlement_date, entitlement_date),
+    )
+
+
+async def _ensure_aug_2026_jcp(repository) -> int:
+    item = AUG_2026_JCP
+    document_id = await repository.create_source_document(
+        source_code=item["source_code"],
+        external_id=item["source_external_id"],
+        document_type="SHAREHOLDER_NOTICE",
+        title=item["source_title"],
+        url=item["source_url"],
+        published_at=item["published_at"],
+        metadata={
+            "curated": True,
+            "distribution_recovery_seed": "2026-08-31",
+            "confidence": "CONFIRMED",
+        },
+    )
+    issuer_id = await repository.instrument_id("BMOB3")
+    existing = await repository.first(
+        "SELECT id FROM corporate_actions WHERE external_action_id=? LIMIT 1",
+        (item["external_action_id"],),
+    )
+    values = (
+        issuer_id,
+        item["action_type"],
+        item["announcement_date"],
+        item["ex_date"],
+        item["record_date"],
+        item["payment_date"],
+        item["gross_amount_per_share"],
+        item["gross_total_amount"],
+        item["currency"],
+        document_id,
+        "Official CVM shareholder notice. Gross entitlement remains in FULL NAV until payment; payment cash is booked net of published withholding.",
+        item["external_action_id"],
+        item["gross_amount_per_share"],
+        item["net_amount_per_share"],
+        item["gross_total_amount"],
+        item["net_total_amount"],
+        item["withholding_rate"],
+        item["tax_treatment"],
+        None,
+    )
+    if existing is None:
+        await repository.run(
+            """
+            INSERT INTO corporate_actions(
+                issuer_instrument_id, action_type, announcement_date, ex_date,
+                record_date, payment_date, amount_per_share, total_amount,
+                currency, source_document_id, notes, external_action_id,
+                gross_amount_per_share, net_amount_per_share, gross_total_amount,
+                net_total_amount, withholding_rate, tax_treatment, component_group
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
+        existing = await repository.first(
+            "SELECT id FROM corporate_actions WHERE external_action_id=? LIMIT 1",
+            (item["external_action_id"],),
+        )
+        if existing is None:
+            raise RuntimeError("Bemobi JCP action was written but could not be read back")
+    else:
+        await repository.run(
+            """
+            UPDATE corporate_actions
+            SET issuer_instrument_id=?, action_type=?, announcement_date=?, ex_date=?,
+                record_date=?, payment_date=?, amount_per_share=?, total_amount=?,
+                currency=?, source_document_id=?, notes=?, external_action_id=?,
+                gross_amount_per_share=?, net_amount_per_share=?, gross_total_amount=?,
+                net_total_amount=?, withholding_rate=?, tax_treatment=?, component_group=?
+            WHERE id=?
+            """,
+            (*values, int(existing["id"])),
+        )
+    return int(existing["id"])
+
+
+async def _upsert_gross_receipt(repository, action: dict[str, Any], holding: dict[str, Any], fx: dict[str, Any]) -> str:
+    amount_per_share = Decimal(str(action["amount_per_share"]))
+    shares = int(holding["shares"])
+    amount_original = amount_per_share * Decimal(shares)
+    fx_rate = Decimal(str(fx["rate"]))
+    amount_nok = amount_original * fx_rate
+    movement_type = "BEMOBI_JCP" if action["action_type"] == "JCP" else "BEMOBI_DIVIDEND"
+    description = (
+        f"Derived gross Bemobi {action['action_type']} receipt: "
+        f"{shares} shares x BRL {action['amount_per_share']} per share. "
+        "Net cash can differ due to withholding; anchor residual reconciles the difference."
+    )
+    values = (
+        action["payment_date"],
+        movement_type,
+        decimal_text(amount_nok),
+        decimal_text(amount_original),
+        "BRL",
+        decimal_text(fx_rate),
+        description,
+        action["source_document_id"],
+        "ESTIMATED",
+        action["id"],
+    )
+    existing = await repository.first(
+        "SELECT id FROM cash_movements WHERE corporate_action_id=? LIMIT 1",
+        (action["id"],),
+    )
+    if existing is None:
+        await repository.run(
+            """
+            INSERT INTO cash_movements(
+                movement_date, movement_type, amount_nok, amount_original,
+                currency, fx_rate_to_nok, description, source_document_id,
+                confidence, corporate_action_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
+        return "written"
+    await repository.run(
+        """
+        UPDATE cash_movements
+        SET movement_date=?, movement_type=?, amount_nok=?, amount_original=?,
+            currency=?, fx_rate_to_nok=?, description=?, source_document_id=?, confidence=?
+        WHERE corporate_action_id=?
+        """,
+        values,
+    )
+    return "updated"
+
+
+async def _upsert_withholding(repository, action: dict[str, Any], holding: dict[str, Any], fx: dict[str, Any]) -> str | None:
+    if action["action_type"] != "JCP":
+        return None
+    gross_per_share = Decimal(str(action["amount_per_share"]))
+    basis: str | None = None
+    if action.get("net_amount_per_share") is not None:
+        tax_per_share = gross_per_share - Decimal(str(action["net_amount_per_share"]))
+        basis = "PUBLISHED_NET"
+    elif action.get("withholding_rate") is not None:
+        tax_per_share = gross_per_share * Decimal(str(action["withholding_rate"]))
+        basis = "STANDARD_WITHHOLDING"
+    else:
+        return None
+    if tax_per_share <= 0:
+        return None
+
+    shares = int(holding["shares"])
+    amount_original = -(tax_per_share * Decimal(shares))
+    fx_rate = Decimal(str(fx["rate"]))
+    amount_nok = amount_original * fx_rate
+    external_id = f"bemobi-withholding:{action['external_action_id']}"
+    rate_text = action.get("withholding_rate") or "derived-from-published-net"
+    description = (
+        f"Bemobi JCP withholding adjustment ({basis}): {shares} shares x "
+        f"BRL {decimal_text(tax_per_share)} tax per share; notice rate {rate_text}. "
+        "Booked separately from gross JCP; shareholder-specific treatment may differ "
+        "and is reconciled to the next reported Otello cash anchor."
+    )
+    values = (
+        action["payment_date"],
+        "TAX",
+        decimal_text(amount_nok),
+        decimal_text(amount_original),
+        "BRL",
+        decimal_text(fx_rate),
+        description,
+        action["source_document_id"],
+        "ESTIMATED",
+        external_id,
+    )
+    existing = await repository.first(
+        "SELECT id FROM cash_movements WHERE external_movement_id=? LIMIT 1",
+        (external_id,),
+    )
+    if existing is None:
+        await repository.run(
+            """
+            INSERT INTO cash_movements(
+                movement_date, movement_type, amount_nok, amount_original,
+                currency, fx_rate_to_nok, description, source_document_id,
+                confidence, external_movement_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
+        return "written"
+    await repository.run(
+        """
+        UPDATE cash_movements
+        SET movement_date=?, movement_type=?, amount_nok=?, amount_original=?,
+            currency=?, fx_rate_to_nok=?, description=?, source_document_id=?, confidence=?
+        WHERE external_movement_id=?
+        """,
+        values,
+    )
+    return "updated"
+
+
+async def sync_confirmed_bemobi_distributions(repository, *, target_date: str) -> dict[str, Any]:
+    """Keep the confirmed Bemobi receivable -> paid-cash lifecycle materialized in D1.
+
+    Any confirmed BMOB3 DIVIDEND/JCP already present in ``corporate_actions`` is handled
+    generically. Before payment it is only a receivable in FULL NAV; on/after payment the
+    gross receipt and documented JCP withholding become cash movements. The August 2026
+    CVM action is explicitly seeded because it was present in the SQLite reference model
+    but missing from the production D1 ingestion path.
+    """
+    seeded_action_id = await _ensure_aug_2026_jcp(repository)
+    rows = await repository.all(
+        """
+        SELECT ca.*
+        FROM corporate_actions ca
+        JOIN instruments i ON i.id=ca.issuer_instrument_id
+        WHERE i.symbol='BMOB3'
+          AND ca.action_type IN ('DIVIDEND','JCP')
+          AND ca.payment_date IS NOT NULL
+          AND ca.amount_per_share IS NOT NULL
+          AND ca.payment_date <= ?
+        ORDER BY ca.payment_date, ca.id
+        """,
+        (target_date,),
+    )
+    written = 0
+    updated = 0
+    skipped_missing_inputs = 0
+    for action in rows:
+        entitlement_date = str(action.get("ex_date") or action["payment_date"])
+        holding = await _holding(repository, entitlement_date)
+        fx = await _nearest_brl_nok(repository, str(action["payment_date"]))
+        if holding is None or fx is None:
+            skipped_missing_inputs += 1
+            continue
+        gross_status = await _upsert_gross_receipt(repository, action, holding, fx)
+        written += int(gross_status == "written")
+        updated += int(gross_status == "updated")
+        tax_status = await _upsert_withholding(repository, action, holding, fx)
+        written += int(tax_status == "written")
+        updated += int(tax_status == "updated")
+
+    return {
+        "status": "ok",
+        "target_date": target_date,
+        "seeded_action_id": seeded_action_id,
+        "paid_actions": len(rows),
+        "written": written,
+        "updated": updated,
+        "skipped_missing_inputs": skipped_missing_inputs,
+    }
+''', encoding='utf-8')
+
+          Path('backend/tests/test_cloudflare_bemobi_distribution_sync.py').write_text(r'''from __future__ import annotations
+
+import asyncio
+import importlib.util
+from pathlib import Path
+
+
+MODULE_PATH = Path(__file__).resolve().parents[2] / "cloudflare" / "src" / "bemobi_distribution_sync.py"
+spec = importlib.util.spec_from_file_location("bemobi_distribution_sync", MODULE_PATH)
+assert spec and spec.loader
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+class FakeRepository:
+    def __init__(self) -> None:
+        self.action_id: int | None = None
+        self.runs: list[tuple[str, tuple]] = []
+
+    async def create_source_document(self, **kwargs) -> int:
+        assert kwargs["source_code"] == "CVM"
+        assert kwargs["external_id"] == "bemobi-jcp-notice-2026-aug-cvm-1556263-v2"
+        return 11
+
+    async def instrument_id(self, symbol: str) -> int:
+        assert symbol == "BMOB3"
+        return 7
+
+    async def first(self, sql: str, parameters: tuple = ()):
+        normalized = " ".join(sql.split())
+        if "FROM corporate_actions WHERE external_action_id" in normalized:
+            return {"id": self.action_id} if self.action_id is not None else None
+        if "FROM bemobi_holdings" in normalized:
+            return {"id": 5, "shares": 25_000_000}
+        if "FROM fx_rates" in normalized:
+            return {"id": 6, "rate_date": "2026-08-28", "rate": "1.80"}
+        if "FROM cash_movements WHERE corporate_action_id" in normalized:
+            return None
+        if "FROM cash_movements WHERE external_movement_id" in normalized:
+            return None
+        raise AssertionError(f"Unexpected first SQL: {normalized}")
+
+    async def all(self, sql: str, parameters: tuple = ()):
+        normalized = " ".join(sql.split())
+        assert "FROM corporate_actions ca" in normalized
+        return [
+            {
+                "id": 13,
+                "external_action_id": "bemobi-2026-08-28-jcp-2q26",
+                "action_type": "JCP",
+                "ex_date": "2026-08-17",
+                "payment_date": "2026-08-28",
+                "amount_per_share": "0.19178292",
+                "net_amount_per_share": "0.15822091",
+                "withholding_rate": "0.175",
+                "source_document_id": 11,
+            }
+        ]
+
+    async def run(self, sql: str, parameters: tuple = ()):
+        normalized = " ".join(sql.split())
+        self.runs.append((normalized, parameters))
+        if normalized.startswith("INSERT INTO corporate_actions"):
+            self.action_id = 13
+        return None
+
+
+def test_aug_2026_jcp_is_seeded_and_moves_to_net_cash_on_payment() -> None:
+    repository = FakeRepository()
+    result = asyncio.run(
+        module.sync_confirmed_bemobi_distributions(repository, target_date="2026-08-31")
+    )
+
+    assert result["status"] == "ok"
+    assert result["seeded_action_id"] == 13
+    assert result["paid_actions"] == 1
+    assert result["written"] == 2
+
+    gross = next(
+        parameters
+        for sql, parameters in repository.runs
+        if sql.startswith("INSERT INTO cash_movements") and parameters[1] == "BEMOBI_JCP"
+    )
+    tax = next(
+        parameters
+        for sql, parameters in repository.runs
+        if sql.startswith("INSERT INTO cash_movements") and parameters[1] == "TAX"
+    )
+    assert gross[0] == "2026-08-28"
+    assert gross[2] == "8630231.4"
+    assert gross[3] == "4794573"
+    assert tax[0] == "2026-08-28"
+    assert tax[2] == "-1510290.45"
+    assert tax[3] == "-839050.25"
+    assert tax[9] == "bemobi-withholding:bemobi-2026-08-28-jcp-2q26"
+
+
+def test_aug_2026_jcp_remains_receivable_before_payment() -> None:
+    repository = FakeRepository()
+
+    async def no_paid_actions(sql: str, parameters: tuple = ()):
+        normalized = " ".join(sql.split())
+        assert "FROM corporate_actions ca" in normalized
+        return []
+
+    repository.all = no_paid_actions  # type: ignore[method-assign]
+    result = asyncio.run(
+        module.sync_confirmed_bemobi_distributions(repository, target_date="2026-08-20")
+    )
+
+    assert result["seeded_action_id"] == 13
+    assert result["paid_actions"] == 0
+    assert not any(
+        sql.startswith("INSERT INTO cash_movements") for sql, _ in repository.runs
+    )
+''', encoding='utf-8')
+
+          Path('.github/workflows/apply-nav-confirmed-cash-fix.yml').unlink()
+          PY
+      - name: Sanity check changed Python
+        run: |
+          python -m py_compile cloudflare/src/bemobi_distribution_sync.py
+          python -m py_compile cloudflare/src/nav_refresh.py
+          python -m py_compile backend/app/estimated_nav_history_cash_display.py
+      - name: Commit applied fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Show confirmed Bemobi cash movements across lifecycle"
+          git push origin HEAD:fix/nav-confirmed-cash-movements
