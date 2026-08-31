@@ -116,6 +116,17 @@ class NewsWebPartialResponseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mangler gyldig publiseringstid"):
             parse_list_payload(payload)
 
+    def test_rejects_invalid_published_time(self) -> None:
+        payload = {
+            "data": {
+                "messages": [_message(125, "ikke-et-tidspunkt")],
+                "overflow": False,
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "mangler gyldig publiseringstid"):
+            parse_list_payload(payload)
+
     def test_rejects_changed_attachment_datatype_cleanly(self) -> None:
         payload = {
             "data": {

@@ -3,14 +3,51 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from src.newsweb_daily_buybacks import (
     DailyBuybackTransaction,
     MESSAGE_FETCH_CONCURRENCY,
     _fetch_discovered_messages,
+    _ingest_message,
     _store_daily_rows,
 )
+from src.newsweb_client import NewsWebMessage
+
+
+def test_buyback_message_without_attachment_is_not_reported_as_success() -> None:
+    message = NewsWebMessage(
+        message_id=123,
+        news_id=None,
+        title="Buyback",
+        body=(
+            "The stock exchange notice from 1 August 2026 announcing the "
+            "initiation of the share buyback program. From 1 August 2026 through "
+            "7 August 2026, Otello has bought 100 shares at an average price of "
+            "NOK 20.00 and a total value of NOK 2,000. The maximum number of "
+            "shares that can be purchased under this buyback program is 1,000. "
+            "At present date, Otello owns 350 treasury shares."
+        ),
+        issuer_id=1,
+        issuer_sign="OTEC",
+        issuer_name="Otello",
+        published_at="2026-08-07T12:00:00Z",
+        markets=(),
+        category_ids=(),
+        attachments=(),
+        corrected_by_message_id=0,
+        correction_for_message_id=0,
+        client_announcement_id=None,
+    )
+
+    with patch(
+        "src.newsweb_daily_buybacks._weekly_buyback_row",
+        new=AsyncMock(return_value={"id": 42}),
+    ):
+        with pytest.raises(ValueError, match="mangler transaksjonsvedlegg"):
+            asyncio.run(_ingest_message(object(), object(), message, fetcher=None))
 
 
 def test_message_details_are_fetched_concurrently_with_a_limit() -> None:
