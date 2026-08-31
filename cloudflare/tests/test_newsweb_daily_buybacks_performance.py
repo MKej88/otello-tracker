@@ -6,9 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.newsweb_daily_buybacks import (
+    BuybackTrade,
     DailyBuybackTransaction,
     MESSAGE_FETCH_CONCURRENCY,
     _fetch_discovered_messages,
+    _parse_trade_line,
+    _parse_undated_duplicate_time_line,
     _store_daily_rows,
 )
 
@@ -89,3 +92,29 @@ def test_existing_daily_rows_are_loaded_in_one_query() -> None:
     assert written == 5
     assert repository.read_queries == 1
     assert repository.write_queries == 5
+
+
+def test_dated_trade_line_keeps_parsed_values() -> None:
+    parsed = _parse_trade_line("B OTEC 1 000 10,50 10 500,00 28.08.2026 12:34:56")
+
+    assert parsed == BuybackTrade(
+        trade_date="2026-08-28",
+        trade_time="12:34:56",
+        shares=1_000,
+        price_nok=Decimal("10.50"),
+        amount_nok=Decimal("10500.00"),
+    )
+
+
+def test_undated_duplicate_time_line_keeps_parsed_values() -> None:
+    parsed = _parse_undated_duplicate_time_line(
+        "B OTEC 1 000 10,50 10 500,00 12:34:56 12:34:56"
+    )
+
+    assert parsed == BuybackTrade(
+        trade_date="",
+        trade_time="12:34:56",
+        shares=1_000,
+        price_nok=Decimal("10.50"),
+        amount_nok=Decimal("10500.00"),
+    )

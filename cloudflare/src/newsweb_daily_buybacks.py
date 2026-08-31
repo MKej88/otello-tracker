@@ -97,6 +97,42 @@ def _date(value: str) -> str:
     return date(int(year), int(month), int(day)).isoformat()
 
 
+def _trade_values(
+    tokens: list[str],
+    *,
+    normalized_line: str,
+    no_match_error: str | None,
+    ambiguous_error: str,
+) -> tuple[int, Decimal, Decimal]:
+    """Find the single share, price and amount split that reconciles."""
+    candidates: list[tuple[int, Decimal, Decimal]] = []
+    punctuated: list[tuple[int, Decimal, Decimal]] = []
+    for price_index in range(1, len(tokens) - 1):
+        try:
+            candidate = (
+                _integer("".join(tokens[:price_index])),
+                _decimal(tokens[price_index]),
+                _decimal("".join(tokens[price_index + 1 :])),
+            )
+        except (ValueError, ArithmeticError):
+            continue
+        shares, price, amount = candidate
+        if shares <= 0 or price <= 0 or amount <= 0 or price > Decimal("500"):
+            continue
+        if abs(Decimal(shares) * price - amount) > Decimal("0.01"):
+            continue
+        candidates.append(candidate)
+        if "," in tokens[price_index] or "." in tokens[price_index]:
+            punctuated.append(candidate)
+
+    if not candidates and no_match_error is not None:
+        raise ValueError(f"{no_match_error}: {normalized_line}")
+
+    selected_pool = punctuated or list(dict.fromkeys(candidates))
+    if len(selected_pool) != 1:
+        raise ValueError(f"{ambiguous_error}: {normalized_line}")
+    return selected_pool[0]
+
 def _parse_trade_line(line: str) -> BuybackTrade | None:
     normalized = " ".join(line.replace("\u00a0", " ").split())
     if not normalized:
@@ -118,40 +154,12 @@ def _parse_trade_line(line: str) -> BuybackTrade | None:
     if len(tokens) < 3:
         return None
 
-    candidates: list[tuple[int, Decimal, Decimal]] = []
-    for price_index in range(1, len(tokens) - 1):
-        try:
-            shares = _integer("".join(tokens[:price_index]))
-            price = _decimal(tokens[price_index])
-            amount = _decimal("".join(tokens[price_index + 1 :]))
-        except (ValueError, ArithmeticError):
-            continue
-        if shares <= 0 or price <= 0 or amount <= 0 or price > Decimal("500"):
-            continue
-        if abs(Decimal(shares) * price - amount) <= Decimal("0.01"):
-            candidates.append((shares, price, amount))
-
-    if not candidates:
-        raise ValueError(f"Kunne ikke avstemme NewsWeb-handelslinje: {normalized}")
-
-    punctuated: list[tuple[int, Decimal, Decimal]] = []
-    for price_index in range(1, len(tokens) - 1):
-        if "," not in tokens[price_index] and "." not in tokens[price_index]:
-            continue
-        try:
-            candidate = (
-                _integer("".join(tokens[:price_index])),
-                _decimal(tokens[price_index]),
-                _decimal("".join(tokens[price_index + 1 :])),
-            )
-        except (ValueError, ArithmeticError):
-            continue
-        if candidate in candidates:
-            punctuated.append(candidate)
-    selected_pool = punctuated or list(dict.fromkeys(candidates))
-    if len(selected_pool) != 1:
-        raise ValueError(f"Tvetydig NewsWeb-handelslinje; krever kontroll: {normalized}")
-    shares, price, amount = selected_pool[0]
+    shares, price, amount = _trade_values(
+        tokens,
+        normalized_line=normalized,
+        no_match_error="Kunne ikke avstemme NewsWeb-handelslinje",
+        ambiguous_error="Tvetydig NewsWeb-handelslinje; krever kontroll",
+    )
     return BuybackTrade(
         trade_date=_date(date_match.group(0)),
         trade_time=time_match.group(0),
@@ -186,39 +194,12 @@ def _parse_undated_duplicate_time_line(line: str) -> BuybackTrade | None:
     if len(tokens) < 3:
         return None
 
-    candidates: list[tuple[int, Decimal, Decimal]] = []
-    for price_index in range(1, len(tokens) - 1):
-        try:
-            shares = _integer("".join(tokens[:price_index]))
-            price = _decimal(tokens[price_index])
-            amount = _decimal("".join(tokens[price_index + 1 :]))
-        except (ValueError, ArithmeticError):
-            continue
-        if shares <= 0 or price <= 0 or amount <= 0 or price > Decimal("500"):
-            continue
-        if abs(Decimal(shares) * price - amount) <= Decimal("0.01"):
-            candidates.append((shares, price, amount))
-
-    punctuated: list[tuple[int, Decimal, Decimal]] = []
-    for price_index in range(1, len(tokens) - 1):
-        if "," not in tokens[price_index] and "." not in tokens[price_index]:
-            continue
-        try:
-            candidate = (
-                _integer("".join(tokens[:price_index])),
-                _decimal(tokens[price_index]),
-                _decimal("".join(tokens[price_index + 1 :])),
-            )
-        except (ValueError, ArithmeticError):
-            continue
-        if candidate in candidates:
-            punctuated.append(candidate)
-    selected_pool = punctuated or list(dict.fromkeys(candidates))
-    if len(selected_pool) != 1:
-        raise ValueError(
-            f"Tvetydig udatert NewsWeb-handelslinje; krever kontroll: {normalized}"
-        )
-    shares, price, amount = selected_pool[0]
+    shares, price, amount = _trade_values(
+        tokens,
+        normalized_line=normalized,
+        no_match_error=None,
+        ambiguous_error="Tvetydig udatert NewsWeb-handelslinje; krever kontroll",
+    )
     return BuybackTrade(
         trade_date="",
         trade_time=time_matches[0].group(0),
