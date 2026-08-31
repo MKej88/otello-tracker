@@ -94,7 +94,26 @@ jobs:
 
       - name: Dry-run production Python Worker bundle
         working-directory: cloudflare
-        run: >-
-          pywrangler deploy --dry-run
-          --config wrangler.production.jsonc
-          --outdir /tmp/otello-production-dist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # pywrangler downloads the Pyodide xbuild environment on first use.
+          # Retry the safe dry-run when that external download is temporarily
+          # unavailable (for example, a GitHub Releases 5xx response).
+          for attempt in 1 2 3; do
+            if pywrangler deploy --dry-run \
+              --config wrangler.production.jsonc \
+              --outdir /tmp/otello-production-dist; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "pywrangler dry-run failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+
+            delay=$((attempt * 15))
+            echo "pywrangler dry-run attempt ${attempt} failed; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done

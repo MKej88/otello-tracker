@@ -32,6 +32,7 @@ const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 let installed = false;
 let bootstrapPromise: Promise<BootstrapPayload | null> | null = null;
+let storedBootstrap: StoredBootstrap | null | undefined;
 const servedFromBootstrap = new Set<BootstrapComponent>();
 const servedFromClientCache = new Set<BootstrapComponent>();
 const revalidationListeners = new Map<BootstrapComponent, Set<(value: unknown) => void>>();
@@ -67,20 +68,27 @@ function completeBootstrap(payload: BootstrapPayload | null): payload is Bootstr
 
 function loadStoredBootstrap(): StoredBootstrap | null {
   if (typeof window === "undefined") return null;
+  if (storedBootstrap !== undefined) return storedBootstrap;
   try {
     const raw = window.localStorage.getItem(CLIENT_CACHE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      storedBootstrap = null;
+      return storedBootstrap;
+    }
     const stored = JSON.parse(raw) as Partial<StoredBootstrap>;
     if (stored.cacheVersion !== CLIENT_CACHE_VERSION
       || typeof stored.storedAt !== "number"
       || Date.now() - stored.storedAt > CLIENT_CACHE_MAX_AGE_MS
       || !completeBootstrap(stored.payload ?? null)) {
       window.localStorage.removeItem(CLIENT_CACHE_KEY);
-      return null;
+      storedBootstrap = null;
+      return storedBootstrap;
     }
-    return stored as StoredBootstrap;
+    storedBootstrap = stored as StoredBootstrap;
+    return storedBootstrap;
   } catch {
-    return null;
+    storedBootstrap = null;
+    return storedBootstrap;
   }
 }
 
@@ -93,6 +101,7 @@ function storeBootstrap(payload: BootstrapPayload): void {
       payload
     };
     window.localStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify(stored));
+    storedBootstrap = stored;
   } catch {
     // Storage can be unavailable in private/restricted browser contexts. Network bootstrap remains the fallback.
   }
