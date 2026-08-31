@@ -117,16 +117,29 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
     body = str(raw.get("body") or "")
     if require_body and not body.strip():
         raise ValueError(f"NewsWeb-melding {message_id} mangler meldingstekst")
-    attachments = tuple(
-        NewsWebAttachment(int(item["id"]), str(item.get("name") or ""))
-        for item in (raw.get("attachments") or [])
-        if item.get("id") is not None
-    )
-    category_ids = tuple(
-        int(item["id"])
-        for item in (raw.get("category") or [])
-        if item.get("id") is not None
-    )
+    raw_attachments = raw.get("attachments") or []
+    if not isinstance(raw_attachments, list) or not all(
+        isinstance(item, dict) for item in raw_attachments
+    ):
+        raise ValueError(f"NewsWeb-melding {message_id} har ugyldig vedleggsliste")
+    raw_categories = raw.get("category") or []
+    if not isinstance(raw_categories, list) or not all(
+        isinstance(item, dict) for item in raw_categories
+    ):
+        raise ValueError(f"NewsWeb-melding {message_id} har ugyldig kategoriliste")
+    try:
+        attachments = tuple(
+            NewsWebAttachment(int(item["id"]), str(item.get("name") or ""))
+            for item in raw_attachments
+            if item.get("id") is not None
+        )
+        category_ids = tuple(
+            int(item["id"]) for item in raw_categories if item.get("id") is not None
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"NewsWeb-melding {message_id} har ugyldige vedlegg eller kategorier"
+        ) from exc
     return NewsWebMessage(
         message_id=message_id,
         news_id=int(raw["newsId"]) if raw.get("newsId") is not None else None,
@@ -142,7 +155,9 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
         corrected_by_message_id=int(raw.get("correctedByMessageId") or 0),
         correction_for_message_id=int(raw.get("correctionForMessageId") or 0),
         client_announcement_id=(
-            str(raw["clientAnnouncementId"]) if raw.get("clientAnnouncementId") else None
+            str(raw["clientAnnouncementId"])
+            if raw.get("clientAnnouncementId")
+            else None
         ),
     )
 
@@ -225,7 +240,9 @@ async def fetch_attachment(
         label=f"NewsWeb attachment {message_id}/{attachment_id}",
     )
     if not payload.startswith(b"%PDF"):
-        raise ValueError(f"NewsWeb attachment {message_id}/{attachment_id} er ikke en PDF")
+        raise ValueError(
+            f"NewsWeb attachment {message_id}/{attachment_id} er ikke en PDF"
+        )
     return payload
 
 
@@ -303,4 +320,6 @@ async def discover_otec_messages(
         if message.corrected_by_message_id:
             continue
         unique[message.message_id] = message
-    return sorted(unique.values(), key=lambda item: (item.published_at, item.message_id))
+    return sorted(
+        unique.values(), key=lambda item: (item.published_at, item.message_id)
+    )
