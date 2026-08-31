@@ -25,63 +25,20 @@ class _OperationalSourceDefinition:
 
 
 _OPERATIONAL_SOURCE_DEFINITIONS = (
-    _OperationalSourceDefinition(
-        "norges_bank", "NORGES_BANK", "Norges Bank", "Valutakurser (BRL/NOK og USD/NOK)"
-    ),
+    _OperationalSourceDefinition("norges_bank", "NORGES_BANK", "Norges Bank", "Valutakurser (BRL/NOK og USD/NOK)"),
     _OperationalSourceDefinition("b3", "B3", "B3", "Bemobi-kurs og markedsdata"),
-    _OperationalSourceDefinition(
-        "euronext", "EURONEXT", "Euronext / OTEC", "OTEC-kurs og handler"
-    ),
-    _OperationalSourceDefinition(
-        "yahoo_finance",
-        "YAHOO_FINANCE",
-        "Life360 / Yahoo Finance",
-        "Life360-kurs",
-    ),
-    _OperationalSourceDefinition(
-        "newsweb", "NEWSWEB", "NewsWeb", "Børsmeldinger og tilbakekjøp"
-    ),
-    _OperationalSourceDefinition(
-        "otello_ir", "OTELLO_IR", "Otello IR", "Rapporter og selskapsinformasjon"
-    ),
-    _OperationalSourceDefinition(
-        "life360_ir",
-        "LIFE360_IR_LSEG",
-        "Life360 IR / LSEG",
-        "Reservekilde for Life360-kurs",
-    ),
+    _OperationalSourceDefinition("euronext", "EURONEXT", "Euronext / OTEC", "OTEC-kurs og handler"),
+    _OperationalSourceDefinition("yahoo_finance", "YAHOO_FINANCE", "Life360 / Yahoo Finance", "Life360-kurs"),
+    _OperationalSourceDefinition("newsweb", "NEWSWEB", "NewsWeb", "Børsmeldinger og tilbakekjøp"),
+    _OperationalSourceDefinition("otello_ir", "OTELLO_IR", "Otello IR", "Rapporter og selskapsinformasjon"),
+    _OperationalSourceDefinition("life360_ir", "LIFE360_IR_LSEG", "Life360 IR / LSEG", "Reservekilde for Life360-kurs"),
 )
 
-
 _SOURCE_DEFINITIONS = (
-    _SourceDefinition(
-        "ir",
-        ("OWNERSHIP", "ANALYST"),
-        None,
-        "Bemobi IR",
-        "Eierandel og analytikerdekning",
-    ),
-    _SourceDefinition(
-        "result_release",
-        ("RESULT",),
-        None,
-        "CVM / Bemobi",
-        "Resultater",
-    ),
-    _SourceDefinition(
-        "consensus",
-        ("FORWARD_CONSENSUS",),
-        None,
-        "Offentlige meglerhus",
-        "Årsestimater / meglermodeller",
-    ),
-    _SourceDefinition(
-        "xp_preview",
-        ("NEXT_QUARTER",),
-        "XP",
-        "XP",
-        "Forhåndsestimat neste kvartal",
-    ),
+    _SourceDefinition("ir", ("OWNERSHIP", "ANALYST"), None, "Bemobi IR", "Eierandel og analytikerdekning"),
+    _SourceDefinition("result_release", ("RESULT",), None, "CVM / Bemobi", "Resultater"),
+    _SourceDefinition("consensus", ("FORWARD_CONSENSUS",), None, "Offentlige meglerhus", "Årsestimater / meglermodeller"),
+    _SourceDefinition("xp_preview", ("NEXT_QUARTER",), "XP", "XP", "Forhåndsestimat neste kvartal"),
 )
 
 
@@ -97,52 +54,26 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
     status = str(result.get("status") or "").lower()
     reason = str(result.get("reason") or "")
     error = str(result.get("error") or "")
-
     if status in {"ok", "success"}:
         return "OK", "Siste kontroll fullført uten feil.", False
     if status == "skipped":
         if key == "result_release" and reason == "latest_result_already_ingested":
-            return (
-                "OK",
-                "Ingen ny rapport; siste offentlige rapport er allerede innlest.",
-                False,
-            )
+            return "OK", "Ingen ny rapport; siste offentlige rapport er allerede innlest.", False
         if key == "consensus" and reason == "source_specific_public_broker_models":
             return "OK", "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell finnes.", False
         return "OK", reason.replace("_", " ") or "Ingen ny data å behandle.", False
     if status == "not_available":
-        if key == "xp_preview" and reason in {
-            "no_public_preview_for_next_quarter",
-            "next_quarter_not_initialized",
-        }:
-            return (
-                "WAITING",
-                "Ingen offentlig XP-preview funnet for neste kvartal.",
-                False,
-            )
-        return (
-            "DEGRADED",
-            error or reason.replace("_", " ") or "Kilden var ikke tilgjengelig.",
-            True,
-        )
+        if key == "xp_preview" and reason in {"no_public_preview_for_next_quarter", "next_quarter_not_initialized"}:
+            return "WAITING", "Ingen offentlig XP-preview funnet for neste kvartal.", False
+        return "DEGRADED", error or reason.replace("_", " ") or "Kilden var ikke tilgjengelig.", True
     if status == "partial":
-        return (
-            "DEGRADED",
-            "Deler av innhentingen feilet; siste gode data beholdes.",
-            True,
-        )
+        return "DEGRADED", "Deler av innhentingen feilet; siste gode data beholdes.", True
     if status in {"error", "failed", "down"}:
         return "ERROR", error or "Kildekontrollen feilet.", True
-    return (
-        "UNKNOWN",
-        "Ingen ny Full Refresh-kontroll er registrert etter aktivering.",
-        False,
-    )
+    return "UNKNOWN", "Ingen ny Full Refresh-kontroll er registrert etter aktivering.", False
 
 
-def _latest_fact(
-    connection, fact_types: tuple[str, ...], *, source_name: str | None = None
-) -> dict[str, Any] | None:
+def _latest_fact(connection, fact_types: tuple[str, ...], *, source_name: str | None = None) -> dict[str, Any] | None:
     placeholders = ",".join("?" for _ in fact_types)
     parameters: list[Any] = list(fact_types)
     source_clause = ""
@@ -184,7 +115,6 @@ def _operational_source_items(connection) -> list[dict[str, Any]]:
         source_codes,
     ).fetchall()
     values_by_code = {str(row["code"]): dict(row) for row in rows}
-
     items: list[dict[str, Any]] = []
     for source in _OPERATIONAL_SOURCE_DEFINITIONS:
         values = values_by_code.get(source.source_code, {})
@@ -197,21 +127,19 @@ def _operational_source_items(connection) -> list[dict[str, Any]]:
             detail = "Siste kontroll fullført uten feil."
         elif not detail:
             detail = "Kilden har et registrert avvik; siste gode data beholdes."
-        items.append(
-            {
-                "key": source.key,
-                "label": source.label,
-                "source": source.source_label,
-                "status": status,
-                "checked_at": values.get("checked_at"),
-                "last_good_at": values.get("fetched_at"),
-                "data_date": values.get("published_at"),
-                "quality": None,
-                "url": values.get("base_url"),
-                "uses_last_good": status in {"DEGRADED", "ERROR") and values.get("fetched_at") is not None,
-                "detail": detail,
-            }
-        )
+        items.append({
+            "key": source.key,
+            "label": source.label,
+            "source": source.source_label,
+            "status": status,
+            "checked_at": values.get("checked_at"),
+            "last_good_at": values.get("fetched_at"),
+            "data_date": values.get("published_at"),
+            "quality": None,
+            "url": values.get("base_url"),
+            "uses_last_good": status in {"DEGRADED", "ERROR"} and values.get("fetched_at") is not None,
+            "detail": detail,
+        })
     return items
 
 
@@ -223,7 +151,7 @@ def _status_for_connection(connection) -> dict[str, Any]:
         WHERE s.code = 'BEMOBI_IR'
         ORDER BY sh.checked_at DESC, sh.id DESC
         LIMIT 1
-        """).fetchone()
+    """).fetchone()
     health = None if row is None else dict(row)
     metadata: dict[str, Any] = {}
     if health is not None:
@@ -239,21 +167,19 @@ def _status_for_connection(connection) -> dict[str, Any]:
         result = _sub_result(metadata, source.key)
         status, detail, uses_last_good = _display_status(source.key, result)
         fact = _latest_fact(connection, source.fact_types, source_name=source.source_name)
-        items.append(
-            {
-                "key": source.key,
-                "label": source.label,
-                "source": (fact or {}).get("source_name") or source.source_label,
-                "status": status,
-                "checked_at": None if health is None else health.get("checked_at"),
-                "last_good_at": None if fact is None else fact.get("updated_at"),
-                "data_date": None if fact is None else (fact.get("as_of_date") or fact.get("published_date")),
-                "quality": None if fact is None else fact.get("quality"),
-                "url": None if fact is None else fact.get("source_url"),
-                "uses_last_good": uses_last_good and fact is not None,
-                "detail": detail,
-            }
-        )
+        items.append({
+            "key": source.key,
+            "label": source.label,
+            "source": (fact or {}).get("source_name") or source.source_label,
+            "status": status,
+            "checked_at": None if health is None else health.get("checked_at"),
+            "last_good_at": None if fact is None else fact.get("updated_at"),
+            "data_date": None if fact is None else (fact.get("as_of_date") or fact.get("published_date")),
+            "quality": None if fact is None else fact.get("quality"),
+            "url": None if fact is None else fact.get("source_url"),
+            "uses_last_good": uses_last_good and fact is not None,
+            "detail": detail,
+        })
 
     critical = next(item for item in items if item["key"] == "ir")
     if critical["status"] == "ERROR":
@@ -264,7 +190,6 @@ def _status_for_connection(connection) -> dict[str, Any]:
         overall = "UNKNOWN"
     else:
         overall = "OK"
-
     return {
         "overall_status": overall,
         "checked_at": None if health is None else health.get("checked_at"),
