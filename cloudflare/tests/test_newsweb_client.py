@@ -88,6 +88,46 @@ class NewsWebPartialResponseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mangler gyldig publiseringstid"):
             parse_list_payload(payload)
 
+    def test_rejects_changed_attachment_datatype_cleanly(self) -> None:
+        payload = {
+            "data": {
+                "messages": [
+                    {
+                        "messageId": 125,
+                        "issuerId": 7759,
+                        "issuerSign": "OTEC",
+                        "markets": ["XOSL"],
+                        "publishedTime": "2026-08-30T10:00:00Z",
+                        "attachments": [None],
+                    }
+                ],
+                "overflow": False,
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "ugyldig vedleggsliste"):
+            parse_list_payload(payload)
+
+    def test_rejects_changed_category_datatype_cleanly(self) -> None:
+        payload = {
+            "data": {
+                "messages": [
+                    {
+                        "messageId": 126,
+                        "issuerId": 7759,
+                        "issuerSign": "OTEC",
+                        "markets": ["XOSL"],
+                        "publishedTime": "2026-08-30T10:00:00Z",
+                        "category": "buyback",
+                    }
+                ],
+                "overflow": False,
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "ugyldig kategoriliste"):
+            parse_list_payload(payload)
+
 
 if __name__ == "__main__":
     unittest.main()
