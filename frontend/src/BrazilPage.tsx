@@ -288,7 +288,11 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
 }
 
 export default function BrazilPage() {
-  const { data, refreshFailed, lastUpdatedAt } = usePollingResource<BrazilPayload>("/api/brazil/dashboard", REFRESH_MS);
+  const { data, refreshFailed, lastUpdatedAt } = usePollingResource<BrazilPayload>(
+    "/api/brazil/dashboard",
+    REFRESH_MS,
+    true,
+  );
   const metrics = data?.metrics ?? {};
   const calendar = data?.calendar ?? [];
 
