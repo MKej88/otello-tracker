@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.bemobi import consensus as consensus_module
+from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
 
@@ -82,6 +83,32 @@ def test_bemobi_consensus_builds_targets_broker_multiples_and_beat_miss(tmp_path
     assert abs(history[0]["metrics"][0]["beat_miss_pct"] - 2.786885245901649) < 1e-12
     assert abs(history[1]["metrics"][1]["beat_miss_pct"] - 17.307692307692314) < 1e-12
     assert abs(history[2]["metrics"][1]["beat_miss_pct"] - 41.25) < 1e-12
+
+
+def test_bemobi_consensus_does_not_mix_models_from_different_brokers(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "bemobi-consensus-brokers.db")
+    init_database(database)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO bemobi_investor_facts(
+                fact_type, fact_key, as_of_date, published_date, payload_json,
+                source_name, source_url, quality
+            ) VALUES (
+                'FORWARD_CONSENSUS', '2028', '2026-08-30', '2026-08-30',
+                '{"year": 2028, "revenue_mbrl": 1000}', 'Another Broker',
+                'https://example.com/model', 'PUBLIC_BROKER_MODEL'
+            )
+            """
+        )
+        connection.commit()
+    monkeypatch.setattr(consensus_module, "bemobi_dashboard", lambda _path=None: _bemobi_dashboard())
+
+    broker = consensus_module.bemobi_consensus(database)["broker_estimates"]
+
+    assert broker["source"] == "Another Broker"
+    assert broker["year_range"] == "2028E"
+    assert [item["year"] for item in broker["years"]] == [2028]
 
 
 def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:

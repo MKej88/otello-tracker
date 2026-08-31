@@ -75,6 +75,20 @@ def _year_range(years: list[dict[str, Any]]) -> str | None:
     return f"{first}E" if first == last else f"{first}E–{last}E"
 
 
+def _select_broker_model(broker_facts: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Select the most recently published broker model without mixing sources."""
+    facts_by_source: dict[str, list[dict[str, Any]]] = {}
+    for fact in broker_facts:
+        source = str(fact.get("_source_name") or "")
+        facts_by_source.setdefault(source, []).append(fact)
+    selected_facts = max(
+        facts_by_source.values(),
+        key=lambda facts: max(str(item.get("_published_date") or item.get("_as_of_date") or "") for item in facts),
+    )
+    selected_source = max(selected_facts, key=lambda item: str(item.get("_published_date") or item.get("_as_of_date") or ""))
+    return selected_source, selected_facts
+
+
 def _beat_miss_payload(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for fact in facts:
@@ -109,12 +123,12 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
     otello = bemobi.get("otello") or {}
     price_brl = _number(market.get("price_brl"))
     total_shares = int(otello.get("bemobi_total_shares") or 0) or None
-    broker_years = _broker_payload(price_brl, total_shares, broker_facts)
+    broker_source, selected_broker_facts = _select_broker_model(broker_facts)
+    broker_years = _broker_payload(price_brl, total_shares, selected_broker_facts)
     broker_range = _year_range(broker_years)
     beat_miss = _beat_miss_payload(beat_miss_facts)
     analysts = [public_fact(item) or {} for item in analyst_facts]
     coverage = _target_payload(price_brl, analyst_facts)
-    broker_source = max(broker_facts, key=lambda item: str(item.get("_published_date") or item.get("_as_of_date") or ""))
     next_quarter = public_fact(next_quarter_fact) or {}
     reference_model = public_fact(reference_model_fact) or {}
     reference_model["source_url"] = reference_model.get("source_url") or reference_model_fact.get("_source_url")
