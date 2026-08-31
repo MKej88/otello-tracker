@@ -45,13 +45,23 @@ function preload(view: View) {
     void loadBemobiPage();
     preloadJson("/api/bemobi/dashboard");
   }
-  if (view === "Brasil") void loadBrazilPage();
+  if (view === "Brasil") {
+    void loadBrazilPage();
+    preloadJson("/api/brazil/dashboard");
+  }
   if (view === "Konsensus") {
     void loadConsensusPage();
     preloadJson("/api/bemobi/consensus");
   }
-  if (view === "Datakvalitet") void loadDataQualityPage();
-  if (view === "Nyheter") void loadNewsEventsPage();
+  if (view === "Datakvalitet") {
+    void loadDataQualityPage();
+    preloadJson("/api/dashboard/runtime-status");
+    preloadJson("/api/dashboard/report-status");
+  }
+  if (view === "Nyheter") {
+    void loadNewsEventsPage();
+    preloadJson("/api/news-events");
+  }
 }
 
 function ActiveView({ view }: { view: View }) {

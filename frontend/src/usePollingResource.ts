@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -6,7 +7,11 @@ export type PollingResourceState<T> = {
   lastUpdatedAt: Date | null;
 };
 
-export function usePollingResource<T>(url: string, intervalMs: number): PollingResourceState<T> {
+export function usePollingResource<T>(
+  url: string,
+  intervalMs: number,
+  usePreloadedInitial = false,
+): PollingResourceState<T> {
   const [data, setData] = useState<T | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
@@ -14,6 +19,7 @@ export function usePollingResource<T>(url: string, intervalMs: number): PollingR
   useEffect(() => {
     let active = true;
     let inFlight = false;
+    let firstLoad = true;
     let controller: AbortController | null = null;
 
     const load = async () => {
@@ -23,11 +29,17 @@ export function usePollingResource<T>(url: string, intervalMs: number): PollingR
       controller = currentController;
 
       try {
-        const response = await fetch(url, { signal: currentController.signal });
-        if (!response.ok) {
-          throw new Error(`Polling API-feil: ${response.status}`);
+        let result: T;
+        if (firstLoad && usePreloadedInitial) {
+          result = await fetchPreloadedJson<T>(url);
+        } else {
+          const response = await fetch(url, { signal: currentController.signal });
+          if (!response.ok) {
+            throw new Error(`Polling API-feil: ${response.status}`);
+          }
+          result = await response.json() as T;
         }
-        const result = await response.json() as T;
+        firstLoad = false;
         if (!active) return;
         setData(result);
         setRefreshFailed(false);
@@ -49,7 +61,7 @@ export function usePollingResource<T>(url: string, intervalMs: number): PollingR
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [url, intervalMs]);
+  }, [url, intervalMs, usePreloadedInitial]);
 
   return { data, refreshFailed, lastUpdatedAt };
 }

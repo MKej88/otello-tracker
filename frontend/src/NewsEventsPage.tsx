@@ -24,7 +24,11 @@ function ImportanceBadge({ importance }: { importance: Importance }) {
 }
 
 export default function NewsEventsPage() {
-  const { data, refreshFailed } = usePollingResource<Payload>("/api/news-events", REFRESH_MS);
+  const { data, refreshFailed } = usePollingResource<Payload>(
+    "/api/news-events",
+    REFRESH_MS,
+    true,
+  );
   const [company, setCompany] = useState<CompanyFilter>("Alle");
   const news = useMemo(() => (data?.news ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.news]);
   const events = useMemo(() => (data?.events ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.events]);
