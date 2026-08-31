@@ -16,6 +16,10 @@ import bemobi_web_refresh_v2 as legacy_v2  # noqa: E402
 from src import full_refresh as full_refresh_runtime  # noqa: E402
 
 
+async def _no_distribution_cash(*args, **kwargs):
+    return {"status": "ok", "rows_written": 0, "rows_updated": 0}
+
+
 def test_v2_import_path_is_only_a_runtime_compatibility_shim() -> None:
     assert legacy_v2.refresh_bemobi_web is runtime.refresh_bemobi_web
     assert legacy_v2._ensure_consensus_event is runtime._ensure_consensus_event
@@ -60,6 +64,7 @@ def test_broker_models_are_source_specific_and_not_scraped_nightly(monkeypatch) 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
     monkeypatch.setattr(runtime, "sync_latest_result_release", no_result)
     monkeypatch.setattr(runtime, "_ensure_consensus_event", no_event)
+    monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", _no_distribution_cash)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-29"))
@@ -87,6 +92,7 @@ def test_transient_official_ir_failure_preserves_last_good_without_blocking_nigh
 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", failed_ir)
     monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
+    monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", _no_distribution_cash)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-28"))
@@ -119,6 +125,7 @@ def test_unparseable_official_result_still_degrades_bemobi_ir(monkeypatch) -> No
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
     monkeypatch.setattr(runtime, "sync_latest_result_release", bad_result)
     monkeypatch.setattr(runtime, "_ensure_consensus_event", no_event)
+    monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", _no_distribution_cash)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-26"))
