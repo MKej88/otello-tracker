@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import BemobiPageBase from "./BemobiPageBase";
-import { fetchPreloadedJson } from "./navigationDataPreload";
 import "./bemobi-page.css";
 
 /*
@@ -58,8 +57,6 @@ type TaxDashboard = {
   latest_distribution?: Distribution | null;
 };
 
-const AUTO_REFRESH_MS = 2 * 60 * 1000;
-
 function value(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
   return input.toLocaleString("nb-NO", {
@@ -80,31 +77,7 @@ function distributionLabel(input?: string | null) {
   return input || "utdeling";
 }
 
-function BemobiTaxPanel() {
-  const [data, setData] = useState<TaxDashboard | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const load = (initial = false) => {
-      const request = initial
-        ? fetchPreloadedJson<TaxDashboard>("/api/bemobi/dashboard")
-        : fetch("/api/bemobi/dashboard").then((response) =>
-            response.ok ? response.json() as Promise<TaxDashboard> : null
-          );
-      request
-        .then((result) => {
-          if (active && result) setData(result);
-        })
-        .catch(() => undefined);
-    };
-    load(true);
-    const timer = window.setInterval(load, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
+function BemobiTaxPanel({ data }: { data: TaxDashboard | null }) {
   if (!data?.ready) return null;
   const estimate = data.distribution_estimate;
   const latest = data.latest_distribution;
@@ -192,10 +165,13 @@ function BemobiTaxPanel() {
 }
 
 export default function BemobiPage() {
+  const [taxData, setTaxData] = useState<TaxDashboard | null>(null);
+  const updateTaxData = useCallback((data: TaxDashboard) => setTaxData(data), []);
+
   return (
     <>
-      <BemobiPageBase />
-      <BemobiTaxPanel />
+      <BemobiPageBase onData={updateTaxData} />
+      <BemobiTaxPanel data={taxData} />
     </>
   );
 }

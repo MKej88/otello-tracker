@@ -172,12 +172,24 @@ def test_navigation_shares_bemobi_request_while_route_code_loads() -> None:
     assert bemobi_preload < bemobi_route
     assert 'preloadJson("/api/bemobi/dashboard")' in app_source
     assert (
-        'fetchPreloadedJson<TaxDashboard>("/api/bemobi/dashboard")' in page_source
-    )
-    assert (
         'fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")'
         in base_source
     )
+    assert "<BemobiPageBase onData={updateTaxData} />" in page_source
+
+
+def test_bemobi_tax_panel_reuses_the_page_payload_during_polling() -> None:
+    page_source = (FRONTEND_SRC / "BemobiPage.tsx").read_text(encoding="utf-8")
+    base_source = (FRONTEND_SRC / "BemobiPageBase.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    # The endpoint payload already contains both the main view and tax fields. A
+    # second timer used to download and parse that same payload every two minutes.
+    assert 'fetch("/api/bemobi/dashboard")' not in page_source
+    assert "<BemobiPageBase onData={updateTaxData} />" in page_source
+    assert "<BemobiTaxPanel data={taxData} />" in page_source
+    assert "onData?.(result)" in base_source
 
 
 def test_navigation_starts_consensus_data_in_parallel_with_route_code() -> None:

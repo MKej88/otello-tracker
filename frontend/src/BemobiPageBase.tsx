@@ -227,7 +227,11 @@ function SourceLink({ url, children }: { url?: string | null; children: React.Re
   return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
 }
 
-export default function BemobiPage() {
+export default function BemobiPage({
+  onData,
+}: {
+  onData?: (data: BemobiDashboard) => void;
+}) {
   const [data, setData] = useState<BemobiDashboard | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -244,6 +248,7 @@ export default function BemobiPage() {
         .then((result) => {
           if (!active) return;
           setData(result);
+          onData?.(result);
           setFailed(false);
         })
         .catch(() => {
@@ -258,7 +263,7 @@ export default function BemobiPage() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [onData]);
 
   if (data == null && !failed) {
     return <ResourceNotice>Laster Bemobi-data …</ResourceNotice>;
