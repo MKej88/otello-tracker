@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { formatDate, formatDateTime } from "./uiFormat";
+import { usePollingResource } from "./usePollingResource";
 import "./market-quote-panel.css";
 
 type Quote = {
@@ -181,34 +181,11 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
 }
 
 export default function MarketQuotePanel() {
-  const [data, setData] = useState<Payload | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      fetch("/api/market/quotes")
-        .then((response) => {
-          if (!response.ok) throw new Error("Kurs-API feilet");
-          return response.json() as Promise<Payload>;
-        })
-        .then((payload) => {
-          if (!active) return;
-          setData(payload);
-          setFailed(false);
-        })
-        .catch(() => {
-          if (!active) return;
-          setFailed(true);
-        });
-    };
-    load();
-    const timer = window.setInterval(load, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+  const { data, refreshFailed: failed } = usePollingResource<Payload>(
+    "/api/market/quotes",
+    AUTO_REFRESH_MS,
+    true,
+  );
 
   return (
     <section className="marketQuoteSection">

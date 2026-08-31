@@ -145,6 +145,17 @@ def test_parser_rejects_publication_before_trade() -> None:
         parse_euronext_delayed_trades(payload)
 
 
+@pytest.mark.parametrize(
+    ("price", "quantity"),
+    [("Infinity", "100"), ("17.25", "Infinity")],
+)
+def test_parser_rejects_non_finite_numbers(price: str, quantity: str) -> None:
+    payload = _zip([_row(MifidPrice=price, MifidQuantity=quantity)])
+
+    with pytest.raises(ValueError, match="Ugyldig ikke-positiv OTEC-pris"):
+        parse_euronext_delayed_trades(payload)
+
+
 def test_latest_trade_compares_instants_across_timezone_boundary() -> None:
     """The newest trade must be chosen by instant, not timestamp text or local date."""
     payload = _zip(

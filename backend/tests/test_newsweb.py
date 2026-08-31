@@ -139,7 +139,10 @@ def test_newsweb_list_rejects_partial_or_changed_response(data: object) -> None:
         parse_list_payload({"data": data})
 
 
-@pytest.mark.parametrize("published_time", [None, "", {"value": "2026-07-11"}])
+@pytest.mark.parametrize(
+    "published_time",
+    [None, "", "ikke-et-tidspunkt", {"value": "2026-07-11"}],
+)
 def test_newsweb_rejects_missing_or_changed_published_time(
     published_time: object,
 ) -> None:

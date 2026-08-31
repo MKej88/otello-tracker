@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlencode
 
@@ -113,6 +113,16 @@ def _message_from_dict(raw: dict[str, Any], *, require_body: bool) -> NewsWebMes
         raise ValueError(f"NewsWeb-melding {message_id} mangler XOSL-marked")
     published_time = raw.get("publishedTime")
     if not isinstance(published_time, str) or not published_time.strip():
+        raise ValueError(f"NewsWeb-melding {message_id} mangler gyldig publiseringstid")
+    try:
+        parsed_published_time = datetime.fromisoformat(
+            published_time.strip().replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"NewsWeb-melding {message_id} mangler gyldig publiseringstid"
+        ) from exc
+    if parsed_published_time.tzinfo is None:
         raise ValueError(f"NewsWeb-melding {message_id} mangler gyldig publiseringstid")
     body = str(raw.get("body") or "")
     if require_body and not body.strip():
