@@ -157,3 +157,40 @@ def test_cash_breakdown_prefers_daily_buybacks_over_weekly_duplicate() -> None:
     assert result["weekly_buyback_rows"] == 0
     assert result["weekly_buyback_rows_superseded"] == 1
     assert result["bemobi_net_cash_nok"] == Decimal("8500000")
+
+
+def test_cash_breakdown_preserves_weekly_total_when_daily_rows_are_incomplete(
+) -> None:
+    class Repository:
+        async def all(self, _query, _params):
+            return [
+                {
+                    "movement_date": "2026-08-07",
+                    "movement_type": "OTELLO_BUYBACK",
+                    "amount_nok": -3_000_000,
+                    "description": "during 2026-08-03–2026-08-07",
+                    "external_movement_id": "weekly:1",
+                    "buyback_id": 10,
+                },
+                {
+                    "movement_date": "2026-08-04",
+                    "movement_type": "OTELLO_BUYBACK_DAILY",
+                    "amount_nok": -1_000_000,
+                    "description": "daily",
+                    "external_movement_id": "daily:1",
+                    "buyback_id": 10,
+                },
+            ]
+
+    result = asyncio.run(
+        _cash_breakdown(
+            Repository(),
+            start_date="2026-08-01",
+            current_date="2026-08-10",
+        )
+    )
+
+    assert result["buyback_cash_nok"] == Decimal("-3000000")
+    assert result["daily_buyback_rows"] == 0
+    assert result["weekly_buyback_rows"] == 1
+    assert result["weekly_buyback_rows_superseded"] == 0
