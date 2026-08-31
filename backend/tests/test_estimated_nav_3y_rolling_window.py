@@ -51,10 +51,14 @@ class _FakeConnection:
             requested_start = str(params[1])
             return _Cursor(one={"date": requested_start})
 
+        if "WITH ranked AS" in normalized:
+            return _Cursor(rows=[{"date": str(day)} for day in params[1:]])
+
         raise AssertionError(f"Unexpected SQL in rolling-window test: {normalized}")
 
 
-def _estimated_point(_connection, day: str, _database_path):
+def _estimated_point(_connection, day: str, _database_path, *, snapshot_row=None):
+    assert snapshot_row == {"date": day}
     return {
         "ready": True,
         "date": day,

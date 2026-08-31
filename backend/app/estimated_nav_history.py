@@ -487,14 +487,22 @@ def _build_change_attribution(
     }
 
 
-def _estimated_point(connection, day: str, database_path: str | None) -> dict[str, Any]:
-    row = connection.execute(
-        """SELECT substr(as_of_at,1,10) AS date, nav_total_nok, nav_per_share_nok, otec_price_nok,
-                  bemobi_value_nok, cash_estimate_nok, other_net_assets_nok, shares_outstanding, components_json
-           FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)=?
-           ORDER BY as_of_at DESC,id DESC LIMIT 1""",
-        (FULL_CALCULATION_VERSION, day),
-    ).fetchone()
+def _estimated_point(
+    connection,
+    day: str,
+    database_path: str | None,
+    *,
+    snapshot_row: Any | None = None,
+) -> dict[str, Any]:
+    row = snapshot_row
+    if row is None:
+        row = connection.execute(
+            """SELECT substr(as_of_at,1,10) AS date, nav_total_nok, nav_per_share_nok, otec_price_nok,
+                      bemobi_value_nok, cash_estimate_nok, other_net_assets_nok, shares_outstanding, components_json
+               FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)=?
+               ORDER BY as_of_at DESC,id DESC LIMIT 1""",
+            (FULL_CALCULATION_VERSION, day),
+        ).fetchone()
     if row is None:
         return {"ready": False, "reason": "missing_full_nav_row", "date": day}
     row = dict(row)
@@ -727,9 +735,36 @@ def estimated_nav_history(
         if str(current_date) not in dates:
             dates.append(str(current_date))
         dates = _pick_dates(sorted(set(dates)))
+        placeholders = ",".join("?" for _ in dates)
+        snapshot_rows = connection.execute(
+            f"""WITH ranked AS (
+                   SELECT substr(as_of_at,1,10) AS date, nav_total_nok,
+                          nav_per_share_nok, otec_price_nok, bemobi_value_nok,
+                          cash_estimate_nok, other_net_assets_nok,
+                          shares_outstanding, components_json,
+                          ROW_NUMBER() OVER (
+                              PARTITION BY substr(as_of_at,1,10)
+                              ORDER BY as_of_at DESC,id DESC
+                          ) AS rn
+                   FROM nav_snapshots
+                   WHERE calculation_version=? AND nav_scope='FULL'
+                     AND substr(as_of_at,1,10) IN ({placeholders})
+               )
+               SELECT date, nav_total_nok, nav_per_share_nok, otec_price_nok,
+                      bemobi_value_nok, cash_estimate_nok, other_net_assets_nok,
+                      shares_outstanding, components_json
+               FROM ranked WHERE rn=1""",
+            (FULL_CALCULATION_VERSION, *dates),
+        ).fetchall()
+        snapshots_by_date = {str(row["date"]): row for row in snapshot_rows}
         full_points, failures = [], []
         for day in dates:
-            point = _estimated_point(connection, day, database_path)
+            point = _estimated_point(
+                connection,
+                day,
+                database_path,
+                snapshot_row=snapshots_by_date.get(day),
+            )
             if point.get("ready"):
                 full_points.append(point)
             else:
