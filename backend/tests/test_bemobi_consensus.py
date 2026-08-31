@@ -91,6 +91,7 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     migration = (ROOT / "cloudflare/migrations/0028_replace_aggregator_with_btg_model.sql").read_text(encoding="utf-8")
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
+    history_panel = (ROOT / "frontend/src/ConsensusHistoryPanel.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/bemobi/consensus")' in backend_app
     assert '@app.get("/api/bemobi/consensus")' in worker_app
@@ -107,6 +108,8 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert "Meglerestimater" in page
     assert "Forward konsensus" not in page
     assert "MarketScreener" not in page
+    assert "MarketScreener" not in history_panel
+    assert "Siste meglermodell-revisjon" in history_panel
     assert "Beat / miss" in page
     assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
     assert "nextQuarterEstimates.map" in page
