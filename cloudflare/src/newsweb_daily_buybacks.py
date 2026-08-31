@@ -491,6 +491,7 @@ async def _store_daily_rows(
     r2_key: str,
 ) -> int:
     written = 0
+    writes: list[tuple[str, tuple[Any, ...]]] = []
     existing_rows = await repository.all(
         """
         SELECT id, trade_date, shares, avg_price_nok, amount_nok, trade_count
@@ -525,41 +526,51 @@ async def _store_daily_rows(
                 raise ValueError(
                     f"NewsWeb daglig buyback {item.trade_date} avviker fra lagrede fakta; krever kontroll"
                 )
-            await repository.run(
-                """
-                UPDATE buyback_daily_transactions
-                SET source_document_id=?, quality=?, metadata_json=?,
-                    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                WHERE id=?
-                """,
+            writes.append(
                 (
-                    attachment_document_id,
-                    validation["quality"],
-                    __import__("json").dumps(metadata, ensure_ascii=False, sort_keys=True),
-                    int(existing["id"]),
-                ),
+                    """
+                    UPDATE buyback_daily_transactions
+                    SET source_document_id=?, quality=?, metadata_json=?,
+                        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                    WHERE id=?
+                    """,
+                    (
+                        attachment_document_id,
+                        validation["quality"],
+                        __import__("json").dumps(
+                            metadata, ensure_ascii=False, sort_keys=True
+                        ),
+                        int(existing["id"]),
+                    ),
+                )
             )
             continue
-        await repository.run(
-            """
-            INSERT INTO buyback_daily_transactions(
-                weekly_buyback_id, trade_date, shares, avg_price_nok, amount_nok,
-                trade_count, source_document_id, quality, metadata_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+        writes.append(
             (
-                weekly_buyback_id,
-                item.trade_date,
-                item.shares,
-                decimal_text(item.avg_price_nok),
-                decimal_text(item.amount_nok),
-                item.trade_count,
-                attachment_document_id,
-                validation["quality"],
-                __import__("json").dumps(metadata, ensure_ascii=False, sort_keys=True),
-            ),
+                """
+                INSERT INTO buyback_daily_transactions(
+                    weekly_buyback_id, trade_date, shares, avg_price_nok, amount_nok,
+                    trade_count, source_document_id, quality, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    weekly_buyback_id,
+                    item.trade_date,
+                    item.shares,
+                    decimal_text(item.avg_price_nok),
+                    decimal_text(item.amount_nok),
+                    item.trade_count,
+                    attachment_document_id,
+                    validation["quality"],
+                    __import__("json").dumps(
+                        metadata, ensure_ascii=False, sort_keys=True
+                    ),
+                ),
+            )
         )
         written += 1
+    if writes:
+        await repository.run_batch(writes)
     return written
 
 
