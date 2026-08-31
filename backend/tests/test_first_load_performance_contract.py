@@ -64,6 +64,19 @@ def test_frontend_keeps_bounded_last_good_bootstrap_for_repeat_first_paint() -> 
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in source
 
 
+def test_cached_first_screen_is_only_parsed_once_before_react_render() -> None:
+    source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(encoding="utf-8")
+
+    cache_check = source.index(
+        "if (storedBootstrap !== undefined) return storedBootstrap;"
+    )
+    storage_read = source.index("window.localStorage.getItem(CLIENT_CACHE_KEY)")
+
+    assert cache_check < storage_read
+    assert "storedBootstrap = stored as StoredBootstrap" in source
+    assert "storedBootstrap = stored;" in source
+
+
 def test_client_cache_never_replaces_background_network_revalidation() -> None:
     source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(encoding="utf-8")
     cache_return = source.index('return syntheticResponse(cachedComponent, "CLIENT_CACHE")')
