@@ -11,6 +11,7 @@ sys.path.insert(0, str(SOURCE_DIR))
 import otello_report_ingestion  # noqa: E402
 from otello_report_ingestion import (  # noqa: E402
     _apply_report,
+    _cleanup_report_anchors,
     _upsert_post_report_cash_events,
 )
 
@@ -30,6 +31,40 @@ class Repository:
 
     async def run(self, sql: str, params: tuple[Any, ...]) -> None:
         self.runs.append((sql, params))
+
+
+class CleanupRepository:
+    def __init__(self) -> None:
+        self.batches: list[list[tuple[str, tuple[Any, ...]]]] = []
+        self.runs: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def run_batch(
+        self, statements: list[tuple[str, tuple[Any, ...]]]
+    ) -> None:
+        self.batches.append(statements)
+
+    async def first(self, _sql: str, _params: tuple[Any, ...]) -> dict[str, str]:
+        return {"metadata_json": "{}"}
+
+    async def run(self, sql: str, params: tuple[Any, ...]) -> None:
+        self.runs.append((sql, params))
+
+
+def test_report_cleanup_deletes_related_financial_data_in_one_batch() -> None:
+    repository = CleanupRepository()
+
+    asyncio.run(_cleanup_report_anchors(repository, report_doc_id=7))
+
+    assert len(repository.batches) == 1
+    statements = repository.batches[0]
+    assert len(statements) == 4
+    assert all(params == (7,) for _sql, params in statements)
+    assert "DELETE FROM cash_movements" in statements[0][0]
+    assert "DELETE FROM other_net_assets_anchors" in statements[1][0]
+    assert "DELETE FROM other_net_assets_reported_anchors" in statements[2][0]
+    assert "DELETE FROM cash_anchors" in statements[3][0]
+    assert len(repository.runs) == 1
+    assert "UPDATE source_documents" in repository.runs[0][0]
 
 
 def test_existing_cash_event_gets_corrected_fx_conversion() -> None:

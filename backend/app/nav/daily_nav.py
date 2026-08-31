@@ -27,7 +27,9 @@ def _preferred_price(connection, symbol: str, as_of_date: str):
     third-party fallback. If both Euronext CLOSE and LAST exist on the same date, CLOSE
     wins because it has the stronger price semantic.
     """
-    floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
+    floor_date = (
+        date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)
+    ).isoformat()
     return connection.execute(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price_type,
@@ -60,7 +62,9 @@ def _preferred_price(connection, symbol: str, as_of_date: str):
 
 
 def _nearest_fx(connection, base: str, as_of_date: str):
-    floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
+    floor_date = (
+        date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)
+    ).isoformat()
     return connection.execute(
         """
         SELECT fr.id, substr(fr.observed_at,1,10) AS rate_date, fr.rate,
@@ -123,7 +127,9 @@ def _cash(connection, as_of_date: str):
     ).fetchone()
 
 
-def _share_count_may_be_stale(connection, as_of_date: str, share_count_date: str) -> bool:
+def _share_count_may_be_stale(
+    connection, as_of_date: str, share_count_date: str
+) -> bool:
     """Flag known/potential buyback lag independently of cash quality."""
     latest = connection.execute(
         """
@@ -136,6 +142,10 @@ def _share_count_may_be_stale(connection, as_of_date: str, share_count_date: str
         """,
         (as_of_date,),
     ).fetchone()
+    return _share_count_is_stale(as_of_date, share_count_date, latest)
+
+
+def _share_count_is_stale(as_of_date: str, share_count_date: str, latest: Any) -> bool:
     if latest is None:
         return False
 
@@ -149,16 +159,95 @@ def _share_count_may_be_stale(connection, as_of_date: str, share_count_date: str
     if max_shares is None or cumulative is None or int(cumulative) >= int(max_shares):
         return False
 
-    age = (date.fromisoformat(as_of_date) - date.fromisoformat(latest["trade_date"])).days
+    age = (
+        date.fromisoformat(as_of_date) - date.fromisoformat(latest["trade_date"])
+    ).days
     return 0 < age <= 14
 
 
-def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
+def _load_daily_reference_data(
+    connection, dates: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Load slowly changing NAV inputs once instead of querying for every day."""
+    if not dates:
+        return {}
+
+    end_date = dates[-1]
+    holdings = connection.execute(
+        """
+        SELECT id, shares, ownership_pct, effective_from, effective_to
+        FROM bemobi_holdings
+        WHERE effective_from <= ?
+        ORDER BY effective_from, id
+        """,
+        (end_date,),
+    ).fetchall()
+    share_counts = connection.execute(
+        """
+        SELECT id, effective_from, total_shares, treasury_shares, outstanding_shares
+        FROM otello_share_counts
+        WHERE effective_from <= ?
+        ORDER BY effective_from, id
+        """,
+        (end_date,),
+    ).fetchall()
+    buybacks = connection.execute(
+        """
+        SELECT b.id, b.trade_date, b.cumulative_program_shares, p.max_shares
+        FROM buybacks b
+        LEFT JOIN buyback_programs p ON p.id = b.program_id
+        WHERE b.trade_date <= ?
+        ORDER BY b.trade_date, b.id
+        """,
+        (end_date,),
+    ).fetchall()
+
+    result: dict[str, dict[str, Any]] = {}
+    for current in dates:
+        holding = next(
+            (
+                row
+                for row in reversed(holdings)
+                if row["effective_from"] <= current
+                and (row["effective_to"] is None or row["effective_to"] >= current)
+            ),
+            None,
+        )
+        share_count = next(
+            (row for row in reversed(share_counts) if row["effective_from"] <= current),
+            None,
+        )
+        latest_buyback = next(
+            (row for row in reversed(buybacks) if row["trade_date"] <= current),
+            None,
+        )
+        result[current] = {
+            "holding": holding,
+            "share_count": share_count,
+            "latest_buyback": latest_buyback,
+        }
+    return result
+
+
+def calculate_daily_core_nav(
+    connection,
+    as_of_date: str,
+    *,
+    reference_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     bmob3 = _preferred_price(connection, "BMOB3", as_of_date)
     otec = _preferred_price(connection, "OTEC", as_of_date)
     brl_nok = _nearest_fx(connection, "BRL", as_of_date)
-    holding = _holding(connection, as_of_date)
-    shares = _share_count(connection, as_of_date)
+    holding = (
+        reference_data["holding"]
+        if reference_data is not None
+        else _holding(connection, as_of_date)
+    )
+    shares = (
+        reference_data["share_count"]
+        if reference_data is not None
+        else _share_count(connection, as_of_date)
+    )
     cash = _cash(connection, as_of_date)
 
     required = {
@@ -185,7 +274,16 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
     nav_per_share = nav_total / Decimal(outstanding)
     discount = (Decimal("1") - otec_price / nav_per_share) * Decimal("100")
 
-    stale_share_count = _share_count_may_be_stale(connection, as_of_date, shares["effective_from"])
+    if reference_data is None:
+        stale_share_count = _share_count_may_be_stale(
+            connection, as_of_date, shares["effective_from"]
+        )
+    else:
+        stale_share_count = _share_count_is_stale(
+            as_of_date,
+            shares["effective_from"],
+            reference_data["latest_buyback"],
+        )
     high_residual = cash["calibration_quality"] == "HIGH_RESIDUAL"
     forecast_partial = cash["quality"] == "FORECAST_PARTIAL"
 
@@ -238,7 +336,9 @@ def calculate_daily_core_nav(connection, as_of_date: str) -> dict[str, Any]:
             "share_count_id": shares["id"],
             "share_count_date": shares["effective_from"],
             "outstanding_shares": outstanding,
-            "share_count_quality": "POTENTIALLY_STALE" if stale_share_count else "CURRENT_KNOWN",
+            "share_count_quality": (
+                "POTENTIALLY_STALE" if stale_share_count else "CURRENT_KNOWN"
+            ),
         },
         "cash": {
             "daily_cash_id": cash["id"],
@@ -297,8 +397,11 @@ def rebuild_daily_core_nav(
                 (start, end),
             )
         ]
+        reference_data = _load_daily_reference_data(connection, dates)
         for current in dates:
-            result = calculate_daily_core_nav(connection, current)
+            result = calculate_daily_core_nav(
+                connection, current, reference_data=reference_data[current]
+            )
             if not result["ready"]:
                 skipped.append(result)
                 continue
@@ -342,7 +445,9 @@ def rebuild_daily_core_nav(
                     CALCULATION_VERSION,
                     result["inputs_hash"],
                     result["status"],
-                    json.dumps(result["components"], sort_keys=True, ensure_ascii=False),
+                    json.dumps(
+                        result["components"], sort_keys=True, ensure_ascii=False
+                    ),
                     result["quality_notes"],
                 ),
             )

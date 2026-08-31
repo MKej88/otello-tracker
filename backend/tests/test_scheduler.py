@@ -1,8 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 
 from app.db.connection import get_connection
+from app.db.migration_runner import init_database
 from app.jobs.scheduler import (
     SchedulerConfig,
     load_config,
@@ -42,7 +45,9 @@ def test_load_config_accepts_explicit_intervals_start_policy_and_backup_dir() ->
 
 
 @pytest.mark.parametrize("value", ["0", "4", "abc"])
-def test_load_config_rejects_invalid_or_too_aggressive_fast_interval(value: str) -> None:
+def test_load_config_rejects_invalid_or_too_aggressive_fast_interval(
+    value: str,
+) -> None:
     with pytest.raises(ValueError):
         load_config(
             {
@@ -52,7 +57,9 @@ def test_load_config_rejects_invalid_or_too_aggressive_fast_interval(value: str)
         )
 
 
-@pytest.mark.parametrize("key", ["FULL_REFRESH_INTERVAL_MINUTES", "BACKUP_INTERVAL_MINUTES"])
+@pytest.mark.parametrize(
+    "key", ["FULL_REFRESH_INTERVAL_MINUTES", "BACKUP_INTERVAL_MINUTES"]
+)
 def test_load_config_rejects_too_aggressive_maintenance_interval(key: str) -> None:
     with pytest.raises(ValueError):
         load_config({"DATABASE_PATH": "/data/test.db", key: "30"})
@@ -187,9 +194,63 @@ def test_daily_maintenance_runs_once_and_is_persisted(tmp_path) -> None:
     ]
 
 
+def test_concurrent_schedulers_claim_maintenance_only_once(tmp_path) -> None:
+    database = str(tmp_path / "scheduler-concurrent.db")
+    config = SchedulerConfig(
+        database,
+        interval_seconds=1800,
+        run_on_start=True,
+        full_interval_seconds=86400,
+        backup_interval_seconds=86400,
+    )
+    fixed = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    refresh_started = Event()
+    release_refresh = Event()
+    calls = 0
+
+    init_database(database)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO job_runs(job_name, started_at, finished_at, status)
+            VALUES ('database_backup', ?, ?, 'SUCCESS')
+            """,
+            (fixed.isoformat(), fixed.isoformat()),
+        )
+        connection.commit()
+
+    def full_refresh(_path: str):
+        nonlocal calls
+        calls += 1
+        refresh_started.set()
+        assert release_refresh.wait(timeout=5)
+        return {"status": "ok", "source_errors": [], "dashboard": {"ready": True}}
+
+    def run() -> list[dict]:
+        return run_maintenance_if_due(
+            config,
+            full_refresh_fn=full_refresh,
+            now_fn=lambda: fixed,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(run)
+        assert refresh_started.wait(timeout=5)
+        second = executor.submit(run)
+        second_result = second.result(timeout=5)
+        release_refresh.set()
+        first_result = first.result(timeout=5)
+
+    assert calls == 1
+    assert len(first_result) == 1
+    assert second_result == []
+
+
 def test_degraded_full_refresh_counts_as_completed_maintenance_window(tmp_path) -> None:
     database = str(tmp_path / "scheduler-partial.db")
-    config = SchedulerConfig(database, 1800, True, full_interval_seconds=86400, backup_interval_seconds=86400)
+    config = SchedulerConfig(
+        database, 1800, True, full_interval_seconds=86400, backup_interval_seconds=86400
+    )
     fixed = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
     calls = 0
 
@@ -204,7 +265,12 @@ def test_degraded_full_refresh_counts_as_completed_maintenance_window(tmp_path) 
         }
 
     def backup(_path: str, *, backup_dir: str | None = None):
-        return {"status": "ok", "backup_path": "x", "size_bytes": 1, "integrity_check": "ok"}
+        return {
+            "status": "ok",
+            "backup_path": "x",
+            "size_bytes": 1,
+            "integrity_check": "ok",
+        }
 
     first = run_maintenance_if_due(
         config, full_refresh_fn=full_refresh, backup_fn=backup, now_fn=lambda: fixed

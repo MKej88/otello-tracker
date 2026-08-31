@@ -44,6 +44,15 @@ def _meta_number(metadata: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
+def _first_meta_number(rows: list[dict[str, Any]], *keys: str) -> float | None:
+    """Return the first usable metadata value from rows in priority order."""
+    for row in rows:
+        result = _meta_number(_metadata(row.get("metadata_json")), *keys)
+        if result is not None:
+            return result
+    return None
+
+
 def _preferred_daily_rows(
     rows: list[dict[str, Any]], symbol: str
 ) -> list[dict[str, Any]]:
@@ -178,31 +187,16 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
             -int(row.get("id") or 0),
         ),
     )
-    open_value = low_value = high_value = None
-    for row in preferred:
-        meta = _metadata(row.get("metadata_json"))
-        open_value = (
-            open_value
-            if open_value is not None
-            else _meta_number(meta, "open_price", "open")
-        )
-        low_value = (
-            low_value
-            if low_value is not None
-            else _meta_number(meta, "min_price", "low", "day_low")
-        )
-        high_value = (
-            high_value
-            if high_value is not None
-            else _meta_number(meta, "max_price", "high", "day_high")
-        )
-        if open_value is not None and low_value is not None and high_value is not None:
-            return {
-                "open": open_value,
-                "low": low_value,
-                "high": high_value,
-                "basis": "EXCHANGE_SESSION_SUMMARY",
-            }
+    open_value = _first_meta_number(preferred, "open_price", "open")
+    low_value = _first_meta_number(preferred, "min_price", "low", "day_low")
+    high_value = _first_meta_number(preferred, "max_price", "high", "day_high")
+    if open_value is not None and low_value is not None and high_value is not None:
+        return {
+            "open": open_value,
+            "low": low_value,
+            "high": high_value,
+            "basis": "EXCHANGE_SESSION_SUMMARY",
+        }
 
     explicit: dict[str, float] = {}
     observed_prices: list[float] = []
