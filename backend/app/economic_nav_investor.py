@@ -95,8 +95,8 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
     with get_connection(database_path) as connection:
         row = connection.execute(
             """
-            SELECT as_of_at, created_at, nav_total_nok, nav_per_share_nok, otec_price_nok,
-                   shares_outstanding, components_json
+            SELECT as_of_at, created_at, updated_at, nav_total_nok, nav_per_share_nok,
+                   otec_price_nok, shares_outstanding, components_json
             FROM nav_snapshots
             WHERE calculation_version=? AND nav_scope='FULL'
               AND substr(as_of_at,1,10)=?
@@ -195,7 +195,7 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
                 else "NAV_SETTLEMENT_SCENARIO"
             ),
             "nav_per_share": _float(economic_per_share),
-            "calculated_at": str(row["created_at"]),
+            "calculated_at": str(row["updated_at"] or row["created_at"]),
             "shares_outstanding": shares_outstanding,
             "discount_pct": _discount_pct(otec_price_nok, economic_per_share),
             "conservative_nav_per_share": _float(conservative_per_share),
