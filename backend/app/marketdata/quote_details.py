@@ -315,17 +315,25 @@ def _volume_summary(volume_rows: list[tuple[str, float]], basis: str) -> dict[st
 
 
 def _volume_stats(
-    connection, symbol: str, history: list[dict[str, Any]]
+    connection,
+    symbol: str,
+    history: list[dict[str, Any]],
+    latest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if symbol == "OTEC":
-        rows = [dict(row) for row in connection.execute("""
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                """
                 SELECT trading_date, volume_shares
                 FROM market_activity ma
                 JOIN instruments i ON i.id=ma.instrument_id
                 WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
                 ORDER BY trading_date DESC, ma.id DESC
                 LIMIT 126
-                """)]
+                """
+            )
+        ]
         deduped: dict[str, float] = {}
         for row in rows:
             if row["trading_date"] in deduped:
@@ -348,10 +356,51 @@ def _volume_stats(
             volume_rows.append((str(row["trading_date"]), value))
         if len(volume_rows) >= THREE_MONTH_TRADING_SESSIONS:
             break
+
+    values = [value for _, value in volume_rows]
+    average = mean(values) if values else None
+    latest_value = volume_rows[0][1] if volume_rows else None
+    latest_date = volume_rows[0][0] if volume_rows else None
     basis = (
-        "B3_COTAHIST_QUANTITY" if symbol == "BMOB3" else "STORED_MARKET_PRICE_METADATA"
+        "B3_COTAHIST_QUANTITY"
+        if symbol == "BMOB3"
+        else "STORED_MARKET_PRICE_METADATA"
     )
-    return _volume_summary(volume_rows, basis=basis)
+    source = "B3" if symbol == "BMOB3" else None
+    provisional = False
+
+    if symbol == "BMOB3" and latest is not None:
+        latest_meta = _metadata(latest.get("metadata_json"))
+        intraday_volume = _meta_number(latest_meta, "volume_shares")
+        if (
+            intraday_volume is not None
+            and intraday_volume >= 0
+            and latest_meta.get("volume_provisional") is True
+            and latest_meta.get("volume_source") == "YAHOO_FINANCE"
+        ):
+            latest_value = intraday_volume
+            latest_date = str(latest.get("trading_date"))
+            basis = "YAHOO_FINANCE_INTRADAY"
+            source = "YAHOO_FINANCE"
+            provisional = True
+
+    result = {
+        "latest": latest_value,
+        "latest_date": latest_date,
+        "average_3m": average,
+        "average_sessions": len(values),
+        "latest_above_average": (
+            latest_value > average
+            if latest_value is not None and average is not None
+            else None
+        ),
+        "unit": "shares",
+        "basis": basis,
+    }
+    if symbol == "BMOB3":
+        result["source"] = source
+        result["provisional"] = provisional
+    return result
 
 
 def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
@@ -417,7 +466,7 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
             "source": latest_close.get("source_code") if latest_close else None,
             "basis": latest_close.get("close_basis") if latest_close else None,
         },
-        "volume": _volume_stats(connection, symbol, history),
+        "volume": _volume_stats(connection, symbol, history, latest),
         "range_52w": _range_52w(history),
     }
 
