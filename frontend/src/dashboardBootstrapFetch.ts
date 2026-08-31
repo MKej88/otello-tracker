@@ -104,6 +104,15 @@ export function getCachedDashboardComponent<T>(component: BootstrapComponent): T
   return isObject(value) ? value as T : null;
 }
 
+/** Read a last-good first-screen value before React's first render. */
+export function getCachedDashboardComponentForUrl<T>(url: string): T | null {
+  const parsed = requestUrl(url);
+  const component = parsed && parsed.search === ""
+    ? COMPONENT_BY_PATH[parsed.pathname]
+    : undefined;
+  return component == null ? null : getCachedDashboardComponent<T>(component);
+}
+
 /**
  * Send the network-validated bootstrap value to mounted first-screen consumers.
  * Without this hand-off, a fast browser-cache paint stayed unchanged until the

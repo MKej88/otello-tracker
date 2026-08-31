@@ -34,9 +34,21 @@ type Forecast = {
 };
 
 export default function OverviewPage() {
-  const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>("/api/dashboard/summary", REFRESH_MS);
-  const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
-  const { data: forecast } = usePollingResource<Forecast>("/api/buybacks/forecast", REFRESH_MS);
+  const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>(
+    "/api/dashboard/summary",
+    REFRESH_MS,
+    true,
+  );
+  const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>(
+    "/api/dashboard/economic",
+    REFRESH_MS,
+    true,
+  );
+  const { data: forecast } = usePollingResource<Forecast>(
+    "/api/buybacks/forecast",
+    REFRESH_MS,
+    true,
+  );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const brlNokStatus = summaryRefreshFailed
     ? summary

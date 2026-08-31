@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
-import { subscribeDashboardRevalidation } from "./dashboardBootstrapFetch";
+import {
+  getCachedDashboardComponentForUrl,
+  subscribeDashboardRevalidation,
+} from "./dashboardBootstrapFetch";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -13,7 +16,9 @@ export function usePollingResource<T>(
   intervalMs: number,
   usePreloadedInitial = false,
 ): PollingResourceState<T> {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(() => (
+    usePreloadedInitial ? getCachedDashboardComponentForUrl<T>(url) : null
+  ));
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
