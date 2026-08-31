@@ -7,6 +7,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 try:
+    from .bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
@@ -27,6 +28,7 @@ try:
     from .otello_report_ingestion import process_pending_otello_reports
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
+    from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
@@ -437,6 +439,43 @@ async def run_fast_refresh(
     if renew_lock is not None:
         await renew_lock("after Life360 LIF repair")
 
+    bemobi_distribution_cash = await _safe_async_step(
+        "bemobi_distribution_cash",
+        lambda: sync_confirmed_bemobi_distribution_cash(
+            repository,
+            target_date=newsweb_date,
+        ),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+    if isinstance(bemobi_distribution_cash, dict):
+        records_written += int(bemobi_distribution_cash.get("rows_written") or 0)
+        records_written += int(bemobi_distribution_cash.get("rows_updated") or 0)
+        if bemobi_distribution_cash.get("status") == "partial":
+            skipped = bemobi_distribution_cash.get("skipped") or []
+            reasons = sorted(
+                {
+                    str(item.get("reason") or "ukjent")
+                    for item in skipped
+                    if isinstance(item, dict)
+                }
+            )
+            reason_text = ", ".join(reasons) or "ukjent årsak"
+            errors.append(
+                {
+                    "step": "bemobi_distribution_cash",
+                    "error": (
+                        f"{len(skipped)} bekreftede Bemobi-utbetaling(er) kunne ikke "
+                        f"materialiseres ({reason_text})"
+                    ),
+                    "error_type": "BemobiDistributionCashPartial",
+                }
+            )
+
+    if renew_lock is not None:
+        await renew_lock("after Bemobi distribution cash")
+
     dirty_nav = await _safe_async_step(
         "dirty_nav",
         lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
@@ -501,6 +540,7 @@ async def run_fast_refresh(
         "dirty_nav_enabled": True,
         "automatic_report_ingestion": archive_bucket is not None,
         "automatic_interest_income_ingestion": True,
+        "automatic_bemobi_distribution_cash": True,
         "performance": {
             "total_ms_before_finish_job": total_ms,
             "step_timings_ms": timings_ms,
