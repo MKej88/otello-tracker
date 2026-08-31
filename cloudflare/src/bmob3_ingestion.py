@@ -61,6 +61,8 @@ class Bmob3YahooQuote:
     price: Decimal
     provider_datetime: datetime
     exchange_timezone: str
+    volume_shares: int | None
+    volume_basis: str | None
 
     @property
     def trading_date(self) -> str:
@@ -82,6 +84,16 @@ def _decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    number = _decimal(value)
+    if number is None or not number.is_finite() or number < 0:
+        return None
+    integral = number.to_integral_value()
+    if number != integral:
+        return None
+    return int(integral)
 
 
 def parse_bmob3_web_quote(payload: bytes | str) -> Bmob3WebQuote:
@@ -177,11 +189,13 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
     timestamps = result.get("timestamp")
     indicators = result.get("indicators")
     quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
-    closes = (
-        quote_rows[0].get("close")
+    quote_row = (
+        quote_rows[0]
         if isinstance(quote_rows, list) and len(quote_rows) == 1 and isinstance(quote_rows[0], dict)
         else None
     )
+    closes = quote_row.get("close") if quote_row is not None else None
+    volumes = quote_row.get("volume") if quote_row is not None else None
     candidates: list[tuple[int, Decimal]] = []
     if isinstance(timestamps, list) and isinstance(closes, list) and len(timestamps) == len(closes):
         for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
@@ -207,11 +221,48 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
         except (TypeError, ValueError) as exc:
             raise ValueError("Yahoo BMOB3 regularMarketTime er ugyldig") from exc
 
+    regular_volume = _nonnegative_int(meta.get("regularMarketVolume"))
+    minute_volume: int | None = None
+    if (
+        regular_volume is None
+        and isinstance(timestamps, list)
+        and isinstance(volumes, list)
+        and len(timestamps) == len(volumes)
+    ):
+        total = 0
+        found_volume = False
+        for raw_timestamp, raw_volume in zip(timestamps, volumes, strict=True):
+            try:
+                volume_timestamp = int(raw_timestamp)
+            except (TypeError, ValueError):
+                continue
+            if volume_timestamp > timestamp:
+                continue
+            volume = _nonnegative_int(raw_volume)
+            if volume is None:
+                continue
+            total += volume
+            found_volume = True
+        if found_volume:
+            minute_volume = total
+
+    if regular_volume is not None:
+        volume_shares = regular_volume
+        volume_basis = "YAHOO_REGULAR_MARKET_VOLUME"
+    elif minute_volume is not None:
+        volume_shares = minute_volume
+        volume_basis = "YAHOO_1M_VOLUME_SUM"
+    else:
+        volume_shares = None
+        volume_basis = None
+
     provider_datetime = datetime.fromtimestamp(timestamp, tz=UTC)
     return Bmob3YahooQuote(
         price=price,
         provider_datetime=provider_datetime,
         exchange_timezone=timezone_name,
+        volume_shares=volume_shares,
+        volume_basis=volume_basis,
     )
 
 
@@ -234,6 +285,19 @@ def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
         "market_name": quote.market_name,
         "official_close_upgrade": "B3 daily COTAHIST CLOSE outranks same-day LAST when available",
         "payload_policy": "BOUNDED_JSON_RESPONSE",
+    }
+
+
+def _yahoo_volume_metadata(quote: Bmob3YahooQuote) -> dict[str, Any]:
+    if quote.volume_shares is None:
+        return {}
+    return {
+        "volume_shares": quote.volume_shares,
+        "volume_source": "YAHOO_FINANCE",
+        "volume_basis": quote.volume_basis,
+        "volume_provisional": True,
+        "volume_observed_at": quote.observed_at,
+        "volume_semantics": "INTRADAY_CUMULATIVE_NOT_OFFICIAL_CLOSE",
     }
 
 
@@ -320,9 +384,16 @@ async def _persist_quote(
     external_id: str,
     document_type: str,
     title: str,
+    volume_quote: Bmob3YahooQuote | None = None,
 ) -> int:
     digest = hashlib.sha256(payload).hexdigest()
     metadata = _quote_metadata(quote, feed_mode=feed_mode)
+    if (
+        volume_quote is not None
+        and volume_quote.trading_date == quote.trading_date
+        and volume_quote.volume_shares is not None
+    ):
+        metadata.update(_yahoo_volume_metadata(volume_quote))
     if feed_mode == "EOD_LAST_QUOTE":
         metadata["price_semantics"] = "FINAL_DELAYED_WEB_QUOTE_NOT_COTAHIST_CLOSE"
     document_id = await repository.create_source_document(
@@ -376,6 +447,7 @@ async def _persist_yahoo_quote(
         "fallback_reason": fallback_reason[:700],
         "official_close_upgrade": "B3 daily COTAHIST CLOSE outranks same-day LAST when available",
         "payload_policy": "BOUNDED_JSON_RESPONSE",
+        **_yahoo_volume_metadata(quote),
     }
     document_id = await repository.create_source_document(
         source_code="YAHOO_FINANCE",
@@ -439,6 +511,14 @@ async def refresh_bmob3_intraday_price(
     except Exception as exc:
         b3_error = str(exc)
     else:
+        volume_quote: Bmob3YahooQuote | None = None
+        try:
+            _, _, candidate_volume_quote, _ = await download_bmob3_yahoo_quote(fetcher=fetcher)
+            if candidate_volume_quote.trading_date == target_date:
+                volume_quote = candidate_volume_quote
+        except Exception:
+            volume_quote = None
+
         price_id = await _persist_quote(
             repository,
             quote,
@@ -448,6 +528,7 @@ async def refresh_bmob3_intraday_price(
             external_id="bmob3-web-quote-{digest:.20}",
             document_type="API_RESPONSE",
             title=f"B3 public BMOB3 delayed web quote {quote.provider_at}",
+            volume_quote=volume_quote,
         )
         return {
             "status": "ok",
@@ -461,6 +542,8 @@ async def refresh_bmob3_intraday_price(
             "provider_at": quote.provider_at,
             "delay_minutes": B3_PUBLIC_DELAY_MINUTES,
             "source_url": url,
+            "volume_shares": volume_quote.volume_shares if volume_quote else None,
+            "volume_source": "YAHOO_FINANCE" if volume_quote and volume_quote.volume_shares is not None else None,
         }
 
     try:
@@ -500,6 +583,8 @@ async def refresh_bmob3_intraday_price(
         "provider_endpoint": provider_base,
         "fallback_from": "B3_PUBLIC_WEB_QUOTE",
         "fallback_reason": b3_error,
+        "volume_shares": yahoo_quote.volume_shares,
+        "volume_source": "YAHOO_FINANCE" if yahoo_quote.volume_shares is not None else None,
     }
 
 
