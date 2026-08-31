@@ -71,6 +71,18 @@ def test_client_cache_never_replaces_background_network_revalidation() -> None:
     assert network_start < cache_return
 
 
+def test_network_revalidation_reaches_the_first_screen_without_waiting_for_polling() -> None:
+    bootstrap = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(
+        encoding="utf-8"
+    )
+    polling = (FRONTEND_SRC / "usePollingResource.ts").read_text(encoding="utf-8")
+
+    assert "servedFromClientCache.add(component)" in bootstrap
+    assert "bootstrapPromise.then(publishRevalidatedBootstrap)" in bootstrap
+    assert "subscribeDashboardRevalidation<T>(url" in polling
+    assert "unsubscribeRevalidation?.()" in polling
+
+
 def test_html_preloads_first_screen_data_before_javascript() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     preload_start = source.index('rel="preload"')

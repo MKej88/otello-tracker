@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import { subscribeDashboardRevalidation } from "./dashboardBootstrapFetch";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -55,10 +56,17 @@ export function usePollingResource<T>(
     };
 
     void load();
+    const unsubscribeRevalidation = subscribeDashboardRevalidation<T>(url, (result) => {
+      if (!active) return;
+      setData(result);
+      setRefreshFailed(false);
+      setLastUpdatedAt(new Date());
+    });
     const timer = window.setInterval(() => { void load(); }, intervalMs);
     return () => {
       active = false;
       window.clearInterval(timer);
+      unsubscribeRevalidation?.();
       controller?.abort();
     };
   }, [url, intervalMs, usePreloadedInitial]);

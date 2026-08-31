@@ -33,6 +33,9 @@ const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 let installed = false;
 let bootstrapPromise: Promise<BootstrapPayload | null> | null = null;
 const servedFromBootstrap = new Set<BootstrapComponent>();
+const servedFromClientCache = new Set<BootstrapComponent>();
+const revalidationListeners = new Map<BootstrapComponent, Set<(value: unknown) => void>>();
+let revalidatedBootstrap: BootstrapPayload | null = null;
 
 function requestUrl(input: RequestInfo | URL): URL | null {
   try {
@@ -101,6 +104,46 @@ export function getCachedDashboardComponent<T>(component: BootstrapComponent): T
   return isObject(value) ? value as T : null;
 }
 
+/**
+ * Send the network-validated bootstrap value to mounted first-screen consumers.
+ * Without this hand-off, a fast browser-cache paint stayed unchanged until the
+ * normal two-minute polling interval, even after revalidation had completed.
+ */
+export function subscribeDashboardRevalidation<T>(
+  url: string,
+  listener: (value: T) => void,
+): (() => void) | null {
+  const parsed = requestUrl(url);
+  const component = parsed && parsed.search === "" ? COMPONENT_BY_PATH[parsed.pathname] : undefined;
+  if (component == null) return null;
+
+  const listeners = revalidationListeners.get(component) ?? new Set();
+  const wrapped = listener as (value: unknown) => void;
+  listeners.add(wrapped);
+  revalidationListeners.set(component, listeners);
+  return () => {
+    listeners.delete(wrapped);
+    if (listeners.size === 0) revalidationListeners.delete(component);
+  };
+}
+
+function publishRevalidatedBootstrap(payload: BootstrapPayload | null): void {
+  if (payload == null) return;
+  revalidatedBootstrap = payload;
+  for (const component of servedFromClientCache) {
+    publishRevalidatedComponent(component, payload);
+  }
+}
+
+function publishRevalidatedComponent(
+  component: BootstrapComponent,
+  payload: BootstrapPayload,
+): void {
+  const value = payload[component];
+  if (!isObject(value)) return;
+  for (const listener of revalidationListeners.get(component) ?? []) listener(value);
+}
+
 async function fetchBootstrap(originalFetch: typeof window.fetch): Promise<BootstrapPayload | null> {
   try {
     const response = await originalFetch("/api/dashboard/bootstrap");
@@ -138,6 +181,7 @@ export function installDashboardBootstrapFetch(): void {
 
   // Start revalidation before React effects issue their first API request.
   bootstrapPromise = fetchBootstrap(originalFetch);
+  void bootstrapPromise.then(publishRevalidatedBootstrap);
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = requestUrl(input);
@@ -153,6 +197,11 @@ export function installDashboardBootstrapFetch(): void {
     const cachedComponent = cached?.payload[component];
     if (isObject(cachedComponent)) {
       servedFromBootstrap.add(component);
+      servedFromClientCache.add(component);
+      const currentRevalidation = revalidatedBootstrap;
+      if (currentRevalidation != null) {
+        window.setTimeout(() => publishRevalidatedComponent(component, currentRevalidation), 0);
+      }
       return syntheticResponse(cachedComponent, "CLIENT_CACHE");
     }
 
