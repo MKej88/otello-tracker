@@ -139,6 +139,55 @@ def test_intraday_cold_start_recovers_trade_outside_last_hour(tmp_path, monkeypa
     assert result["price_nok"] == "17.15"
 
 
+def test_intraday_partial_poll_does_not_hide_a_gap(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "partial-poll.db")
+    init_database(database)
+    oslo = ZoneInfo("Europe/Oslo")
+    now = datetime(2026, 8, 17, 14, 0, tzinfo=oslo)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO job_runs(job_name, started_at, finished_at, status, metadata_json)
+            VALUES ('fast_refresh', ?, ?, 'PARTIAL', '{}')
+            """,
+            ("2026-08-17T11:29:00+00:00", "2026-08-17T11:30:00+00:00"),
+        )
+        connection.commit()
+
+    monkeypatch.setattr(
+        feed,
+        "refresh_otec_delayed_price",
+        lambda *_args, **_kwargs: {
+            "status": "no_trade",
+            "selected": None,
+            "attempts": [],
+        },
+    )
+    monkeypatch.setattr(
+        feed,
+        "download_euronext_delayed_equities",
+        lambda *_args, **_kwargs: (
+            "https://example/current-day",
+            b"current-day-payload",
+        ),
+    )
+    monkeypatch.setattr(
+        feed,
+        "import_delayed_otec_trade",
+        lambda *_args, **_kwargs: {
+            "found": True,
+            "price_nok": "17.15",
+            "trading_date": "2026-08-17",
+        },
+    )
+
+    result = feed.refresh_otec_intraday_price(database, now=now)
+
+    assert result["gap_recovery"] is True
+    assert result["selected"] == "CURRENT_TRADING_DAY"
+    assert result["price_nok"] == "17.15"
+
+
 def test_intraday_small_window_trade_never_uses_full_file(monkeypatch) -> None:
     oslo = ZoneInfo("Europe/Oslo")
     monkeypatch.setattr(
