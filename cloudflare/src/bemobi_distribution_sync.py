@@ -61,6 +61,17 @@ def _tax_per_share(action: dict[str, Any]) -> tuple[Decimal, str] | None:
     return None
 
 
+def _row_matches(existing: dict[str, Any], expected: dict[str, Any]) -> bool:
+    for key, value in expected.items():
+        current = existing.get(key)
+        if value is None:
+            if current is not None:
+                return False
+        elif str(current) != str(value):
+            return False
+    return True
+
+
 async def _upsert_receipt(
     repository,
     *,
@@ -79,20 +90,37 @@ async def _upsert_receipt(
         f"BRL {decimal_text(gross_per_share)} gross per share. "
         "Booked on the confirmed payment date; JCP withholding is stored separately."
     )
+    expected = {
+        "movement_date": str(action["payment_date"]),
+        "movement_type": movement_type,
+        "amount_nok": decimal_text(amount_nok),
+        "amount_original": decimal_text(gross_brl),
+        "currency": "BRL",
+        "fx_rate_to_nok": decimal_text(rate),
+        "description": description,
+        "source_document_id": action.get("source_document_id"),
+        "confidence": "ESTIMATED",
+    }
     existing = await repository.first(
-        "SELECT id FROM cash_movements WHERE corporate_action_id=? LIMIT 1",
+        """
+        SELECT id, movement_date, movement_type, amount_nok, amount_original,
+               currency, fx_rate_to_nok, description, source_document_id, confidence
+        FROM cash_movements
+        WHERE corporate_action_id=?
+        LIMIT 1
+        """,
         (int(action["id"]),),
     )
     values = (
-        str(action["payment_date"]),
-        movement_type,
-        decimal_text(amount_nok),
-        decimal_text(gross_brl),
-        "BRL",
-        decimal_text(rate),
-        description,
-        action.get("source_document_id"),
-        "ESTIMATED",
+        expected["movement_date"],
+        expected["movement_type"],
+        expected["amount_nok"],
+        expected["amount_original"],
+        expected["currency"],
+        expected["fx_rate_to_nok"],
+        expected["description"],
+        expected["source_document_id"],
+        expected["confidence"],
         int(action["id"]),
     )
     if existing is None:
@@ -107,6 +135,8 @@ async def _upsert_receipt(
             values,
         )
         return "written"
+    if _row_matches(existing, expected):
+        return "unchanged"
 
     await repository.run(
         """
@@ -147,20 +177,37 @@ async def _upsert_withholding(
         "Stored separately so the confirmed distribution moves from receivable to net cash "
         "without changing NAV merely because the payment date is reached."
     )
+    expected = {
+        "movement_date": str(action["payment_date"]),
+        "movement_type": "TAX",
+        "amount_nok": decimal_text(amount_nok),
+        "amount_original": decimal_text(tax_brl),
+        "currency": "BRL",
+        "fx_rate_to_nok": decimal_text(rate),
+        "description": description,
+        "source_document_id": action.get("source_document_id"),
+        "confidence": "ESTIMATED",
+    }
     existing = await repository.first(
-        "SELECT id FROM cash_movements WHERE external_movement_id=? LIMIT 1",
+        """
+        SELECT id, movement_date, movement_type, amount_nok, amount_original,
+               currency, fx_rate_to_nok, description, source_document_id, confidence
+        FROM cash_movements
+        WHERE external_movement_id=?
+        LIMIT 1
+        """,
         (external_movement_id,),
     )
     values = (
-        str(action["payment_date"]),
-        "TAX",
-        decimal_text(amount_nok),
-        decimal_text(tax_brl),
-        "BRL",
-        decimal_text(rate),
-        description,
-        action.get("source_document_id"),
-        "ESTIMATED",
+        expected["movement_date"],
+        expected["movement_type"],
+        expected["amount_nok"],
+        expected["amount_original"],
+        expected["currency"],
+        expected["fx_rate_to_nok"],
+        expected["description"],
+        expected["source_document_id"],
+        expected["confidence"],
         external_movement_id,
     )
     if existing is None:
@@ -175,6 +222,8 @@ async def _upsert_withholding(
             values,
         )
         return "written"
+    if _row_matches(existing, expected):
+        return "unchanged"
 
     await repository.run(
         """
@@ -221,6 +270,7 @@ async def sync_confirmed_bemobi_distribution_cash(
 
     written = 0
     updated = 0
+    unchanged = 0
     skipped: list[dict[str, Any]] = []
     processed = 0
     for action in actions:
@@ -247,6 +297,7 @@ async def sync_confirmed_bemobi_distribution_cash(
         )
         written += int(receipt_result == "written")
         updated += int(receipt_result == "updated")
+        unchanged += int(receipt_result == "unchanged")
 
         tax_result = await _upsert_withholding(
             repository,
@@ -256,6 +307,7 @@ async def sync_confirmed_bemobi_distribution_cash(
         )
         written += int(tax_result == "written")
         updated += int(tax_result == "updated")
+        unchanged += int(tax_result == "unchanged")
         processed += 1
 
     return {
@@ -265,6 +317,7 @@ async def sync_confirmed_bemobi_distribution_cash(
         "actions_processed": processed,
         "rows_written": written,
         "rows_updated": updated,
+        "rows_unchanged": unchanged,
         "skipped": skipped,
         "policy": "confirmed-ex-date-receivable-to-payment-date-net-cash",
     }
