@@ -1,7 +1,14 @@
 from decimal import Decimal
 
+import pytest
+
 from app.buybacks import ingest_euronext_buyback_status, parse_euronext_buyback_status
-from app.buybacks.collector import discover_buyback_urls, extract_page_text
+from app.buybacks.collector import (
+    MAX_HTML_BYTES,
+    _fetch,
+    discover_buyback_urls,
+    extract_page_text,
+)
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history
@@ -59,8 +66,44 @@ def test_discovery_accepts_only_mfn_buyback_mirror_links() -> None:
         "https://mfn.se/all/a/otello/otec-otello-corporation-share-buyback-program-status-aaa111",
         "https://mfn.se/all/a/otello/otec-otello-corporation-share-buyback-program-status-bbb222",
     ]
-    page = f"<html><body><main><p>{SAMPLE}</p><p>Källa Oslo Børs</p></main></body></html>"
+    page = (
+        f"<html><body><main><p>{SAMPLE}</p><p>Källa Oslo Børs</p></main></body></html>"
+    )
     assert "65,300 shares" in extract_page_text(page)
+
+
+class _FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def read(self, size: int = -1) -> bytes:
+        return self.payload if size < 0 else self.payload[:size]
+
+
+def test_fetch_rejects_empty_mfn_response(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.buybacks.collector.urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(b"  \n"),
+    )
+
+    with pytest.raises(ValueError, match="tom respons"):
+        _fetch("https://mfn.se/all/a/otello-corporation")
+
+
+def test_fetch_rejects_oversized_mfn_response(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.buybacks.collector.urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(b"x" * (MAX_HTML_BYTES + 1)),
+    )
+
+    with pytest.raises(ValueError, match="størrelsesgrense"):
+        _fetch("https://mfn.se/all/a/otello-corporation")
 
 
 def test_ingestion_updates_buyback_cash_and_share_count_idempotently(tmp_path) -> None:
@@ -96,18 +139,19 @@ def test_ingestion_updates_buyback_cash_and_share_count_idempotently(tmp_path) -
         assert cash[0]["amount_nok"] == "-1117133"
         assert cash[0]["confidence"] == "CONFIRMED"
 
-        shares = connection.execute(
-            """
+        shares = connection.execute("""
             SELECT * FROM otello_share_counts
             WHERE effective_from = '2026-07-10'
             ORDER BY id DESC LIMIT 1
-            """
-        ).fetchone()
+            """).fetchone()
         assert shares["total_shares"] == 73_790_829
         assert shares["treasury_shares"] == 5_519_886
         assert shares["outstanding_shares"] == 68_270_943
 
         assert connection.execute("SELECT COUNT(*) FROM buybacks").fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT COUNT(*) FROM cash_movements WHERE movement_type = 'OTELLO_BUYBACK'"
-        ).fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM cash_movements WHERE movement_type = 'OTELLO_BUYBACK'"
+            ).fetchone()[0]
+            == 1
+        )
