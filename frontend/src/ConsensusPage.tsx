@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import "./consensus-page.css";
@@ -147,12 +148,14 @@ export default function ConsensusPage() {
 
   useEffect(() => {
     let active = true;
-    const load = () => {
-      fetch("/api/bemobi/consensus")
-        .then((response) => {
-          if (!response.ok) throw new Error("Konsensus API-feil");
-          return response.json() as Promise<ConsensusPayload>;
-        })
+    const load = (initial = false) => {
+      const request = initial
+        ? fetchPreloadedJson<ConsensusPayload>("/api/bemobi/consensus")
+        : fetch("/api/bemobi/consensus").then((response) => {
+            if (!response.ok) throw new Error("Konsensus API-feil");
+            return response.json() as Promise<ConsensusPayload>;
+          });
+      request
         .then((result) => {
           if (!active) return;
           setData(result);
@@ -164,7 +167,7 @@ export default function ConsensusPage() {
         });
     };
 
-    load();
+    load(true);
     const timer = window.setInterval(load, AUTO_REFRESH_MS);
     return () => {
       active = false;
