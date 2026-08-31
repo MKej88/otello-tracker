@@ -72,8 +72,8 @@ _SOURCE_DEFINITIONS = (
         "consensus",
         ("FORWARD_CONSENSUS",),
         None,
-        "MarketScreener",
-        "Årsestimater / konsensus",
+        "Offentlige meglerhus",
+        "Årsestimater / meglermodeller",
     ),
     _SourceDefinition(
         "xp_preview",
@@ -107,6 +107,8 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
                 "Ingen ny rapport; siste offentlige rapport er allerede innlest.",
                 False,
             )
+        if key == "consensus" and reason == "source_specific_public_broker_models":
+            return "OK", "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell finnes.", False
         return "OK", reason.replace("_", " ") or "Ingen ny data å behandle.", False
     if status == "not_available":
         if key == "xp_preview" and reason in {
@@ -162,31 +164,20 @@ def _latest_fact(
 
 
 def _operational_source_items(connection) -> list[dict[str, Any]]:
-    source_codes = tuple(
-        source.source_code for source in _OPERATIONAL_SOURCE_DEFINITIONS
-    )
+    source_codes = tuple(source.source_code for source in _OPERATIONAL_SOURCE_DEFINITIONS)
     placeholders = ",".join("?" for _ in source_codes)
     rows = connection.execute(
         f"""
-        SELECT s.code,
-               s.base_url,
-               sh.checked_at,
-               sh.status,
-               sh.error_message,
-               sd.fetched_at,
-               sd.published_at
+        SELECT s.code, s.base_url, sh.checked_at, sh.status, sh.error_message,
+               sd.fetched_at, sd.published_at
         FROM sources s
         LEFT JOIN source_health sh ON sh.id = (
-            SELECT id FROM source_health
-            WHERE source_id = s.id
-            ORDER BY checked_at DESC, id DESC
-            LIMIT 1
+            SELECT id FROM source_health WHERE source_id = s.id
+            ORDER BY checked_at DESC, id DESC LIMIT 1
         )
         LEFT JOIN source_documents sd ON sd.id = (
-            SELECT id FROM source_documents
-            WHERE source_id = s.id
-            ORDER BY fetched_at DESC, id DESC
-            LIMIT 1
+            SELECT id FROM source_documents WHERE source_id = s.id
+            ORDER BY fetched_at DESC, id DESC LIMIT 1
         )
         WHERE s.code IN ({placeholders})
         """,
@@ -217,8 +208,7 @@ def _operational_source_items(connection) -> list[dict[str, Any]]:
                 "data_date": values.get("published_at"),
                 "quality": None,
                 "url": values.get("base_url"),
-                "uses_last_good": status in {"DEGRADED", "ERROR"}
-                and values.get("fetched_at") is not None,
+                "uses_last_good": status in {"DEGRADED", "ERROR") and values.get("fetched_at") is not None,
                 "detail": detail,
             }
         )
@@ -248,11 +238,7 @@ def _status_for_connection(connection) -> dict[str, Any]:
     for source in _SOURCE_DEFINITIONS:
         result = _sub_result(metadata, source.key)
         status, detail, uses_last_good = _display_status(source.key, result)
-        fact = _latest_fact(
-            connection,
-            source.fact_types,
-            source_name=source.source_name,
-        )
+        fact = _latest_fact(connection, source.fact_types, source_name=source.source_name)
         items.append(
             {
                 "key": source.key,
@@ -261,11 +247,7 @@ def _status_for_connection(connection) -> dict[str, Any]:
                 "status": status,
                 "checked_at": None if health is None else health.get("checked_at"),
                 "last_good_at": None if fact is None else fact.get("updated_at"),
-                "data_date": (
-                    None
-                    if fact is None
-                    else (fact.get("as_of_date") or fact.get("published_date"))
-                ),
+                "data_date": None if fact is None else (fact.get("as_of_date") or fact.get("published_date")),
                 "quality": None if fact is None else fact.get("quality"),
                 "url": None if fact is None else fact.get("source_url"),
                 "uses_last_good": uses_last_good and fact is not None,
