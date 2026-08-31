@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
@@ -98,6 +100,30 @@ def test_sgs_rows_are_sorted_when_provider_changes_response_order() -> None:
 
     assert result["date"] == "2026-08-28"
     assert result["value"] == 14.5
+
+
+@pytest.mark.parametrize(
+    ("invalid_row", "expected_error"),
+    [
+        ({"data": "28/08/2026", "valor": "ikke-et-tall"}, "gyldig verdi"),
+        ({"data": "", "valor": "14.5"}, "gyldig dato"),
+        ("ufullstendig rad", "ikke et JSON-objekt"),
+    ],
+)
+def test_sgs_rejects_partial_response_instead_of_showing_stale_value(
+    invalid_row: object, expected_error: str
+) -> None:
+    import asyncio
+
+    async def fetcher(_url: str, **_kwargs: object) -> _Response:
+        return _Response(
+            [{"data": "27/08/2026", "valor": "14.0"}, invalid_row]
+        )
+
+    with pytest.raises(ValueError, match=expected_error):
+        asyncio.run(
+            _load_sgs_series("selic", as_of_date="2026-08-29", fetcher=fetcher)
+        )
 
 
 def test_focus_request_and_parser_are_capped_at_as_of_date() -> None:
