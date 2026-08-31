@@ -34,7 +34,7 @@ async def _event_metadata(repository) -> dict[str, dict[str, Any]]:
                model_revision_json, quality, notes
         FROM bemobi_consensus_events
         ORDER BY result_date, id
-        """)
+    """)
     return {
         str(row["period"]): {
             "result_date": str(row["result_date"]),
@@ -54,29 +54,25 @@ async def _forward_snapshots(repository) -> list[dict[str, Any]]:
                source_url, quality
         FROM bemobi_forward_consensus_snapshots
         ORDER BY observed_date, id
-        """)
+    """)
     snapshots: list[dict[str, Any]] = []
     for row in rows:
         payload = _json_object(row.get("payload_json"))
         years = payload.get("years")
         if not isinstance(years, list):
             continue
-        snapshots.append(
-            {
-                "source": row.get("source_name"),
-                "date": row.get("observed_date"),
-                "years": years,
-                "content_hash": row.get("content_hash"),
-                "source_url": row.get("source_url"),
-                "quality": row.get("quality"),
-            }
-        )
+        snapshots.append({
+            "source": row.get("source_name"),
+            "date": row.get("observed_date"),
+            "years": years,
+            "content_hash": row.get("content_hash"),
+            "source_url": row.get("source_url"),
+            "quality": row.get("quality"),
+        })
     return snapshots
 
 
-def _snapshot_changes(
-    before: dict[str, Any], after: dict[str, Any]
-) -> list[dict[str, Any]]:
+def _snapshot_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
     before_years = {
         int(item["year"]): item
         for item in before.get("years") or []
@@ -99,50 +95,47 @@ def _snapshot_changes(
                 continue
             if abs(new_value - old_value) < 1e-12:
                 continue
-            changes.append(
-                {
-                    "year": year,
-                    "metric": metric,
-                    "label": label,
-                    "before": old_value,
-                    "after": new_value,
-                    "change": new_value - old_value,
-                    "change_pct": _pct_change(old_value, new_value),
-                }
-            )
+            changes.append({
+                "year": year,
+                "metric": metric,
+                "label": label,
+                "before": old_value,
+                "after": new_value,
+                "change": new_value - old_value,
+                "change_pct": _pct_change(old_value, new_value),
+            })
     return changes
 
 
-async def _forward_tracker(
-    repository, current_forward: list[dict[str, Any]]
-) -> dict[str, Any]:
+async def _forward_tracker(repository, current_forward: list[dict[str, Any]]) -> dict[str, Any]:
     snapshots = await _forward_snapshots(repository)
     if not snapshots:
         return {
-            "source": "MarketScreener",
+            "source": "Offentlige meglerhus",
             "baseline_date": None,
             "latest_date": None,
             "comparison_ready": False,
             "same_source_snapshots": 0,
             "latest_changes": [],
             "current": current_forward,
-            "note": "Ingen kildebevarte MarketScreener-snapshots er registrert ennå.",
+            "note": "Ingen kildebevarte meglermodeller er registrert ennå.",
         }
 
     latest = snapshots[-1]
-    previous = snapshots[-2] if len(snapshots) >= 2 else None
+    same_source = [item for item in snapshots if item.get("source") == latest.get("source")]
+    previous = same_source[-2] if len(same_source) >= 2 else None
     changes = _snapshot_changes(previous, latest) if previous is not None else []
     return {
-        "source": latest.get("source") or "MarketScreener",
-        "baseline_date": snapshots[0]["date"],
+        "source": latest.get("source") or "Offentlig meglerkilde",
+        "baseline_date": same_source[0]["date"],
         "latest_date": latest["date"],
         "comparison_ready": previous is not None,
-        "same_source_snapshots": len(snapshots),
+        "same_source_snapshots": len(same_source),
         "latest_changes": changes,
         "current": current_forward,
         "note": (
-            "Hver vellykket offentlig MarketScreener-observasjon lagres append-only. "
-            "Sammenligningen bruker de to siste samme-kilde-snapshotene og blander ikke meglerhus."
+            "Hver kildeverifisert meglerobservasjon lagres som eget snapshot. "
+            "Revisjoner sammenlignes bare mot tidligere snapshot fra samme meglerhus."
         ),
     }
 
@@ -208,9 +201,7 @@ async def _market_reaction(repository, result_date: str) -> dict[str, Any]:
         "day1": day1,
         "day5": day5,
         "reaction_1d_pct": _pct_change(pre["price_brl"], day1["price_brl"]),
-        "reaction_5d_pct": (
-            None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"])
-        ),
+        "reaction_5d_pct": None if day5 is None else _pct_change(pre["price_brl"], day5["price_brl"]),
         "method": (
             "Resultatene ble publisert etter handel i de historiske periodene. "
             "Reaksjon måles derfor fra sluttkurs på rapportdato til første og femte påfølgende handelsdag."
@@ -226,10 +217,7 @@ def _target_revision(model: dict[str, Any], result_date: str) -> dict[str, Any]:
         float(after) if after is not None else None,
     )
     model["days_after_result"] = (
-        (
-            date.fromisoformat(str(model["after_date"]))
-            - date.fromisoformat(result_date)
-        ).days
+        (date.fromisoformat(str(model["after_date"])) - date.fromisoformat(result_date)).days
         if model.get("after_date")
         else None
     )
@@ -251,30 +239,26 @@ async def build_consensus_history(
             continue
         result_date = str(metadata["result_date"])
         model = _target_revision(dict(metadata["model_revision"]), result_date)
-        events.append(
-            {
-                "period": period,
-                "result_date": result_date,
-                "result_source": metadata["result_source"],
-                "result_source_url": metadata["result_source_url"],
-                "expectation": {
-                    "broker": item.get("broker"),
-                    "published_date": item.get("published_date"),
-                    "source_url": item.get("source_url"),
-                    "metrics": item.get("metrics") or [],
-                },
-                "model_revision": model,
-                "market_reaction": await _market_reaction(repository, result_date),
-            }
-        )
+        events.append({
+            "period": period,
+            "result_date": result_date,
+            "result_source": metadata["result_source"],
+            "result_source_url": metadata["result_source_url"],
+            "expectation": {
+                "broker": item.get("broker"),
+                "published_date": item.get("published_date"),
+                "source_url": item.get("source_url"),
+                "metrics": item.get("metrics") or [],
+            },
+            "model_revision": model,
+            "market_reaction": await _market_reaction(repository, result_date),
+        })
     return {
         "events": events,
-        "forward_revision_tracker": await _forward_tracker(
-            repository, current_forward or []
-        ),
+        "forward_revision_tracker": await _forward_tracker(repository, current_forward or []),
         "method_note": (
             "Historiske rapport-/modellhendelser ligger i databasen, ikke i Python-kode. "
-            "Kvartalsforventningene er foreløpig XP-spesifikke; MarketScreener-revisjoner "
-            "sammenlignes kun mot tidligere snapshot fra samme kilde."
+            "Kvartalsforventningene er foreløpig XP-spesifikke; årsrevisjoner sammenlignes "
+            "bare mellom kildeverifiserte snapshots fra samme meglerhus."
         ),
     }
