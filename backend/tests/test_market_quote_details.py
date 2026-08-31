@@ -11,6 +11,7 @@ from app.db.migration_runner import init_database
 from app.db.repository import upsert_market_price
 from app.marketdata.b3_cotahist import parse_cotahist_line
 from app.marketdata.quote_details import (
+    _first_meta_number,
     _volume_stats,
     _volume_summary,
     market_quote_details,
@@ -22,6 +23,26 @@ ROOT = Path(__file__).resolve().parents[2]
 class _BrokenConnection:
     def execute(self, *_args, **_kwargs):
         raise RuntimeError("database unavailable")
+
+
+def test_first_meta_number_uses_row_and_key_priority() -> None:
+    rows = [
+        {"metadata_json": '{"open": "invalid"}'},
+        {"metadata_json": '{"open": "22.5", "open_price": "22.6"}'},
+        {"metadata_json": '{"open_price": "23.0"}'},
+    ]
+
+    assert _first_meta_number(rows, "open_price", "open") == 22.6
+
+
+def test_first_meta_number_skips_unusable_metadata() -> None:
+    rows = [
+        {"metadata_json": "not-json"},
+        {"metadata_json": '[{"low": 20}]'},
+        {"metadata_json": '{"day_low": "21.8"}'},
+    ]
+
+    assert _first_meta_number(rows, "min_price", "low", "day_low") == 21.8
 
 
 def test_otec_volume_database_failure_is_propagated() -> None:
