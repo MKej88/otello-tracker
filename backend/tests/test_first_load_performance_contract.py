@@ -83,6 +83,20 @@ def test_network_revalidation_reaches_the_first_screen_without_waiting_for_polli
     assert "unsubscribeRevalidation?.()" in polling
 
 
+def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None:
+    bootstrap = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(
+        encoding="utf-8"
+    )
+    polling = (FRONTEND_SRC / "usePollingResource.ts").read_text(encoding="utf-8")
+    overview = (FRONTEND_SRC / "OverviewPage.tsx").read_text(encoding="utf-8")
+
+    assert "getCachedDashboardComponentForUrl<T>(url)" in polling
+    assert "useState<T | null>(() =>" in polling
+    assert "usePreloadedInitial ? getCachedDashboardComponentForUrl" in polling
+    assert overview.count("    true,\n  );") == 3
+    assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
+
+
 def test_html_preloads_first_screen_data_before_javascript() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     preload_start = source.index('rel="preload"')
