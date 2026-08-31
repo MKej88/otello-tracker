@@ -273,8 +273,10 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/market/quotes")' in backend
     assert '@app.get("/api/market/quotes")' in worker
     assert "market_quote_details" in worker_service
+    assert '"Tidspunkt for siste handel"' in panel
+    assert "OTEC sjekkes hvert 30. minutt" in panel
+    assert "Uendret tidspunkt betyr at Euronext" in panel
     for label in (
-        "Sist oppdatert",
         "52-ukers lav / høy",
         "3 mnd snittvolum",
         "Høyere enn 3 mnd snitt",

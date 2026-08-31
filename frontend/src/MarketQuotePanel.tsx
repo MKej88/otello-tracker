@@ -101,9 +101,17 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           </small>
         </div>
         <div className="marketQuoteUpdated">
-          <span>Sist oppdatert</span>
+          <span>
+            {quote.last_price_type === "CLOSE"
+              ? "Tidspunkt for sluttkurs"
+              : "Tidspunkt for siste handel"}
+          </span>
           <strong>{formatDateTime(quote.last_updated_at)}</strong>
-          <small>Handelsdato {formatDate(quote.trading_date)}</small>
+          <small>
+            {quote.last_price_type === "CLOSE"
+              ? `Kursdato ${formatDate(quote.trading_date)}`
+              : "Endres først når en ny handel rapporteres"}
+          </small>
         </div>
       </div>
 
@@ -150,6 +158,12 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
 
       <div className="marketQuoteFootnote">
         <span>{sessionBasisLabel(quote)}</span>
+        {quote.symbol === "OTEC" && (
+          <span>
+            OTEC sjekkes hvert 30. minutt. Uendret tidspunkt betyr at Euronext
+            ikke har rapportert en nyere handel.
+          </span>
+        )}
         {quote.symbol === "OTEC" &&
           quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
             <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
