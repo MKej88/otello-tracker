@@ -6,16 +6,33 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+BACKEND = ROOT / "backend"
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
-if str(CLOUDFLARE_SRC) not in sys.path:
-    sys.path.insert(0, str(CLOUDFLARE_SRC))
+for path in (BACKEND, CLOUDFLARE_SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from quote_details import _volume_stats  # noqa: E402
+from app.marketdata.quote_details import _volume_stats as reference_volume_stats  # noqa: E402
+from quote_details import _volume_stats as worker_volume_stats  # noqa: E402
 
 
 class _UnusedRepository:
     async def all(self, *_args, **_kwargs):
         raise AssertionError("BMOB3-volum skal ikke kreve ekstra databasekall")
+
+
+def _worker_result(
+    history: list[dict], latest: dict
+) -> dict:
+    return asyncio.run(
+        worker_volume_stats(_UnusedRepository(), "BMOB3", history, latest)
+    )
+
+
+def _reference_result(
+    history: list[dict], latest: dict
+) -> dict:
+    return reference_volume_stats(object(), "BMOB3", history, latest)
 
 
 def test_bmob3_yahoo_intraday_volume_overrides_latest_but_not_completed_average() -> None:
@@ -41,10 +58,8 @@ def test_bmob3_yahoo_intraday_volume_overrides_latest_but_not_completed_average(
         ),
     }
 
-    result = asyncio.run(
-        _volume_stats(_UnusedRepository(), "BMOB3", history, latest)
-    )
-
+    result = _worker_result(history, latest)
+    assert result == _reference_result(history, latest)
     assert result["latest"] == 425_000
     assert result["latest_date"] == "2026-08-31"
     assert result["source"] == "YAHOO_FINANCE"
@@ -67,10 +82,8 @@ def test_bmob3_completed_volume_remains_official_cotahist() -> None:
         "metadata_json": json.dumps({"quantity_shares": 431_500}),
     }
 
-    result = asyncio.run(
-        _volume_stats(_UnusedRepository(), "BMOB3", history, latest)
-    )
-
+    result = _worker_result(history, latest)
+    assert result == _reference_result(history, latest)
     assert result["latest"] == 431_500
     assert result["latest_date"] == "2026-08-28"
     assert result["source"] == "B3"
