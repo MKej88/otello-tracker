@@ -8,7 +8,7 @@ from app.db.migration_runner import init_database
 from app.db.repository import create_source_document
 from app.nav.cash_curve import _known_movements
 from app.newsweb.cash_sync import sync_newsweb_daily_buyback_cash
-from app.newsweb.client import parse_list_payload, parse_message_payload
+from app.newsweb.client import _post_json, parse_list_payload, parse_message_payload
 from app.newsweb.enrichment import validate_daily_buybacks
 from app.newsweb.trade_parser import (
     DailyBuybackTransaction,
@@ -30,6 +30,26 @@ AverageBuy 17,3000
 ExecSell 0
 AverageSell 0
 """
+
+
+def test_newsweb_http_200_rejects_missing_api_status_header(monkeypatch) -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            return b'{"data":{"messages":[],"overflow":false}}'
+
+    monkeypatch.setattr(
+        "app.newsweb.client.urllib.request.urlopen",
+        lambda *args, **kwargs: Response(),
+    )
+
+    with pytest.raises(ValueError, match="mangler statusheader"):
+        _post_json("https://example.test/newsweb")
 
 
 def _weekly_status() -> BuybackStatus:
