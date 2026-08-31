@@ -13,6 +13,7 @@ if str(CLOUDFLARE) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE))
 
 from src import fx_freshness  # noqa: E402
+from src.dashboard_hot_snapshot import SNAPSHOT_VERSION, STATE_KEY  # noqa: E402
 from src.runtime_status import runtime_status_summary  # noqa: E402
 
 
@@ -67,12 +68,12 @@ class FakeRepository:
                 "error_message": None,
                 "metadata_json": "{}",
             }
-        if "FROM runtime_state" in sql and params[0] == "dashboard_hot_snapshot_v3":
+        if "FROM runtime_state" in sql and params[0] == STATE_KEY:
             generated_at = "2026-08-21T05:55:00Z"
             return {
                 "value": json.dumps(
                     {
-                        "version": 3,
+                        "version": SNAPSHOT_VERSION,
                         "generated_at": generated_at,
                         "summary": {},
                         "economic": {},

@@ -103,8 +103,8 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
     assert snapshot["version"] == hot.SNAPSHOT_VERSION
     assert snapshot["summary"]["nav_per_share"] == 31.5
     assert snapshot["economic"]["nav_per_share"] == 32.1
-    assert snapshot["economic"]["calculated_at"] == snapshot["generated_at"]
-    assert snapshot["economic"]["calculated_at"] != "2026-08-23T23:59:59Z"
+    assert snapshot["economic"]["calculated_at"] == "2026-08-23T23:59:59Z"
+    assert snapshot["economic"]["calculated_at"] != snapshot["generated_at"]
     assert snapshot["quotes"]["symbols"]["OTEC"]["last"] == 24.0
     assert snapshot["forecast"]["estimate"]["base_case_shares"] == 1000
 
