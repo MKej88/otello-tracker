@@ -11,14 +11,14 @@ type Analyst = {
   last_update: string;
 };
 
-type ForwardYear = {
+type BrokerYear = {
   year: number;
-  revenue_mbrl: number;
-  ebitda_mbrl: number;
-  ebit_mbrl: number;
-  net_income_mbrl: number;
-  eps_brl: number;
-  net_debt_mbrl: number;
+  revenue_mbrl?: number | null;
+  ebitda_mbrl?: number | null;
+  ebit_mbrl?: number | null;
+  net_income_mbrl?: number | null;
+  eps_brl?: number | null;
+  net_debt_mbrl?: number | null;
   market_cap_mbrl?: number | null;
   enterprise_value_mbrl?: number | null;
   pe?: number | null;
@@ -76,14 +76,14 @@ type ConsensusPayload = {
     checked_date?: string | null;
   };
   analysts?: Analyst[];
-  forward_consensus?: {
+  broker_estimates?: {
     source?: string | null;
     source_url?: string | null;
-    checked_date?: string | null;
+    published_date?: string | null;
     quality?: string | null;
-    analyst_count?: number | null;
+    broker_count?: number | null;
     year_range?: string | null;
-    years?: ForwardYear[];
+    years?: BrokerYear[];
     note?: string | null;
   };
   next_quarter?: {
@@ -178,14 +178,14 @@ export default function ConsensusPage() {
 
   const coverage = data.coverage;
   const market = data.market;
-  const forward = data.forward_consensus;
-  const forwardYears = forward?.years ?? [];
-  const forwardRange = forward?.year_range ?? (
-    forwardYears.length === 0
+  const broker = data.broker_estimates;
+  const brokerYears = broker?.years ?? [];
+  const brokerRange = broker?.year_range ?? (
+    brokerYears.length === 0
       ? "Forward"
-      : forwardYears.length === 1
-        ? `${forwardYears[0].year}E`
-        : `${forwardYears[0].year}E–${forwardYears[forwardYears.length - 1].year}E`
+      : brokerYears.length === 1
+        ? `${brokerYears[0].year}E`
+        : `${brokerYears[0].year}E–${brokerYears[brokerYears.length - 1].year}E`
   );
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
@@ -202,8 +202,8 @@ export default function ConsensusPage() {
           <span className="label">BEMOBI / KONSENSUS</span>
           <h2>Forventninger mot dagens pris</h2>
           <p>
-            Offentlig analytikerdekning, kursmål, årsestimater og historisk beat/miss. Husspesifikke
-            estimater vises bare når de kan kildeverifiseres.
+            Offentlig analytikerdekning, kursmål, kildeverifiserte meglerestimater og historisk beat/miss.
+            Husspesifikke estimater vises bare når vi kan knytte dem til en offentlig meglerkilde.
           </p>
         </div>
         <div className="consensusHeroPrice">
@@ -264,38 +264,41 @@ export default function ConsensusPage() {
       <section className="card consensusForward">
         <div className="cardHeader">
           <div>
-            <span className="label">Forward konsensus</span>
-            <h2>{forwardRange}</h2>
+            <span className="label">Meglerestimater</span>
+            <h2>{brokerRange}</h2>
           </div>
-          <SourceLink url={forward?.source_url}><span className="pill">{forward?.source ?? "Kilde"}</span></SourceLink>
+          <SourceLink url={broker?.source_url}><span className="pill">{broker?.source ?? "Meglerkilde"}</span></SourceLink>
         </div>
+        <p className="consensusNote">
+          Kildeverifisert modell fra ett meglerhus. Dette er ikke et anonymt aggregat; når flere offentlige modeller er tilgjengelige,
+          beregner trackeren konsensus på tvers av husene.
+        </p>
         <div className="consensusTableWrap">
           <table className="consensusTable forwardTable">
             <thead>
               <tr>
-                <th>År</th><th>Omsetning</th><th>EBITDA</th><th>EBIT</th><th>Resultat</th><th>EPS</th>
-                <th>P/E</th><th>EV/EBITDA</th><th>EV/EBIT</th><th>Earnings yield</th>
+                <th>År</th><th>Omsetning</th><th>EBITDA</th><th>Resultat</th><th>EPS</th><th>Netto gjeld / (cash)</th>
+                <th>P/E</th><th>EV/EBITDA</th><th>Earnings yield</th>
               </tr>
             </thead>
             <tbody>
-              {forwardYears.map((year) => (
+              {brokerYears.map((year) => (
                 <tr key={year.year}>
                   <td><strong>{year.year}E</strong></td>
                   <td>R$ {value(year.revenue_mbrl, 0)}m</td>
                   <td>R$ {value(year.ebitda_mbrl, 1)}m</td>
-                  <td>R$ {value(year.ebit_mbrl, 1)}m</td>
                   <td>R$ {value(year.net_income_mbrl, 1)}m</td>
                   <td>R$ {value(year.eps_brl, 2)}</td>
+                  <td>R$ {value(year.net_debt_mbrl, 0)}m</td>
                   <td>{value(year.pe, 1)}x</td>
                   <td>{value(year.ev_ebitda, 1)}x</td>
-                  <td>{value(year.ev_ebit, 1)}x</td>
                   <td>{value(year.earnings_yield_pct, 1)} %</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {forward?.note && <p className="consensusNote">{forward.note}</p>}
+        <p className="consensusNote">{broker?.note}</p>
       </section>
 
       <section className="consensusTwoColumn">
@@ -327,7 +330,7 @@ export default function ConsensusPage() {
               <div className="trackedMetrics">
                 {(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}
               </div>
-              <small>Estimatene fylles inn når de kan verifiseres fra meglerhus eller offentlig aggregat.</small>
+              <small>Estimatene fylles inn når de kan verifiseres fra en offentlig meglerkilde.</small>
             </>
           )}
         </article>
