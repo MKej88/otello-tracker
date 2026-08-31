@@ -166,11 +166,13 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
     if str(meta.get("currency") or "") != "BRL":
         raise ValueError("Yahoo BMOB3 valuta er ikke BRL")
 
-    timezone_name = str(meta.get("exchangeTimezoneName") or "America/Sao_Paulo")
+    timezone_name = str(meta.get("exchangeTimezoneName") or "")
+    if timezone_name != "America/Sao_Paulo":
+        raise ValueError("Yahoo BMOB3 exchangeTimezoneName er ikke America/Sao_Paulo")
     try:
         ZoneInfo(timezone_name)
-    except (KeyError, ValueError):
-        timezone_name = "America/Sao_Paulo"
+    except (KeyError, ValueError) as exc:
+        raise ValueError("Yahoo BMOB3 har ugyldig exchangeTimezoneName") from exc
 
     timestamps = result.get("timestamp")
     indicators = result.get("indicators")

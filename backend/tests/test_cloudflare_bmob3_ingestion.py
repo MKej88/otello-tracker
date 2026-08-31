@@ -59,6 +59,7 @@ def _yahoo_payload(
     price: float = 24.15,
     symbol: str = "BMOB3.SA",
     currency: str = "BRL",
+    timezone_name: str | None = "America/Sao_Paulo",
 ) -> bytes:
     data = {
         "chart": {
@@ -67,7 +68,7 @@ def _yahoo_payload(
                     "meta": {
                         "symbol": symbol,
                         "currency": currency,
-                        "exchangeTimezoneName": "America/Sao_Paulo",
+                        "exchangeTimezoneName": timezone_name,
                         "regularMarketPrice": price,
                         "regularMarketTime": timestamp,
                     },
@@ -141,6 +142,14 @@ def test_yahoo_parser_requires_bmob3_brl_and_uses_latest_timestamped_close() -> 
         parse_bmob3_yahoo_quote(_yahoo_payload(symbol="WRONG.SA"))
     with pytest.raises(ValueError, match="valuta"):
         parse_bmob3_yahoo_quote(_yahoo_payload(currency="USD"))
+
+
+@pytest.mark.parametrize("timezone_name", [None, "UTC", "Ugyldig/Tidssone"])
+def test_yahoo_parser_rejects_missing_or_wrong_bmob3_timezone(
+    timezone_name: str | None,
+) -> None:
+    with pytest.raises(ValueError, match="exchangeTimezoneName"):
+        parse_bmob3_yahoo_quote(_yahoo_payload(timezone_name=timezone_name))
 
 
 def test_worker_fetch_does_not_send_forbidden_connection_header() -> None:
