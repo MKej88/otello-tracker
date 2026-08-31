@@ -150,11 +150,31 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
         (start_date, current_date),
     ).fetchall()
     copied = [dict(row) for row in rows]
+    daily_totals: dict[int, Decimal] = {}
+    weekly_totals: dict[int, Decimal] = {}
+    for row in copied:
+        buyback_id = row.get("buyback_id")
+        if buyback_id is None:
+            continue
+        identifier = int(buyback_id)
+        amount = Decimal(str(row.get("amount_nok") or "0"))
+        movement_type = str(row.get("movement_type") or "")
+        if movement_type == "OTELLO_BUYBACK_DAILY":
+            daily_totals[identifier] = (
+                daily_totals.get(identifier, Decimal("0")) + amount
+            )
+        elif movement_type == "OTELLO_BUYBACK":
+            match = _BUYBACK_PERIOD_RE.search(str(row.get("description") or ""))
+            if match and match.group(1) <= start_date < str(row.get("movement_date")):
+                continue
+            weekly_totals[identifier] = (
+                weekly_totals.get(identifier, Decimal("0")) + amount
+            )
     daily_buyback_ids = {
-        int(row["buyback_id"])
-        for row in copied
-        if str(row.get("movement_type") or "") == "OTELLO_BUYBACK_DAILY"
-        and row.get("buyback_id") is not None
+        identifier
+        for identifier, daily_total in daily_totals.items()
+        if identifier in weekly_totals
+        and abs(daily_total - weekly_totals[identifier]) <= Decimal("0.01")
     }
 
     buyback_cash = Decimal("0")
@@ -174,6 +194,13 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
         external_id = str(row.get("external_movement_id") or "")
 
         if movement_type == "OTELLO_BUYBACK_DAILY":
+            buyback_id = row.get("buyback_id")
+            if (
+                buyback_id is not None
+                and int(buyback_id) in weekly_totals
+                and int(buyback_id) not in daily_buyback_ids
+            ):
+                continue
             buyback_cash += amount
             daily_rows += 1
             continue
