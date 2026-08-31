@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
 import "./bemobi-page.css";
@@ -232,12 +233,14 @@ export default function BemobiPage() {
 
   useEffect(() => {
     let active = true;
-    const load = () => {
-      fetch("/api/bemobi/dashboard")
-        .then((response) => {
-          if (!response.ok) throw new Error("Bemobi dashboard API-feil");
-          return response.json() as Promise<BemobiDashboard>;
-        })
+    const load = (initial = false) => {
+      const request = initial
+        ? fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")
+        : fetch("/api/bemobi/dashboard").then((response) => {
+            if (!response.ok) throw new Error("Bemobi dashboard API-feil");
+            return response.json() as Promise<BemobiDashboard>;
+          });
+      request
         .then((result) => {
           if (!active) return;
           setData(result);
@@ -249,7 +252,7 @@ export default function BemobiPage() {
         });
     };
 
-    load();
+    load(true);
     const timer = window.setInterval(load, AUTO_REFRESH_MS);
     return () => {
       active = false;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import BemobiPageBase from "./BemobiPageBase";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import "./bemobi-page.css";
 
 /*
@@ -84,15 +85,19 @@ function BemobiTaxPanel() {
 
   useEffect(() => {
     let active = true;
-    const load = () => {
-      fetch("/api/bemobi/dashboard")
-        .then((response) => response.ok ? response.json() as Promise<TaxDashboard> : null)
+    const load = (initial = false) => {
+      const request = initial
+        ? fetchPreloadedJson<TaxDashboard>("/api/bemobi/dashboard")
+        : fetch("/api/bemobi/dashboard").then((response) =>
+            response.ok ? response.json() as Promise<TaxDashboard> : null
+          );
+      request
         .then((result) => {
           if (active && result) setData(result);
         })
         .catch(() => undefined);
     };
-    load();
+    load(true);
     const timer = window.setInterval(load, AUTO_REFRESH_MS);
     return () => {
       active = false;

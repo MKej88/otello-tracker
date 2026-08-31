@@ -111,3 +111,22 @@ def test_navigation_starts_buyback_data_in_parallel_with_route_code() -> None:
         'fetchPreloadedJson<Dashboard>("/api/buybacks/dashboard")'
         in buyback_source
     )
+
+
+def test_navigation_shares_bemobi_request_while_route_code_loads() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    page_source = (FRONTEND_SRC / "BemobiPage.tsx").read_text(encoding="utf-8")
+    base_source = (FRONTEND_SRC / "BemobiPageBase.tsx").read_text(encoding="utf-8")
+
+    bemobi_preload = app_source.index('if (view === "Bemobi")')
+    bemobi_route = app_source.index('window.location.hash = viewSlugs[view]')
+
+    assert bemobi_preload < bemobi_route
+    assert 'preloadJson("/api/bemobi/dashboard")' in app_source
+    assert (
+        'fetchPreloadedJson<TaxDashboard>("/api/bemobi/dashboard")' in page_source
+    )
+    assert (
+        'fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")'
+        in base_source
+    )
