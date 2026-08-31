@@ -88,6 +88,19 @@ class D1WriteRepository(D1Repository):
             statement = statement.bind(*parameters)
         return await statement.run()
 
+    async def run_batch(
+        self,
+        statements: list[tuple[str, tuple[Any, ...]]],
+    ) -> Any:
+        """Run several writes in one D1 batch instead of separate round trips."""
+        prepared = []
+        for sql, parameters in statements:
+            statement = self.database.prepare(sql)
+            if parameters:
+                statement = statement.bind(*parameters)
+            prepared.append(statement)
+        return await self.database.batch(prepared)
+
     async def source_id(self, code: str) -> int:
         row = await self.first("SELECT id FROM sources WHERE code=?", (code,))
         if row is None:

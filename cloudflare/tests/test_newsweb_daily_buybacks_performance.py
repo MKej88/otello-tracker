@@ -35,9 +35,7 @@ def test_message_details_are_fetched_concurrently_with_a_limit() -> None:
         "src.newsweb_daily_buybacks.fetch_message",
         side_effect=fake_fetch_message,
     ):
-        results = asyncio.run(
-            _fetch_discovered_messages(discovered, fetcher=object())
-        )
+        results = asyncio.run(_fetch_discovered_messages(discovered, fetcher=object()))
 
     assert maximum_active == MESSAGE_FETCH_CONCURRENCY
     assert results[0:2] == [1, 2]
@@ -45,11 +43,12 @@ def test_message_details_are_fetched_concurrently_with_a_limit() -> None:
     assert results[3:] == list(range(4, MESSAGE_FETCH_CONCURRENCY * 2 + 2))
 
 
-def test_existing_daily_rows_are_loaded_in_one_query() -> None:
+def test_daily_rows_are_loaded_and_written_in_one_batch() -> None:
     class CountingRepository:
         def __init__(self) -> None:
             self.read_queries = 0
-            self.write_queries = 0
+            self.batch_calls = 0
+            self.batched_writes = 0
 
         async def all(
             self, sql: str, parameters: tuple[object, ...]
@@ -58,8 +57,12 @@ def test_existing_daily_rows_are_loaded_in_one_query() -> None:
             assert parameters == (42,)
             return []
 
-        async def run(self, sql: str, parameters: tuple[object, ...]) -> None:
-            self.write_queries += 1
+        async def run_batch(
+            self,
+            statements: list[tuple[str, tuple[object, ...]]],
+        ) -> None:
+            self.batch_calls += 1
+            self.batched_writes += len(statements)
 
     repository = CountingRepository()
     daily = [
@@ -88,4 +91,5 @@ def test_existing_daily_rows_are_loaded_in_one_query() -> None:
 
     assert written == 5
     assert repository.read_queries == 1
-    assert repository.write_queries == 5
+    assert repository.batch_calls == 1
+    assert repository.batched_writes == 5
