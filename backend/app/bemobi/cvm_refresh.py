@@ -66,12 +66,12 @@ def collect_bemobi_cvm_news_incremental(
         target_year=current,
         timeout=timeout,
     )
-    failed_years = {
-        int(item["year"])
-        for item in result.get("errors", [])
-        if item.get("year") is not None
-    }
-    successful = [year for year in selected if year not in failed_years]
+    raw_successful = result.get("successful_years")
+    if not isinstance(raw_successful, list):
+        raise ValueError(
+            "CVM-innsamlingen mangler eksplisitt bekreftelse på vellykkede år"
+        )
+    successful = [year for year in selected if year in raw_successful]
     for year in successful:
         set_runtime_state(
             f"{_LAST_SUCCESS_PREFIX}{year}",

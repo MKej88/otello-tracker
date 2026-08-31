@@ -493,6 +493,7 @@ def collect_bemobi_cvm_news(
     )
     archived: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    successful_years: list[int] = []
     discovered = 0
     relevant = 0
 
@@ -511,12 +512,14 @@ def collect_bemobi_cvm_news(
                         database_path=database_path,
                     )
                 )
+            successful_years.append(year)
         except Exception as exc:
             errors.append({"year": year, "error": str(exc)})
 
     categories = Counter(item["category"] for item in archived if item["is_latest_version"])
     return {
         "years": selected_years,
+        "successful_years": successful_years,
         "discovered_bemobi_rows": discovered,
         "relevant_rows": relevant,
         "archived": len(archived),

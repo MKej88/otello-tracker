@@ -153,7 +153,12 @@ def test_incremental_cvm_refresh_keeps_current_rolling_and_previous_year_periodi
 
     def collect(*_args, **kwargs):
         calls.append(list(kwargs["years"]))
-        return {"years": list(kwargs["years"]), "archived": 1, "errors": []}
+        return {
+            "years": list(kwargs["years"]),
+            "successful_years": list(kwargs["years"]),
+            "archived": 1,
+            "errors": [],
+        }
 
     monkeypatch.setattr(cvm_refresh, "collect_bemobi_cvm_news", collect)
 
@@ -180,6 +185,28 @@ def test_incremental_cvm_refresh_keeps_current_rolling_and_previous_year_periodi
     assert get_runtime_state("cvm_ipe_last_success:2025", database) == (
         first_day + timedelta(days=cvm_refresh.PREVIOUS_YEAR_REFRESH_DAYS)
     ).isoformat()
+
+
+def test_incremental_cvm_refresh_does_not_infer_success_from_missing_errors(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "cvm-invalid-result.db")
+    init_database(database)
+    monkeypatch.setattr(cvm_refresh, "years_for_refresh", lambda *_args, **_kwargs: [2025])
+    monkeypatch.setattr(
+        cvm_refresh,
+        "collect_bemobi_cvm_news",
+        lambda *_args, **_kwargs: {"years": [2025], "errors": []},
+    )
+
+    with pytest.raises(ValueError, match="eksplisitt bekreftelse"):
+        cvm_refresh.collect_bemobi_cvm_news_incremental(
+            database,
+            target_year=2026,
+            today=date(2026, 8, 17),
+        )
+
+    assert get_runtime_state("cvm_ipe_last_success:2025", database) is None
 
 
 def test_newsweb_bounded_read_rejects_oversized_content_length_and_stream() -> None:
