@@ -130,6 +130,52 @@ def test_daily_cash_reconciles_reported_anchors_and_derives_distributions(tmp_pa
         assert forecast["quality"] == "FORECAST_PARTIAL"
 
 
+def test_unchanged_cash_rebuild_does_not_rewrite_daily_history(tmp_path) -> None:
+    database = str(tmp_path / "daily.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    with get_connection(database) as connection:
+        anchor_dates = [
+            row["as_of_date"]
+            for row in connection.execute(
+                "SELECT as_of_date FROM cash_anchors WHERE anchor_type = 'REPORTED'"
+            )
+        ]
+        for day in anchor_dates:
+            _insert_fx(connection, day, "USD", "10")
+        connection.commit()
+
+    first = rebuild_daily_cash(database, end_date="2025-12-31")
+    assert first["written"] > 1_000
+
+    with get_connection(database) as connection:
+        connection.execute("CREATE TABLE daily_write_audit(operation TEXT NOT NULL)")
+        for operation in ("INSERT", "UPDATE", "DELETE"):
+            connection.execute(f"""
+                CREATE TRIGGER audit_daily_{operation.lower()}
+                AFTER {operation} ON cash_daily_estimates
+                BEGIN
+                    INSERT INTO daily_write_audit(operation) VALUES ('{operation}');
+                END
+                """)
+        connection.commit()
+
+    second = rebuild_daily_cash(database, end_date="2025-12-31")
+    assert second["written"] == first["written"]
+
+    with get_connection(database) as connection:
+        actual_writes = connection.execute(
+            "SELECT COUNT(*) FROM daily_write_audit"
+        ).fetchone()[0]
+        row_count = connection.execute(
+            "SELECT COUNT(*) FROM cash_daily_estimates"
+        ).fetchone()[0]
+
+    assert actual_writes == 0
+    assert row_count == first["written"]
+
+
 def _seed_nav_dependencies(connection, day: str) -> None:
     anchor_dates = [
         row["as_of_date"]
