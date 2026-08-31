@@ -12,6 +12,7 @@ from app.newsweb.client import NewsWebMessage, discover_otec_messages, fetch_mes
 
 DEFAULT_HISTORY_START = "2020-01-01"
 INCREMENTAL_OVERLAP_DAYS = 14
+RETRY_FROM_STATE_KEY = "newsweb_history_retry_from"
 _SPACE_RE = re.compile(r"\s+")
 
 
@@ -170,10 +171,49 @@ def history_start_for_refresh(
     database_path: str | None, *, default_start: str = DEFAULT_HISTORY_START
 ) -> str:
     latest = _latest_archived_date(database_path)
+    with get_connection(database_path) as connection:
+        retry_row = connection.execute(
+            "SELECT value FROM runtime_state WHERE key=?",
+            (RETRY_FROM_STATE_KEY,),
+        ).fetchone()
+    retry_from = str(retry_row["value"]) if retry_row is not None else None
     if not latest:
-        return default_start
-    overlap = date.fromisoformat(latest) - timedelta(days=INCREMENTAL_OVERLAP_DAYS)
-    return max(default_start, overlap.isoformat())
+        normal_start = default_start
+    else:
+        overlap = date.fromisoformat(latest) - timedelta(days=INCREMENTAL_OVERLAP_DAYS)
+        normal_start = max(default_start, overlap.isoformat())
+    return min(normal_start, retry_from) if retry_from else normal_start
+
+
+def _update_retry_from(
+    database_path: str | None,
+    *,
+    start: str,
+    errors: list[dict[str, Any]],
+) -> None:
+    with get_connection(database_path) as connection:
+        existing = connection.execute(
+            "SELECT value FROM runtime_state WHERE key=?",
+            (RETRY_FROM_STATE_KEY,),
+        ).fetchone()
+        retry_from = str(existing["value"]) if existing is not None else None
+        if errors:
+            failed_from = min(str(item["published_at"])[:10] for item in errors)
+            value = min(retry_from, failed_from) if retry_from else failed_from
+            connection.execute(
+                """
+                INSERT INTO runtime_state(key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+                    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                """,
+                (RETRY_FROM_STATE_KEY, value),
+            )
+        elif retry_from is not None and start <= retry_from:
+            connection.execute(
+                "DELETE FROM runtime_state WHERE key=?",
+                (RETRY_FROM_STATE_KEY,),
+            )
+        connection.commit()
 
 
 def collect_newsweb_history(
@@ -203,6 +243,7 @@ def collect_newsweb_history(
                 "title": item.title,
                 "error": str(exc),
             })
+    _update_retry_from(database_path, start=start, errors=errors)
     categories = Counter(item["category"] for item in archived)
     return {
         "from": start,
