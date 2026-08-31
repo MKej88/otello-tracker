@@ -162,6 +162,7 @@ def test_b3_volume_history_backfill_fetches_missing_sessions() -> None:
             self.saved: set[str] = {"2026-08-19"}
 
         async def all(self, query, params):
+            assert "json_extract(mp.metadata_json, '$.volume_shares')" in query
             return [{"trading_date": day} for day in sorted(self.saved, reverse=True)]
 
         async def create_source_document(self, **kwargs):
@@ -197,6 +198,62 @@ def test_b3_volume_history_backfill_fetches_missing_sessions() -> None:
     assert result["available_sessions"] == 3
     assert result["downloaded_sessions"] == 2
     assert repository.saved == {"2026-08-17", "2026-08-18", "2026-08-19"}
+
+
+def test_b3_volume_history_backfill_can_be_split_into_batches() -> None:
+    class Repository:
+        def __init__(self) -> None:
+            self.saved: set[str] = {"2026-08-19"}
+
+        async def all(self, query, params):
+            return [{"trading_date": day} for day in sorted(self.saved, reverse=True)]
+
+        async def create_source_document(self, **kwargs):
+            return 1
+
+        async def upsert_market_price(self, **kwargs):
+            self.saved.add(kwargs["trading_date"])
+            return len(self.saved)
+
+    async def fetcher(url, **kwargs):
+        date_text = url.rsplit("D", 1)[1].split(".", 1)[0]
+        trading_date = f"{date_text[4:]}{date_text[2:4]}{date_text[:2]}"
+        return _Response(
+            _zip_text(
+                f"COTAHIST_D{date_text}.TXT",
+                _b3_line(trading_date=trading_date) + "\n",
+            )
+        )
+
+    repository = Repository()
+    first = asyncio.run(
+        backfill_bmob3_volume_history(
+            repository,
+            target_date="2026-08-19",
+            required_sessions=3,
+            max_calendar_days=7,
+            max_downloaded_sessions=1,
+            fetcher=fetcher,
+        )
+    )
+    second = asyncio.run(
+        backfill_bmob3_volume_history(
+            repository,
+            target_date="2026-08-19",
+            required_sessions=3,
+            max_calendar_days=7,
+            max_downloaded_sessions=1,
+            fetcher=fetcher,
+        )
+    )
+
+    assert first["status"] == "partial"
+    assert first["downloaded_sessions"] == 1
+    assert first["available_sessions"] == 2
+    assert second["status"] == "ok"
+    assert second["initial_sessions"] == 2
+    assert second["downloaded_sessions"] == 1
+    assert second["available_sessions"] == 3
 
 
 def _cvm_payload() -> bytes:

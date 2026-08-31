@@ -23,6 +23,7 @@ B3_DAILY_URL = (
 MAX_DAILY_ZIP_BYTES = 8 * 1024 * 1024
 BMOB3_VOLUME_HISTORY_SESSIONS = 63
 BMOB3_VOLUME_HISTORY_CALENDAR_DAYS = 100
+BMOB3_VOLUME_HISTORY_BATCH_SIZE = 5
 
 
 @dataclass(frozen=True)
@@ -238,6 +239,7 @@ async def backfill_bmob3_volume_history(
     target_date: str,
     required_sessions: int = BMOB3_VOLUME_HISTORY_SESSIONS,
     max_calendar_days: int = BMOB3_VOLUME_HISTORY_CALENDAR_DAYS,
+    max_downloaded_sessions: int | None = None,
     archive_bucket: Any | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
@@ -252,6 +254,7 @@ async def backfill_bmob3_volume_history(
         JOIN sources s ON s.id=mp.source_id
         WHERE i.symbol='BMOB3' AND mp.price_type='CLOSE' AND s.code='B3'
           AND mp.trading_date BETWEEN ? AND ?
+          AND json_extract(mp.metadata_json, '$.volume_shares') IS NOT NULL
         ORDER BY mp.trading_date DESC
         """,
         (start, target_date),
@@ -263,6 +266,11 @@ async def backfill_bmob3_volume_history(
 
     for offset in range(max_calendar_days + 1):
         if len(available) >= required_sessions:
+            break
+        if (
+            max_downloaded_sessions is not None
+            and downloaded >= max_downloaded_sessions
+        ):
             break
         candidate = target - timedelta(days=offset)
         candidate_text = candidate.isoformat()

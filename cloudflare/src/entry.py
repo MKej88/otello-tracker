@@ -171,7 +171,12 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
     """Durable full refresh protected from concurrent fast-path writes."""
 
     async def run(self, event, step):
-        from b3_full_refresh import backfill_bmob3_volume_history, refresh_bmob3_close
+        from b3_full_refresh import (
+            BMOB3_VOLUME_HISTORY_BATCH_SIZE,
+            BMOB3_VOLUME_HISTORY_SESSIONS,
+            backfill_bmob3_volume_history,
+            refresh_bmob3_close,
+        )
         from bemobi_web_refresh_runtime import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
         from full_refresh import (
@@ -354,14 +359,8 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     target_date=target_date,
                     archive_bucket=self.env.SOURCE_ARCHIVE,
                 )
-                volume_history = await backfill_bmob3_volume_history(
-                    repository,
-                    target_date=target_date,
-                    archive_bucket=self.env.SOURCE_ARCHIVE,
-                )
                 return {
                     **result,
-                    "volume_history": volume_history,
                     "repository": repository.performance_metrics(),
                 }
 
@@ -369,6 +368,41 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 source_results["b3"] = await b3_step()
             except Exception as exc:
                 source_results["b3"] = error_result(exc)
+
+            volume_history = None
+            volume_batches = (
+                BMOB3_VOLUME_HISTORY_SESSIONS
+                + BMOB3_VOLUME_HISTORY_BATCH_SIZE
+                - 1
+            ) // BMOB3_VOLUME_HISTORY_BATCH_SIZE
+            for batch_number in range(1, volume_batches + 1):
+
+                @step.do(
+                    f"backfill B3 volume history {batch_number}",
+                    config={
+                        "retries": {"limit": 4, "delay": "1 minute"},
+                        "timeout": "5 minutes",
+                    },
+                )
+                async def b3_volume_step():
+                    repository = PerformanceD1WriteRepository(self.env.DB)
+                    result = await backfill_bmob3_volume_history(
+                        repository,
+                        target_date=target_date,
+                        max_downloaded_sessions=BMOB3_VOLUME_HISTORY_BATCH_SIZE,
+                        archive_bucket=self.env.SOURCE_ARCHIVE,
+                    )
+                    return {**result, "repository": repository.performance_metrics()}
+
+                try:
+                    volume_history = await b3_volume_step()
+                except Exception as exc:
+                    volume_history = error_result(exc)
+                    break
+                if volume_history.get("status") == "ok":
+                    break
+
+            source_results.setdefault("b3", {})["volume_history"] = volume_history
             await renew_lock("after B3")
 
             @step.do(
