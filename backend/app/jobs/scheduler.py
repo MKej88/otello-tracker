@@ -111,7 +111,9 @@ def run_cycle(
             "source_error_count": len(result.get("source_errors") or []),
             "dashboard_ready": bool((result.get("dashboard") or {}).get("ready")),
         }
-    except Exception as exc:  # keep the production scheduler alive on unexpected failures
+    except (
+        Exception
+    ) as exc:  # keep the production scheduler alive on unexpected failures
         return {
             "event": "refresh_failed",
             "refresh_mode": "fast",
@@ -149,7 +151,9 @@ def _job_due(
         ).fetchone()
     if row is None:
         return True
-    return (now.astimezone(UTC) - _parse_timestamp(row["finished_at"])).total_seconds() >= interval_seconds
+    return (
+        now.astimezone(UTC) - _parse_timestamp(row["finished_at"])
+    ).total_seconds() >= interval_seconds
 
 
 def _job_result_status(result: dict[str, Any]) -> str:
@@ -177,12 +181,56 @@ def _run_managed_job(
     job_name: str,
     fn: Callable[[], dict[str, Any]],
     *,
+    interval_seconds: int,
     now_fn: Callable[[], datetime] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     clock = now_fn or (lambda: datetime.now(UTC))
     init_database(database_path)
     started = clock()
     with get_connection(database_path) as connection:
+        # Kontroll og reservasjon må skje i samme skrivetransaksjon. Ellers kan
+        # to planleggere se at jobben er klar og starte den samtidig.
+        connection.execute("BEGIN IMMEDIATE")
+        latest_completed = connection.execute(
+            """
+            SELECT finished_at
+            FROM job_runs
+            WHERE job_name=? AND status IN ('SUCCESS','PARTIAL')
+                AND finished_at IS NOT NULL
+            ORDER BY finished_at DESC, id DESC LIMIT 1
+            """,
+            (job_name,),
+        ).fetchone()
+        if (
+            latest_completed is not None
+            and (
+                started.astimezone(UTC)
+                - _parse_timestamp(latest_completed["finished_at"])
+            ).total_seconds()
+            < interval_seconds
+        ):
+            connection.rollback()
+            return None
+
+        latest_running = connection.execute(
+            """
+            SELECT started_at
+            FROM job_runs
+            WHERE job_name=? AND status='RUNNING'
+            ORDER BY started_at DESC, id DESC LIMIT 1
+            """,
+            (job_name,),
+        ).fetchone()
+        if (
+            latest_running is not None
+            and (
+                started.astimezone(UTC) - _parse_timestamp(latest_running["started_at"])
+            ).total_seconds()
+            < interval_seconds
+        ):
+            connection.rollback()
+            return None
+
         cursor = connection.execute(
             """
             INSERT INTO job_runs(job_name, started_at, status, metadata_json)
@@ -205,7 +253,12 @@ def _run_managed_job(
                 SET finished_at=?, status=?, metadata_json=?
                 WHERE id=?
                 """,
-                (finished.isoformat(), status, json.dumps(metadata, ensure_ascii=False), job_id),
+                (
+                    finished.isoformat(),
+                    status,
+                    json.dumps(metadata, ensure_ascii=False),
+                    job_id,
+                ),
             )
             connection.commit()
         return {
@@ -282,26 +335,31 @@ def run_maintenance_if_due(
     now = clock()
     records: list[dict[str, Any]] = []
 
-    if _job_due(config.database_path, "full_refresh", config.full_interval_seconds, now):
-        records.append(
-            _run_managed_job(
-                config.database_path,
-                "full_refresh",
-                lambda: full_refresh_fn(config.database_path),
-                now_fn=clock,
-            )
+    if _job_due(
+        config.database_path, "full_refresh", config.full_interval_seconds, now
+    ):
+        record = _run_managed_job(
+            config.database_path,
+            "full_refresh",
+            lambda: full_refresh_fn(config.database_path),
+            interval_seconds=config.full_interval_seconds,
+            now_fn=clock,
         )
+        if record is not None:
+            records.append(record)
 
-    if _job_due(config.database_path, "database_backup", config.backup_interval_seconds, now):
-        records.append(
-            _run_managed_job(
-                config.database_path,
-                "database_backup",
-                lambda: backup_fn(config.database_path, backup_dir=config.backup_dir),
-                now_fn=clock,
-            )
+    if _job_due(
+        config.database_path, "database_backup", config.backup_interval_seconds, now
+    ):
+        record = _run_managed_job(
+            config.database_path,
+            "database_backup",
+            lambda: backup_fn(config.database_path, backup_dir=config.backup_dir),
+            interval_seconds=config.backup_interval_seconds,
+            now_fn=clock,
         )
-
+        if record is not None:
+            records.append(record)
     return records
 
 
@@ -343,7 +401,10 @@ def run_scheduler(
         if maintenance_fn is not None:
             try:
                 for maintenance_record in maintenance_fn(config):
-                    print(json.dumps(maintenance_record, ensure_ascii=False, default=str), flush=True)
+                    print(
+                        json.dumps(maintenance_record, ensure_ascii=False, default=str),
+                        flush=True,
+                    )
             except Exception as exc:
                 print(
                     json.dumps(
