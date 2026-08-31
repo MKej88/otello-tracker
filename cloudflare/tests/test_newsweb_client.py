@@ -3,14 +3,20 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from newsweb_client import _post_json, parse_list_payload  # noqa: E402
+from newsweb_client import (  # noqa: E402
+    _post_json,
+    discover_otec_messages,
+    parse_list_payload,
+)
 
 
 def _response(payload: dict[str, Any]) -> SimpleNamespace:
@@ -18,6 +24,28 @@ def _response(payload: dict[str, Any]) -> SimpleNamespace:
         return json.dumps(payload)
 
     return SimpleNamespace(ok=True, text=text, headers={})
+
+
+def _list_response(
+    messages: list[dict[str, Any]], *, overflow: bool
+) -> SimpleNamespace:
+    return _response(
+        {
+            "header": {"result.val": 0, "http.code": 200},
+            "data": {"messages": messages, "overflow": overflow},
+        }
+    )
+
+
+def _message(message_id: int, published_at: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "messageId": message_id,
+        "issuerId": 7759,
+        "issuerSign": "OTEC",
+        "markets": ["XOSL"],
+        "publishedTime": published_at,
+        **extra,
+    }
 
 
 class NewsWebStatusHeaderTest(unittest.IsolatedAsyncioTestCase):
@@ -127,6 +155,71 @@ class NewsWebPartialResponseTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "ugyldig kategoriliste"):
             parse_list_payload(payload)
+
+
+class NewsWebDiscoveryControlFlowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_splits_overflow_window_without_date_gaps_or_overlap(self) -> None:
+        requested_windows: list[tuple[str, str]] = []
+        responses: Mapping[tuple[str, str], SimpleNamespace] = {
+            ("2026-08-28", "2026-08-31"): _list_response([], overflow=True),
+            ("2026-08-28", "2026-08-29"): _list_response(
+                [_message(10, "2026-08-29T09:00:00Z")], overflow=False
+            ),
+            ("2026-08-30", "2026-08-31"): _list_response(
+                [_message(11, "2026-08-30T09:00:00Z")], overflow=False
+            ),
+        }
+
+        async def fetcher(url: str, **kwargs: object) -> SimpleNamespace:
+            query = parse_qs(urlparse(url).query)
+            window = (query["fromDate"][0], query["toDate"][0])
+            requested_windows.append(window)
+            return responses[window]
+
+        messages = await discover_otec_messages(
+            "2026-08-28", "2026-08-31", fetcher=fetcher
+        )
+
+        self.assertEqual(
+            requested_windows,
+            [
+                ("2026-08-28", "2026-08-31"),
+                ("2026-08-28", "2026-08-29"),
+                ("2026-08-30", "2026-08-31"),
+            ],
+        )
+        self.assertEqual([message.message_id for message in messages], [10, 11])
+
+    async def test_rejects_single_day_overflow_instead_of_returning_partial_data(
+        self,
+    ) -> None:
+        async def fetcher(url: str, **kwargs: object) -> SimpleNamespace:
+            return _list_response([_message(20, "2026-08-31T10:00:00Z")], overflow=True)
+
+        with self.assertRaisesRegex(ValueError, "overflow på enkelt dato 2026-08-31"):
+            await discover_otec_messages("2026-08-31", "2026-08-31", fetcher=fetcher)
+
+    async def test_removes_duplicates_and_superseded_messages(self) -> None:
+        superseded = _message(
+            30,
+            "2026-08-31T08:00:00Z",
+            correctedByMessageId=31,
+        )
+        correction = _message(
+            31,
+            "2026-08-31T09:00:00Z",
+            correctionForMessageId=30,
+        )
+
+        async def fetcher(url: str, **kwargs: object) -> SimpleNamespace:
+            return _list_response([correction, superseded, correction], overflow=False)
+
+        messages = await discover_otec_messages(
+            "2026-08-31", "2026-08-31", fetcher=fetcher
+        )
+
+        self.assertEqual([message.message_id for message in messages], [31])
+        self.assertEqual(messages[0].correction_for_message_id, 30)
 
 
 if __name__ == "__main__":
