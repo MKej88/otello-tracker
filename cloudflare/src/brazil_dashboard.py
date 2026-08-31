@@ -83,13 +83,16 @@ def _parse_sgs_rows(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         raise ValueError("BCB SGS returnerte ikke en liste")
     rows: list[dict[str, Any]] = []
-    for item in payload:
+    for index, item in enumerate(payload):
         if not isinstance(item, dict):
-            continue
+            raise ValueError(f"BCB SGS-rad {index} er ikke et JSON-objekt")
         value = _decimal(item.get("valor"))
-        raw_date = str(item.get("data") or "")
-        if value is None or not raw_date:
-            continue
+        raw_date_value = item.get("data")
+        if value is None:
+            raise ValueError(f"BCB SGS-rad {index} mangler gyldig verdi")
+        if not isinstance(raw_date_value, str) or not raw_date_value.strip():
+            raise ValueError(f"BCB SGS-rad {index} mangler gyldig dato")
+        raw_date = raw_date_value.strip()
         try:
             parsed = datetime.strptime(raw_date, "%d/%m/%Y").date().isoformat()
         except ValueError as exc:
