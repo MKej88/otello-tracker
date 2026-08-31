@@ -15,38 +15,14 @@ CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
-from bemobi_web_refresh_v2 import (  # noqa: E402
-    _ensure_consensus_event,
-    parse_forward_consensus_html,
-)
+from bemobi_web_refresh_v2 import _ensure_consensus_event  # noqa: E402
 
 
-def _forward_html() -> str:
-    return """
-    <table>
-      <tr><th></th><th>2026</th><th>2027</th><th>2028</th></tr>
-      <tr><td>Net sales</td><td>814</td><td>1,002</td><td>1,180</td></tr>
-      <tr><td>EBITDA</td><td>288.2</td><td>342.5</td><td>401.0</td></tr>
-      <tr><td>EBIT</td><td>205.4</td><td>257.1</td><td>306.0</td></tr>
-      <tr><td>Net income</td><td>174.3</td><td>191.6</td><td>224.0</td></tr>
-      <tr><td>EPS</td><td>2.07</td><td>2.16</td><td>2.55</td></tr>
-      <tr><td>Net debt</td><td>-226</td><td>-208</td><td>-180</td></tr>
-    </table>
-    """
-
-
-def test_forward_parser_rolls_calendar_without_hardcoded_2026_2027() -> None:
-    years = parse_forward_consensus_html(_forward_html(), as_of_year=2027)
-    assert [item["year"] for item in years] == [2027, 2028]
-    assert years[0]["revenue_mbrl"] == 1002.0
-    assert years[1]["ebitda_mbrl"] == 401.0
-
-
-def test_consensus_history_migration_seeds_data_backed_baseline(tmp_path) -> None:
+def test_consensus_history_migration_replaces_aggregator_with_broker_baseline(tmp_path) -> None:
     database = str(tmp_path / "consensus-v2.db")
     applied = init_database(database)
 
-    assert "0022" in applied
+    assert "0031" in applied
     status = database_status(database)
     assert status["latest_migration"] == applied[-1]
     assert status["table_counts"]["bemobi_consensus_events"] == 3
@@ -62,14 +38,25 @@ def test_consensus_history_migration_seeds_data_backed_baseline(tmp_path) -> Non
         baseline = connection.execute(
             "SELECT source_name, observed_date, payload_json FROM bemobi_forward_consensus_snapshots"
         ).fetchone()
+        retired = connection.execute(
+            "SELECT is_active FROM sources WHERE code='MARKETSCREENER'"
+        ).fetchone()
+        legacy_facts = connection.execute(
+            "SELECT COUNT(*) AS count FROM bemobi_investor_facts WHERE lower(source_name)='marketscreener'"
+        ).fetchone()["count"]
 
     assert periods == ["3Q25", "4Q25", "2Q26"]
-    assert baseline["source_name"] == "MarketScreener"
-    assert baseline["observed_date"] == "2026-08-19"
-    assert [item["year"] for item in json.loads(baseline["payload_json"])["years"]] == [2026, 2027]
+    assert baseline["source_name"] == "BTG Pactual"
+    assert baseline["observed_date"] == "2026-05-12"
+    years = json.loads(baseline["payload_json"])["years"]
+    assert [item["year"] for item in years] == [2026, 2027]
+    assert years[0]["ebitda_mbrl"] == 267.0
+    assert years[1]["revenue_mbrl"] == 916.0
+    assert retired is None or retired["is_active"] == 0
+    assert legacy_facts == 0
 
 
-def test_forward_revision_tracker_compares_last_two_same_source_snapshots(tmp_path) -> None:
+def test_forward_revision_tracker_compares_last_two_same_broker_snapshots(tmp_path) -> None:
     database = str(tmp_path / "consensus-revisions.db")
     init_database(database)
     second_payload = {
@@ -77,20 +64,18 @@ def test_forward_revision_tracker_compares_last_two_same_source_snapshots(tmp_pa
             {
                 "year": 2026,
                 "revenue_mbrl": 814.0,
-                "ebitda_mbrl": 300.0,
-                "ebit_mbrl": 205.4,
-                "net_income_mbrl": 174.3,
-                "eps_brl": 2.07,
-                "net_debt_mbrl": -226.0,
+                "ebitda_mbrl": 280.0,
+                "net_income_mbrl": 173.0,
+                "eps_brl": 2.10,
+                "net_debt_mbrl": -343.0,
             },
             {
                 "year": 2027,
-                "revenue_mbrl": 1002.0,
-                "ebitda_mbrl": 342.5,
-                "ebit_mbrl": 257.1,
-                "net_income_mbrl": 191.6,
-                "eps_brl": 2.16,
-                "net_debt_mbrl": -208.0,
+                "revenue_mbrl": 916.0,
+                "ebitda_mbrl": 308.0,
+                "net_income_mbrl": 189.0,
+                "eps_brl": 2.20,
+                "net_debt_mbrl": -322.0,
             },
         ]
     }
@@ -100,7 +85,7 @@ def test_forward_revision_tracker_compares_last_two_same_source_snapshots(tmp_pa
             INSERT INTO bemobi_forward_consensus_snapshots(
                 source_name, observed_date, payload_json, content_hash,
                 source_url, quality
-            ) VALUES ('MarketScreener','2026-08-20',?,'changed','https://example.test','TEST')
+            ) VALUES ('BTG Pactual','2026-08-20',?,'changed','https://example.test','TEST')
             """,
             (json.dumps(second_payload, sort_keys=True, separators=(",", ":")),),
         )
@@ -110,14 +95,14 @@ def test_forward_revision_tracker_compares_last_two_same_source_snapshots(tmp_pa
     tracker = history["forward_revision_tracker"]
     assert tracker["comparison_ready"] is True
     assert tracker["same_source_snapshots"] == 2
-    assert tracker["baseline_date"] == "2026-08-19"
+    assert tracker["baseline_date"] == "2026-05-12"
     assert tracker["latest_date"] == "2026-08-20"
     changes = tracker["latest_changes"]
     assert len(changes) == 1
     assert changes[0]["year"] == 2026
     assert changes[0]["metric"] == "ebitda_mbrl"
-    assert changes[0]["before"] == 288.2
-    assert changes[0]["after"] == 300.0
+    assert changes[0]["before"] == 267.0
+    assert changes[0]["after"] == 280.0
 
 
 def test_history_metadata_is_not_hardcoded_in_python_anymore() -> None:
