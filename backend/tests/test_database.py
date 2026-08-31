@@ -23,12 +23,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         "0001", "0002", "0003", "0004", "0005", "0006", "0007",
         "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
         "0016", "0017", "0019", "0020", "0021", "0022", "0023", "0024",
-        "0025", "0026", "0027", "0028", "0029", "0030",
+        "0025", "0026", "0027", "0028", "0029", "0030", "0031",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0030"
+    assert status["latest_migration"] == "0031"
     assert status["table_counts"]["sources"] == 19
     assert status["table_counts"]["instruments"] == 4
     assert status["table_counts"]["bemobi_investor_facts"] == 18
@@ -287,7 +287,7 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0030"
+            assert payload["latest_migration"] == "0031"
             assert payload["table_counts"]["sources"] == 19
             assert payload["table_counts"]["instruments"] == 4
             assert payload["table_counts"]["bemobi_investor_facts"] == 18

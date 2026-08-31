@@ -121,21 +121,22 @@ def test_runtime_reports_analyst_failure_without_degrading_bemobi_source(monkeyp
             "rows_written": 1,
         }
 
-    async def ok_consensus(*args, **kwargs):
-        return {"status": "ok", "rows_written": 2}
-
     async def no_xp(*args, **kwargs):
         return {"status": "skipped", "rows_written": 0}
 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ir_with_analyst_warning)
-    monkeypatch.setattr(runtime, "sync_marketscreener_consensus", ok_consensus)
     monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
 
     result = asyncio.run(runtime.refresh_bemobi_web(object(), target_date="2026-08-29"))
 
     assert result["status"] == "ok"
-    assert result["rows_written"] == 3
+    assert result["rows_written"] == 1
+    assert result["consensus"] == {
+        "status": "skipped",
+        "reason": "source_specific_public_broker_models",
+        "rows_written": 0,
+    }
     assert result["best_effort_status"] == "degraded"
     assert result["best_effort_warnings"] == [
         {

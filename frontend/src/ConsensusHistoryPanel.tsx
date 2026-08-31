@@ -202,9 +202,7 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
                         <strong className={(reaction.reaction_1d_pct ?? 0) >= 0 ? "positive" : "negative"}>
                           {signedPct(reaction.reaction_1d_pct)} første handelsdag
                         </strong>
-                        <p>
-                          R$ {value(reaction.pre?.price_brl, 2)} → R$ {value(reaction.day1?.price_brl, 2)}
-                        </p>
+                        <p>R$ {value(reaction.pre?.price_brl, 2)} → R$ {value(reaction.day1?.price_brl, 2)}</p>
                         <p>
                           5 handelsdager: <b className={(reaction.reaction_5d_pct ?? 0) >= 0 ? "positive" : "negative"}>
                             {signedPct(reaction.reaction_5d_pct)}
@@ -231,27 +229,19 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
 
       <div className="consensusRevisionBaseline">
         <div>
-          <span className="label">Løpende konsensusrevisjoner</span>
+          <span className="label">Løpende modellrevisjoner</span>
           <strong>{tracker?.comparison_ready ? "Sammenligning aktiv" : "Baseline startet"}</strong>
         </div>
-        <div>
-          <span>Kilde</span><b>{tracker?.source ?? "–"}</b>
-        </div>
-        <div>
-          <span>Første snapshot</span><b>{dateLabel(tracker?.baseline_date)}</b>
-        </div>
-        <div>
-          <span>Siste snapshot</span><b>{dateLabel(tracker?.latest_date)}</b>
-        </div>
-        <div>
-          <span>Samme-kilde snapshots</span><b>{tracker?.same_source_snapshots ?? 0}</b>
-        </div>
+        <div><span>Kilde</span><b>{tracker?.source ?? "–"}</b></div>
+        <div><span>Første snapshot</span><b>{dateLabel(tracker?.baseline_date)}</b></div>
+        <div><span>Siste snapshot</span><b>{dateLabel(tracker?.latest_date)}</b></div>
+        <div><span>Samme-kilde snapshots</span><b>{tracker?.same_source_snapshots ?? 0}</b></div>
       </div>
 
       {tracker?.comparison_ready && (
         <div className="consensusSnapshotChanges">
           <div className="consensusSnapshotChangesHeader">
-            <span className="label">Siste MarketScreener-revisjon</span>
+            <span className="label">Siste meglermodell-revisjon</span>
             <strong>{snapshotChanges.length ? `${snapshotChanges.length} endringer` : "Ingen tallendring"}</strong>
           </div>
           {snapshotChanges.map((item) => (
