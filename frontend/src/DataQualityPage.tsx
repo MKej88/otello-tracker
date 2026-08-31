@@ -78,8 +78,16 @@ function durationLabel(startedAt?: string | null, finishedAt?: string | null) {
 }
 
 export default function DataQualityPage() {
-  const { data: runtime, refreshFailed: runtimeFailed } = usePollingResource<Runtime>("/api/dashboard/runtime-status", REFRESH_MS);
-  const { data: report, refreshFailed: reportFailed } = usePollingResource<Report>("/api/dashboard/report-status", 2 * REFRESH_MS);
+  const { data: runtime, refreshFailed: runtimeFailed } = usePollingResource<Runtime>(
+    "/api/dashboard/runtime-status",
+    REFRESH_MS,
+    true,
+  );
+  const { data: report, refreshFailed: reportFailed } = usePollingResource<Report>(
+    "/api/dashboard/report-status",
+    2 * REFRESH_MS,
+    true,
+  );
   const snapshot = runtime?.hot_snapshot;
   const pipeline = report?.pipeline ?? {};
   const nightly = runtime?.full_refresh;
