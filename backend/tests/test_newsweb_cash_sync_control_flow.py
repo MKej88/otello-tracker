@@ -165,7 +165,7 @@ def test_retry_oppdaterer_eksisterende_rad_uten_duplikat_og_rydder_gammel_dato(
 
     assert first["daily_cash_rows_updated"] == 1
     assert second["daily_cash_rows_written"] == 0
-    assert second["daily_cash_rows_updated"] == 1
+    assert second["daily_cash_rows_updated"] == 0
     rows = _cash_rows(database_path)
     assert [
         (row["movement_date"], row["movement_type"], row["amount_nok"]) for row in rows
@@ -203,6 +203,38 @@ def test_kontantsynk_henter_alle_rader_med_to_select_sporringer(
         database_path, weekly_buyback_id=buyback_id
     )
 
-    selects = [statement for statement in statements if statement.lstrip().startswith("SELECT")]
+    selects = [
+        statement for statement in statements if statement.lstrip().startswith("SELECT")
+    ]
     assert len(selects) == 2
     assert result["daily_cash_rows_written"] == 5
+
+
+def test_kontantsynk_skriver_ikke_uendrede_rader_pa_nytt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = str(tmp_path / "unchanged.db")
+    init_database(database_path)
+    buyback_id = _seed_week(database_path)
+    sync_newsweb_daily_buyback_cash(database_path, weekly_buyback_id=buyback_id)
+    statements: list[str] = []
+
+    @contextmanager
+    def traced_connection(path: str | None = None) -> Iterator[sqlite3.Connection]:
+        with get_connection(path) as connection:
+            connection.set_trace_callback(statements.append)
+            yield connection
+
+    monkeypatch.setattr(cash_sync, "get_connection", traced_connection)
+
+    result = sync_newsweb_daily_buyback_cash(
+        database_path, weekly_buyback_id=buyback_id
+    )
+
+    updates = [
+        statement
+        for statement in statements
+        if statement.lstrip().startswith("UPDATE cash_movements")
+    ]
+    assert updates == []
+    assert result["daily_cash_rows_updated"] == 0

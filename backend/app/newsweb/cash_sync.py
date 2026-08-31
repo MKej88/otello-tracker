@@ -47,7 +47,9 @@ def sync_newsweb_daily_buyback_cash(
 
         existing_rows = connection.execute(
             f"""
-            SELECT cm.id, cm.buyback_id, cm.movement_date
+            SELECT cm.id, cm.buyback_id, cm.movement_date,
+                   cm.amount_nok, cm.amount_original, cm.description,
+                   cm.source_document_id, cm.confidence
             FROM cash_movements cm
             WHERE cm.movement_type = 'OTELLO_BUYBACK_DAILY'
               AND EXISTS (
@@ -61,13 +63,13 @@ def sync_newsweb_daily_buyback_cash(
             """,
             params,
         ).fetchall()
-        existing_by_week_and_date: dict[tuple[int, str], int] = {}
+        existing_by_week_and_date: dict[tuple[int, str], Any] = {}
         existing_by_week: dict[int, list[Any]] = {}
         for row in existing_rows:
             buyback_id = int(row["buyback_id"])
             existing_by_week.setdefault(buyback_id, []).append(row)
             existing_by_week_and_date.setdefault(
-                (buyback_id, str(row["movement_date"])), int(row["id"])
+                (buyback_id, str(row["movement_date"])), row
             )
 
         weekly_deleted = 0
@@ -111,8 +113,8 @@ def sync_newsweb_daily_buyback_cash(
                     f"NewsWeb transaction-level Otello buyback: {row['shares']:,} shares "
                     f"on {trade_date}; weekly status period ending {week['period_end']}."
                 )
-                existing_id = existing_by_week_and_date.get((buyback_id, trade_date))
-                if existing_id is None:
+                existing = existing_by_week_and_date.get((buyback_id, trade_date))
+                if existing is None:
                     connection.execute(
                         """
                         INSERT INTO cash_movements(
@@ -131,7 +133,14 @@ def sync_newsweb_daily_buyback_cash(
                         ),
                     )
                     daily_written += 1
-                else:
+                elif (
+                    Decimal(existing["amount_nok"]) != Decimal(amount)
+                    or existing["amount_original"] is None
+                    or Decimal(existing["amount_original"]) != Decimal(amount)
+                    or existing["description"] != description
+                    or existing["source_document_id"] != row["source_document_id"]
+                    or existing["confidence"] != "CONFIRMED"
+                ):
                     connection.execute(
                         """
                         UPDATE cash_movements
@@ -144,14 +153,16 @@ def sync_newsweb_daily_buyback_cash(
                             amount,
                             description,
                             row["source_document_id"],
-                            existing_id,
+                            existing["id"],
                         ),
                     )
                     daily_updated += 1
 
             for item in existing_by_week.get(buyback_id, []):
                 if item["movement_date"] not in seen_dates:
-                    connection.execute("DELETE FROM cash_movements WHERE id = ?", (item["id"],))
+                    connection.execute(
+                        "DELETE FROM cash_movements WHERE id = ?", (item["id"],)
+                    )
 
             synced_weeks.append(
                 {
