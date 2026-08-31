@@ -23,9 +23,9 @@ OSLO_TZ = ZoneInfo("Europe/Oslo")
 # thinly traded OTEC print cannot fall into a polling gap after LAST_15_MINUTES returns
 # no OTEC row.
 INTRADAY_SELECTIONS = ("LAST_15_MINUTES", "LAST_HOUR")
-# A full current-day file is only a cold-start/recovery fallback. If a successful or
-# degraded fast cycle finished within this window, LAST_HOUR already overlaps all time
-# since the previous poll and a large day-file request is unnecessary.
+# A full current-day file is only a cold-start/recovery fallback. If a successful fast
+# cycle finished within this window, LAST_HOUR already overlaps all time since the
+# previous confirmed poll and a large day-file request is unnecessary.
 RECENT_POLL_COVERAGE_MINUTES = 75
 INTRADAY_BOOTSTRAP_AFTER = time(9, 15)
 # Normal Oslo equity trading is finished well before this. Waiting until 16:45 also
@@ -49,7 +49,7 @@ def _recent_fast_poll(database_path: str | None, now: datetime) -> bool:
             SELECT finished_at
             FROM job_runs
             WHERE job_name='fast_refresh'
-              AND status IN ('SUCCESS','PARTIAL')
+              AND status = 'SUCCESS'
               AND finished_at IS NOT NULL
             ORDER BY finished_at DESC, id DESC
             LIMIT 1
