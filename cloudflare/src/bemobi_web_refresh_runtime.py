@@ -12,6 +12,7 @@ from datetime import date
 from typing import Any, Awaitable, Callable
 
 from bemobi_cvm_post_result import refresh_cvm_financials_after_new_result
+from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
 from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
@@ -189,6 +190,21 @@ async def refresh_bemobi_web(
             "rows_written": 0,
         }
 
+    try:
+        distribution_cash = await sync_confirmed_bemobi_distribution_cash(
+            repository,
+            target_date=target_date,
+        )
+    except Exception as exc:
+        distribution_cash = {
+            "status": "error",
+            "reason": "confirmed_distribution_cash_sync_failed",
+            "error": str(exc)[:700],
+            "error_type": type(exc).__name__,
+            "rows_written": 0,
+            "rows_updated": 0,
+        }
+
     analyst_coverage = (
         ir.get("analyst_coverage")
         if isinstance(ir.get("analyst_coverage"), dict)
@@ -281,16 +297,24 @@ async def refresh_bemobi_web(
         )
 
     result_release_degraded = result.get("status") == "not_available"
-    non_blocking_degraded = ir_failed and not result_release_degraded
+    distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
+    non_blocking_degraded = (
+        ir_failed and not result_release_degraded and not distribution_degraded
+    )
     rows_written = (
         sum(int(item.get("rows_written") or 0) for item in (ir, result, xp))
         + event_rows
         + int(post_result_cvm.get("rows_written") or 0)
+        + int(distribution_cash.get("rows_written") or 0)
+        + int(distribution_cash.get("rows_updated") or 0)
     )
     return {
-        "status": "partial" if (ir_failed or result_release_degraded) else "ok",
+        "status": "partial"
+        if (ir_failed or result_release_degraded or distribution_degraded)
+        else "ok",
         "rows_written": rows_written,
         "ir": ir,
+        "distribution_cash": distribution_cash,
         "result_release": result,
         "post_result_cvm_financials": post_result_cvm,
         "consensus": broker_models,
@@ -303,5 +327,5 @@ async def refresh_bemobi_web(
         "non_blocking_degraded": non_blocking_degraded,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
-        "policy": "ownership-core-analyst-best-effort-result-release-health-public-broker-models-xp-last-good-preserved",
+        "policy": "ownership-core-confirmed-distribution-cash-analyst-best-effort-result-release-health-public-broker-models-xp-last-good-preserved",
     }

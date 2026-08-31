@@ -215,6 +215,8 @@ function driverMovement(driver: Driver) {
 function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
   const bemobiPrice = drivers.find((driver) => driver.key === "bemobi_price");
   const bemobiFx = drivers.find((driver) => driver.key === "bemobi_fx");
+  const bemobiReceivable = drivers.find((driver) => driver.key === "bemobi_receivable");
+  const bemobiPaid = drivers.find((driver) => driver.key === "bemobi_paid");
   const buybackCash = drivers.find((driver) => driver.key === "buyback_cash");
   const buybackShares = drivers.find((driver) => driver.key === "buyback_shares");
   const groupedKeys = new Set<string>();
@@ -250,6 +252,22 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
 
   if (bemobiPrice && bemobiFx) {
     addGroup("bemobi_net", "Bemobi – netto", [bemobiPrice, bemobiFx]);
+  }
+  if (bemobiReceivable || bemobiPaid) {
+    const parts = [bemobiReceivable, bemobiPaid].filter((part): part is Driver => part != null);
+    parts.forEach((part) => groupedKeys.add(part.key));
+    result.push({
+      key: "bemobi_confirmed_cash",
+      label: "Bekreftede øvrige kontantbevegelser",
+      amount_mnok: parts.reduce((sum, part) => sum + (part.amount_mnok ?? 0), 0),
+      per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0),
+      breakdown: parts.map((part) => ({
+        label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
+        movement: driverMovement(part),
+        amount_mnok: part.amount_mnok,
+        per_share_nok: part.per_share_nok,
+      })),
+    });
   }
   if (buybackCash && buybackShares) {
     addGroup("buyback_net", "Tilbakekjøp – netto", [buybackCash, buybackShares]);
@@ -470,7 +488,7 @@ export default function NavPageV2() {
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs, BRL/NOK, tilgode utbytte/renter og faktisk utbetalt utbytte/renter. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Bekreftede Bemobi-utdelinger vises som én livsløpslinje: først som fordring fra ex-dato og deretter som utbetalt netto kontantbevegelse på betalingsdato. Overgangen fra fordring til kontanter endrer ikke NAV i seg selv. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske NAV-observasjoner for valgt periode.</p>
