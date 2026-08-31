@@ -260,12 +260,12 @@ def rebuild_daily_cash(
         final_date = date.fromisoformat(end_date)
 
         connection.execute("DELETE FROM cash_period_calibrations")
-        connection.execute("DELETE FROM cash_daily_estimates")
         written = 0
         high_residual_periods: list[dict[str, str]] = []
         cross_anchor_exclusions: list[dict[str, Any]] = []
 
-        for start, end in zip(anchors, anchors[1:]):
+        periods = list(zip(anchors, anchors[1:]))
+        for period_index, (start, end) in enumerate(periods):
             start_date = date.fromisoformat(start["date"])
             end_anchor_date = date.fromisoformat(end["date"])
             days = (end_anchor_date - start_date).days
@@ -322,7 +322,10 @@ def rebuild_daily_cash(
             for item in movements:
                 movements_by_date[item["movement_date"]] += _modeled_amount(item)
             cumulative_known = Decimal("0")
-            for offset in range(days + 1):
+            # An anchor is both one period's end and the next period's start.
+            # Write it only as the next start to avoid updating the row twice.
+            offsets = range(days + 1) if period_index == len(periods) - 1 else range(days)
+            for offset in offsets:
                 current = start_date + timedelta(days=offset)
                 current_text = current.isoformat()
                 if offset > 0:
@@ -353,6 +356,7 @@ def rebuild_daily_cash(
                         quality = excluded.quality,
                         inputs_hash = excluded.inputs_hash,
                         notes = excluded.notes
+                    WHERE cash_daily_estimates.inputs_hash <> excluded.inputs_hash
                     """,
                     (
                         current_text, decimal_text(cash_nok), start["date"], end["date"],
@@ -410,6 +414,7 @@ def rebuild_daily_cash(
                         quality = excluded.quality,
                         inputs_hash = excluded.inputs_hash,
                         notes = excluded.notes
+                    WHERE cash_daily_estimates.inputs_hash <> excluded.inputs_hash
                     """,
                     (
                         current_text, decimal_text(cash_nok), latest["date"],
@@ -418,6 +423,13 @@ def rebuild_daily_cash(
                     ),
                 )
                 written += 1
+
+        # Keep identical history rows during forced refreshes, but remove rows
+        # outside the requested model interval when the end date moves backwards.
+        connection.execute(
+            "DELETE FROM cash_daily_estimates WHERE estimate_date < ? OR estimate_date > ?",
+            (anchors[0]["date"], end_date),
+        )
 
         connection.commit()
 
