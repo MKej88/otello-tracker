@@ -31,6 +31,8 @@ type Quote = {
     latest_above_average?: boolean | null;
     unit?: string | null;
     basis?: string | null;
+    source?: string | null;
+    provisional?: boolean | null;
   };
   range_52w?: {
     low?: number | null;
@@ -89,6 +91,10 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
 
   const currency = quote.currency;
   const latestAboveAverage = quote.volume?.latest_above_average;
+  const yahooIntradayVolume =
+    quote.symbol === "BMOB3" &&
+    quote.volume?.provisional === true &&
+    quote.volume?.source === "YAHOO_FINANCE";
   return (
     <article className="card marketQuoteCard">
       <div className="marketQuoteHeader">
@@ -135,11 +141,20 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           <small>{formatDate(quote.last_close?.date)}</small>
         </div>
         <div>
-          <span>Siste volum</span>
+          <span>{yahooIntradayVolume ? "Dagens volum" : "Siste volum"}</span>
           <strong>{volume(quote.volume?.latest)}</strong>
           <small>{formatDate(quote.volume?.latest_date)}</small>
+          {yahooIntradayVolume && <small>Foreløpig · Yahoo Finance</small>}
           {latestAboveAverage != null && (
-            <small>{latestAboveAverage ? "Høyere enn 3 mnd snitt" : "Ikke høyere enn 3 mnd snitt"}</small>
+            <small>
+              {yahooIntradayVolume
+                ? latestAboveAverage
+                  ? "Høyere enn 3 mnd snitt hittil i dag"
+                  : "Ikke høyere enn 3 mnd snitt hittil i dag"
+                : latestAboveAverage
+                  ? "Høyere enn 3 mnd snitt"
+                  : "Ikke høyere enn 3 mnd snitt"}
+            </small>
           )}
         </div>
         <div>
@@ -169,9 +184,17 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
             <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
           )}
-        {quote.symbol === "BMOB3" && (quote.volume?.average_sessions ?? 0) < 63 && (
-          <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
+        {quote.symbol === "BMOB3" && yahooIntradayVolume && (
+          <span>
+            Dagens volum er foreløpig fra Yahoo Finance. 3 mnd snittvolum bygges kun
+            fra offisiell B3 COTAHIST.
+          </span>
         )}
+        {quote.symbol === "BMOB3" &&
+          !yahooIntradayVolume &&
+          (quote.volume?.average_sessions ?? 0) < 63 && (
+            <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
+          )}
         {quote.symbol === "LIF" && (
           <span>Life360 bruker lagret NASDAQ-sluttkurs fra Yahoo Finance.</span>
         )}
