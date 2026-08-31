@@ -1,15 +1,13 @@
 """Aktiv Bemobi web-orkestrering for Cloudflare Full Workflow.
 
-Modulen bygger på parser- og kildehjelperne i ``bemobi_web_refresh`` og eier den
-rullerende forward-konsensusen, append-only snapshots og consensus-history-eventer.
-Det separate modulnavnet gjør runtime-ansvaret eksplisitt uten et tidsavhengig ``v2``-navn.
+Offisiell Bemobi IR oppdateres daglig. Tyngre sekundærkilder roteres mellom
+resultatdokumenter og offentlige XP-previews. Årsmodeller kommer fra
+kildeverifisert offentlig meglerresearch og hentes ikke fra anonyme aggregatorer.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from datetime import date
 from typing import Any, Awaitable, Callable
 
@@ -18,39 +16,15 @@ from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
     BEMOBI_OWNERSHIP_URL,
-    MARKETSCREENER_FINANCES_URL,
-    MAX_HTML_BYTES,
-    _decode_html,
-    _fetch_bytes,
-    _html_parser,
-    _metric_key,
-    _number,
-    _store_web_document,
-    _upsert_fact,
     sync_latest_result_release,
     sync_xp_preview,
 )
 
-
-_REQUIRED_FORWARD_METRICS = {
-    "revenue_mbrl",
-    "ebitda_mbrl",
-    "ebit_mbrl",
-    "net_income_mbrl",
-    "eps_brl",
-    "net_debt_mbrl",
-}
 _SECONDARY_REFRESH_SLOTS = ("result_release", "xp_preview")
 
 
 def _secondary_refresh_slot(target_date: str) -> str:
-    """Spread CPU-heavier secondary web sources deterministically across nights.
-
-    Official Bemobi IR and the lightweight MarketScreener snapshot remain daily. Result
-    PDF parsing and XP are last-good-preserved secondary sources and alternate nights.
-    Daily consensus snapshots are required for the revision tracker to move beyond its
-    seeded baseline and also make transient source failures retry on the next run.
-    """
+    """Spread CPU-heavier secondary web sources deterministically across nights."""
     ordinal = date.fromisoformat(target_date).toordinal()
     return _SECONDARY_REFRESH_SLOTS[ordinal % len(_SECONDARY_REFRESH_SLOTS)]
 
@@ -61,6 +35,15 @@ def _scheduled_skip(slot: str, active_slot: str) -> dict[str, Any]:
         "reason": "rotating_cpu_budget",
         "slot": slot,
         "active_slot": active_slot,
+        "rows_written": 0,
+    }
+
+
+def _broker_models_status() -> dict[str, Any]:
+    """Broker models are source-specific facts, not a nightly scraped aggregate."""
+    return {
+        "status": "skipped",
+        "reason": "source_specific_public_broker_models",
         "rows_written": 0,
     }
 
@@ -107,121 +90,6 @@ def _ir_failed_url(exc: Exception) -> str | None:
     if "analyt" in lowered:
         return BEMOBI_ANALYST_URL
     return None
-
-
-def parse_forward_consensus_html(
-    html: str,
-    *,
-    as_of_year: int,
-    forward_years: int = 2,
-) -> list[dict[str, Any]]:
-    """Parse the next complete MarketScreener forecast years without calendar hardcoding."""
-    rows = _html_parser(html).rows
-    year_positions: dict[int, int] = {}
-    for row in rows:
-        positions = {
-            int(cell): idx
-            for idx, cell in enumerate(row)
-            if re.fullmatch(r"20\d{2}", str(cell).strip()) and 2000 <= int(cell) <= 2100
-        }
-        if len(positions) >= 2:
-            year_positions = positions
-            break
-    if not year_positions:
-        raise ValueError("MarketScreener årskolonner ikke funnet")
-
-    metrics: dict[str, dict[int, float]] = {}
-    for row in rows:
-        if not row:
-            continue
-        key = _metric_key(row[0])
-        if key is None:
-            continue
-        for year, idx in year_positions.items():
-            if idx >= len(row):
-                continue
-            try:
-                value = _number(row[idx], million_scale=key != "eps_brl")
-            except ValueError:
-                continue
-            metrics.setdefault(key, {})[year] = value
-
-    complete_years = [
-        year
-        for year in sorted(year_positions)
-        if year >= as_of_year
-        and all(year in metrics.get(metric, {}) for metric in _REQUIRED_FORWARD_METRICS)
-    ]
-    selected = complete_years[:forward_years]
-    if len(selected) < forward_years:
-        raise ValueError(
-            f"MarketScreener har bare {len(selected)} komplette forward-år fra {as_of_year}"
-        )
-
-    result: list[dict[str, Any]] = []
-    for year in selected:
-        payload = {
-            "year": year,
-            **{metric: metrics[metric][year] for metric in _REQUIRED_FORWARD_METRICS},
-        }
-        if not (
-            0 < payload["revenue_mbrl"] < 10_000
-            and 0 < payload["ebitda_mbrl"] < payload["revenue_mbrl"]
-        ):
-            raise ValueError(f"MarketScreener {year} har ulogiske estimater")
-        if not (
-            -5_000 < payload["net_debt_mbrl"] < 5_000
-            and 0 < payload["eps_brl"] < 100
-        ):
-            raise ValueError(f"MarketScreener {year} har estimater utenfor kontrollgrenser")
-        result.append(payload)
-    return result
-
-
-def _snapshot_payload(years: list[dict[str, Any]]) -> tuple[str, str]:
-    payload = json.dumps(
-        {"years": years},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return payload, hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-async def _store_forward_snapshot(
-    repository,
-    *,
-    target_date: str,
-    years: list[dict[str, Any]],
-    source_document_id: int,
-) -> int:
-    payload_json, content_hash = _snapshot_payload(years)
-    existing = await repository.first(
-        """
-        SELECT id FROM bemobi_forward_consensus_snapshots
-        WHERE source_name='MarketScreener' AND observed_date=? AND content_hash=?
-        LIMIT 1
-        """,
-        (target_date, content_hash),
-    )
-    if existing is not None:
-        return 0
-    await repository.run(
-        """
-        INSERT INTO bemobi_forward_consensus_snapshots(
-            source_name, observed_date, payload_json, content_hash,
-            source_url, source_document_id, quality
-        ) VALUES ('MarketScreener', ?, ?, ?, ?, ?, 'PUBLIC_AGGREGATE_AUTO')
-        """,
-        (
-            target_date,
-            payload_json,
-            content_hash,
-            MARKETSCREENER_FINANCES_URL,
-            source_document_id,
-        ),
-    )
-    return 1
 
 
 async def _ensure_consensus_event(
@@ -293,81 +161,6 @@ async def _ensure_consensus_event(
     return 1
 
 
-async def sync_marketscreener_consensus(
-    repository,
-    *,
-    target_date: str,
-    archive_bucket=None,
-    fetcher: Callable[..., Awaitable[Any]] | None = None,
-) -> dict[str, Any]:
-    try:
-        raw = await _fetch_bytes(
-            MARKETSCREENER_FINANCES_URL,
-            label="MarketScreener Bemobi finances",
-            max_bytes=MAX_HTML_BYTES,
-            fetcher=fetcher,
-        )
-        target_year = date.fromisoformat(target_date).year
-        years = parse_forward_consensus_html(
-            _decode_html(raw),
-            as_of_year=target_year,
-        )
-    except Exception as exc:
-        return {"status": "not_available", "error": str(exc)[:700], "rows_written": 0}
-
-    document_id = await _store_web_document(
-        repository,
-        archive_bucket,
-        source_code="MARKETSCREENER",
-        url=MARKETSCREENER_FINANCES_URL,
-        kind="forward-consensus",
-        title="Bemobi MarketScreener finances",
-        target_date=target_date,
-        payload=raw,
-    )
-    snapshot_rows = await _store_forward_snapshot(
-        repository,
-        target_date=target_date,
-        years=years,
-        source_document_id=document_id,
-    )
-
-    for item in years:
-        await _upsert_fact(
-            repository,
-            fact_type="FORWARD_CONSENSUS",
-            fact_key=str(item["year"]),
-            as_of_date=target_date,
-            published_date=None,
-            payload=item,
-            source_name="MarketScreener",
-            source_url=MARKETSCREENER_FINANCES_URL,
-            source_document_id=document_id,
-            quality="PUBLIC_AGGREGATE_AUTO",
-            notes=(
-                "Automatisk hentet offentlig aggregert konsensus; siste gode data beholdes "
-                "ved kildefeil og hver vellykket observasjon snapshots separat."
-            ),
-        )
-
-    keys = [str(item["year"]) for item in years]
-    placeholders = ",".join("?" for _ in keys)
-    await repository.run(
-        f"DELETE FROM bemobi_investor_facts "
-        f"WHERE fact_type='FORWARD_CONSENSUS' AND fact_key NOT IN ({placeholders}) "
-        f"AND (as_of_date IS NULL OR as_of_date <= ?)",
-        (*keys, target_date),
-    )
-    return {
-        "status": "ok",
-        "years": [item["year"] for item in years],
-        "rows_written": len(years) + snapshot_rows,
-        "fact_rows_written": len(years),
-        "snapshot_rows_written": snapshot_rows,
-        "snapshot_policy": "append-only-same-source",
-    }
-
-
 async def refresh_bemobi_web(
     repository,
     *,
@@ -375,7 +168,7 @@ async def refresh_bemobi_web(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Refresh core Bemobi IR daily while keeping analyst coverage best-effort."""
+    """Refresh core Bemobi IR and source-specific public broker material."""
     ir_failed = False
     try:
         ir = await sync_bemobi_ir(
@@ -401,7 +194,7 @@ async def refresh_bemobi_web(
         if isinstance(ir.get("analyst_coverage"), dict)
         else {}
     )
-    best_effort_warnings = []
+    best_effort_warnings: list[dict[str, Any]] = []
     if analyst_coverage.get("status") == "not_available":
         best_effort_warnings.append(
             {
@@ -415,12 +208,7 @@ async def refresh_bemobi_web(
 
     active_slot = _secondary_refresh_slot(target_date)
     result: dict[str, Any] = _scheduled_skip("result_release", active_slot)
-    consensus = await sync_marketscreener_consensus(
-        repository,
-        target_date=target_date,
-        archive_bucket=archive_bucket,
-        fetcher=fetcher,
-    )
+    broker_models = _broker_models_status()
     xp: dict[str, Any] = _scheduled_skip("xp_preview", active_slot)
     post_result_cvm: dict[str, Any] = {
         "status": "skipped",
@@ -472,7 +260,6 @@ async def refresh_bemobi_web(
             fetcher=fetcher,
         )
 
-    secondary = [result, consensus, xp]
     secondary_warnings = [
         {
             "source": name,
@@ -480,7 +267,7 @@ async def refresh_bemobi_web(
             "reason": item.get("reason"),
             "error": item.get("error"),
         }
-        for name, item in (("result_release", result), ("consensus", consensus), ("xp_preview", xp))
+        for name, item in (("result_release", result), ("xp_preview", xp))
         if item.get("status") == "not_available"
     ]
     if post_result_cvm.get("status") in {"error", "partial"}:
@@ -492,14 +279,11 @@ async def refresh_bemobi_web(
                 "error": post_result_cvm.get("error"),
             }
         )
-    # A new official result document that cannot be parsed is material and still degrades
-    # the nightly job. A core ownership/IR failure remains visible as DEGRADED but is
-    # non-blocking for the full job. Analyst coverage is separately reported best-effort
-    # and never changes the top-level Bemobi source health on its own.
+
     result_release_degraded = result.get("status") == "not_available"
     non_blocking_degraded = ir_failed and not result_release_degraded
     rows_written = (
-        sum(int(item.get("rows_written") or 0) for item in [ir, *secondary])
+        sum(int(item.get("rows_written") or 0) for item in (ir, result, xp))
         + event_rows
         + int(post_result_cvm.get("rows_written") or 0)
     )
@@ -509,7 +293,8 @@ async def refresh_bemobi_web(
         "ir": ir,
         "result_release": result,
         "post_result_cvm_financials": post_result_cvm,
-        "consensus": consensus,
+        "consensus": broker_models,
+        "broker_models": broker_models,
         "xp_preview": xp,
         "secondary_status": "degraded" if secondary_warnings else "ok",
         "secondary_warnings": secondary_warnings,
@@ -518,5 +303,5 @@ async def refresh_bemobi_web(
         "non_blocking_degraded": non_blocking_degraded,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
-        "policy": "ownership-core-analyst-best-effort-result-release-health-best-effort-consensus-xp-last-good-preserved",
+        "policy": "ownership-core-analyst-best-effort-result-release-health-public-broker-models-xp-last-good-preserved",
     }
