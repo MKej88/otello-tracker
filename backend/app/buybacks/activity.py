@@ -39,15 +39,11 @@ def _upsert_activity(
             volume_shares=excluded.volume_shares,
             last_price_nok=COALESCE(excluded.last_price_nok, market_activity.last_price_nok),
             source_document_id=excluded.source_document_id,
-            quality=CASE
-                WHEN market_activity.quality='HISTORICAL_EXPORT' THEN market_activity.quality
-                ELSE excluded.quality
-            END,
-            metadata_json=CASE
-                WHEN market_activity.quality='HISTORICAL_EXPORT' THEN market_activity.metadata_json
-                ELSE excluded.metadata_json
-            END,
+            quality=excluded.quality,
+            metadata_json=excluded.metadata_json,
             updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE market_activity.quality <> 'HISTORICAL_EXPORT'
+           OR excluded.quality = 'HISTORICAL_EXPORT'
         """,
         (
             iid,
