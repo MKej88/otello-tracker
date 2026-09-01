@@ -42,6 +42,7 @@ from app.newsweb import (
     newsweb_history_status,
     sync_newsweb_daily_buyback_cash,
 )
+from app.newsweb.client import NewsWebMessage
 from app.settings import settings
 
 
@@ -187,9 +188,12 @@ def run_refresh(
         steps["otec_investing"] = _safe_step("otec_investing", update_otec_investing, errors)
 
     if fetch_buybacks:
+        newsweb_message_cache: dict[int, NewsWebMessage] = {}
         news_history = _safe_step(
             "newsweb_history",
-            lambda: collect_newsweb_history(database_path, to_date=end),
+            lambda: collect_newsweb_history(
+                database_path, to_date=end, message_cache=newsweb_message_cache
+            ),
             errors,
         )
         steps["newsweb_history"] = news_history
@@ -210,7 +214,9 @@ def run_refresh(
         )
         newsweb_result = _safe_step(
             "newsweb_buybacks",
-            lambda: collect_newsweb_buybacks(database_path, to_date=end),
+            lambda: collect_newsweb_buybacks(
+                database_path, to_date=end, message_cache=newsweb_message_cache
+            ),
             errors,
         )
         steps["newsweb_buybacks"] = newsweb_result

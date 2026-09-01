@@ -222,6 +222,7 @@ def collect_newsweb_history(
     from_date: str | None = None,
     to_date: str | None = None,
     timeout: int = 30,
+    message_cache: dict[int, NewsWebMessage] | None = None,
 ) -> dict[str, Any]:
     """Archive every current/valid OTEC NewsWeb message from 2020 onward.
 
@@ -235,7 +236,16 @@ def collect_newsweb_history(
     errors: list[dict[str, Any]] = []
     for item in discovered:
         try:
-            archived.append(_upsert(fetch_message(item.message_id, timeout=timeout), database_path))
+            message = (
+                message_cache.get(item.message_id)
+                if message_cache is not None
+                else None
+            )
+            if message is None:
+                message = fetch_message(item.message_id, timeout=timeout)
+                if message_cache is not None:
+                    message_cache[item.message_id] = message
+            archived.append(_upsert(message, database_path))
         except Exception as exc:
             errors.append({
                 "message_id": item.message_id,
