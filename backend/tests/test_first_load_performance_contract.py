@@ -206,3 +206,12 @@ def test_navigation_starts_consensus_data_in_parallel_with_route_code() -> None:
         'fetchPreloadedJson<ConsensusPayload>("/api/bemobi/consensus")'
         in page_source
     )
+
+
+def test_recent_navigation_data_is_reused_when_a_view_is_reopened() -> None:
+    source = (FRONTEND_SRC / "navigationDataPreload.ts").read_text(encoding="utf-8")
+
+    assert "const NAVIGATION_CACHE_MS = 30_000" in source
+    assert "cached.expiresAt > Date.now()" in source
+    assert "resolvedJson.set(url" in source
+    assert "if (cached) resolvedJson.delete(url)" in source

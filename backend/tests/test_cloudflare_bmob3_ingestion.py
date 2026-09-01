@@ -167,6 +167,23 @@ def test_yahoo_parser_sums_minute_volume_when_regular_market_volume_is_missing()
     assert quote.volume_basis == "YAHOO_1M_VOLUME_SUM"
 
 
+def test_yahoo_parser_uses_latest_valid_close_and_only_volume_through_that_time() -> None:
+    payload = json.loads(_yahoo_payload(volume=None))
+    result = payload["chart"]["result"][0]
+    result["timestamp"] = [1787074140, 1787074200, 1787074260]
+    result["indicators"]["quote"][0] = {
+        "close": [24.10, 24.15, None],
+        "volume": [10_000, 20_000, 30_000],
+    }
+
+    quote = parse_bmob3_yahoo_quote(json.dumps(payload))
+
+    assert str(quote.price) == "24.15"
+    assert quote.provider_at == "2026-08-18T17:30:00Z"
+    assert quote.volume_shares == 30_000
+    assert quote.volume_basis == "YAHOO_1M_VOLUME_SUM"
+
+
 @pytest.mark.parametrize("timezone_name", [None, "UTC", "Ugyldig/Tidssone"])
 def test_yahoo_parser_rejects_missing_or_wrong_bmob3_timezone(
     timezone_name: str | None,
