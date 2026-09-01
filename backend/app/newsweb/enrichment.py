@@ -580,8 +580,15 @@ def _store_daily_rows(
     return written
 
 
-def ingest_newsweb_buyback_message(message_id: int, database_path: str | None = None, *, timeout: int = 30) -> dict[str, Any]:
-    message = fetch_message(message_id, timeout=timeout)
+def ingest_newsweb_buyback_message(
+    message_id: int,
+    database_path: str | None = None,
+    *,
+    timeout: int = 30,
+    message: NewsWebMessage | None = None,
+) -> dict[str, Any]:
+    if message is None:
+        message = fetch_message(message_id, timeout=timeout)
     if BUYBACK_TITLE not in message.title.lower():
         raise ValueError(f"NewsWeb-melding {message_id} er ikke en buyback-status")
 
@@ -723,6 +730,7 @@ def collect_newsweb_buybacks(
     from_date: str | None = None,
     to_date: str | None = None,
     timeout: int = 30,
+    message_cache: dict[int, NewsWebMessage] | None = None,
 ) -> dict[str, Any]:
     end = to_date or date.today().isoformat()
     start = from_date or _default_from_date(database_path)
@@ -731,7 +739,19 @@ def collect_newsweb_buybacks(
     errors: list[dict[str, Any]] = []
     for item in discovered:
         try:
-            results.append(ingest_newsweb_buyback_message(item.message_id, database_path, timeout=timeout))
+            message = (
+                message_cache.get(item.message_id)
+                if message_cache is not None
+                else None
+            )
+            results.append(
+                ingest_newsweb_buyback_message(
+                    item.message_id,
+                    database_path,
+                    timeout=timeout,
+                    message=message,
+                )
+            )
         except Exception as exc:
             errors.append({
                 "message_id": item.message_id,
