@@ -106,6 +106,23 @@ def test_norges_bank_parser_rejects_date_missing_one_currency() -> None:
         parse_norges_bank_sdmx_json(payload)
 
 
+def test_norges_bank_parser_reports_every_missing_currency_by_date() -> None:
+    payload = _sample_payload()
+    series = payload["dataSets"][0]["series"]
+    del series["0:0:0:0"]["observations"]["0"]
+    del series["0:1:0:0"]["observations"]["1"]
+    del series["0:2:0:0"]["observations"]["1"]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"ufullstendige valutadatoer: 2026-08-18 mangler AUD; "
+            r"2026-08-19 mangler BRL, USD"
+        ),
+    ):
+        parse_norges_bank_sdmx_json(payload)
+
+
 @pytest.mark.parametrize("invalid_rate", ["NaN", "Infinity", "-Infinity"])
 def test_norges_bank_parser_rejects_non_finite_rates(invalid_rate: str) -> None:
     payload = _sample_payload()
