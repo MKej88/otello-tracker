@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import MarketQuotePanel from "./MarketQuotePanel";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime, formatInteger, formatNumber } from "./uiFormat";
@@ -60,6 +62,50 @@ function signed(value: number | null | undefined, digits: number, suffix: string
 function tone(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
   return value > 0 ? "positive" : "negative";
+}
+
+type InsightMetric = {
+  label?: string;
+  value?: ReactNode;
+  valueClassName?: string;
+};
+
+function InsightMetricGroup({ metrics }: { metrics: InsightMetric[] }) {
+  return (
+    <div className="insightMetricGroup">
+      {metrics.map((metric, index) => metric.label ? (
+        <div className="insightMetricRow" key={metric.label}>
+          <span>{metric.label}</span>
+          <b className={metric.valueClassName}>{metric.value}</b>
+        </div>
+      ) : <div className="insightMetricRow insightMetricSlot" key={`empty-${index}`} aria-hidden="true" />)}
+    </div>
+  );
+}
+
+function InsightRange({
+  ariaLabel,
+  low,
+  high,
+  position,
+}: {
+  ariaLabel: string;
+  low: string;
+  high: string;
+  position?: number | null;
+}) {
+  return (
+    <div className="insightRange">
+      <span>1 år</span>
+      <span>{low}</span>
+      <div className="insightRangeTrack" aria-label={ariaLabel}>
+        {position != null && Number.isFinite(position) && (
+          <i style={{ left: `${Math.max(0, Math.min(100, position))}%` }} />
+        )}
+      </div>
+      <span>{high}</span>
+    </div>
+  );
 }
 
 type EstimatedNav = {
@@ -154,78 +200,59 @@ export default function OverviewPage() {
       </section>
 
       <section className="kpiGrid overviewKpiGrid">
-        <article className="card kpi brlInsightCard">
+        <article className="card kpi insightCard">
           <span className="label">BRL/NOK</span>
-          <div className="brlCurrent">
+          <div className="insightHeadline">
             <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
             <strong className={tone(brl?.daily_pct)}>{signed(brl?.daily_pct, 2, " %")}</strong>
           </div>
-          <small>{brlNokStatus}</small>
-          <div className="brlRows">
-            <div><span>1 mnd</span><b className={tone(brl?.month_pct)}>{signed(brl?.month_pct, 1, " %")}</b></div>
-            <div><span>{brl?.quarter_label ? `Siden ${brl.quarter_label}` : "Siden kvartal"}</span><b className={tone(brl?.quarter_pct)}>{signed(brl?.quarter_pct, 1, " %")}</b></div>
-            <div><span>NAV-effekt 1 mnd</span><b className={tone(brl?.nav_effect_1m_per_share_nok)}>{signed(brl?.nav_effect_1m_per_share_nok, 2, " kr/aksje")}</b></div>
-          </div>
-          <div className="brlRange">
-            <span>1 år</span>
-            <span>{hasRange ? formatNumber(range?.low, 2) : "—"}</span>
-            <div className="brlRangeTrack" aria-label="Posisjon i ettårsintervallet">
-              {range?.position_pct != null && Number.isFinite(range.position_pct) && (
-                <i style={{ left: `${Math.max(0, Math.min(100, range.position_pct))}%` }} />
-              )}
-            </div>
-            <span>{hasRange ? formatNumber(range?.high, 2) : "—"}</span>
-          </div>
-          <small className="brlExplanation">Sterkere BRL = positivt for Otello NAV</small>
+          <small className="insightSubline">{brlNokStatus}</small>
+          <div className="insightDivider" />
+          <InsightMetricGroup metrics={[
+            { label: "1 mnd", value: signed(brl?.month_pct, 1, " %"), valueClassName: tone(brl?.month_pct) },
+            { label: brl?.quarter_label ? `Siden ${brl.quarter_label}` : "Siden kvartal", value: signed(brl?.quarter_pct, 1, " %"), valueClassName: tone(brl?.quarter_pct) },
+            { label: "NAV-effekt 1 mnd", value: signed(brl?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), valueClassName: tone(brl?.nav_effect_1m_per_share_nok) },
+          ]} />
+          <InsightMetricGroup metrics={[{}, {}]} />
+          <InsightRange ariaLabel="Posisjon i ettårsintervallet" low={hasRange ? formatNumber(range?.low, 2) : "—"} high={hasRange ? formatNumber(range?.high, 2) : "—"} position={range?.position_pct} />
+          <small className="insightFootnote">Sterkere BRL = positivt for Otello NAV</small>
         </article>
-        <article className="card kpi navDiscountCard">
+        <article className="card kpi insightCard">
           <span className="label">NAV-rabatt</span>
-          <strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong>
-          <div className="brlRows navDiscountRows">
-            <div><span>NAV / aksje</span><b>{nav?.nav_per_share == null ? "—" : `${formatNumber(nav.nav_per_share, 2)} kr`}</b></div>
-            <div><span>Aksjekurs</span><b>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</b></div>
-            <div><span>Oppside til NAV</span><b className={tone(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null)}>{signed(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null, 1, " %")}</b></div>
-            <div><span>1 mnd</span><b className={tone(discount?.month_change_pp == null ? null : -discount.month_change_pp)}>{signed(discount?.month_change_pp, 1, " pp")}</b></div>
-            <div><span>1 år median</span><b>{historyStatistics?.median_discount_pct == null ? "—" : `${formatNumber(historyStatistics.median_discount_pct, 1)} %`}</b></div>
-          </div>
-          <div className="brlRange navDiscountRange">
-            <span>1 år</span>
-            <span>{hasDiscountRange ? `${formatNumber(discountLow, 1)} %` : "—"}</span>
-            <div className="brlRangeTrack" aria-label="Dagens rabatt i ettårsintervallet">
-              {discountPosition != null && Number.isFinite(discountPosition) && (
-                <i style={{ left: `${Math.max(0, Math.min(100, discountPosition))}%` }} />
-              )}
-            </div>
-            <span>{hasDiscountRange ? `${formatNumber(discountHigh, 1)} %` : "—"}</span>
-          </div>
+          <div className="insightHeadline"><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
+          <small className="insightSubline" aria-hidden="true">&nbsp;</small>
+          <div className="insightDivider" />
+          <InsightMetricGroup metrics={[
+            { label: "NAV / aksje", value: nav?.nav_per_share == null ? "—" : `${formatNumber(nav.nav_per_share, 2)} kr` },
+            { label: "Aksjekurs", value: summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr` },
+            { label: "Oppside til NAV", value: signed(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null, 1, " %"), valueClassName: tone(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null) },
+          ]} />
+          <InsightMetricGroup metrics={[
+            { label: "1 mnd", value: signed(discount?.month_change_pp, 1, " pp"), valueClassName: tone(discount?.month_change_pp == null ? null : -discount.month_change_pp) },
+            { label: "1 år median", value: historyStatistics?.median_discount_pct == null ? "—" : `${formatNumber(historyStatistics.median_discount_pct, 1)} %` },
+          ]} />
+          <InsightRange ariaLabel="Dagens rabatt i ettårsintervallet" low={hasDiscountRange ? `${formatNumber(discountLow, 1)} %` : "—"} high={hasDiscountRange ? `${formatNumber(discountHigh, 1)} %` : "—"} position={discountPosition} />
+          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
         </article>
-        <article className="card kpi brlInsightCard bemobiInsightCard">
+        <article className="card kpi insightCard">
           <span className="label">Bemobi</span>
-          <div className="brlCurrent">
+          <div className="insightHeadline">
             <strong>{bemobi?.price_brl == null || !Number.isFinite(bemobi.price_brl) ? "—" : `${formatNumber(bemobi.price_brl, 2)} BRL`}</strong>
             <strong className={tone(bemobi?.daily_pct)}>{signed(bemobi?.daily_pct, 1, " %")}</strong>
           </div>
-          <small>Siste kurs {formatDate(bemobi?.price_date)}</small>
-          <div className="brlRows">
-            <div><span>1 mnd</span><b className={tone(bemobi?.month_pct)}>{signed(bemobi?.month_pct, 1, " %")}</b></div>
-            <div><span>{bemobi?.quarter_label ? `Siden ${bemobi.quarter_label}` : "Siden kvartal"}</span><b className={tone(bemobi?.quarter_pct)}>{signed(bemobi?.quarter_pct, 1, " %")}</b></div>
-            <div><span>NAV-effekt 1 mnd</span><b className={tone(bemobi?.nav_effect_1m_per_share_nok)}>{signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje")}</b></div>
-          </div>
-          <div className="brlRows bemobiExposureRows">
-            <div><span>Verdi / OTEC-aksje</span><b>{bemobi?.value_per_otec_share_nok == null || !Number.isFinite(bemobi.value_per_otec_share_nok) ? "—" : `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr`}</b></div>
-            <div><span>Otello eier</span><b>{bemobi?.holding_shares == null || !Number.isFinite(bemobi.holding_shares) || bemobi?.ownership_pct == null || !Number.isFinite(bemobi.ownership_pct) ? "—" : `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %`}</b></div>
-          </div>
-          <div className="brlRange">
-            <span>1 år</span>
-            <span>{hasBemobiRange ? formatNumber(bemobiRange?.low, 2) : "—"}</span>
-            <div className="brlRangeTrack" aria-label="BMOB3-posisjon i ettårsintervallet">
-              {bemobiRange?.position_pct != null && Number.isFinite(bemobiRange.position_pct) && (
-                <i style={{ left: `${Math.max(0, Math.min(100, bemobiRange.position_pct))}%` }} />
-              )}
-            </div>
-            <span>{hasBemobiRange ? formatNumber(bemobiRange?.high, 2) : "—"}</span>
-          </div>
-          <small className="brlExplanation">Sterkere BMOB3 = positivt for Otello NAV</small>
+          <small className="insightSubline">Siste kurs {formatDate(bemobi?.price_date)}</small>
+          <div className="insightDivider" />
+          <InsightMetricGroup metrics={[
+            { label: "1 mnd", value: signed(bemobi?.month_pct, 1, " %"), valueClassName: tone(bemobi?.month_pct) },
+            { label: bemobi?.quarter_label ? `Siden ${bemobi.quarter_label}` : "Siden kvartal", value: signed(bemobi?.quarter_pct, 1, " %"), valueClassName: tone(bemobi?.quarter_pct) },
+            { label: "NAV-effekt 1 mnd", value: signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), valueClassName: tone(bemobi?.nav_effect_1m_per_share_nok) },
+          ]} />
+          <InsightMetricGroup metrics={[
+            { label: "Verdi / OTEC-aksje", value: bemobi?.value_per_otec_share_nok == null || !Number.isFinite(bemobi.value_per_otec_share_nok) ? "—" : `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr` },
+            { label: "Otello eier", value: bemobi?.holding_shares == null || !Number.isFinite(bemobi.holding_shares) || bemobi?.ownership_pct == null || !Number.isFinite(bemobi.ownership_pct) ? "—" : `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %` },
+          ]} />
+          <InsightRange ariaLabel="BMOB3-posisjon i ettårsintervallet" low={hasBemobiRange ? formatNumber(bemobiRange?.low, 2) : "—"} high={hasBemobiRange ? formatNumber(bemobiRange?.high, 2) : "—"} position={bemobiRange?.position_pct} />
+          <small className="insightFootnote">Sterkere BMOB3 = positivt for Otello NAV</small>
         </article>
       </section>
 
