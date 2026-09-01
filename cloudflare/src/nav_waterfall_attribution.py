@@ -4,37 +4,13 @@ from decimal import Decimal
 from typing import Any
 
 from life360_nav import _usd_nok, life360_nav_adjustment
+from market_attribution import symmetric_two_factor_attribution
 from nav_refresh import _holding, _nearest_fx, _preferred_price
 from nav_waterfall_settlement import nav_waterfall_summary as base_nav_waterfall_summary
 
 MILLION = Decimal("1000000")
 ATTRIBUTION_TOLERANCE_NOK = Decimal("1000")
 RECONCILIATION_TOLERANCE_NOK = Decimal("0.01")
-
-
-def symmetric_two_factor_attribution(
-    *,
-    shares: int,
-    anchor_price: Decimal,
-    current_price: Decimal,
-    anchor_fx: Decimal,
-    current_fx: Decimal,
-) -> dict[str, Decimal]:
-    """Order-independent Shapley attribution of a price × FX market value change."""
-    quantity = Decimal(shares)
-    total = quantity * (current_price * current_fx - anchor_price * anchor_fx)
-    price_effect = (
-        quantity
-        * (current_price - anchor_price)
-        * (anchor_fx + current_fx)
-        / Decimal("2")
-    )
-    fx_effect = total - price_effect
-    return {
-        "total_change_nok": total,
-        "price_effect_nok": price_effect,
-        "fx_effect_nok": fx_effect,
-    }
 
 
 def _component_amount_nok(component: dict[str, Any]) -> Decimal:
