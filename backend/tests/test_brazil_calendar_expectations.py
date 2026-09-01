@@ -165,7 +165,29 @@ def test_focus_expectation_is_marked_as_market_consensus() -> None:
     assert consensus["provider"] == "BCB Focus"
 
 
-def test_annual_focus_proxy_is_shown_when_event_consensus_is_missing() -> None:
+def test_investing_expectation_is_marked_as_primary_market_consensus() -> None:
+    events = _annotate_market_consensus(
+        [
+            {
+                "name": "BNP Q2",
+                "kind": "gdp",
+                "expectation": {
+                    "event_consensus": True,
+                    "provider": "Investing.com",
+                    "value": 0.4,
+                },
+            }
+        ]
+    )
+
+    consensus = events[0]["market_consensus"]
+    assert consensus["available"] is True
+    assert consensus["ingested"] is True
+    assert consensus["coverage"] == "INVESTING_EVENT"
+    assert consensus["provider"] == "Investing.com"
+
+
+def test_annual_focus_proxy_is_not_presented_as_event_consensus() -> None:
     events = _annotate_market_consensus(
         [
             {
@@ -189,8 +211,8 @@ def test_annual_focus_proxy_is_shown_when_event_consensus_is_missing() -> None:
         "coverage": "BCB_FOCUS_ANNUAL_PROXY",
         "provider": "BCB Focus",
         "note": (
-            "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi en "
-            "hendelsesnær median ikke var tilgjengelig."
+            "Et årsestimat fra BCB Focus finnes som bakgrunn, men brukes ikke som "
+            "hendelseskonsensus for denne publiseringen."
         ),
     }
 
@@ -216,7 +238,7 @@ def test_resilient_annual_focus_fills_empty_calendar_expectation() -> None:
     }
 
 
-def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
+def test_pms_pmc_and_ibc_br_report_missing_current_investing_forecast() -> None:
     events = _annotate_market_consensus(
         [
             {"name": "Tjenesteaktivitet (PMS)", "kind": "services"},
@@ -230,5 +252,6 @@ def test_pms_pmc_and_ibc_br_do_not_claim_consensus_is_absent() -> None:
         assert consensus["available"] is True
         assert consensus["ingested"] is False
         assert consensus["coverage"] == "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED"
-        assert "Markedskonsensus" in consensus["note"]
-        assert "gratis BCB Focus-serie" in consensus["note"]
+        assert consensus["provider"] == "Investing.com"
+        assert "Investing.com" in consensus["note"]
+        assert "Forecast" in consensus["note"]
