@@ -347,7 +347,11 @@ async def buyback_forecast(
         confidence = "LOW"
     elif price_state in {"TIGHT", "UNKNOWN"}:
         confidence = "MEDIUM"
-    elif len(history) >= 6 and (metrics.get("median_ape_pct") or 100) <= 10:
+    elif (
+        len(history) >= 6
+        and metrics.get("median_ape_pct") is not None
+        and metrics["median_ape_pct"] <= 10
+    ):
         confidence = "HIGH"
     else:
         confidence = "MEDIUM"

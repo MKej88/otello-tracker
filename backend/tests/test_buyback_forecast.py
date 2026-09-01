@@ -194,6 +194,24 @@ def test_current_program_forecast_matches_walk_forward_backtest_without_weekly_c
     assert result["active_program_backtest"]["median_ape_pct"] < 10
 
 
+def test_perfect_backtest_gets_high_confidence(tmp_path, monkeypatch) -> None:
+    database = str(tmp_path / "perfect-forecast.db")
+    init_database(database)
+    seed_otec_activity_history(database)
+    _seed_current_program(database)
+    monkeypatch.setattr(
+        "app.buybacks.forecast._history_metrics",
+        lambda rows: {"weeks": len(rows), "median_ape_pct": 0.0},
+    )
+
+    result = buyback_forecast(database, as_of_date="2026-08-17")
+
+    assert len(result["recent_program_weeks"]) >= 6
+    assert result["price_model"]["state"] == "OPEN"
+    assert result["active_program_backtest"]["median_ape_pct"] == 0.0
+    assert result["estimate"]["confidence"] == "HIGH"
+
+
 def test_price_cap_blocks_point_estimate_but_keeps_scenario_range(tmp_path) -> None:
     database = str(tmp_path / "forecast-cap.db")
     init_database(database)
