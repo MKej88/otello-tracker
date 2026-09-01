@@ -574,7 +574,9 @@ async def _store_daily_rows(
     return written
 
 
-async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict[str, Any]:
+async def sync_daily_buyback_cash(
+    repository, *, weekly_buyback_id: int
+) -> dict[str, Any]:
     week = await repository.first(
         """
         SELECT b.id AS buyback_id, b.trade_date AS period_end, b.shares AS weekly_shares
@@ -596,9 +598,13 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
     if not rows:
         return {"weeks_synced": 0, "daily_rows": 0}
     if sum(int(row["shares"]) for row in rows) != int(week["weekly_shares"]):
-        raise ValueError("NewsWeb cash-sync nekter uke: daglige aksjer avviker fra ukesrad")
+        raise ValueError(
+            "NewsWeb cash-sync nekter uke: daglige aksjer avviker fra ukesrad"
+        )
     if any(row["quality"] == "REQUIRES_REVIEW" for row in rows):
-        raise ValueError("NewsWeb cash-sync nekter uke: minst én daglig rad krever kontroll")
+        raise ValueError(
+            "NewsWeb cash-sync nekter uke: minst én daglig rad krever kontroll"
+        )
 
     weekly_rows = await repository.all(
         """
@@ -608,9 +614,6 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
         """,
         (weekly_buyback_id, str(week["period_end"])),
     )
-    for row in weekly_rows:
-        await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
-
     daily_cash_rows = await repository.all(
         """
         SELECT id, movement_date FROM cash_movements
@@ -624,12 +627,21 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
         existing_by_date.setdefault(str(cash_row["movement_date"]), cash_row)
 
     seen_dates: set[str] = set()
+    writes: list[tuple[str, tuple[Any, ...]]] = [
+        (
+            "DELETE FROM cash_movements WHERE id=?",
+            (int(row["id"]),),
+        )
+        for row in weekly_rows
+    ]
     written = 0
     updated = 0
     for row in rows:
         trade_date = str(row["trade_date"])
         if trade_date in seen_dates:
-            raise ValueError(f"Flere NewsWeb daily-rader for samme uke/dato: {trade_date}")
+            raise ValueError(
+                f"Flere NewsWeb daily-rader for samme uke/dato: {trade_date}"
+            )
         seen_dates.add(trade_date)
         amount = decimal_text(-Decimal(str(row["amount_nok"])))
         description = (
@@ -638,38 +650,42 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
         )
         existing = existing_by_date.get(trade_date)
         if existing is None:
-            await repository.run(
-                """
-                INSERT INTO cash_movements(
-                    movement_date, movement_type, amount_nok, amount_original,
-                    currency, fx_rate_to_nok, description, source_document_id,
-                    confidence, buyback_id
-                ) VALUES (?, 'OTELLO_BUYBACK_DAILY', ?, ?, 'NOK', '1', ?, ?, 'CONFIRMED', ?)
-                """,
+            writes.append(
                 (
-                    trade_date,
-                    amount,
-                    amount,
-                    description,
-                    int(row["source_document_id"]),
-                    weekly_buyback_id,
+                    """
+                    INSERT INTO cash_movements(
+                        movement_date, movement_type, amount_nok, amount_original,
+                        currency, fx_rate_to_nok, description, source_document_id,
+                        confidence, buyback_id
+                    ) VALUES (?, 'OTELLO_BUYBACK_DAILY', ?, ?, 'NOK', '1', ?, ?, 'CONFIRMED', ?)
+                    """,
+                    (
+                        trade_date,
+                        amount,
+                        amount,
+                        description,
+                        int(row["source_document_id"]),
+                        weekly_buyback_id,
+                    ),
                 ),
             )
             written += 1
         else:
-            await repository.run(
-                """
-                UPDATE cash_movements
-                SET amount_nok=?, amount_original=?, description=?,
-                    source_document_id=?, confidence='CONFIRMED'
-                WHERE id=?
-                """,
+            writes.append(
                 (
-                    amount,
-                    amount,
-                    description,
-                    int(row["source_document_id"]),
-                    int(existing["id"]),
+                    """
+                    UPDATE cash_movements
+                    SET amount_nok=?, amount_original=?, description=?,
+                        source_document_id=?, confidence='CONFIRMED'
+                    WHERE id=?
+                    """,
+                    (
+                        amount,
+                        amount,
+                        description,
+                        int(row["source_document_id"]),
+                        int(existing["id"]),
+                    ),
                 ),
             )
             updated += 1
@@ -677,8 +693,14 @@ async def sync_daily_buyback_cash(repository, *, weekly_buyback_id: int) -> dict
     removed = 0
     for row in daily_cash_rows:
         if str(row["movement_date"]) not in seen_dates:
-            await repository.run("DELETE FROM cash_movements WHERE id=?", (int(row["id"]),))
+            writes.append(
+                (
+                    "DELETE FROM cash_movements WHERE id=?",
+                    (int(row["id"]),),
+                )
+            )
             removed += 1
+    await repository.run_batch(writes)
     return {
         "weeks_synced": 1,
         "weekly_cash_rows_deleted": len(weekly_rows),

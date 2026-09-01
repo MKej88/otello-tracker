@@ -142,6 +142,17 @@ class _SQLiteAsyncWriteRepository:
         finally:
             connection.close()
 
+    async def run_batch(self, statements):
+        connection = self._connect()
+        try:
+            cursors = [
+                connection.execute(sql, parameters) for sql, parameters in statements
+            ]
+            connection.commit()
+            return [{"rowcount": cursor.rowcount} for cursor in cursors]
+        finally:
+            connection.close()
+
 
 def test_daily_buyback_cash_replaces_weekly_fallback(tmp_path: Path) -> None:
     database = str(tmp_path / "daily-cash.db")
