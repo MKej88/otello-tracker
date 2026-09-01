@@ -1,252 +1,127 @@
 # Otello NAV-oversikt
 
-Privat investorverktøy for **Otello Corporation ASA**. Løsningen følger blant annet
-Otellos investeringer i **Bemobi Mobile Tech** og **Life360**, og beregner løpende
-NAV, økonomisk investor-NAV, historisk NAV-rabatt, tilbakekjøpsestimat,
-kontant-/valutaeffekter og konsensus.
+Et privat investorverktøy for **Otello Corporation ASA**. Programmet samler
+offentlige markeds- og selskapsdata og viser blant annet estimert NAV,
+NAV-rabatt, Otellos investeringer, tilbakekjøp og viktige hendelser.
 
-Produksjonen kjører på **Cloudflare Workers Paid** med React/Vite, Python Workers, D1, R2, Cron Triggers og Cloudflare Workflows.
+Produksjonsløsningen kjører på **Cloudflare Workers Paid**. API-et er skrevet i
+Python, mens nettsiden er bygget med React og Vite.
 
-## Status 29.08.2026
+## Dette finnes i programmet nå
 
-Produksjonen er live og deploy-/diagnosekjeden er etablert.
+Den aktive investorvisningen består av:
 
-- D1 er autoritativ produksjonsdatabase.
-- R2 brukes til råkilder, NewsWeb-PDF-er og logiske revisjonssnapshots.
-- Life360 inngår i investor-NAV med mark-to-market mot lagret LIF-sluttkurs og et
-  dokumentert rapportanker, uten at investeringen dobbelttelles i øvrige
-  nettoeiendeler.
-- rask Cron kjører hvert 30. minutt;
-- daglig Full Workflow kjører kl. 03:35 UTC;
-- rask og full oppdatering bruker felles D1-basert writer-lock, og hver Full Workflow-instans har unik lock-identitet;
-- D1 Time Travel er primær database-recovery;
-- automatisk deploy fra grønn `main`-CI har production-shaped kontroll før remote D1, produksjonsakseptanse og Worker-rollback;
-- daglig skrivebeskyttet GitHub-diagnostikk leser Cloudflare Workflow- og D1-status etter nattkjøringen;
-- Workers Paid-kostnadsvern, WAF og begrenset observability er konfigurert.
+- **Oversikt** – nøkkeltall for OTEC, NAV, rabatt og investeringene;
+- **NAV** – estimert økonomisk NAV og forklaring av endringene;
+- **Historikk** – historisk NAV-rabatt for valgte perioder;
+- **Tilbakekjøpsprogram** – gjennomførte kjøp, fremdrift og estimater;
+- **Bemobi** – kurs, eierandel, regnskapstall og operasjonelle nøkkeltall;
+- **Brasil** – renter, inflasjon, valuta og markedssignaler som er relevante for
+  Bemobi;
+- **Konsensus** – offentlige analytikerestimater for Bemobi;
+- **Nyheter** – Otello- og Bemobi-meldinger og hendelseskalender;
+- **Datakvalitet** – status for kilder, rapporter og oppdateringsjobber.
 
-Historiske go-live-, Docker-produksjons- og migreringsplaner er fjernet fra aktiv dokumentasjon. Dagens arkitektur og drift beskrives i `docs/architecture.md` og `docs/runbook.md`.
-
-## Frontend
-
-Aktive visninger:
-
-- Oversikt
-- NAV
-- Historikk
-- Tilbakekjøp
-- Bemobi
-- Konsensus
-- Nyheter og hendelseskalender
-- Datakvalitet
-
-Nyhetssiden samler offentlige Otello- og Bemobi-meldinger, originalkilder og kjente
-kommende datoer. Forventede datoer merkes tydelig som ubekreftet. Innstillinger er
-ikke en del av den aktive investorvisningen. Datakvalitet samler kildehelse,
-rapportstatus, oppdateringsjobber og teknisk status på ett sted.
-
-## Arkitektur
+## Hvordan løsningen henger sammen
 
 ```text
 Nettleser
    |
    v
-Cloudflare Worker + Workers Static Assets
+Cloudflare Worker + Static Assets
    |
-   |-- React/Vite frontend
-   |-- Python Worker API (/api/*)
+   |-- React/Vite-nettside
+   |-- Python-API (/api/*)
    |
-   +--> D1
-   |    autoritativ produksjonsdatabase
-   |
-   +--> R2
-   |    råkilder, PDF-er og revisjonssnapshots
-   |
-   +--> Cron Trigger
-   |    */30 * * * *
-   |
-   +--> Cloudflare Workflow
-        35 3 * * * UTC
+   +-- D1: produksjonsdatabase
+   +-- R2: råkilder, PDF-er og revisjonssnapshots
+   +-- Cron: rask oppdatering hvert 30. minutt
+   +-- Workflow: full oppdatering kl. 03:35 UTC hver dag
 ```
 
-SQLite/Docker-implementasjonen under `backend/` beholdes som deterministisk referanse-, test- og regresjonsmotor. Den er ikke produksjonsdatabasen.
+`cloudflare/` er produksjonsimplementasjonen. `backend/` er en lokal
+SQLite-basert referanse som brukes til utvikling og kontroll av beregningene;
+den er ikke produksjonsdatabasen.
 
-Se `docs/architecture.md`.
+Mer teknisk informasjon finnes i [`docs/architecture.md`](docs/architecture.md).
 
-## Sentrale API-endepunkter
+## NAV-modellene
 
-Cloudflare-API-versjon: **0.13.1**. Den lokale SQLite-referansen har versjon
-**0.12.0** og brukes til testing av beregninger, ikke som produksjons-API.
+Programmet skiller mellom tre nivåer:
+
+1. **CORE NAV** er Bemobi-markedsverdi pluss modellert eller rapportert
+   kontantbeholdning.
+2. **FULL NAV** legger øvrige nettoeiendeler og forpliktelser til CORE NAV.
+3. **Økonomisk NAV** er investorvisningen. Den tar i tillegg hensyn til blant
+   annet Life360-investeringen, dokumenterte valutaendringer, estimert drift,
+   renteinntekter og økonomisk opsjonsoverheng.
+
+Økonomisk NAV erstatter ikke CORE- og FULL-seriene. Lagene holdes adskilt slik
+at det skal være mulig å se hva som er rapportert, og hva som er estimert.
+
+Se [`docs/economic-nav.md`](docs/economic-nav.md) og
+[`docs/option-liability.md`](docs/option-liability.md) for detaljene.
+
+## Viktigste datakilder
+
+| Område | Kilder og bruk |
+| --- | --- |
+| Otello | Selskapsrapporter og investorinformasjon gir ankere for kontanter, balanse, øvrige nettoeiendeler og opsjoner. NewsWeb brukes til børsmeldinger og tilbakekjøp. Euronext delayed-data brukes til OTEC-markedsdata og gjenoppretting. |
+| Bemobi | B3 brukes til BMOB3-kurser, CVM til regulatoriske dokumenter og Bemobi IR til blant annet eierandel og analytikerdekning. Offentlige tredjepartstall brukes bare når de kan spores. |
+| Life360 | Rapporterte beholdningsankere kombineres med lagrede LIF-markedsdata. Investeringen vises i økonomisk NAV uten å dobbelttelles i øvrige nettoeiendeler. |
+| Valuta | Norges Bank er primærkilde for direkte BRL/NOK og USD/NOK. Eldre ECB-data beholdes som historisk kildegrunnlag og reserve. |
+| Brasil | Offentlige brasilianske makrodata brukes i Brasil-visningen og som bakgrunn for vurderingen av Bemobi. |
+
+CVM-metadata alene får ikke opprette eller endre finansielle fakta. Kilder som
+påvirker beregningene skal kunne spores.
+
+## Oppdatering og drift
+
+- Den raske oppdateringen kjører hvert 30. minutt og henter lette,
+  inkrementelle data som markedspriser og NewsWeb-meldinger.
+- Den fulle oppdateringen kjører daglig kl. 03:35 UTC og håndterer tyngre
+  kilder, avstemming, historikk, NAV-beregninger og R2-arkivering.
+- Begge oppdateringsbanene bruker samme D1-baserte skrivelås for å unngå at de
+  endrer de samme dataene samtidig.
+- En skrivebeskyttet GitHub Actions-diagnose kontrollerer nattkjøringen og
+  sentrale produksjonsdata.
+- D1 Time Travel er primær databasegjenoppretting. Logiske R2-snapshots er et
+  ekstra revisjons- og gjenopprettingslag.
+
+Praktiske driftsrutiner står i [`docs/runbook.md`](docs/runbook.md).
+
+## API
+
+Cloudflare-API-et har versjon **0.13.1**. De aktive endepunktene er:
 
 ```text
 GET /api/health
 GET /api/dashboard/bootstrap
-GET /api/market/quotes
 GET /api/dashboard/summary
+GET /api/dashboard/report-status
+GET /api/dashboard/runtime-status
 GET /api/dashboard/economic
 GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
 GET /api/dashboard/discount-history
-GET /api/dashboard/report-status
-GET /api/dashboard/runtime-status
+GET /api/market/quotes
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
 GET /api/bemobi/source-status
+GET /api/brazil/dashboard
 GET /api/news-events
 ```
 
-Aktive frontend-API-er inngår i Worker-smoke og/eller produksjonsakseptanse. `runtime-status` inngår i produksjonsakseptansen og viser kun kompakt, sanitert driftstatus; detaljerte feil beholdes i den private GitHub-diagnostikken.
+Den lokale referanse-API-en i `backend/` har versjon **0.12.0**. Den brukes til
+å teste finansielle beregninger og er ikke en kopi av hele produksjonsmiljøet.
 
-## NAV-modellene
+## Lokal bruk med bare Python
 
-### CORE NAV
-
-```text
-Bemobi markedsverdi
-+ modellert/rapportert kontantbeholdning
-```
-
-### FULL NAV
-
-```text
-CORE NAV
-+ øvrige nettoeiendeler/-forpliktelser (ONA)
-```
-
-FULL NAV inkluderer den validerte behandlingen av Bemobi-fordringer og Otellos kontantoppgjorte opsjonsforpliktelse.
-
-### Økonomisk NAV
-
-Økonomisk NAV er et separat investorlag og erstatter ikke CORE/FULL.
-
-Forenklet:
-
-```text
-Økonomisk NAV
-= FULL NAV
-+ dokumentert valutaendring på kontantbeholdningen
-- ikke-innregnet økonomisk opsjonsoverheng
-- estimerte driftskostnader siden siste rapporterte kontantanker
-```
-
-Se `docs/economic-nav.md` og `docs/option-liability.md`.
-
-## Datakilder
-
-### Otello
-
-- selskapets rapporter og investorinformasjon for cash-, balanse-, ONA- og opsjonsankre;
-- NewsWeb for regulatoriske meldinger og tilbakekjøp;
-- Euronext delayed-data for løpende OTEC-markedsdata og recovery.
-
-### Bemobi
-
-- B3 COTAHIST for offisiell BMOB3-sluttkurs;
-- CVM for regulatoriske metadata og dokumentstatus;
-- Bemobi IR for eierandel og offentlig analytikerdekning;
-- offentlige MarketScreener-/XP-data der de kan verifiseres og spores.
-
-CVM-metadata alene skal ikke opprette eller endre finansielle fakta.
-
-### Valuta
-
-- Norges Bank er primærkilde for **direkte BRL/NOK og USD/NOK**. Det brukes ikke lenger EUR-kryss i den løpende produksjonsoppdateringen.
-- Historiske ECB-rader beholdes kun som kildeproveniens/fallback; nye valutadata hentes ikke fra ECB.
-
-## Oppdateringsjobber
-
-### Rask oppdatering
-
-```text
-*/30 * * * *
-```
-
-Den raske banen håndterer lette og inkrementelle oppdateringer som OTEC/BMOB3, NewsWeb og berørte cash-/NAV-lag.
-
-### Full oppdatering
-
-```text
-35 3 * * * UTC
-```
-
-Full Workflow håndterer tyngre kilder og avstemming, blant annet Norges Bank, Life360, B3, CVM, Bemobi-webkilder, NewsWeb, OTEC recovery/EOD, NAV, produksjonspreflight og R2-snapshot ved behov.
-
-Begge write-paths bruker samme writer-lock. Full Workflow bruker unik per-instans-identitet, locken fornyes gjennom kjøringen, cleanup skal frigjøre låsen også ved feil, og expiry er siste sikkerhetsnett. En startet D1-jobb terminaliseres eksplisitt til `FAILED` ved hard Workflow-feil dersom den fortsatt står `RUNNING`.
-
-## Nattdiagnostikk
-
-GitHub Actions kjører daglig skrivebeskyttet diagnostikk etter nattens Full Workflow. Diagnostikken bruker et separat Cloudflare-token med lesetilgang og kontrollerer blant annet:
-
-- status, trinn, retries og feil for siste Cloudflare Workflow-instans;
-- siste full- og 30-minuttersjobb i D1 og om de er ferske;
-- Norges Bank BRL/NOK og USD/NOK mot forventet Oslo Børs-handelsdag;
-- siste CORE-NAV og valuta-datoen som NAV faktisk bruker;
-- siste kildehelse.
-
-Den planlagte diagnosejobben feiler dersom den finner et reelt Workflow- eller D1-avvik. Diagnostikken endrer ikke produksjonsdata og trigger ikke Cloudflare Workflows.
-
-## Deploy og produksjonskontroll
-
-`main` beskyttes av pull request og obligatorisk CI.
-
-```text
-PR
- -> CI grønn
- -> merge til main
- -> CI på main grønn
- -> production gate
- -> verifiser eksakt testet SHA
- -> render/valider produksjonskonfig
- -> production-shaped Worker dry-run + runtime-kontroll
- -> remote D1-migreringer
- -> deploy av eksakt testet SHA
- -> produksjons-HTTP-akseptanse
- -> Worker-rollback ved feil
-```
-
-Remote D1 berøres ikke før den renderte produksjonskonfigurasjonen og Worker-bundlen for eksakt deploy-SHA er kontrollert. Produksjonsakseptansen tester frontend, health, NAV, økonomisk NAV, historikk, runtime-status, tilbakekjøp, Bemobi, konsensus og øvrige aktive investorendepunkter.
-
-Worker-rollback reverserer ikke D1-migreringer. Nye migreringer skal derfor være additive og bakoverkompatible.
-
-## D1 og recovery
-
-D1 Time Travel er primær mekanisme for full databasegjenoppretting.
-
-R2 logical snapshot er et ekstra revisjons-/recoverylag og tas søndag og ved månedsslutt. Snapshotene er chunket og verifiseres med manifest/SHA-256.
-
-Den gamle engangs-workflowen som bootstrappet produksjons-D1 er fjernet. `cloudflare/tools/d1_bootstrap.py` beholdes som deterministisk referanse-/recoveryverktøy.
-
-Migreringsnumre som tidligere har vært brukt skal ikke gjenbrukes. Se `docs/migration-history.md`.
-
-## Workers Paid og kostnadskontroll
-
-Produksjonskonfigurasjonen bruker bevisst avgrensede grenser:
-
-```text
-CPU:          60 000 ms
-Subrequests:  50 000
-```
-
-I tillegg brukes blant annet API-cache, direkte Static Assets, begrenset loggsampling, tracing av som standard, målrettede D1-indekser, writer-lock, WAF rate limiting og Budget Alerts.
-
-Se `docs/cloudflare-paid-cost-guard.md`.
-
-## Sikkerhet
-
-Frontend leveres med blant annet CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` og Permissions Policy. Produksjonscredentials skal ligge i GitHub/Cloudflare secrets og variables, aldri i Git.
-
-Produksjonsdeploy og skrivebeskyttet diagnostikk bruker separate Cloudflare-token med ulike rettigheter. Se `docs/cloudflare-api-token.md`.
-
-## Lokal utvikling
-
-SQLite-backenden brukes fortsatt til modellutvikling, historiske rebuilds, regresjonstester og sammenligning mot Cloudflare/D1.
-
-### Python-oppsett
-
-Du kan kjøre referanse-API-et og testene med bare Python 3.12. Kommandoene under
-oppretter et isolert miljø i prosjektet:
+Hvis du bare har Python, kan du kjøre referanse-API-et og Python-testene. Bruk
+**Python 3.12**:
 
 ```bash
 cd backend
@@ -256,43 +131,41 @@ python -m pip install -r requirements-dev.txt
 PYTHONPATH=. python -m uvicorn app.main:app --reload
 ```
 
-API-et er da tilgjengelig på `http://127.0.0.1:8000`, og den interaktive
-API-dokumentasjonen ligger på `http://127.0.0.1:8000/docs`.
+API-et blir tilgjengelig på `http://127.0.0.1:8000`. Interaktiv
+API-dokumentasjon finnes på `http://127.0.0.1:8000/docs`.
 
-Kjør Python-testene slik:
+Kjør testene i et eget terminalvindu med det samme virtuelle miljøet aktivert:
 
 ```bash
 cd backend
 PYTHONPATH=. python -m pytest -q
 ```
 
-### Frontend (valgfritt)
+Dette er den anbefalte lokale arbeidsmåten når bare Python er tilgjengelig. Den
+ferdige React-nettsiden og en lokal Cloudflare Worker kan ikke bygges med Python
+alene; de krever også Node.js 22 og npm. Det er ikke nødvendig for å arbeide med
+eller teste Python-beregningene.
 
-Frontend kan ikke bygges med Python alene. Den krever Node.js 22 og npm, og er
-derfor valgfri når du bare skal arbeide med beregninger eller kjøre backend-tester:
+## Deploy og sikkerhet
 
-```bash
-cd frontend
-npm ci
-npm run build
-```
+Endringer går via pull request og obligatorisk CI. Etter grønn CI på `main`
+bygges og kontrolleres den eksakte commit-en før D1-migreringer og Worker blir
+sendt til produksjon. Produksjonsendepunktene testes etterpå, og Worker kan
+rulles tilbake hvis kontrollen feiler. D1-migreringer må være additive og
+bakoverkompatible fordi de ikke rulles tilbake sammen med Worker.
 
-`.env.example` gjelder kun lokal Docker/SQLite-referanse. Produksjonskonfigurasjonen genereres separat fra Cloudflare-basisoppsettet.
+Nettsiden leveres med vanlige sikkerhetsheadere. Hemmeligheter skal ligge i
+GitHub eller Cloudflare, aldri i Git.
 
-## Viktige dokumenter
+## Videre dokumentasjon
 
-- `docs/architecture.md` – dagens produksjonsarkitektur
-- `docs/runbook.md` – drift, feil og recovery
-- `docs/migration-history.md` – reserverte migreringsnumre og regler
-- `docs/economic-nav.md` – økonomisk NAV
-- `docs/option-liability.md` – opsjonsmodellen
-- `docs/buyback-forecast.md` – tilbakekjøpsmodellen
-- `docs/cloudflare-paid-cost-guard.md` – kostnadsvern
-- `docs/cloudflare-api-token.md` – deploy- og read-only diagnose-token
-- `docs/ci-auto-deploy.md` – automatisk produksjonsdeploy
-- `cloudflare/README.md` – Cloudflare-implementasjonen
-- `ROADMAP.md` – neste finansielle og tekniske prioriteringer
-
-## Neste kontrollpunkt
-
-Neste finansielle hovedkontroll er Otello 1H26. Arbeidsrekkefølgen ved ny rapport ligger i `ROADMAP.md` og `docs/runbook.md`.
+- [`docs/architecture.md`](docs/architecture.md) – produksjonsarkitektur
+- [`docs/runbook.md`](docs/runbook.md) – drift, feil og gjenoppretting
+- [`docs/migration-history.md`](docs/migration-history.md) – regler for D1-migreringer
+- [`docs/economic-nav.md`](docs/economic-nav.md) – økonomisk NAV
+- [`docs/option-liability.md`](docs/option-liability.md) – opsjonsmodellen
+- [`docs/buyback-forecast.md`](docs/buyback-forecast.md) – tilbakekjøpsmodellen
+- [`docs/cloudflare-paid-cost-guard.md`](docs/cloudflare-paid-cost-guard.md) – kostnadsvern
+- [`docs/ci-auto-deploy.md`](docs/ci-auto-deploy.md) – automatisk produksjonsdeploy
+- [`cloudflare/README.md`](cloudflare/README.md) – Cloudflare-implementasjonen
+- [`ROADMAP.md`](ROADMAP.md) – planlagte forbedringer
