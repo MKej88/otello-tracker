@@ -79,6 +79,22 @@ def _series_unit_multiplier(structure: dict, series: dict) -> int:
     return 0
 
 
+def _missing_currencies_by_date(
+    dates_by_base: dict[str, set[str]],
+) -> dict[str, list[str]]:
+    all_dates = set().union(*dates_by_base.values())
+    missing_by_date: dict[str, list[str]] = {}
+    for trading_date in sorted(all_dates):
+        missing = [
+            currency
+            for currency in FX_BASE_CURRENCIES
+            if trading_date not in dates_by_base[currency]
+        ]
+        if missing:
+            missing_by_date[trading_date] = missing
+    return missing_by_date
+
+
 def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
     if isinstance(payload, bytes):
         parsed = json.loads(payload.decode("utf-8-sig"))
@@ -206,19 +222,7 @@ def parse_norges_bank_sdmx_json(payload: str | bytes | dict) -> list[CrossRate]:
         raise ValueError(
             f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}"
         )
-    all_dates = set().union(*dates_by_base.values())
-    incomplete_dates = {
-        trading_date: [
-            currency
-            for currency in FX_BASE_CURRENCIES
-            if trading_date not in dates_by_base[currency]
-        ]
-        for trading_date in sorted(all_dates)
-        if any(
-            trading_date not in dates_by_base[currency]
-            for currency in FX_BASE_CURRENCIES
-        )
-    }
+    incomplete_dates = _missing_currencies_by_date(dates_by_base)
     if incomplete_dates:
         details = "; ".join(
             f"{trading_date} mangler {', '.join(currencies)}"
