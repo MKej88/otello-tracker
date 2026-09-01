@@ -32,12 +32,21 @@ def _nearest_fx(connection, base: str, as_of_date: str):
     floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
     return connection.execute(
         """
-        SELECT id, substr(observed_at, 1, 10) AS rate_date, rate
-        FROM fx_rates
-        WHERE base_currency = ? AND quote_currency = 'NOK'
-          AND substr(observed_at, 1, 10) <= ?
-          AND substr(observed_at, 1, 10) >= ?
-        ORDER BY observed_at DESC, id DESC
+        SELECT fr.id, substr(fr.observed_at, 1, 10) AS rate_date, fr.rate,
+               s.code AS source_code
+        FROM fx_rates fr
+        JOIN sources s ON s.id = fr.source_id
+        WHERE fr.base_currency = ? AND fr.quote_currency = 'NOK'
+          AND substr(fr.observed_at, 1, 10) <= ?
+          AND substr(fr.observed_at, 1, 10) >= ?
+        ORDER BY substr(fr.observed_at, 1, 10) DESC,
+                 CASE s.code
+                   WHEN 'NORGES_BANK' THEN 0
+                   WHEN 'ECB' THEN 1
+                   ELSE 5
+                 END,
+                 fr.observed_at DESC,
+                 fr.id DESC
         LIMIT 1
         """,
         (base, as_of_date, floor_date),
