@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import statistics
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -62,6 +64,92 @@ def _on_or_before(
 def _quarter_label(day: str) -> str:
     parsed = date.fromisoformat(day)
     return f"Q{(parsed.month - 1) // 3 + 1} {str(parsed.year)[2:]}"
+
+
+def nav_discount_metrics(
+    *,
+    nav_per_share: Any,
+    share_price: Any,
+    current_date: str,
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Calculate null-safe discount context from the existing daily NAV series."""
+    try:
+        nav = float(nav_per_share)
+    except (TypeError, ValueError):
+        nav = math.nan
+    try:
+        price = float(share_price)
+    except (TypeError, ValueError):
+        price = math.nan
+    valid_nav = math.isfinite(nav) and nav > 0
+    valid_price = math.isfinite(price) and price > 0
+    valid_current = valid_nav and valid_price
+    current_discount = (1 - price / nav) * 100 if valid_current else None
+    upside = (nav / price - 1) * 100 if valid_current else None
+
+    start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
+    valid: list[dict[str, Any]] = []
+    for item in observations:
+        raw = item.get("discount_pct")
+        try:
+            discount = float(raw)
+        except (TypeError, ValueError):
+            continue
+        item_date = str(item.get("date") or "")
+        if math.isfinite(discount) and start_date <= item_date <= current_date:
+            valid.append({"date": item_date, "discount_pct": discount})
+    valid.sort(key=lambda item: item["date"])
+
+    reference_date = (date.fromisoformat(current_date) - timedelta(days=30)).isoformat()
+    reference = _on_or_before(valid, reference_date)
+    values = [item["discount_pct"] for item in valid]
+    low = min(values) if values else None
+    high = max(values) if values else None
+    position = None
+    if current_discount is not None and low is not None and high is not None:
+        position = (
+            50.0 if high == low else (current_discount - low) / (high - low) * 100
+        )
+
+    return {
+        "nav_per_share": nav if valid_nav else None,
+        "share_price": price if valid_price else None,
+        "discount_pct": current_discount,
+        "upside_to_nav_pct": upside,
+        "month_change_pp": (
+            current_discount - reference["discount_pct"]
+            if current_discount is not None and reference is not None
+            else None
+        ),
+        "month_reference_date": reference["date"] if reference else None,
+        "median_1y_pct": statistics.median(values) if values else None,
+        "range_1y": {"low": low, "high": high, "position_pct": position},
+    }
+
+
+def _nav_discount_insights(
+    connection, *, calculation_version: str, nav_scope: str, latest
+) -> dict[str, Any]:
+    current_date = str(latest["as_of_at"])[:10]
+    start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
+    rows = connection.execute(
+        """
+        SELECT substr(as_of_at, 1, 10) AS date, discount_pct
+        FROM nav_snapshots
+        WHERE calculation_version = ? AND nav_scope = ?
+          AND substr(as_of_at, 1, 10) BETWEEN ? AND ?
+        ORDER BY as_of_at
+        """,
+        (calculation_version, nav_scope, start_date, current_date),
+    ).fetchall()
+    by_date = {str(row["date"]): dict(row) for row in rows}
+    return nav_discount_metrics(
+        nav_per_share=latest["nav_per_share_nok"],
+        share_price=latest["otec_price_nok"],
+        current_date=current_date,
+        observations=list(by_date.values()),
+    )
 
 
 def _brl_nav_effect_30d(
@@ -371,6 +459,12 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "nav_per_share": _float(latest["nav_per_share_nok"]),
             "otec_price": _float(latest["otec_price_nok"]),
             "nav_discount_pct": _float(latest["discount_pct"]),
+            "nav_discount_insights": _nav_discount_insights(
+                connection,
+                calculation_version=calculation_version,
+                nav_scope=model_scope,
+                latest=latest,
+            ),
             "bmob3_price": _float(bmob3.get("price_brl")),
             "brl_nok": _float(bmob3.get("brl_nok")),
             "brl_nok_insights": brl_nok_insights(connection, as_of_date=as_of_date),

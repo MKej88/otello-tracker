@@ -51,6 +51,10 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .brlRangeTrack { position:relative; height:2px; background:#40516a; }
 .brlRangeTrack i { position:absolute; top:50%; width:7px; height:7px; border-radius:50%; background:#27d3a5; transform:translate(-50%,-50%); }
 .brlExplanation { display:block; margin-top:9px; color:#71809a; font-size:10px; }
+.navDiscountCard { overflow: visible; }
+.navDiscountRows { margin-top: 10px; }
+.navDiscountRows > div:nth-child(4) { margin-top: 4px; padding-top: 7px; border-top: 1px solid #1b2a40; }
+.navDiscountRange { margin-top: 12px; }
 .change { display: block; margin-top: 8px; font-size: 12px; font-weight: 700; }
 .positive { color: #27d3a5; }
 .negative { color: #ff6c88; }
