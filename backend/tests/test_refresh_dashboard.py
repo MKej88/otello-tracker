@@ -28,6 +28,10 @@ def test_staleness_uses_dashboard_as_of_date():
         "calendar_days": None,
         "stale": True,
     }
+    assert _staleness({"as_of_date": "2026-08-19"}, "2026-08-18") == {
+        "calendar_days": 0,
+        "stale": True,
+    }
 
 
 def test_refresh_without_network_is_safe_on_fresh_database(tmp_path):

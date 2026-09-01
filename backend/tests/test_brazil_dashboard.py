@@ -11,12 +11,21 @@ if str(WORKER_SRC) not in sys.path:
 
 from brazil_dashboard import (  # noqa: E402
     _brl_nok,
+    _default_as_of_date,
     _load_focus,
     _load_sgs_series,
     _series_payload,
     calendar_events,
     parse_focus_rows,
 )
+
+
+def test_default_as_of_date_uses_brazilian_calendar_day() -> None:
+    from datetime import UTC, datetime
+
+    now = datetime(2026, 9, 2, 1, 30, tzinfo=UTC)
+
+    assert _default_as_of_date(now).isoformat() == "2026-09-01"
 
 
 class _FxRepository:
