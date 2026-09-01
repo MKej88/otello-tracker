@@ -117,7 +117,7 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
           <small>
             {quote.last_price_type === "CLOSE"
               ? `Kursdato ${formatDate(quote.trading_date)}`
-              : "Endres først når en ny handel rapporteres"}
+              : "Oppdateres ved neste 30-minutters innhenting"}
           </small>
         </div>
       </div>
@@ -196,7 +196,11 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
             <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
           )}
         {quote.symbol === "LIF" && (
-          <span>Life360 bruker lagret NASDAQ-sluttkurs fra Yahoo Finance.</span>
+          <span>
+            Life360 bruker Yahoo Finance. Under ordinær NASDAQ-handel oppdateres
+            kursen ved 30-minutters cron; etter stenging vises sluttkursen med
+            NASDAQs ordinære stengetid.
+          </span>
         )}
       </div>
     </article>
