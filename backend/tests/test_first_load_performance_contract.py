@@ -162,6 +162,25 @@ def test_navigation_starts_buyback_data_in_parallel_with_route_code() -> None:
     )
 
 
+def test_data_quality_starts_all_visible_data_while_route_code_loads() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    source_status = (FRONTEND_SRC / "BemobiSourceStatusPanel.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    quality_preload = app_source.index('if (view === "Datakvalitet")')
+    quality_route = app_source.index('window.location.hash = viewSlugs[view]')
+
+    assert quality_preload < quality_route
+    assert 'preloadJson("/api/dashboard/runtime-status")' in app_source
+    assert 'preloadJson("/api/dashboard/report-status")' in app_source
+    assert 'preloadJson("/api/bemobi/source-status")' in app_source
+    assert "usePollingResource<SourceStatus>(" in source_status
+    assert '    "/api/bemobi/source-status",' in source_status
+    assert "    true," in source_status
+    assert 'fetch("/api/bemobi/source-status")' not in source_status
+
+
 def test_navigation_shares_bemobi_request_while_route_code_loads() -> None:
     app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
     page_source = (FRONTEND_SRC / "BemobiPage.tsx").read_text(encoding="utf-8")
