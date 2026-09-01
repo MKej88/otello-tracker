@@ -8,6 +8,7 @@ from typing import Any
 from app.db.connection import get_connection
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 from app.nav.full_nav import FULL_CALCULATION_VERSION
+from app.nav_waterfall_attribution import symmetric_two_factor_attribution
 
 
 def _float(value: Any) -> float | None:
@@ -25,6 +26,167 @@ def _pct_change(current: Any, previous: Any) -> float | None:
     return float((Decimal(str(current)) / old - Decimal("1")) * Decimal("100"))
 
 
+def _brl_observations(connection, *, end_date: str) -> list[dict[str, Any]]:
+    """Return one preferred, valid BRL/NOK observation per day."""
+    start_date = (date.fromisoformat(end_date) - timedelta(days=365)).isoformat()
+    rows = connection.execute(
+        """
+        SELECT substr(fr.observed_at, 1, 10) AS rate_date, fr.rate
+        FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+          AND substr(fr.observed_at, 1, 10) BETWEEN ? AND ?
+          AND CAST(fr.rate AS REAL) > 0
+        ORDER BY rate_date,
+          CASE s.code WHEN 'NORGES_BANK' THEN 0 WHEN 'ECB' THEN 1 ELSE 5 END,
+          fr.observed_at DESC, fr.id DESC
+        """,
+        (start_date, end_date),
+    ).fetchall()
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        day = str(row["rate_date"])
+        if day not in by_date:
+            by_date[day] = {"date": day, "rate": Decimal(str(row["rate"]))}
+    return list(by_date.values())
+
+
+def _on_or_before(
+    observations: list[dict[str, Any]], target_date: str
+) -> dict[str, Any] | None:
+    return next(
+        (item for item in reversed(observations) if item["date"] <= target_date),
+        None,
+    )
+
+
+def _quarter_label(day: str) -> str:
+    parsed = date.fromisoformat(day)
+    return f"Q{(parsed.month - 1) // 3 + 1} {str(parsed.year)[2:]}"
+
+
+def _brl_nav_effect_30d(
+    connection,
+    *,
+    reference_date: str,
+    as_of_date: str,
+    reference_fx: Decimal,
+    current_fx: Decimal,
+) -> float | None:
+    """Use the NAV driver's symmetric price/FX attribution for a 30-day bridge."""
+    from app.nav.daily_nav import _holding, _preferred_price
+
+    reference_price = _preferred_price(connection, "BMOB3", reference_date)
+    current_price = _preferred_price(connection, "BMOB3", as_of_date)
+    reference_holding = _holding(connection, reference_date)
+    current_holding = _holding(connection, as_of_date)
+    shares_row = connection.execute(
+        """
+        SELECT shares_outstanding FROM nav_snapshots
+        WHERE substr(as_of_at, 1, 10) <= ? AND shares_outstanding > 0
+        ORDER BY as_of_at DESC, id DESC LIMIT 1
+        """,
+        (reference_date,),
+    ).fetchone()
+    if any(
+        value is None
+        for value in (
+            reference_price,
+            current_price,
+            reference_holding,
+            current_holding,
+            shares_row,
+        )
+    ):
+        return None
+    if int(reference_holding["shares"]) != int(current_holding["shares"]):
+        return None
+    attribution = symmetric_two_factor_attribution(
+        shares=int(reference_holding["shares"]),
+        anchor_price=Decimal(str(reference_price["price"])),
+        current_price=Decimal(str(current_price["price"])),
+        anchor_fx=reference_fx,
+        current_fx=current_fx,
+    )
+    return float(
+        attribution["fx_effect_nok"] / Decimal(shares_row["shares_outstanding"])
+    )
+
+
+def brl_nok_insights(connection, *, as_of_date: str) -> dict[str, Any]:
+    """Build compact, null-safe investor metrics from the existing FX history."""
+    observations = _brl_observations(connection, end_date=as_of_date)
+    current = _on_or_before(observations, as_of_date)
+    if current is None:
+        return {
+            "daily_pct": None,
+            "month_pct": None,
+            "quarter_pct": None,
+            "quarter_label": None,
+            "nav_effect_1m_per_share_nok": None,
+            "range_1y": {"low": None, "high": None, "position_pct": None},
+        }
+
+    current_index = observations.index(current)
+    previous = observations[current_index - 1] if current_index > 0 else None
+    month_target = (
+        date.fromisoformat(current["date"]) - timedelta(days=30)
+    ).isoformat()
+    month_reference = _on_or_before(observations, month_target)
+    anchor = connection.execute(
+        """
+        SELECT as_of_date FROM cash_anchors
+        WHERE anchor_type='REPORTED' AND as_of_date <= ?
+        ORDER BY as_of_date DESC, id DESC LIMIT 1
+        """,
+        (current["date"],),
+    ).fetchone()
+    anchor_date = str(anchor["as_of_date"]) if anchor is not None else None
+    quarter_reference = (
+        _on_or_before(observations, anchor_date) if anchor_date else None
+    )
+    rates = [item["rate"] for item in observations]
+    low = min(rates)
+    high = max(rates)
+    position = (
+        None
+        if high == low
+        else float((current["rate"] - low) / (high - low) * Decimal("100"))
+    )
+    nav_effect = (
+        _brl_nav_effect_30d(
+            connection,
+            reference_date=month_reference["date"],
+            as_of_date=current["date"],
+            reference_fx=month_reference["rate"],
+            current_fx=current["rate"],
+        )
+        if month_reference is not None
+        else None
+    )
+    return {
+        "daily_pct": _pct_change(
+            current["rate"], previous["rate"] if previous else None
+        ),
+        "month_pct": _pct_change(
+            current["rate"], month_reference["rate"] if month_reference else None
+        ),
+        "month_reference_date": month_reference["date"] if month_reference else None,
+        "quarter_pct": _pct_change(
+            current["rate"], quarter_reference["rate"] if quarter_reference else None
+        ),
+        "quarter_label": _quarter_label(anchor_date) if anchor_date else None,
+        "quarter_reference_date": (
+            quarter_reference["date"] if quarter_reference else None
+        ),
+        "nav_effect_1m_per_share_nok": nav_effect,
+        "range_1y": {
+            "low": float(low),
+            "high": float(high),
+            "position_pct": position,
+        },
+    }
+
+
 def _components(row) -> dict[str, Any]:
     raw = row["components_json"] if row is not None else None
     if not raw:
@@ -35,7 +197,9 @@ def _components(row) -> dict[str, Any]:
         return {}
 
 
-def _latest_series_date(connection, calculation_version: str, nav_scope: str) -> str | None:
+def _latest_series_date(
+    connection, calculation_version: str, nav_scope: str
+) -> str | None:
     row = connection.execute(
         """
         SELECT MAX(substr(as_of_at, 1, 10)) AS max_date
@@ -107,10 +271,13 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
         latest = rows[0]
         previous = rows[1] if len(rows) > 1 else None
         if model_scope == "FULL":
-            current_components = _core_components_for_date(connection, latest["as_of_at"])
+            current_components = _core_components_for_date(
+                connection, latest["as_of_at"]
+            )
             previous_components = (
                 _core_components_for_date(connection, previous["as_of_at"])
-                if previous is not None else {}
+                if previous is not None
+                else {}
             )
         else:
             current_components = _components(latest)
@@ -165,26 +332,34 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
                 "source_document_id": latest_share_count_row["source_document_id"],
                 "source_code": latest_share_count_row["source_code"],
                 "source_url": latest_share_count_row["source_url"],
-                "used_in_nav": int(latest_share_count_row["outstanding_shares"]) == nav_outstanding,
+                "used_in_nav": int(latest_share_count_row["outstanding_shares"])
+                == nav_outstanding,
             }
 
         nav_change = _pct_change(
-            latest["nav_per_share_nok"], previous["nav_per_share_nok"] if previous else None
+            latest["nav_per_share_nok"],
+            previous["nav_per_share_nok"] if previous else None,
         )
         otec_change = _pct_change(
             latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
         )
         discount_change = (
-            float(Decimal(str(latest["discount_pct"])) - Decimal(str(previous["discount_pct"])))
+            float(
+                Decimal(str(latest["discount_pct"]))
+                - Decimal(str(previous["discount_pct"]))
+            )
             if previous is not None
             and latest["discount_pct"] is not None
             and previous["discount_pct"] is not None
             else None
         )
-        bmob3_change = _pct_change(bmob3.get("price_brl"), previous_bmob3.get("price_brl"))
+        bmob3_change = _pct_change(
+            bmob3.get("price_brl"), previous_bmob3.get("price_brl")
+        )
         brl_change = _pct_change(bmob3.get("brl_nok"), previous_bmob3.get("brl_nok"))
         cash_change = _pct_change(
-            latest["cash_estimate_nok"], previous["cash_estimate_nok"] if previous else None
+            latest["cash_estimate_nok"],
+            previous["cash_estimate_nok"] if previous else None,
         )
 
         return {
@@ -198,20 +373,26 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "nav_discount_pct": _float(latest["discount_pct"]),
             "bmob3_price": _float(bmob3.get("price_brl")),
             "brl_nok": _float(bmob3.get("brl_nok")),
+            "brl_nok_insights": brl_nok_insights(connection, as_of_date=as_of_date),
             "estimated_cash_mnok": (
                 _float(latest["cash_estimate_nok"]) / 1_000_000
-                if latest["cash_estimate_nok"] is not None else None
+                if latest["cash_estimate_nok"] is not None
+                else None
             ),
             "other_net_assets_mnok": (
                 _float(latest["other_net_assets_nok"]) / 1_000_000
-                if latest["other_net_assets_nok"] is not None else None
+                if latest["other_net_assets_nok"] is not None
+                else None
             ),
             "bemobi_value_mnok": (
                 _float(latest["bemobi_value_nok"]) / 1_000_000
-                if latest["bemobi_value_nok"] is not None else None
+                if latest["bemobi_value_nok"] is not None
+                else None
             ),
             "bemobi_shares": int(holding["shares"]) if holding is not None else None,
-            "bemobi_ownership_pct": _float(holding["ownership_pct"]) if holding is not None else None,
+            "bemobi_ownership_pct": (
+                _float(holding["ownership_pct"]) if holding is not None else None
+            ),
             "shares_outstanding": int(latest["shares_outstanding"]),
             "share_count": latest_share_count,
             "cash_quality": cash.get("quality"),
@@ -230,7 +411,9 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
                 "brl_nok_pct": brl_change,
                 "cash_pct": cash_change,
             },
-            "latest_buyback": dict(latest_buyback) if latest_buyback is not None else None,
+            "latest_buyback": (
+                dict(latest_buyback) if latest_buyback is not None else None
+            ),
         }
 
 
@@ -274,7 +457,12 @@ def dashboard_history(
               AND substr(as_of_at,1,10) >= ? AND substr(as_of_at,1,10) <= ?
             ORDER BY as_of_at
             """,
-            (calculation_version, model_scope, start_date.isoformat(), end_date.isoformat()),
+            (
+                calculation_version,
+                model_scope,
+                start_date.isoformat(),
+                end_date.isoformat(),
+            ),
         ).fetchall()
 
     raw = [
@@ -299,9 +487,15 @@ def dashboard_history(
     else:
         points = raw
 
-    discounts = [Decimal(str(item["discount_pct"])) for item in raw if item["discount_pct"] is not None]
+    discounts = [
+        Decimal(str(item["discount_pct"]))
+        for item in raw
+        if item["discount_pct"] is not None
+    ]
     average_discount = (
-        float(sum(discounts, Decimal("0")) / Decimal(len(discounts))) if discounts else None
+        float(sum(discounts, Decimal("0")) / Decimal(len(discounts)))
+        if discounts
+        else None
     )
 
     return {
