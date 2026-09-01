@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 from brazil_dashboard import _decimal, _fetch_json, _float, _normalize
 
 FOCUS_BASE = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata"
+QUARTERLY_LOOKBACK_DAYS = 180
 
 MONTHS = {
     "jan": 1,
@@ -87,6 +88,19 @@ def _event_quarter(event: dict[str, Any]) -> tuple[int, int] | None:
     return _quarter_reference(event.get("reference"))
 
 
+def _quarter_reference_values(events: list[dict[str, Any]]) -> list[str]:
+    references: set[str] = set()
+    for event in events:
+        if event.get("kind") != "gdp":
+            continue
+        target = _event_quarter(event)
+        if target is None:
+            continue
+        year, quarter = target
+        references.add(f"{quarter}/{year}")
+    return sorted(references)
+
+
 def _expectation(row: dict[str, Any], *, label: str, unit: str = "%") -> dict[str, Any]:
     return {
         "label": label,
@@ -105,11 +119,16 @@ async def _fetch_endpoint(
     start_date: str,
     end_date: str,
     indicators: list[str] | None = None,
+    references: list[str] | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> list[dict[str, Any]]:
     filters = [f"Data ge '{start_date}'", f"Data le '{end_date}'"]
     if indicators:
         filters.append("(" + " or ".join(f"Indicador eq '{item}'" for item in indicators) + ")")
+    if references:
+        filters.append(
+            "(" + " or ".join(f"DataReferencia eq '{item}'" for item in references) + ")"
+        )
     params = {
         "$format": "json",
         "$top": "1200",
@@ -184,7 +203,10 @@ async def enrich_calendar_expectations(
     as_of_date: str,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    start = (date.fromisoformat(as_of_date) - timedelta(days=21)).isoformat()
+    as_of = date.fromisoformat(as_of_date)
+    start = (as_of - timedelta(days=21)).isoformat()
+    quarterly_start = (as_of - timedelta(days=QUARTERLY_LOOKBACK_DAYS)).isoformat()
+    quarterly_references = _quarter_reference_values(events)
     status: dict[str, Any] = {}
 
     monthly: list[dict[str, Any]] = []
@@ -203,17 +225,37 @@ async def enrich_calendar_expectations(
     except Exception as exc:
         status["monthly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
 
-    try:
-        quarterly = await _fetch_endpoint(
-            "ExpectativasMercadoTrimestrais",
-            start_date=start,
-            end_date=as_of_date,
-            indicators=["PIB Total"],
-            fetcher=fetcher,
-        )
-        status["quarterly"] = {"ready": True, "rows": len(quarterly)}
-    except Exception as exc:
-        status["quarterly"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+    if quarterly_references:
+        try:
+            quarterly = await _fetch_endpoint(
+                "ExpectativasMercadoTrimestrais",
+                start_date=quarterly_start,
+                end_date=as_of_date,
+                indicators=["PIB Total"],
+                references=quarterly_references,
+                fetcher=fetcher,
+            )
+            status["quarterly"] = {
+                "ready": True,
+                "rows": len(quarterly),
+                "references": quarterly_references,
+                "lookback_days": QUARTERLY_LOOKBACK_DAYS,
+            }
+        except Exception as exc:
+            status["quarterly"] = {
+                "ready": False,
+                "references": quarterly_references,
+                "lookback_days": QUARTERLY_LOOKBACK_DAYS,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    else:
+        status["quarterly"] = {
+            "ready": True,
+            "rows": 0,
+            "references": [],
+            "lookback_days": QUARTERLY_LOOKBACK_DAYS,
+            "skipped": True,
+        }
 
     try:
         selic = await _fetch_endpoint(
