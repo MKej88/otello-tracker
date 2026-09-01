@@ -65,9 +65,7 @@ def reclassify_waterfall(
 
     bemobi_net_cash_nok = bemobi_gross_cash_nok + bemobi_withholding_nok
     other_cash_nok = cash_change_nok - buyback_cash_nok - bemobi_net_cash_nok
-    receivable_change_nok = (
-        current_bemobi_receivable_nok - anchor_bemobi_receivable_nok
-    )
+    receivable_change_nok = current_bemobi_receivable_nok - anchor_bemobi_receivable_nok
     original_ona_nok = _decimal(original_ona.get("amount_mnok")) * MILLION
     base_ona_change_nok = original_ona_nok - receivable_change_nok
 
@@ -164,7 +162,9 @@ def reclassify_waterfall(
     return result
 
 
-async def _cash_change(repository, anchor_date: str, as_of_date: str, result: dict[str, Any]) -> Decimal:
+async def _cash_change(
+    repository, anchor_date: str, as_of_date: str, result: dict[str, Any]
+) -> Decimal:
     values: dict[str, Decimal] = {}
     for day in (anchor_date, as_of_date):
         row = await repository.first(
@@ -183,7 +183,9 @@ async def _cash_change(repository, anchor_date: str, as_of_date: str, result: di
     ) * MILLION
 
 
-async def _cash_breakdown(repository, *, anchor_date: str, as_of_date: str) -> dict[str, Any]:
+async def _cash_breakdown(
+    repository, *, anchor_date: str, as_of_date: str
+) -> dict[str, Any]:
     rows = await repository.all(
         """
         SELECT movement_date, movement_type, amount_nok, description,
@@ -199,26 +201,66 @@ async def _cash_breakdown(repository, *, anchor_date: str, as_of_date: str) -> d
         (anchor_date, as_of_date),
     )
 
+    copied = [dict(row) for row in rows]
+    daily_totals: dict[int, Decimal] = {}
+    weekly_totals: dict[int, Decimal] = {}
+    for row in copied:
+        buyback_id = row.get("buyback_id")
+        if buyback_id is None:
+            continue
+        identifier = int(buyback_id)
+        amount = Decimal(str(row.get("amount_nok") or "0"))
+        movement_type = str(row.get("movement_type") or "")
+        if movement_type == "OTELLO_BUYBACK_DAILY":
+            daily_totals[identifier] = (
+                daily_totals.get(identifier, Decimal("0")) + amount
+            )
+        elif movement_type == "OTELLO_BUYBACK":
+            match = _BUYBACK_PERIOD_RE.search(str(row.get("description") or ""))
+            if match and match.group(1) <= anchor_date < str(row.get("movement_date")):
+                continue
+            weekly_totals[identifier] = (
+                weekly_totals.get(identifier, Decimal("0")) + amount
+            )
+    daily_buyback_ids = {
+        identifier
+        for identifier, daily_total in daily_totals.items()
+        if identifier in weekly_totals
+        and abs(daily_total - weekly_totals[identifier]) <= Decimal("0.01")
+    }
+
     buyback_cash = Decimal("0")
     bemobi_gross = Decimal("0")
     bemobi_withholding = Decimal("0")
     weekly_rows = 0
     daily_rows = 0
+    weekly_superseded = 0
     cross_anchor_weekly_excluded = 0
     bemobi_receipt_rows = 0
     withholding_rows = 0
 
-    for row in rows:
+    for row in copied:
         movement_type = str(row.get("movement_type") or "")
         amount = Decimal(str(row.get("amount_nok") or "0"))
         description = str(row.get("description") or "")
         external_id = str(row.get("external_movement_id") or "")
 
         if movement_type == "OTELLO_BUYBACK_DAILY":
+            buyback_id = row.get("buyback_id")
+            if (
+                buyback_id is not None
+                and int(buyback_id) in weekly_totals
+                and int(buyback_id) not in daily_buyback_ids
+            ):
+                continue
             buyback_cash += amount
             daily_rows += 1
             continue
         if movement_type == "OTELLO_BUYBACK":
+            buyback_id = row.get("buyback_id")
+            if buyback_id is not None and int(buyback_id) in daily_buyback_ids:
+                weekly_superseded += 1
+                continue
             match = _BUYBACK_PERIOD_RE.search(description)
             if match and match.group(1) <= anchor_date < str(row.get("movement_date")):
                 cross_anchor_weekly_excluded += 1
@@ -244,6 +286,7 @@ async def _cash_breakdown(repository, *, anchor_date: str, as_of_date: str) -> d
         "buyback_metadata": {
             "weekly_cash_rows": weekly_rows,
             "daily_cash_rows": daily_rows,
+            "weekly_superseded": weekly_superseded,
             "movement_count": weekly_rows + daily_rows,
             "cross_anchor_excluded": cross_anchor_weekly_excluded,
             "source_mode": "DAILY_WHEN_AVAILABLE_WEEKLY_FALLBACK",
@@ -266,7 +309,9 @@ async def _receivable(repository, day: str) -> tuple[Decimal, str | None]:
     )
     if row is None:
         return Decimal("0"), None
-    return Decimal(str(row.get("associated_receivable_nok") or "0")), row.get("receivable_quality")
+    return Decimal(str(row.get("associated_receivable_nok") or "0")), row.get(
+        "receivable_quality"
+    )
 
 
 async def nav_waterfall_summary(repository) -> dict[str, Any]:
@@ -282,8 +327,12 @@ async def nav_waterfall_summary(repository) -> dict[str, Any]:
         as_of_date=as_of_date,
     )
     cash_change = await _cash_change(repository, anchor_date, as_of_date, result)
-    anchor_receivable, anchor_receivable_quality = await _receivable(repository, anchor_date)
-    current_receivable, current_receivable_quality = await _receivable(repository, as_of_date)
+    anchor_receivable, anchor_receivable_quality = await _receivable(
+        repository, anchor_date
+    )
+    current_receivable, current_receivable_quality = await _receivable(
+        repository, as_of_date
+    )
 
     cash["bemobi_metadata"].update(
         {
