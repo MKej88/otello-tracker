@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import re
 from datetime import datetime
+from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 
 from bounded_response import read_response_bytes
@@ -37,10 +37,33 @@ def _compact(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+class _VisibleTextParser(HTMLParser):
+    """Extract visible text without regex-based HTML sanitization."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        if tag.lower() in {"script", "style"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style"} and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self.parts.append(data)
+
+
 def _strip_html(value: str) -> str:
-    without_script = re.sub(r"<script\b[\s\S]*?</script>", " ", value, flags=re.I)
-    without_style = re.sub(r"<style\b[\s\S]*?</style>", " ", without_script, flags=re.I)
-    return _compact(html.unescape(re.sub(r"<[^>]+>", " ", without_style)))
+    parser = _VisibleTextParser()
+    parser.feed(value)
+    parser.close()
+    return _compact(" ".join(parser.parts))
 
 
 def _row_date(value: str) -> str | None:
