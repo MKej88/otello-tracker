@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import statistics
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -40,6 +42,82 @@ def _on_or_before(
 def _quarter_label(day: str) -> str:
     parsed = date.fromisoformat(day)
     return f"Q{(parsed.month - 1) // 3 + 1} {str(parsed.year)[2:]}"
+
+
+def nav_discount_metrics(
+    *,
+    nav_per_share: Any,
+    share_price: Any,
+    current_date: str,
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """D1 counterpart of the null-safe daily NAV discount metrics."""
+    try:
+        nav = float(nav_per_share)
+    except (TypeError, ValueError):
+        nav = math.nan
+    try:
+        price = float(share_price)
+    except (TypeError, ValueError):
+        price = math.nan
+    valid_nav = math.isfinite(nav) and nav > 0
+    valid_price = math.isfinite(price) and price > 0
+    valid_current = valid_nav and valid_price
+    current_discount = (1 - price / nav) * 100 if valid_current else None
+    upside = (nav / price - 1) * 100 if valid_current else None
+    start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
+    valid = []
+    for item in observations:
+        try:
+            discount = float(item.get("discount_pct"))
+        except (TypeError, ValueError):
+            continue
+        item_date = str(item.get("date") or "")
+        if math.isfinite(discount) and start_date <= item_date <= current_date:
+            valid.append({"date": item_date, "discount_pct": discount})
+    valid.sort(key=lambda item: item["date"])
+    reference_date = (date.fromisoformat(current_date) - timedelta(days=30)).isoformat()
+    reference = _on_or_before(valid, reference_date)
+    values = [item["discount_pct"] for item in valid]
+    low = min(values) if values else None
+    high = max(values) if values else None
+    position = None
+    if current_discount is not None and low is not None and high is not None:
+        position = (
+            50.0 if high == low else (current_discount - low) / (high - low) * 100
+        )
+    return {
+        "nav_per_share": nav if valid_nav else None,
+        "share_price": price if valid_price else None,
+        "discount_pct": current_discount,
+        "upside_to_nav_pct": upside,
+        "month_change_pp": (
+            current_discount - reference["discount_pct"]
+            if current_discount is not None and reference is not None
+            else None
+        ),
+        "month_reference_date": reference["date"] if reference else None,
+        "median_1y_pct": statistics.median(values) if values else None,
+        "range_1y": {"low": low, "high": high, "position_pct": position},
+    }
+
+
+async def _nav_discount_insights(repository, *, calculation_version, nav_scope, latest):
+    current_date = str(latest["as_of_at"])[:10]
+    start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
+    rows = await repository.all(
+        """SELECT substr(as_of_at, 1, 10) AS date, discount_pct
+        FROM nav_snapshots WHERE calculation_version = ? AND nav_scope = ?
+        AND substr(as_of_at, 1, 10) BETWEEN ? AND ? ORDER BY as_of_at""",
+        (calculation_version, nav_scope, start_date, current_date),
+    )
+    by_date = {str(row["date"]): row for row in rows}
+    return nav_discount_metrics(
+        nav_per_share=latest["nav_per_share_nok"],
+        share_price=latest["otec_price_nok"],
+        current_date=current_date,
+        observations=list(by_date.values()),
+    )
 
 
 async def _brl_observations(repository, *, end_date: str) -> list[dict[str, Any]]:
@@ -246,7 +324,9 @@ def _as_date(value: str | None) -> date | None:
         return None
 
 
-async def _latest_series_date(repository, calculation_version: str, nav_scope: str) -> str | None:
+async def _latest_series_date(
+    repository, calculation_version: str, nav_scope: str
+) -> str | None:
     row = await repository.first(
         """
         SELECT MAX(substr(as_of_at, 1, 10)) AS max_date
@@ -310,7 +390,9 @@ async def dashboard_summary(repository) -> dict[str, Any]:
     latest = rows[0]
     previous = rows[1] if len(rows) > 1 else None
     if model_scope == "FULL":
-        current_components = await _core_components_for_date(repository, latest["as_of_at"])
+        current_components = await _core_components_for_date(
+            repository, latest["as_of_at"]
+        )
         previous_components = (
             await _core_components_for_date(repository, previous["as_of_at"])
             if previous is not None
@@ -369,7 +451,8 @@ async def dashboard_summary(repository) -> dict[str, Any]:
             "source_document_id": latest_share_count_row.get("source_document_id"),
             "source_code": latest_share_count_row.get("source_code"),
             "source_url": latest_share_count_row.get("source_url"),
-            "used_in_nav": int(latest_share_count_row["outstanding_shares"]) == nav_outstanding,
+            "used_in_nav": int(latest_share_count_row["outstanding_shares"])
+            == nav_outstanding,
         }
 
     nav_change = _pct_change(
@@ -380,7 +463,10 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
     )
     discount_change = (
-        float(Decimal(str(latest["discount_pct"])) - Decimal(str(previous["discount_pct"])))
+        float(
+            Decimal(str(latest["discount_pct"]))
+            - Decimal(str(previous["discount_pct"]))
+        )
         if previous is not None
         and latest["discount_pct"] is not None
         and previous["discount_pct"] is not None
@@ -401,11 +487,15 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "nav_per_share": _float(latest["nav_per_share_nok"]),
         "otec_price": _float(latest["otec_price_nok"]),
         "nav_discount_pct": _float(latest["discount_pct"]),
+        "nav_discount_insights": await _nav_discount_insights(
+            repository,
+            calculation_version=calculation_version,
+            nav_scope=model_scope,
+            latest=latest,
+        ),
         "bmob3_price": _float(bmob3.get("price_brl")),
         "brl_nok": _float(bmob3.get("brl_nok")),
-        "brl_nok_insights": await brl_nok_insights(
-            repository, as_of_date=as_of_date
-        ),
+        "brl_nok_insights": await brl_nok_insights(repository, as_of_date=as_of_date),
         "estimated_cash_mnok": (
             _float(latest["cash_estimate_nok"]) / 1_000_000
             if latest["cash_estimate_nok"] is not None
@@ -422,7 +512,9 @@ async def dashboard_summary(repository) -> dict[str, Any]:
             else None
         ),
         "bemobi_shares": int(holding["shares"]) if holding is not None else None,
-        "bemobi_ownership_pct": _float(holding["ownership_pct"]) if holding is not None else None,
+        "bemobi_ownership_pct": (
+            _float(holding["ownership_pct"]) if holding is not None else None
+        ),
         "shares_outstanding": int(latest["shares_outstanding"]),
         "share_count": latest_share_count,
         "cash_quality": cash.get("quality"),
@@ -445,7 +537,9 @@ async def dashboard_summary(repository) -> dict[str, Any]:
     }
 
 
-async def enrich_dashboard_summary(summary: dict[str, Any], repository) -> dict[str, Any]:
+async def enrich_dashboard_summary(
+    summary: dict[str, Any], repository
+) -> dict[str, Any]:
     """D1 equivalent of the validated freshness/ownership presentation safeguards."""
     enriched = dict(summary)
     if not summary.get("ready") or not summary.get("as_of_date"):
@@ -539,17 +633,22 @@ async def enrich_dashboard_summary(summary: dict[str, Any], repository) -> dict[
         effective = date.fromisoformat(holding["effective_from"])
         ownership_age = max(0, (as_of - effective).days)
         reported_pct = (
-            float(holding["ownership_pct"]) if holding["ownership_pct"] is not None else None
+            float(holding["ownership_pct"])
+            if holding["ownership_pct"] is not None
+            else None
         )
         quality = (
             "REPORTED_RECENT"
-            if reported_pct is not None and ownership_age <= RECENT_OWNERSHIP_MAX_AGE_DAYS
+            if reported_pct is not None
+            and ownership_age <= RECENT_OWNERSHIP_MAX_AGE_DAYS
             else "STALE_REPORTED"
         )
         enriched["bemobi_ownership_reported_pct"] = reported_pct
         enriched["bemobi_ownership_effective_from"] = holding["effective_from"]
         enriched["bemobi_ownership_quality"] = quality
-        enriched["bemobi_ownership_pct"] = reported_pct if quality == "REPORTED_RECENT" else None
+        enriched["bemobi_ownership_pct"] = (
+            reported_pct if quality == "REPORTED_RECENT" else None
+        )
 
     return enriched
 
@@ -629,7 +728,9 @@ async def dashboard_history(
         if item["discount_pct"] is not None
     ]
     average_discount = (
-        float(sum(discounts, Decimal("0")) / Decimal(len(discounts))) if discounts else None
+        float(sum(discounts, Decimal("0")) / Decimal(len(discounts)))
+        if discounts
+        else None
     )
 
     return {
