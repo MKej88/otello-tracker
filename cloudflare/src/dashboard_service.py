@@ -4,7 +4,7 @@ import json
 import math
 import statistics
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from market_attribution import symmetric_two_factor_attribution
@@ -296,6 +296,144 @@ async def brl_nok_insights(repository, *, as_of_date: str) -> dict[str, Any]:
     }
 
 
+async def _bmob3_observations(repository, *, end_date: str) -> list[dict[str, Any]]:
+    start_date = (date.fromisoformat(end_date) - timedelta(days=365)).isoformat()
+    rows = await repository.all(
+        """SELECT mp.trading_date AS date, mp.price
+        FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='BMOB3' AND mp.price_type IN ('CLOSE', 'LAST')
+        AND mp.trading_date BETWEEN ? AND ? AND CAST(mp.price AS REAL) > 0
+        ORDER BY mp.trading_date,
+        CASE s.code WHEN 'B3' THEN 0 WHEN 'INVESTING' THEN 2 ELSE 5 END,
+        CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
+        CASE mp.quality WHEN 'DIRECT' THEN 0 ELSE 1 END,
+        mp.observed_at DESC, mp.id DESC""",
+        (start_date, end_date),
+    )
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        day = str(row["date"])
+        if day not in by_date:
+            by_date[day] = {"date": day, "price": Decimal(str(row["price"]))}
+    return list(by_date.values())
+
+
+async def bemobi_insights(
+    repository, *, as_of_date: str, bemobi_value_nok: Any, shares_outstanding: Any
+) -> dict[str, Any]:
+    observations = await _bmob3_observations(repository, end_date=as_of_date)
+    current = _on_or_before(observations, as_of_date)
+    empty_range = {"low": None, "high": None, "position_pct": None}
+    if current is None:
+        return {
+            "price_brl": None,
+            "price_date": None,
+            "daily_pct": None,
+            "month_pct": None,
+            "quarter_pct": None,
+            "quarter_label": None,
+            "nav_effect_1m_per_share_nok": None,
+            "value_per_otec_share_nok": None,
+            "holding_shares": None,
+            "ownership_pct": None,
+            "range_1y": empty_range,
+        }
+    current_index = observations.index(current)
+    previous = observations[current_index - 1] if current_index > 0 else None
+    month_target = (
+        date.fromisoformat(current["date"]) - timedelta(days=30)
+    ).isoformat()
+    month_reference = _on_or_before(observations, month_target)
+    anchor = await repository.first(
+        """SELECT as_of_date FROM cash_anchors WHERE anchor_type='REPORTED'
+        AND as_of_date <= ? ORDER BY as_of_date DESC, id DESC LIMIT 1""",
+        (current["date"],),
+    )
+    anchor_date = str(anchor["as_of_date"]) if anchor is not None else None
+    quarter_reference = (
+        _on_or_before(observations, anchor_date) if anchor_date else None
+    )
+    holding = await repository.first(
+        """SELECT shares, ownership_pct FROM bemobi_holdings
+        WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+        ORDER BY effective_from DESC, id DESC LIMIT 1""",
+        (current["date"], current["date"]),
+    )
+    nav_effect = None
+    if month_reference is not None and holding is not None:
+        reference_holding = await repository.first(
+            """SELECT shares FROM bemobi_holdings
+            WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+            ORDER BY effective_from DESC, id DESC LIMIT 1""",
+            (month_reference["date"], month_reference["date"]),
+        )
+        fx_observations = await _brl_observations(repository, end_date=current["date"])
+        reference_fx = _on_or_before(fx_observations, month_reference["date"])
+        current_fx = _on_or_before(fx_observations, current["date"])
+        if (
+            reference_fx is not None
+            and current_fx is not None
+            and reference_holding is not None
+            and int(reference_holding["shares"]) == int(holding["shares"])
+        ):
+            attribution = symmetric_two_factor_attribution(
+                shares=int(holding["shares"]),
+                anchor_price=month_reference["price"],
+                current_price=current["price"],
+                anchor_fx=reference_fx["rate"],
+                current_fx=current_fx["rate"],
+            )
+            try:
+                outstanding = Decimal(str(shares_outstanding))
+            except (InvalidOperation, TypeError, ValueError):
+                outstanding = Decimal("0")
+            if outstanding.is_finite() and outstanding > 0:
+                nav_effect = float(attribution["price_effect_nok"] / outstanding)
+    prices = [item["price"] for item in observations]
+    low, high = min(prices), max(prices)
+    position = (
+        None
+        if high == low
+        else float((current["price"] - low) / (high - low) * Decimal("100"))
+    )
+    try:
+        value = Decimal(str(bemobi_value_nok))
+        outstanding = Decimal(str(shares_outstanding))
+        value_per_share = (
+            float(value / outstanding)
+            if value.is_finite() and outstanding.is_finite() and outstanding > 0
+            else None
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        value_per_share = None
+    return {
+        "price_brl": float(current["price"]),
+        "price_date": current["date"],
+        "daily_pct": _pct_change(
+            current["price"], previous["price"] if previous else None
+        ),
+        "month_pct": _pct_change(
+            current["price"], month_reference["price"] if month_reference else None
+        ),
+        "month_reference_date": month_reference["date"] if month_reference else None,
+        "quarter_pct": _pct_change(
+            current["price"], quarter_reference["price"] if quarter_reference else None
+        ),
+        "quarter_label": _quarter_label(anchor_date) if anchor_date else None,
+        "quarter_reference_date": (
+            quarter_reference["date"] if quarter_reference else None
+        ),
+        "nav_effect_1m_per_share_nok": nav_effect,
+        "value_per_otec_share_nok": value_per_share,
+        "holding_shares": int(holding["shares"]) if holding is not None else None,
+        "ownership_pct": (
+            _float(holding["ownership_pct"]) if holding is not None else None
+        ),
+        "range_1y": {"low": float(low), "high": float(high), "position_pct": position},
+    }
+
+
 def _components(row: dict[str, Any] | None) -> dict[str, Any]:
     raw = row.get("components_json") if row is not None else None
     if not raw:
@@ -496,6 +634,12 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "bmob3_price": _float(bmob3.get("price_brl")),
         "brl_nok": _float(bmob3.get("brl_nok")),
         "brl_nok_insights": await brl_nok_insights(repository, as_of_date=as_of_date),
+        "bemobi_insights": await bemobi_insights(
+            repository,
+            as_of_date=as_of_date,
+            bemobi_value_nok=latest["bemobi_value_nok"],
+            shares_outstanding=latest["shares_outstanding"],
+        ),
         "estimated_cash_mnok": (
             _float(latest["cash_estimate_nok"]) / 1_000_000
             if latest["cash_estimate_nok"] is not None

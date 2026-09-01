@@ -304,14 +304,19 @@ def test_worker_brl_insights_match_reference_with_market_history(
         connection.commit()
 
     expected = reference_dashboard_summary(database)["brl_nok_insights"]
-    actual = asyncio.run(worker_dashboard_summary(SQLiteAsyncRepository(database)))[
-        "brl_nok_insights"
-    ]
+    worker_summary = asyncio.run(
+        worker_dashboard_summary(SQLiteAsyncRepository(database))
+    )
+    actual = worker_summary["brl_nok_insights"]
 
     assert actual == expected
     assert actual["daily_pct"] is not None
     assert actual["month_pct"] is not None
     assert actual["nav_effect_1m_per_share_nok"] is not None
+    assert (
+        worker_summary["bemobi_insights"]
+        == reference_dashboard_summary(database)["bemobi_insights"]
+    )
 
 
 def test_worker_dashboard_history_matches_reference_exactly(tmp_path: Path) -> None:
