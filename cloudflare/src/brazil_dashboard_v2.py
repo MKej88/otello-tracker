@@ -9,6 +9,7 @@ from brazil_focus_resilience import (
     persist_event_expectations,
     resolve_annual_focus,
 )
+from brazil_investing_consensus import enrich_calendar_from_investing
 
 # Bruk sesongjustert IBC-Br tjenester når vi viser måned-til-måned-endring.
 # 29605 er ujustert nivå; 29606 er samme tjenestekomponent med sesongjustering.
@@ -19,45 +20,52 @@ _FOCUS_EVENT_KINDS = {"copom", "inflation", "gdp", "labor"}
 
 
 def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Describe what kind of market expectation is available for each event.
-
-    BCB Focus is a survey of banks and other market participants. For PMS, PMC and
-    IBC-Br there is also economist/bank consensus in commercial poll feeds such as
-    Reuters/LSEG and Trading Economics, but no equivalent free BCB Focus event series
-    is ingested by the tracker. Make that distinction explicit instead of claiming
-    that market consensus does not exist.
-    """
+    """Describe what kind of market expectation is available for each event."""
     annotated: list[dict[str, Any]] = []
     for raw in events:
         event = dict(raw)
         expectation = event.get("expectation")
         if isinstance(expectation, dict) and expectation.get("event_consensus"):
             fallback_cached = bool(expectation.get("fallback_cached"))
-            event["market_consensus"] = {
-                "available": True,
-                "ingested": True,
-                "coverage": "BCB_FOCUS_EVENT_CACHED" if fallback_cached else "BCB_FOCUS_EVENT",
-                "provider": str(expectation.get("provider") or "BCB Focus"),
-                "note": (
-                    "Sist gode hendelsesnære Focus-median fra banker, forvaltere og andre "
-                    "markedsaktører; live Olinda-data var ikke tilgjengelig."
-                    if fallback_cached
-                    else "Median fra banker, forvaltere og andre markedsaktører i BCB Focus, "
-                    "koblet til denne referanseperioden/hendelsen."
-                ),
-            }
+            provider = str(expectation.get("provider") or "BCB Focus")
+            if provider == "Investing.com":
+                event["market_consensus"] = {
+                    "available": True,
+                    "ingested": True,
+                    "coverage": "INVESTING_EVENT_CACHED" if fallback_cached else "INVESTING_EVENT",
+                    "provider": provider,
+                    "note": (
+                        "Siste gode hendelseskonsensus fra Investing.com-cache; live-kilden var ikke "
+                        "tilgjengelig i denne hentingen."
+                        if fallback_cached
+                        else "Hendelsesnær markedskonsensus fra Investing.com sitt Forecast-felt."
+                    ),
+                }
+            else:
+                event["market_consensus"] = {
+                    "available": True,
+                    "ingested": True,
+                    "coverage": "BCB_FOCUS_EVENT_CACHED" if fallback_cached else "BCB_FOCUS_EVENT",
+                    "provider": provider,
+                    "note": (
+                        "Sist gode hendelsesnære Focus-median fra banker, forvaltere og andre "
+                        "markedsaktører; live Olinda-data var ikke tilgjengelig."
+                        if fallback_cached
+                        else "Median fra banker, forvaltere og andre markedsaktører i BCB Focus, "
+                        "koblet til denne referanseperioden/hendelsen."
+                    ),
+                }
         elif isinstance(expectation, dict) and expectation.get("value") is not None:
-            # Grunnvisningen legger allerede på siste årlige Focus-median som et
-            # retningsgivende anslag. Behold tallet når den mer presise hendelsesfeed
-            # er tom, men merk det tydelig som årsestimat og ikke hendelseskonsensus.
+            # Et årsestimat kan være nyttig kontekst, men det er ikke konsensus for
+            # den konkrete makropubliseringen og skal aldri presenteres som det.
             event["market_consensus"] = {
                 "available": True,
                 "ingested": True,
                 "coverage": "BCB_FOCUS_ANNUAL_PROXY",
                 "provider": "BCB Focus",
                 "note": (
-                    "Årsestimat fra BCB Focus brukes som retningsgivende reserve fordi "
-                    "en hendelsesnær median ikke var tilgjengelig."
+                    "Et årsestimat fra BCB Focus finnes som bakgrunn, men brukes ikke som "
+                    "hendelseskonsensus for denne publiseringen."
                 ),
             }
         elif str(event.get("kind") or "") in _EXTERNAL_CONSENSUS_KINDS:
@@ -65,22 +73,21 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
                 "available": True,
                 "ingested": False,
                 "coverage": "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED",
-                "provider": None,
+                "provider": "Investing.com",
                 "note": (
-                    "Markedskonsensus fra banker/økonomer finnes hos blant annet "
-                    "Reuters/LSEG og Trading Economics, men ikke via en gratis BCB Focus-serie "
-                    "som trackeren kan hente automatisk."
+                    "Trackeren forsøker å hente hendelseskonsensus fra Investing.com, men et "
+                    "gyldig Forecast-tall var ikke tilgjengelig for denne publiseringen nå."
                 ),
             }
         elif str(event.get("kind") or "") in _FOCUS_EVENT_KINDS:
             event["market_consensus"] = {
                 "available": True,
                 "ingested": False,
-                "coverage": "BCB_FOCUS_EVENT_TEMPORARILY_UNAVAILABLE",
-                "provider": "BCB Focus",
+                "coverage": "EVENT_CONSENSUS_TEMPORARILY_UNAVAILABLE",
+                "provider": None,
                 "note": (
-                    "Denne hendelsestypen dekkes av BCB Focus, men en hendelsesnær verdi "
-                    "var ikke tilgjengelig i siste API-kall eller i siste gode cache."
+                    "Ingen hendelsesnær konsensus fra Investing.com eller BCB Focus var "
+                    "tilgjengelig i siste hentning eller i siste gode cache."
                 ),
             }
         else:
@@ -121,6 +128,21 @@ def _recompute_focus_signals(result: dict[str, Any], focus_values: dict[str, Any
     for key, metric in metrics.items():
         if isinstance(metric, dict):
             metric["signal"] = base._metric_signal(str(key), metric, focus_values, target_year)
+
+
+def _append_investing_source(result: dict[str, Any]) -> None:
+    sources = result.get("sources")
+    if not isinstance(sources, list):
+        sources = []
+        result["sources"] = sources
+    if any(isinstance(item, dict) and item.get("name") == "Investing.com" for item in sources):
+        return
+    sources.append(
+        {
+            "name": "Investing.com",
+            "url": "https://www.investing.com/economic-calendar/",
+        }
+    )
 
 
 async def brazil_dashboard(
@@ -180,13 +202,29 @@ async def brazil_dashboard(
             as_of_date=target_date,
             fetcher=fetcher,
         )
-        if status.get("specific_expectations"):
-            try:
-                await persist_event_expectations(repository, enriched)
-            except Exception as exc:
-                # Cache writes are best-effort: a transient D1 failure must not discard
-                # the live consensus that Olinda already returned successfully.
-                status["cache_persistence_error"] = f"{type(exc).__name__}: {exc}"
+
+        try:
+            enriched, investing_status = await enrich_calendar_from_investing(
+                enriched,
+                as_of_date=target_date,
+                fetcher=fetcher,
+            )
+        except Exception as exc:
+            investing_status = {
+                "ready": False,
+                "source": "Investing.com",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        try:
+            # Persist only true event consensus. Investing enrichment includes the
+            # release time in that object, so a last-good consensus also carries time.
+            await persist_event_expectations(repository, enriched)
+        except Exception as exc:
+            # Cache writes are best-effort: a transient D1 failure must not discard
+            # live values that were already fetched successfully.
+            status["cache_persistence_error"] = f"{type(exc).__name__}: {exc}"
+
         try:
             enriched, restored = await apply_cached_event_expectations(
                 repository,
@@ -194,28 +232,31 @@ async def brazil_dashboard(
                 as_of_date=target_date,
             )
         except Exception as exc:
-            # A cache-table read is also best-effort. Keep the live-enriched rows.
             restored = 0
             status["cache_restore_error"] = f"{type(exc).__name__}: {exc}"
+
         status["cached_restored"] = restored
-        status["fallback"] = bool(restored and not status.get("ready"))
+        status["fallback"] = bool(restored and not status.get("ready") and not investing_status.get("ready"))
         result["calendar"] = _annotate_market_consensus(enriched)
         result.setdefault("source_status", {})["focus_event_expectations"] = status
-        if status.get("ready") or restored:
-            fallback_note = (
-                " Ved midlertidig Olinda-feil brukes siste gode lagrede hendelsesforventning."
-                if restored
-                else ""
-            )
-            result["calendar_note"] = (
-                "For IPCA/IPCA-15, arbeidsledighet, BNP og Copom brukes hendelsesnære "
-                "markedsforventninger fra BCB Focus når tilgjengelig. Focus er medianer fra "
-                "banker, forvaltere og andre markedsaktører. For PMS, PMC og IBC-Br finnes "
-                "også markedskonsensus fra økonom-/bankpoller, men den er ikke tilgjengelig "
-                "via en gratis Focus-serie i dagens automatiske feed."
-                f"{fallback_note} Rader merket estimated er en rullerende forhåndsvisning og "
-                "må bekreftes i den offisielle kalenderen."
-            )
+        result.setdefault("source_status", {})["investing_event_expectations"] = investing_status
+        if investing_status.get("pages_ready"):
+            _append_investing_source(result)
+
+        fallback_note = (
+            " Ved midlertidig kildefeil brukes siste gode lagrede hendelseskonsensus."
+            if restored
+            else ""
+        )
+        result["calendar_note"] = (
+            "Bekreftede publiseringsdatoer kommer fra IBGE/BCB. Publiseringstid og "
+            "hendelsesnær markedskonsensus hentes fra Investing.com når tilgjengelig; "
+            "tidspunktet konverteres til norsk tid i nettleseren. BCB Focus brukes som "
+            "sekundær hendelsesforventning der en relevant serie finnes. Årlige Focus-tall "
+            "brukes ikke som konsensus for en konkret publisering."
+            f"{fallback_note} Rader merket estimated er en rullerende forhåndsvisning og "
+            "må bekreftes i den offisielle kalenderen."
+        )
     except Exception as exc:
         try:
             restored_rows, restored = await apply_cached_event_expectations(
