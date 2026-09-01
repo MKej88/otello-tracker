@@ -106,7 +106,8 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
     assert "getCachedDashboardComponentForUrl<T>(url)" in polling
     assert "useState<T | null>(() =>" in polling
     assert "usePreloadedInitial ? getCachedDashboardComponentForUrl" in polling
-    assert overview.count("    true,\n  );") == 3
+    assert overview.count("    true,\n  );") == 4
+    assert '"/api/dashboard/discount-history?days=365&max_points=72"' in overview
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
 
 

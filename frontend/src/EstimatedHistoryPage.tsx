@@ -3,6 +3,7 @@ import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./inve
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatNumber } from "./uiFormat";
+import { usePollingResource } from "./usePollingResource";
 
 type Point = { date: string; nav_per_share?: number | null; otec_price?: number | null; discount_pct?: number | null };
 type Statistics = {
@@ -20,6 +21,8 @@ type Statistics = {
 };
 type EstimatedHistory = { ready: boolean; from?: string; to?: string; point_count?: number; points?: Point[]; statistics?: Statistics; note?: string };
 type Payload = { estimated?: EstimatedHistory };
+type EconomicNav = { ready: boolean; discount_pct?: number | null; calculated_at?: string | null };
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 function chartDate(input?: string | null) {
   if (!input) return "–";
@@ -123,6 +126,11 @@ export default function EstimatedHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const data = cache[period.key];
+  const { data: economicNav } = usePollingResource<EconomicNav>(
+    "/api/dashboard/economic",
+    AUTO_REFRESH_MS,
+    true,
+  );
 
   useEffect(() => {
     let active = true;
@@ -165,7 +173,7 @@ export default function EstimatedHistoryPage() {
       {data?.ready && stats && (
         <>
           <section className="historyKpiGrid">
-            <article className="card historyKpi"><span className="label">Dagens rabatt</span><strong>{formatNumber(stats.current_discount_pct)} %</strong><small>{formatDate(data.to)}</small></article>
+            <article className="card historyKpi"><span className="label">Dagens rabatt</span><strong>{formatNumber(economicNav?.discount_pct)} %</strong><small>{formatDate(economicNav?.calculated_at)}</small></article>
             <article className="card historyKpi"><span className="label">Median</span><strong>{formatNumber(stats.median_discount_pct)} %</strong><small>{stats.count} observasjoner</small></article>
             <article className="card historyKpi"><span className="label">Gjennomsnitt</span><strong>{formatNumber(stats.average_discount_pct)} %</strong><small>{formatDate(data.from)}–{formatDate(data.to)}</small></article>
             <article className="card historyKpi"><span className="label">Dagens persentil</span><strong>{formatNumber(stats.current_percentile, 0)}.</strong><small>Høyere = større rabatt</small></article>
