@@ -119,8 +119,8 @@ def test_frontend_renders_all_labels_and_safe_fallbacks() -> None:
     ):
         assert label in page
     assert 'return "—"' in page
-    assert "Number.isFinite(discountPosition)" in page
-    assert "Math.max(0, Math.min(100, discountPosition))" in page
+    assert "Number.isFinite(position)" in page
+    assert "Math.max(0, Math.min(100, position))" in page
     assert "history?.estimated?.statistics" in page
     assert "nav?.discount_pct" in page
     assert "nav?.nav_per_share" in page

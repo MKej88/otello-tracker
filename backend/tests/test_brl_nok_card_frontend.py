@@ -17,4 +17,5 @@ def test_brl_card_renders_investor_fields_and_safe_fallbacks() -> None:
         assert text in page
     assert 'return "—"' in page
     assert "Number.isFinite" in page
-    assert "Math.max(0, Math.min(100, range.position_pct))" in page
+    assert "InsightRange" in page
+    assert "Math.max(0, Math.min(100, position))" in page

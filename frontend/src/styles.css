@@ -41,21 +41,20 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .navKpiGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .kpi { min-height: 116px; position: relative; overflow: hidden; }
 .kpi strong { display: block; font-size: 25px; margin-top: 12px; letter-spacing: -.025em; }
-.brlInsightCard { overflow: visible; }
-.brlCurrent { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
-.brlCurrent strong:last-child { font-size:14px; }
-.brlRows { display:grid; gap:5px; margin-top:12px; padding-top:9px; border-top:1px solid #1b2a40; }
-.brlRows > div { display:flex; justify-content:space-between; gap:12px; color:#91a0b8; font-size:11px; }
-.brlRows b { font-weight:700; }
-.brlRange { display:grid; grid-template-columns:auto auto minmax(35px,1fr) auto; align-items:center; gap:7px; margin-top:10px; color:#71809a; font-size:10px; }
-.brlRangeTrack { position:relative; height:2px; background:#40516a; }
-.brlRangeTrack i { position:absolute; top:50%; width:7px; height:7px; border-radius:50%; background:#27d3a5; transform:translate(-50%,-50%); }
-.brlExplanation { display:block; margin-top:9px; color:#71809a; font-size:10px; }
-.bemobiExposureRows { margin-top:9px; }
-.navDiscountCard { overflow: visible; }
-.navDiscountRows { margin-top: 10px; }
-.navDiscountRows > div:nth-child(4) { margin-top: 4px; padding-top: 7px; border-top: 1px solid #1b2a40; }
-.navDiscountRange { margin-top: 12px; }
+.insightCard { display:grid; grid-template-rows:14px 34px 16px 1px 59px 43px 20px 14px; gap:8px; overflow:visible; }
+.insightHeadline { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.insightHeadline > strong:first-child { margin:0; font-size:22px; }
+.insightHeadline strong:last-child:not(:first-child) { margin:0; font-size:14px; }
+.insightSubline { align-self:start; }
+.insightDivider { background:#1b2a40; }
+.insightMetricGroup { display:grid; grid-auto-rows:13px; gap:5px; }
+.insightMetricGroup + .insightMetricGroup { padding-top:9px; border-top:1px solid #1b2a40; }
+.insightMetricRow { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:baseline; gap:12px; color:#91a0b8; font-size:11px; line-height:13px; }
+.insightMetricRow b { font-weight:700; text-align:right; }
+.insightRange { display:grid; grid-template-columns:auto auto minmax(35px,1fr) auto; align-items:center; gap:7px; color:#71809a; font-size:10px; line-height:12px; }
+.insightRangeTrack { position:relative; height:2px; background:#40516a; }
+.insightRangeTrack i { position:absolute; top:50%; width:7px; height:7px; border-radius:50%; background:#27d3a5; transform:translate(-50%,-50%); }
+.insightFootnote { align-self:end; color:#71809a; font-size:10px; line-height:12px; }
 .change { display: block; margin-top: 8px; font-size: 12px; font-weight: 700; }
 .positive { color: #27d3a5; }
 .negative { color: #ff6c88; }
@@ -119,6 +118,7 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 }
 @media (max-width: 500px) {
   .kpiGrid, .overviewKpiGrid, .navKpiGrid { grid-template-columns: 1fr; }
+  .insightCard { grid-template-rows:14px 34px 16px 1px auto auto 20px 14px; }
   .modelWarning { display: block; }
   .modelWarning strong { display: block; margin-bottom: 5px; }
   .exposure { align-items: flex-start; }
