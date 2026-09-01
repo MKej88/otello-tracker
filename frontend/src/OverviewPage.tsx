@@ -65,6 +65,17 @@ type Forecast = {
   estimate?: { base_case_shares?: number; low_shares?: number; high_shares?: number };
 };
 
+type DiscountHistory = {
+  estimated?: {
+    ready: boolean;
+    statistics?: {
+      median_discount_pct?: number | null;
+      minimum_discount_pct?: number | null;
+      maximum_discount_pct?: number | null;
+    };
+  };
+};
+
 export default function OverviewPage() {
   const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>(
     "/api/dashboard/summary",
@@ -81,12 +92,24 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
+  const { data: history } = usePollingResource<DiscountHistory>(
+    "/api/dashboard/discount-history?days=365&max_points=72",
+    REFRESH_MS,
+    true,
+  );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const brl = summary?.brl_nok_insights;
   const range = brl?.range_1y;
   const discount = summary?.nav_discount_insights;
-  const discountRange = discount?.range_1y;
-  const hasDiscountRange = discountRange?.low != null && discountRange?.high != null;
+  const historyStatistics = history?.estimated?.statistics;
+  const discountLow = historyStatistics?.minimum_discount_pct;
+  const discountHigh = historyStatistics?.maximum_discount_pct;
+  const hasDiscountRange = discountLow != null && discountHigh != null;
+  const discountPosition = hasDiscountRange && nav?.discount_pct != null
+    ? discountHigh === discountLow
+      ? 50
+      : ((nav.discount_pct - discountLow) / (discountHigh - discountLow)) * 100
+    : null;
   const hasRange = range?.low != null && range?.high != null;
   const brlNokStatus = summaryRefreshFailed
     ? summary
@@ -141,23 +164,23 @@ export default function OverviewPage() {
         </article>
         <article className="card kpi navDiscountCard">
           <span className="label">NAV-rabatt</span>
-          <strong>{discount?.discount_pct == null ? "—" : `${formatNumber(discount.discount_pct, 1)} %`}</strong>
+          <strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong>
           <div className="brlRows navDiscountRows">
-            <div><span>NAV / aksje</span><b>{discount?.nav_per_share == null ? "—" : `${formatNumber(discount.nav_per_share, 2)} kr`}</b></div>
-            <div><span>Aksjekurs</span><b>{discount?.share_price == null ? "—" : `${formatNumber(discount.share_price, 2)} kr`}</b></div>
-            <div><span>Oppside til NAV</span><b className={tone(discount?.upside_to_nav_pct)}>{signed(discount?.upside_to_nav_pct, 1, " %")}</b></div>
+            <div><span>NAV / aksje</span><b>{nav?.nav_per_share == null ? "—" : `${formatNumber(nav.nav_per_share, 2)} kr`}</b></div>
+            <div><span>Aksjekurs</span><b>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</b></div>
+            <div><span>Oppside til NAV</span><b className={tone(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null)}>{signed(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null, 1, " %")}</b></div>
             <div><span>1 mnd</span><b className={tone(discount?.month_change_pp == null ? null : -discount.month_change_pp)}>{signed(discount?.month_change_pp, 1, " pp")}</b></div>
-            <div><span>1 år median</span><b>{discount?.median_1y_pct == null ? "—" : `${formatNumber(discount.median_1y_pct, 1)} %`}</b></div>
+            <div><span>1 år median</span><b>{historyStatistics?.median_discount_pct == null ? "—" : `${formatNumber(historyStatistics.median_discount_pct, 1)} %`}</b></div>
           </div>
           <div className="brlRange navDiscountRange">
             <span>1 år</span>
-            <span>{hasDiscountRange ? `${formatNumber(discountRange?.low, 1)} %` : "—"}</span>
+            <span>{hasDiscountRange ? `${formatNumber(discountLow, 1)} %` : "—"}</span>
             <div className="brlRangeTrack" aria-label="Dagens rabatt i ettårsintervallet">
-              {discountRange?.position_pct != null && Number.isFinite(discountRange.position_pct) && (
-                <i style={{ left: `${Math.max(0, Math.min(100, discountRange.position_pct))}%` }} />
+              {discountPosition != null && Number.isFinite(discountPosition) && (
+                <i style={{ left: `${Math.max(0, Math.min(100, discountPosition))}%` }} />
               )}
             </div>
-            <span>{hasDiscountRange ? `${formatNumber(discountRange?.high, 1)} %` : "—"}</span>
+            <span>{hasDiscountRange ? `${formatNumber(discountHigh, 1)} %` : "—"}</span>
           </div>
         </article>
         <article className="card kpi"><span className="label">Bemobi-verdi</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></article>
