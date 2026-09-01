@@ -124,6 +124,26 @@ def test_nav_cash_settlement_is_zero_below_strike() -> None:
     assert result["nav_after_option_per_share_nok"] == Decimal("10")
 
 
+def test_nav_cash_settlement_is_zero_exactly_at_strike_and_matches_worker() -> None:
+    """Opsjoner skal ikke gi utbetaling når NAV bare er lik innløsningskursen."""
+    inputs = {
+        "pre_option_total_nok": Decimal("125600000"),
+        "shares_outstanding": 10_000_000,
+        "option_count": 4_100_000,
+        "strike_nok": Decimal("12.56"),
+    }
+
+    reference = reference_settlement(**inputs)
+    worker = worker_settlement(**inputs)
+
+    assert worker == reference
+    assert reference["nav_before_option_per_share_nok"] == Decimal("12.56")
+    assert reference["nav_after_option_per_share_nok"] == Decimal("12.56")
+    assert reference["settlement_nok"] == Decimal("0")
+    assert reference["settlement_per_option_nok"] == Decimal("0")
+    assert reference["in_the_money"] is False
+
+
 def _base_waterfall() -> dict:
     return {
         "ready": True,
