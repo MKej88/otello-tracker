@@ -13,6 +13,7 @@ from src.newsweb_daily_buybacks import (
     _fetch_discovered_messages,
     _ingest_message,
     _store_daily_rows,
+    sync_daily_buyback_cash,
 )
 from src.newsweb_client import NewsWebMessage
 
@@ -130,3 +131,57 @@ def test_daily_rows_are_loaded_and_written_in_one_batch() -> None:
     assert repository.read_queries == 1
     assert repository.batch_calls == 1
     assert repository.batched_writes == 5
+
+
+def test_cash_sync_replaces_weekly_row_atomically() -> None:
+    class RecordingRepository:
+        def __init__(self) -> None:
+            self.batch: list[tuple[str, tuple[object, ...]]] | None = None
+
+        async def first(
+            self, sql: str, parameters: tuple[object, ...]
+        ) -> dict[str, object]:
+            assert parameters == (42,)
+            return {
+                "buyback_id": 42,
+                "period_end": "2026-08-28",
+                "weekly_shares": 100,
+            }
+
+        async def all(
+            self, sql: str, parameters: tuple[object, ...]
+        ) -> list[dict[str, object]]:
+            if "buyback_daily_transactions" in sql:
+                return [
+                    {
+                        "trade_date": "2026-08-27",
+                        "shares": 100,
+                        "amount_nok": "1000",
+                        "source_document_id": 7,
+                        "quality": "CONFIRMED",
+                    }
+                ]
+            if "movement_type='OTELLO_BUYBACK'" in sql:
+                return [{"id": 11}]
+            return []
+
+        async def run(self, sql: str, parameters: tuple[object, ...]) -> None:
+            raise AssertionError(
+                "Kontantbyttet skal ikke utføres som enkeltstående skriv"
+            )
+
+        async def run_batch(
+            self, statements: list[tuple[str, tuple[object, ...]]]
+        ) -> None:
+            self.batch = statements
+
+    repository = RecordingRepository()
+
+    result = asyncio.run(sync_daily_buyback_cash(repository, weekly_buyback_id=42))
+
+    assert result["weekly_cash_rows_deleted"] == 1
+    assert result["daily_cash_rows_written"] == 1
+    assert repository.batch is not None
+    assert len(repository.batch) == 2
+    assert "DELETE FROM cash_movements" in repository.batch[0][0]
+    assert "INSERT INTO cash_movements" in repository.batch[1][0]
