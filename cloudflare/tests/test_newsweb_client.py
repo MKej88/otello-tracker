@@ -15,6 +15,8 @@ sys.path.insert(0, str(SOURCE_DIR))
 from newsweb_client import (  # noqa: E402
     _post_json,
     discover_otec_messages,
+    fetch_attachment,
+    fetch_message,
     parse_list_payload,
 )
 
@@ -169,6 +171,21 @@ class NewsWebPartialResponseTest(unittest.TestCase):
 
 
 class NewsWebDiscoveryControlFlowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rejects_reversed_date_range_before_request(self) -> None:
+        request_made = False
+
+        async def fetcher(url: str, **kwargs: object) -> SimpleNamespace:
+            nonlocal request_made
+            request_made = True
+            return _list_response([], overflow=False)
+
+        with self.assertRaisesRegex(ValueError, "from_date kan ikke være etter"):
+            await discover_otec_messages(
+                "2026-09-01", "2026-08-31", fetcher=fetcher
+            )
+
+        self.assertFalse(request_made)
+
     async def test_splits_overflow_window_without_date_gaps_or_overlap(self) -> None:
         requested_windows: list[tuple[str, str]] = []
         responses: Mapping[tuple[str, str], SimpleNamespace] = {
@@ -231,6 +248,38 @@ class NewsWebDiscoveryControlFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([message.message_id for message in messages], [31])
         self.assertEqual(messages[0].correction_for_message_id, 30)
+
+
+class NewsWebResourceIdentityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rejects_message_with_different_id_than_requested(self) -> None:
+        payload = {
+            "header": {"result.val": 0, "http.code": 200},
+            "data": {
+                "message": _message(
+                    401,
+                    "2026-08-31T10:00:00Z",
+                    body="En gyldig meldingstekst",
+                )
+            },
+        }
+
+        async def fetcher(*args: object, **kwargs: object) -> SimpleNamespace:
+            return _response(payload)
+
+        with self.assertRaisesRegex(
+            ValueError, "returnerte messageId 401, forventet 400"
+        ):
+            await fetch_message(400, fetcher=fetcher)
+
+    async def test_rejects_html_error_page_returned_as_attachment(self) -> None:
+        async def text() -> str:
+            return "<html><body>midlertidig utilgjengelig</body></html>"
+
+        async def fetcher(*args: object, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, text=text, headers={})
+
+        with self.assertRaisesRegex(ValueError, "er ikke en PDF"):
+            await fetch_attachment(400, 12, fetcher=fetcher)
 
 
 if __name__ == "__main__":

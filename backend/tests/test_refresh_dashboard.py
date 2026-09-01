@@ -160,10 +160,56 @@ def test_refresh_runs_verified_2021_events_and_incremental_buybacks(tmp_path, mo
     )
 
     assert called == ["2021"]
-    assert buyback_kwargs == {"to_date": "2026-08-14"}
+    assert buyback_kwargs["to_date"] == "2026-08-14"
+    assert isinstance(buyback_kwargs["message_cache"], dict)
     assert result["steps"]["newsweb_2021_events"] == {"buybacks": [1], "missing_fx": []}
     assert result["steps"]["bemobi_cvm_news"] == {"skipped": True}
     assert result["source_errors"] == []
+
+
+def test_refresh_reuses_newsweb_messages_between_collectors(tmp_path, monkeypatch):
+    db = str(tmp_path / "refresh-newsweb-cache.db")
+    message = object()
+    network_requests = 0
+
+    def collect_history(*_args, **kwargs):
+        nonlocal network_requests
+        network_requests += 1
+        kwargs["message_cache"][123] = message
+        return {"archived": 1, "errors": []}
+
+    def collect_buybacks(*_args, **kwargs):
+        nonlocal network_requests
+        cached = kwargs["message_cache"].get(123)
+        if cached is None:
+            network_requests += 1
+        assert cached is message
+        return {"errors": [], "ingested": 1}
+
+    monkeypatch.setattr(refresh_module, "collect_newsweb_history", collect_history)
+    monkeypatch.setattr(refresh_module, "collect_newsweb_buybacks", collect_buybacks)
+    monkeypatch.setattr(
+        refresh_module, "seed_2021_newsweb_events", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        refresh_module, "collect_recent_buybacks", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        refresh_module,
+        "sync_newsweb_daily_buyback_cash",
+        lambda *_args, **_kwargs: {},
+    )
+
+    run_refresh(
+        db,
+        target_date="2026-08-14",
+        fetch_norges_bank=False,
+        fetch_b3=False,
+        fetch_buybacks=True,
+        fetch_bemobi_news=False,
+    )
+
+    assert network_requests == 1
 
 
 def test_refresh_runs_incremental_bemobi_cvm_news_as_non_financial_step(tmp_path, monkeypatch):
