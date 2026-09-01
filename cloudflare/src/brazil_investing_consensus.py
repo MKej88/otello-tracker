@@ -92,7 +92,9 @@ def _parse_rows(page: str) -> list[dict[str, Any]]:
     for row_match in re.finditer(r"<tr\b[^>]*>([\s\S]*?)</tr>", page, flags=re.I):
         cells = [
             _strip_html(cell.group(1))
-            for cell in re.finditer(r"<td\b[^>]*>([\s\S]*?)</td>", row_match.group(1), flags=re.I)
+            for cell in re.finditer(
+                r"<td\b[^>]*>([\s\S]*?)</td>", row_match.group(1), flags=re.I
+            )
         ]
         if len(cells) < 5:
             continue
@@ -195,10 +197,17 @@ async def enrich_calendar_from_investing(
         if key is not None:
             targets[key] = _EVENT_URLS[key]
 
-    async def load(key: str, url: str) -> tuple[str, str, list[dict[str, Any]] | None, str | None]:
+    async def load(
+        key: str, url: str
+    ) -> tuple[str, str, list[dict[str, Any]] | None, str | None]:
         try:
             page = await _fetch_html(url, fetcher=fetcher)
-            return key, url, _parse_rows(page), None
+            rows = _parse_rows(page)
+            if not rows:
+                raise ValueError(
+                    "Investing.com-siden inneholdt ingen gyldige kalender-rader"
+                )
+            return key, url, rows, None
         except Exception as exc:  # noqa: BLE001 - every source page is independent
             return key, url, None, f"{type(exc).__name__}: {exc}"
 
@@ -223,7 +232,9 @@ async def enrich_calendar_from_investing(
             enriched.append(event)
             continue
         url, rows = page
-        row = next((item for item in rows if item.get("date") == event.get("date")), None)
+        row = next(
+            (item for item in rows if item.get("date") == event.get("date")), None
+        )
         if row is None:
             enriched.append(event)
             continue
