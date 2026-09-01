@@ -29,13 +29,18 @@ type FocusPoint = {
 };
 type FocusValues = Record<string, Record<string, FocusPoint>>;
 type CalendarExpectation = {
-  label: string;
-  value: number;
-  unit: string;
+  label?: string;
+  value?: number | null;
+  unit?: string;
   survey_date?: string;
   respondents?: number;
-  event_consensus: boolean;
+  event_consensus?: boolean;
   provider?: string;
+  previous?: string | null;
+  release_at_utc?: string | null;
+  release_time_provider?: string | null;
+  release_time_source_url?: string | null;
+  fallback_cached?: boolean;
 };
 type MarketConsensus = {
   available: boolean;
@@ -112,6 +117,12 @@ function expectationLabel(value: string) {
     .replaceAll("proxy", "anslag");
 }
 
+function expectationProviderLabel(expectation: CalendarExpectation) {
+  if (expectation.provider === "Investing.com") return "Investing.com";
+  if (expectation.provider === "BCB Focus") return "markedsundersøkelsen til Brasils sentralbank";
+  return expectation.provider || "markedskilde";
+}
+
 function financialText(value?: string | null) {
   if (!value) return "";
   return value
@@ -147,6 +158,18 @@ function dateLabel(value?: string | null) {
   if (!value) return "–";
   const [year, month, day] = value.slice(0, 10).split("-");
   return year && month && day ? `${day}.${month}.${year}` : value;
+}
+
+function norwayReleaseTime(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("nb-NO", {
+    timeZone: "Europe/Oslo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
 }
 
 function Sparkline({ points }: { points?: SeriesPoint[] }) {
@@ -247,12 +270,15 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
 function CalendarRow({ event }: { event: CalendarEvent }) {
   const consensus = event.market_consensus;
   const expectation = event.expectation;
-  const hasIngestedEventConsensus = expectation?.event_consensus === true || consensus?.ingested === true;
+  const hasIngestedEventConsensus = expectation?.event_consensus === true;
   const externalNotIngested = consensus?.coverage === "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED";
+  const annualProxy = consensus?.coverage === "BCB_FOCUS_ANNUAL_PROXY";
+  const releaseTime = norwayReleaseTime(expectation?.release_at_utc);
   return (
     <article className="brazilCalendarRow">
       <div className="brazilCalendarDate">
         <strong>{dateLabel(event.date).slice(0, 5)}</strong>
+        {releaseTime ? <small><b>Norsk tid kl. {releaseTime}</b></small> : null}
         <small>{event.source}</small>
       </div>
       <div className="brazilCalendarMain">
@@ -267,14 +293,20 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
         <span className="label">MARKEDETS FORVENTNING</span>
         {expectation && hasIngestedEventConsensus ? (
           <>
-            <strong>{number(expectation.value, 2)} {expectation.unit}</strong>
-            <small>{expectationLabel(expectation.label)} · markedsundersøkelsen til Brasils sentralbank</small>
+            <strong>{number(expectation.value, 2)}{expectation.unit ? ` ${expectation.unit}` : ""}</strong>
+            <small>{expectationLabel(expectation.label || "Hendelseskonsensus")} · {expectationProviderLabel(expectation)}</small>
+            {expectation.previous ? <small>Forrige: {expectation.previous}</small> : null}
             {expectation.respondents ? <small>{expectation.respondents} respondenter</small> : null}
+          </>
+        ) : annualProxy ? (
+          <>
+            <strong>–</strong>
+            <small>Årsestimatet finnes i tabellen over, men brukes ikke som konsensus for denne publiseringen</small>
           </>
         ) : externalNotIngested ? (
           <>
             <strong>–</strong>
-            <small>Markedsforventninger finnes, men kan ikke hentes gratis automatisk</small>
+            <small>Hendelseskonsensus er ikke publisert eller tilgjengelig fra Investing.com ennå</small>
           </>
         ) : (
           <>
@@ -353,12 +385,12 @@ export default function BrazilPage() {
 
       <section className="card brazilMethodCard">
         <span className="label">KILDER OG METODE</span>
-        <h2>Gratis, offisielle kilder</h2>
-        <p>Økonomiske nøkkeltall og forventninger hentes fra Brasils sentralbank, valutakursen fra Norges Bank og publiseringsdatoer fra brasilianske myndigheter.</p>
+        <h2>Datakilder</h2>
+        <p>Økonomiske nøkkeltall og publiseringsdatoer hentes fra Brasils sentralbank og IBGE, valutakursen fra Norges Bank, mens hendelseskonsensus og publiseringstid hentes fra Investing.com når tilgjengelig.</p>
         <div className="brazilSources">
           {(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}
         </div>
-        <p className="brazilDisclaimer">Markedsundersøkelsen viser forventningene til banker, forvaltere og andre i markedet – ikke sentralbankens egen prognose. Kalenderen viser forventninger nær publiseringsdatoen når de finnes. For tjenestenæringene, detaljhandelen og samlet økonomisk aktivitet finnes det også betalte spørreundersøkelser, men disse kan ikke hentes automatisk fra en gratis datakilde.</p>
+        <p className="brazilDisclaimer">Investing.com sitt Forecast-felt brukes som hendelseskonsensus når det finnes. Tidspunkt fra kilden behandles som UTC og konverteres automatisk til Europe/Oslo, slik at både norsk sommer- og vintertid håndteres riktig. BCB Focus brukes som sekundær hendelsesforventning der en passende serie finnes. Et årlig Focus-estimat vises aldri som konsensus for en konkret makropublisering.</p>
       </section>
     </div>
   );
