@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
+import brazil_calendar_expectations as calendar_expectations  # noqa: E402
 from brazil_calendar_expectations import (  # noqa: E402
     _monthly_expectation,
     _quarter_reference,
@@ -57,7 +59,7 @@ def test_copom_uses_focus_expectation_for_exact_meeting() -> None:
             "Data": "2026-08-28",
             "Reuniao": "R6/2026",
             "Mediana": 14.5,
-            "numeroRespondentes": 88,
+            "numeroRespondenter": 88,
         },
         {
             "Indicador": "Selic",
@@ -87,7 +89,7 @@ def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
     rows = [
         {
             "Indicador": "PIB Total",
-            "Data": "2026-08-28",
+            "Data": "2026-06-30",
             "DataReferencia": "2/2026",
             "Mediana": 0.6,
             "numeroRespondentes": 72,
@@ -99,6 +101,46 @@ def test_quarterly_gdp_reference_is_parsed_and_matched() -> None:
     assert result is not None
     assert result["value"] == 0.6
     assert result["label"] == "Focus BNP Q2 2026"
+
+
+def test_gdp_enrichment_fetches_target_quarter_with_long_lookback(monkeypatch) -> None:
+    calls: dict[str, dict] = {}
+
+    async def fake_fetch_endpoint(endpoint: str, **kwargs):
+        calls[endpoint] = kwargs
+        if endpoint == "ExpectativasMercadoTrimestrais":
+            return [
+                {
+                    "Indicador": "PIB Total",
+                    "Data": "2026-06-30",
+                    "DataReferencia": "2/2026",
+                    "Mediana": 0.2,
+                    "numeroRespondentes": 61,
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(calendar_expectations, "_fetch_endpoint", fake_fetch_endpoint)
+    events = [
+        {
+            "date": "2026-09-01",
+            "name": "Økonomisk vekst (BNP) Q2",
+            "kind": "gdp",
+            "reference": "2026 Q2",
+        }
+    ]
+
+    enriched, status = asyncio.run(
+        calendar_expectations.enrich_calendar_expectations(events, as_of_date="2026-09-01")
+    )
+
+    quarterly_call = calls["ExpectativasMercadoTrimestrais"]
+    assert quarterly_call["start_date"] == "2026-03-05"
+    assert quarterly_call["end_date"] == "2026-09-01"
+    assert quarterly_call["references"] == ["2/2026"]
+    assert enriched[0]["expectation"]["value"] == 0.2
+    assert enriched[0]["expectation"]["event_consensus"] is True
+    assert status["quarterly"]["lookback_days"] == 180
 
 
 def test_focus_expectation_is_marked_as_market_consensus() -> None:
