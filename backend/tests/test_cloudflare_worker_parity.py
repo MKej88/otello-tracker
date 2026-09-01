@@ -22,10 +22,15 @@ from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE = ROOT / "cloudflare"
+CLOUDFLARE_SRC = CLOUDFLARE / "src"
+if str(CLOUDFLARE_SRC) not in sys.path:
+    sys.path.insert(0, str(CLOUDFLARE_SRC))
 if str(CLOUDFLARE) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE))
 
-from src.buyback_service import buyback_forecast as worker_buyback_forecast  # noqa: E402
+from src.buyback_service import (
+    buyback_forecast as worker_buyback_forecast,
+)  # noqa: E402
 from src.dashboard_service import (  # noqa: E402
     dashboard_history as worker_dashboard_history,
     dashboard_summary as worker_dashboard_summary,
@@ -81,7 +86,9 @@ def _components(*, day: str, otec: str, bmob3: str, brl: str, cash: str, status:
         },
         "cash": {
             "cash_nok": cash,
-            "quality": "FORECAST_PARTIAL" if status == "DEGRADED" else "ANCHORED_ESTIMATE",
+            "quality": (
+                "FORECAST_PARTIAL" if status == "DEGRADED" else "ANCHORED_ESTIMATE"
+            ),
             "calibration_quality": "ANCHORED",
         },
     }
@@ -247,11 +254,73 @@ def test_worker_dashboard_summary_matches_reference_exactly(tmp_path: Path) -> N
     assert asyncio.run(run()) == expected
 
 
+def test_worker_brl_insights_match_reference_with_market_history(
+    tmp_path: Path,
+) -> None:
+    database = _dashboard_database(tmp_path)
+    with get_connection(database) as connection:
+        source_id = connection.execute(
+            "SELECT id FROM sources WHERE code='NORGES_BANK'"
+        ).fetchone()["id"]
+        b3_id = connection.execute("SELECT id FROM sources WHERE code='B3'").fetchone()[
+            "id"
+        ]
+        instrument_id = connection.execute(
+            "SELECT id FROM instruments WHERE symbol='BMOB3'"
+        ).fetchone()["id"]
+        for day, rate in (
+            ("2026-07-15", "1.80"),
+            ("2026-08-13", "1.90"),
+            ("2026-08-14", "1.91"),
+        ):
+            connection.execute(
+                """
+                INSERT INTO fx_rates(
+                    base_currency, quote_currency, observed_at, rate, source_id
+                ) VALUES ('BRL', 'NOK', ?, ?, ?)
+                """,
+                (f"{day}T16:00:00Z", rate, source_id),
+            )
+        for day, price in (("2026-07-15", "20"), ("2026-08-14", "22")):
+            connection.execute(
+                """
+                INSERT INTO market_prices(
+                    instrument_id, observed_at, trading_date, price_type,
+                    price, currency, source_id, quality
+                ) VALUES (?, ?, ?, 'CLOSE', ?, 'BRL', ?, 'DIRECT')
+                """,
+                (instrument_id, f"{day}T16:00:00Z", day, price, b3_id),
+            )
+        connection.execute("""
+            INSERT INTO nav_snapshots(
+                as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
+                cash_estimate_nok, other_net_assets_nok, shares_outstanding,
+                calculation_version, inputs_hash, status, nav_scope
+            ) VALUES (
+                '2026-07-15T23:59:59Z', '1', '1', '1', '1', '0', 70000000,
+                'test', 'brl-parity', 'OK', 'CORE'
+            )
+            """)
+        connection.commit()
+
+    expected = reference_dashboard_summary(database)["brl_nok_insights"]
+    actual = asyncio.run(worker_dashboard_summary(SQLiteAsyncRepository(database)))[
+        "brl_nok_insights"
+    ]
+
+    assert actual == expected
+    assert actual["daily_pct"] is not None
+    assert actual["month_pct"] is not None
+    assert actual["nav_effect_1m_per_share_nok"] is not None
+
+
 def test_worker_dashboard_history_matches_reference_exactly(tmp_path: Path) -> None:
     database = _dashboard_database(tmp_path)
     expected = reference_dashboard_history(database, days=365, max_points=300)
     actual = asyncio.run(
-        worker_dashboard_history(SQLiteAsyncRepository(database), days=365, max_points=300)
+        worker_dashboard_history(
+            SQLiteAsyncRepository(database), days=365, max_points=300
+        )
     )
     assert actual == expected
 
@@ -264,7 +333,9 @@ def test_worker_buyback_forecast_matches_reference_exactly(tmp_path: Path) -> No
 
     expected = reference_buyback_forecast(database, as_of_date="2026-08-17")
     actual = asyncio.run(
-        worker_buyback_forecast(SQLiteAsyncRepository(database), as_of_date="2026-08-17")
+        worker_buyback_forecast(
+            SQLiteAsyncRepository(database), as_of_date="2026-08-17"
+        )
     )
 
     assert actual == expected

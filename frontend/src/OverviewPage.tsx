@@ -9,6 +9,18 @@ type Summary = {
   as_of_date?: string;
   otec_price?: number | null;
   brl_nok?: number | null;
+  brl_nok_insights?: {
+    daily_pct?: number | null;
+    month_pct?: number | null;
+    quarter_pct?: number | null;
+    quarter_label?: string | null;
+    nav_effect_1m_per_share_nok?: number | null;
+    range_1y?: {
+      low?: number | null;
+      high?: number | null;
+      position_pct?: number | null;
+    };
+  };
   bemobi_value_mnok?: number | null;
   bemobi_ownership_pct?: number | null;
   market_timestamps?: {
@@ -16,6 +28,17 @@ type Summary = {
   };
   latest_buyback?: { trade_date?: string; shares?: number } | null;
 };
+
+function signed(value: number | null | undefined, digits: number, suffix: string): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatNumber(value, digits)}${suffix}`;
+}
+
+function tone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
+  return value > 0 ? "positive" : "negative";
+}
 
 type EstimatedNav = {
   ready: boolean;
@@ -50,6 +73,9 @@ export default function OverviewPage() {
     true,
   );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
+  const brl = summary?.brl_nok_insights;
+  const range = brl?.range_1y;
+  const hasRange = range?.low != null && range?.high != null;
   const brlNokStatus = summaryRefreshFailed
     ? summary
       ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
@@ -77,10 +103,29 @@ export default function OverviewPage() {
       </section>
 
       <section className="kpiGrid overviewKpiGrid">
-        <article className="card kpi">
+        <article className="card kpi brlInsightCard">
           <span className="label">BRL/NOK</span>
-          <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
+          <div className="brlCurrent">
+            <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
+            <strong className={tone(brl?.daily_pct)}>{signed(brl?.daily_pct, 2, " %")}</strong>
+          </div>
           <small>{brlNokStatus}</small>
+          <div className="brlRows">
+            <div><span>1 mnd</span><b className={tone(brl?.month_pct)}>{signed(brl?.month_pct, 1, " %")}</b></div>
+            <div><span>{brl?.quarter_label ? `Siden ${brl.quarter_label}` : "Siden kvartal"}</span><b className={tone(brl?.quarter_pct)}>{signed(brl?.quarter_pct, 1, " %")}</b></div>
+            <div><span>NAV-effekt 1 mnd</span><b className={tone(brl?.nav_effect_1m_per_share_nok)}>{signed(brl?.nav_effect_1m_per_share_nok, 2, " kr/aksje")}</b></div>
+          </div>
+          <div className="brlRange">
+            <span>1 år</span>
+            <span>{hasRange ? formatNumber(range?.low, 2) : "—"}</span>
+            <div className="brlRangeTrack" aria-label="Posisjon i ettårsintervallet">
+              {range?.position_pct != null && Number.isFinite(range.position_pct) && (
+                <i style={{ left: `${Math.max(0, Math.min(100, range.position_pct))}%` }} />
+              )}
+            </div>
+            <span>{hasRange ? formatNumber(range?.high, 2) : "—"}</span>
+          </div>
+          <small className="brlExplanation">Sterkere BRL = positivt for Otello NAV</small>
         </article>
         <article className="card kpi"><span className="label">NAV-rabatt</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></article>
         <article className="card kpi"><span className="label">Bemobi-verdi</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></article>

@@ -5,6 +5,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from market_attribution import symmetric_two_factor_attribution
+
 CORE_CALCULATION_VERSION = "core-market-nav-daily-v1"
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 RECENT_OWNERSHIP_MAX_AGE_DAYS = 180
@@ -24,6 +26,196 @@ def _pct_change(current: Any, previous: Any) -> float | None:
     if old == 0:
         return None
     return float((Decimal(str(current)) / old - Decimal("1")) * Decimal("100"))
+
+
+def _on_or_before(
+    observations: list[dict[str, Any]], target_date: str
+) -> dict[str, Any] | None:
+    return next(
+        (item for item in reversed(observations) if item["date"] <= target_date),
+        None,
+    )
+
+
+def _quarter_label(day: str) -> str:
+    parsed = date.fromisoformat(day)
+    return f"Q{(parsed.month - 1) // 3 + 1} {str(parsed.year)[2:]}"
+
+
+async def _brl_observations(repository, *, end_date: str) -> list[dict[str, Any]]:
+    start_date = (date.fromisoformat(end_date) - timedelta(days=365)).isoformat()
+    rows = await repository.all(
+        """
+        SELECT substr(fr.observed_at, 1, 10) AS rate_date, fr.rate
+        FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+          AND substr(fr.observed_at, 1, 10) BETWEEN ? AND ?
+          AND CAST(fr.rate AS REAL) > 0
+        ORDER BY rate_date,
+          CASE s.code WHEN 'NORGES_BANK' THEN 0 WHEN 'ECB' THEN 1 ELSE 5 END,
+          fr.observed_at DESC, fr.id DESC
+        """,
+        (start_date, end_date),
+    )
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        day = str(row["rate_date"])
+        if day not in by_date:
+            by_date[day] = {"date": day, "rate": Decimal(str(row["rate"]))}
+    return list(by_date.values())
+
+
+async def _preferred_bemobi_price(repository, day: str) -> dict[str, Any] | None:
+    floor = (date.fromisoformat(day) - timedelta(days=7)).isoformat()
+    return await repository.first(
+        """
+        SELECT mp.trading_date, mp.price
+        FROM market_prices mp
+        JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='BMOB3' AND mp.price_type IN ('CLOSE', 'LAST')
+          AND mp.trading_date BETWEEN ? AND ?
+        ORDER BY mp.trading_date DESC,
+          CASE s.code WHEN 'B3' THEN 0 WHEN 'INVESTING' THEN 2 ELSE 5 END,
+          CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
+          CASE mp.quality WHEN 'DIRECT' THEN 0 ELSE 1 END,
+          mp.observed_at DESC, mp.id DESC LIMIT 1
+        """,
+        (floor, day),
+    )
+
+
+async def _brl_nav_effect_30d(
+    repository,
+    *,
+    reference_date: str,
+    as_of_date: str,
+    reference_fx: Decimal,
+    current_fx: Decimal,
+) -> float | None:
+    reference_price = await _preferred_bemobi_price(repository, reference_date)
+    current_price = await _preferred_bemobi_price(repository, as_of_date)
+    reference_holding = await repository.first(
+        """
+        SELECT shares FROM bemobi_holdings
+        WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+        ORDER BY effective_from DESC, id DESC LIMIT 1
+        """,
+        (reference_date, reference_date),
+    )
+    current_holding = await repository.first(
+        """
+        SELECT shares FROM bemobi_holdings
+        WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
+        ORDER BY effective_from DESC, id DESC LIMIT 1
+        """,
+        (as_of_date, as_of_date),
+    )
+    shares_row = await repository.first(
+        """
+        SELECT shares_outstanding FROM nav_snapshots
+        WHERE substr(as_of_at, 1, 10) <= ? AND shares_outstanding > 0
+        ORDER BY as_of_at DESC, id DESC LIMIT 1
+        """,
+        (reference_date,),
+    )
+    if any(
+        value is None
+        for value in (
+            reference_price,
+            current_price,
+            reference_holding,
+            current_holding,
+            shares_row,
+        )
+    ):
+        return None
+    if int(reference_holding["shares"]) != int(current_holding["shares"]):
+        return None
+    attribution = symmetric_two_factor_attribution(
+        shares=int(reference_holding["shares"]),
+        anchor_price=Decimal(str(reference_price["price"])),
+        current_price=Decimal(str(current_price["price"])),
+        anchor_fx=reference_fx,
+        current_fx=current_fx,
+    )
+    return float(
+        attribution["fx_effect_nok"] / Decimal(shares_row["shares_outstanding"])
+    )
+
+
+async def brl_nok_insights(repository, *, as_of_date: str) -> dict[str, Any]:
+    observations = await _brl_observations(repository, end_date=as_of_date)
+    current = _on_or_before(observations, as_of_date)
+    if current is None:
+        return {
+            "daily_pct": None,
+            "month_pct": None,
+            "quarter_pct": None,
+            "quarter_label": None,
+            "nav_effect_1m_per_share_nok": None,
+            "range_1y": {"low": None, "high": None, "position_pct": None},
+        }
+
+    current_index = observations.index(current)
+    previous = observations[current_index - 1] if current_index > 0 else None
+    month_target = (
+        date.fromisoformat(current["date"]) - timedelta(days=30)
+    ).isoformat()
+    month_reference = _on_or_before(observations, month_target)
+    anchor = await repository.first(
+        """
+        SELECT as_of_date FROM cash_anchors
+        WHERE anchor_type='REPORTED' AND as_of_date <= ?
+        ORDER BY as_of_date DESC, id DESC LIMIT 1
+        """,
+        (current["date"],),
+    )
+    anchor_date = str(anchor["as_of_date"]) if anchor is not None else None
+    quarter_reference = (
+        _on_or_before(observations, anchor_date) if anchor_date else None
+    )
+    rates = [item["rate"] for item in observations]
+    low = min(rates)
+    high = max(rates)
+    position = (
+        None
+        if high == low
+        else float((current["rate"] - low) / (high - low) * Decimal("100"))
+    )
+    nav_effect = (
+        await _brl_nav_effect_30d(
+            repository,
+            reference_date=month_reference["date"],
+            as_of_date=current["date"],
+            reference_fx=month_reference["rate"],
+            current_fx=current["rate"],
+        )
+        if month_reference is not None
+        else None
+    )
+    return {
+        "daily_pct": _pct_change(
+            current["rate"], previous["rate"] if previous else None
+        ),
+        "month_pct": _pct_change(
+            current["rate"], month_reference["rate"] if month_reference else None
+        ),
+        "month_reference_date": month_reference["date"] if month_reference else None,
+        "quarter_pct": _pct_change(
+            current["rate"], quarter_reference["rate"] if quarter_reference else None
+        ),
+        "quarter_label": _quarter_label(anchor_date) if anchor_date else None,
+        "quarter_reference_date": (
+            quarter_reference["date"] if quarter_reference else None
+        ),
+        "nav_effect_1m_per_share_nok": nav_effect,
+        "range_1y": {
+            "low": float(low),
+            "high": float(high),
+            "position_pct": position,
+        },
+    }
 
 
 def _components(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -211,6 +403,9 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "nav_discount_pct": _float(latest["discount_pct"]),
         "bmob3_price": _float(bmob3.get("price_brl")),
         "brl_nok": _float(bmob3.get("brl_nok")),
+        "brl_nok_insights": await brl_nok_insights(
+            repository, as_of_date=as_of_date
+        ),
         "estimated_cash_mnok": (
             _float(latest["cash_estimate_nok"]) / 1_000_000
             if latest["cash_estimate_nok"] is not None
