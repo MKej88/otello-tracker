@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -66,14 +66,68 @@ def _preferred_daily_rows(
     return [by_date[key] for key in sorted(by_date)]
 
 
+def _utc_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace(" ", "T")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _nasdaq_close_timestamp(trading_date: str) -> str:
+    local_close = datetime.combine(
+        date.fromisoformat(trading_date),
+        time(hour=16),
+        tzinfo=ZoneInfo("America/New_York"),
+    )
+    return local_close.astimezone(UTC).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _lif_display_state(latest: dict[str, Any]) -> tuple[str, str | None]:
+    """Interpret Yahoo's current 1d bar as intraday while NASDAQ is open.
+
+    Yahoo timestamps a daily bar at the session open. The source-document retrieval
+    time tells us when our 30-minute refresh actually observed that bar. Completed
+    sessions are displayed at the regular NASDAQ close (16:00 New York).
+    """
+    trading_date = str(latest.get("trading_date") or "")
+    retrieved = _utc_datetime(latest.get("source_retrieved_at"))
+    if not trading_date or retrieved is None:
+        return str(latest.get("price_type") or "CLOSE"), latest.get("observed_at")
+
+    new_york = retrieved.astimezone(ZoneInfo("America/New_York"))
+    local_clock = new_york.timetz().replace(tzinfo=None)
+    if (
+        new_york.date().isoformat() == trading_date
+        and time(hour=9, minute=30) <= local_clock < time(hour=16)
+    ):
+        return (
+            "LAST",
+            retrieved.isoformat(timespec="seconds").replace("+00:00", "Z"),
+        )
+    return "CLOSE", _nasdaq_close_timestamp(trading_date)
+
+
 async def _latest_price(repository, symbol: str) -> dict[str, Any] | None:
     return await repository.first(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price_type, mp.price,
-               mp.currency, mp.quality, mp.metadata_json, s.code AS source_code
+               mp.currency, mp.quality, mp.metadata_json, s.code AS source_code,
+               sd.retrieved_at AS source_retrieved_at
         FROM market_prices mp
         JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
+        LEFT JOIN source_documents sd ON sd.id=mp.source_document_id
         WHERE i.symbol=? AND mp.price_type IN ('LAST','CLOSE')
         ORDER BY mp.trading_date DESC,
                  CASE WHEN mp.price_type='CLOSE' THEN 0 ELSE 1 END,
@@ -438,6 +492,11 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
         }
 
     trading_date = str(latest["trading_date"])
+    last_price_type = str(latest.get("price_type") or "")
+    last_updated_at = latest.get("observed_at")
+    if symbol == "LIF" and latest.get("source_retrieved_at"):
+        last_price_type, last_updated_at = _lif_display_state(latest)
+
     history = await _daily_history(repository, symbol, trading_date)
     latest_close = await _latest_close(
         repository,
@@ -450,8 +509,8 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
         "currency": _SYMBOLS[symbol]["currency"],
         "source": latest.get("source_code") or _SYMBOLS[symbol]["source"],
         "last": _number(latest.get("price")),
-        "last_price_type": latest.get("price_type"),
-        "last_updated_at": latest.get("observed_at"),
+        "last_price_type": last_price_type,
+        "last_updated_at": last_updated_at,
         "trading_date": trading_date,
         "session": await _day_stats(repository, symbol, trading_date),
         "last_close": {
@@ -492,9 +551,10 @@ async def market_quote_details(repository) -> dict[str, Any]:
                 "siste handel fra fullført Euronext-dagsserie."
             ),
             "life360": (
-                "Life360/LIF bruker lagrede NASDAQ-sluttkurser i USD fra Yahoo "
-                "Finance. Intradag åpning/lav/høy og volum vises bare når slike "
-                "data faktisk er lagret."
+                "Life360/LIF bruker Yahoo Finance. Under ordinær NASDAQ-handel "
+                "tolkes den nyeste dagsbaren som intradagssnapshot fra siste "
+                "30-minutters innhenting; etter stenging vises sluttkursen med "
+                "NASDAQs ordinære stengetid."
             ),
         },
     }
