@@ -83,7 +83,9 @@ def test_option_liability_is_zero_before_program_grant(tmp_path) -> None:
     assert result["quality"] == "NONE"
 
 
-def test_year_end_option_liability_reconciles_exactly_to_reported_usd_314k(tmp_path) -> None:
+def test_year_end_option_liability_reconciles_exactly_to_reported_usd_314k(
+    tmp_path,
+) -> None:
     database_path = str(tmp_path / "otello.db")
     init_database(database_path)
     _seed_market_inputs(database_path)
@@ -113,6 +115,51 @@ def test_post_report_liability_marks_to_market_when_otec_rises(tmp_path) -> None
     assert at_30["quality"] == "FORECAST_MARK_TO_MARKET"
     assert at_25["recognition_fraction"] == at_30["recognition_fraction"]
     assert at_30["liability_nok"] > at_25["liability_nok"]
+
+
+def test_option_liability_accepts_seven_day_old_inputs_but_rejects_older(
+    tmp_path,
+) -> None:
+    """En langhelg kan gi syv dager gamle data, men eldre data skal ikke prises."""
+    database_path = str(tmp_path / "otello.db")
+    init_database(database_path)
+    _seed_market_inputs(database_path)
+
+    with get_connection(database_path) as connection:
+        at_limit = option_liability_for_day(connection, "2026-01-12")
+        beyond_limit = option_liability_for_day(connection, "2026-01-13")
+
+    assert at_limit is not None
+    assert at_limit["inputs"]["usd_nok_rate_date"] == "2026-01-05"
+    assert beyond_limit is None
+
+
+def test_announced_distribution_does_not_reduce_strike_before_payment(
+    tmp_path,
+) -> None:
+    """En varslet utbetaling skal ikke redusere opsjonsprisen før pengene betales."""
+    database_path = str(tmp_path / "otello.db")
+    init_database(database_path)
+    source_document_id = _seed_market_inputs(database_path)
+
+    with get_connection(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO corporate_actions(
+                issuer_instrument_id, action_type, announcement_date, ex_date,
+                record_date, payment_date, amount_per_share, currency,
+                source_document_id, notes
+            ) VALUES (?, 'DISTRIBUTION', '2026-01-01', '2026-01-02',
+                      '2026-01-03', '2026-01-06', '1.00', 'NOK', ?, 'test')
+            """,
+            (instrument_id(connection, "OTEC"), source_document_id),
+        )
+        connection.commit()
+        result = option_liability_for_day(connection, "2026-01-05")
+
+    assert result is not None
+    assert result["strike_nok"] == Decimal("12.5637")
+    assert result["inputs"]["strike_adjustments"] == []
 
 
 def test_paid_otello_distribution_reduces_option_strike(tmp_path) -> None:
