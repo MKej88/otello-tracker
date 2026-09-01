@@ -1,0 +1,271 @@
+name: Economic calendar source Cloudflare edge probe
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/economic-calendar-source-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: economic-calendar-source-cloudflare-edge-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe calendar sources from Cloudflare remote Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Build isolated probe Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/calendar-source-probe
+          cd /tmp/calendar-source-probe
+
+          cat > worker.mjs <<'EOF'
+          const targets = [
+            {
+              id: "investing_calendar",
+              source: "Investing.com",
+              url: "https://www.investing.com/economic-calendar/",
+            },
+            {
+              id: "investing_brazil_gdp_qoq",
+              source: "Investing.com",
+              url: "https://www.investing.com/economic-calendar/brazil-gdp-858",
+            },
+            {
+              id: "fxstreet_calendar",
+              source: "FXStreet",
+              url: "https://www.fxstreet.com/economic-calendar",
+            },
+            {
+              id: "fxstreet_brazil_gdp_qoq",
+              source: "FXStreet",
+              url: "https://www.fxstreet.com/economic-calendar/event/e37eeaab-7336-4d7b-8bd1-324f80f51968",
+            },
+            {
+              id: "tradingeconomics_brazil_calendar",
+              source: "Trading Economics",
+              url: "https://tradingeconomics.com/brazil/calendar",
+            },
+            {
+              id: "econoday_week",
+              source: "Econoday",
+              url: "https://us.econoday.com/byweek?cust=us&lid=0",
+            },
+            {
+              id: "tradingview_calendar",
+              source: "TradingView",
+              url: "https://www.tradingview.com/economic-calendar/",
+            },
+          ];
+
+          function compact(text) {
+            return String(text || "").replace(/\s+/g, " ").trim();
+          }
+
+          function contextAround(text, needles, width = 260) {
+            const haystack = String(text || "");
+            const lower = haystack.toLowerCase();
+            for (const needle of needles) {
+              const index = lower.indexOf(needle.toLowerCase());
+              if (index >= 0) {
+                const start = Math.max(0, index - width);
+                const end = Math.min(haystack.length, index + needle.length + width);
+                return compact(haystack.slice(start, end)).slice(0, 800);
+              }
+            }
+            return null;
+          }
+
+          async function inspectTarget(target) {
+            try {
+              const response = await fetch(target.url, {
+                redirect: "follow",
+                headers: {
+                  "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+                  "Accept-Language": "en-US,en;q=0.8",
+                  "User-Agent": "Mozilla/5.0 (compatible; OtelloTrackerProbe/1.0; +https://otellotracker.com)",
+                },
+              });
+              const body = await response.text();
+              const lower = body.toLowerCase();
+              const bytes = new TextEncoder().encode(body).length;
+              const challenge = /cf-chl|captcha|just a moment|access denied|cloudflare ray id|verify you are human|challenge-platform|akamai/.test(lower);
+              const containsBrazil = lower.includes("brazil") || lower.includes("brasil") || lower.includes("brl");
+              const containsGdp = lower.includes("gross domestic product") || lower.includes("gdp") || lower.includes("produto interno bruto") || lower.includes("pib");
+              const containsConsensus = lower.includes("consensus") || lower.includes("consenso");
+              const containsForecast = lower.includes("forecast") || lower.includes("previs") || lower.includes("expected");
+              const containsPrevious = lower.includes("previous") || lower.includes("anterior");
+              const directAccess = response.ok && !challenge && bytes > 500;
+              const brazilEventData = directAccess && containsBrazil && containsGdp && (containsConsensus || containsForecast) && containsPrevious;
+              return {
+                id: target.id,
+                source: target.source,
+                ok: response.ok,
+                status: response.status,
+                content_type: response.headers.get("content-type"),
+                bytes,
+                final_url: response.url,
+                challenge,
+                direct_access: directAccess,
+                brazil_event_data: brazilEventData,
+                contains_brazil: containsBrazil,
+                contains_gdp: containsGdp,
+                contains_consensus: containsConsensus,
+                contains_forecast: containsForecast,
+                contains_previous: containsPrevious,
+                contains_1_1_pct: lower.includes("1.1%") || lower.includes("1.1 %"),
+                contains_0_2_pct: lower.includes("0.2%") || lower.includes("0.2 %"),
+                event_context: contextAround(body, ["Brazil Gross Domestic Product", "GDP Growth Rate QoQ", "Brazil GDP", "Produto Interno Bruto", "PIB"]),
+                consensus_context: contextAround(body, ["Consensus", "Consenso", "Forecast", "Previsão", "Expected"]),
+                body_prefix: compact(body.slice(0, 350)),
+              };
+            } catch (error) {
+              return {
+                id: target.id,
+                source: target.source,
+                ok: false,
+                direct_access: false,
+                brazil_event_data: false,
+                error: `${error?.name || "Error"}: ${error?.message || String(error)}`,
+              };
+            }
+          }
+
+          export default {
+            async fetch(request) {
+              const results = [];
+              for (const target of targets) {
+                results.push(await inspectTarget(target));
+              }
+              const candidates = results
+                .filter((item) => item.brazil_event_data)
+                .map((item) => item.source)
+                .filter((value, index, all) => all.indexOf(value) === index);
+              return Response.json({
+                runtime: "cloudflare-worker-remote-preview",
+                colo: request.cf?.colo || null,
+                candidates,
+                results,
+              }, {
+                headers: { "Cache-Control": "no-store" },
+              });
+            },
+          };
+          EOF
+
+          cat > wrangler.jsonc <<'EOF'
+          {
+            "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+            "name": "otello-calendar-source-edge-probe",
+            "main": "worker.mjs",
+            "compatibility_date": "2026-08-01",
+            "workers_dev": true
+          }
+          EOF
+
+          npm init -y >/dev/null 2>&1
+          npm install --no-save wrangler@4.123.0
+
+      - name: Run probe in Cloudflare remote Worker runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/calendar-source-probe
+
+          ./node_modules/.bin/wrangler dev --remote --ip 127.0.0.1 --port 8787 --config wrangler.jsonc >wrangler.log 2>&1 &
+          wrangler_pid=$!
+          cleanup() {
+            kill "$wrangler_pid" 2>/dev/null || true
+            wait "$wrangler_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error --max-time 45 http://127.0.0.1:8787/ -o result.json; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$wrangler_pid" 2>/dev/null; then
+              echo "::error::wrangler dev --remote exited before the probe became ready"
+              cat wrangler.log || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::Remote Worker probe did not become ready"
+            cat wrangler.log || true
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("result.json").read_text(encoding="utf-8"))
+          print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+          candidates = ", ".join(payload.get("candidates") or []) or "ingen"
+          lines = [
+              "# Økonomikalender-kilder fra Cloudflare Worker",
+              "",
+              f"- Runtime: `{payload.get('runtime')}`",
+              f"- Cloudflare colo: `{payload.get('colo') or '-'}`",
+              f"- Kandidater med direkte Brazil/BNP + konsensus/forecast-data: **{candidates}**",
+              "",
+              "| Kilde/test | HTTP | Bytes | Challenge | Direkte tilgang | Brasil | BNP | Konsensus | Forecast | Previous | Kandidat |",
+              "|---|---:|---:|---|---|---|---|---|---|---|---|",
+          ]
+          for item in payload.get("results") or []:
+              lines.append(
+                  "| {source} / {id} | {status} | {bytes} | {challenge} | {access} | {brazil} | {gdp} | {consensus} | {forecast} | {previous} | {candidate} |".format(
+                      source=item.get("source", "-"),
+                      id=item.get("id", "-"),
+                      status=item.get("status", item.get("error", "-")),
+                      bytes=item.get("bytes", "-"),
+                      challenge="JA" if item.get("challenge") else "NEI",
+                      access="JA" if item.get("direct_access") else "NEI",
+                      brazil="JA" if item.get("contains_brazil") else "NEI",
+                      gdp="JA" if item.get("contains_gdp") else "NEI",
+                      consensus="JA" if item.get("contains_consensus") else "NEI",
+                      forecast="JA" if item.get("contains_forecast") else "NEI",
+                      previous="JA" if item.get("contains_previous") else "NEI",
+                      candidate="JA" if item.get("brazil_event_data") else "NEI",
+                  )
+              )
+              if item.get("event_context"):
+                  lines.extend(["", f"**{item.get('id')} event:** `{item['event_context'][:700]}`"])
+              if item.get("consensus_context"):
+                  lines.extend(["", f"**{item.get('id')} consensus:** `{item['consensus_context'][:700]}`"])
+              if item.get("error"):
+                  lines.extend(["", f"**{item.get('id')} feil:** `{item['error'][:500]}`"])
+
+          summary = "\n".join(lines) + "\n"
+          Path("probe-summary.md").write_text(summary, encoding="utf-8")
+          print(summary)
+          PY
+
+          cat probe-summary.md >> "$GITHUB_STEP_SUMMARY"
