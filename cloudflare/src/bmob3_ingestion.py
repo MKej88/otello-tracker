@@ -157,7 +157,59 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
     text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
     if len(text.encode("utf-8")) > MAX_YAHOO_BYTES:
         raise ValueError("Yahoo BMOB3 response overstiger Worker-grensen")
-    data = json.loads(text)
+    result, meta, timezone_name = _validated_yahoo_result(json.loads(text))
+
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators")
+    quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
+    quote_row = (
+        quote_rows[0]
+        if isinstance(quote_rows, list)
+        and len(quote_rows) == 1
+        and isinstance(quote_rows[0], dict)
+        else None
+    )
+    closes = quote_row.get("close") if quote_row is not None else None
+    volumes = quote_row.get("volume") if quote_row is not None else None
+    latest_close = _latest_timestamped_close(timestamps, closes)
+    if latest_close is not None:
+        timestamp, price = latest_close
+    else:
+        regular_market_time = meta.get("regularMarketTime")
+        price = _decimal(meta.get("regularMarketPrice"))
+        if regular_market_time is None or price is None or price <= 0:
+            raise ValueError("Yahoo BMOB3 response mangler tidsstemplet intradagkurs")
+        try:
+            timestamp = int(regular_market_time)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Yahoo BMOB3 regularMarketTime er ugyldig") from exc
+
+    regular_volume = _nonnegative_int(meta.get("regularMarketVolume"))
+    minute_volume = (
+        _minute_volume_through(timestamps, volumes, timestamp)
+        if regular_volume is None
+        else None
+    )
+    if regular_volume is not None:
+        volume_shares = regular_volume
+        volume_basis = "YAHOO_REGULAR_MARKET_VOLUME"
+    else:
+        volume_shares = minute_volume
+        volume_basis = "YAHOO_1M_VOLUME_SUM" if minute_volume is not None else None
+
+    provider_datetime = datetime.fromtimestamp(timestamp, tz=UTC)
+    return Bmob3YahooQuote(
+        price=price,
+        provider_datetime=provider_datetime,
+        exchange_timezone=timezone_name,
+        volume_shares=volume_shares,
+        volume_basis=volume_basis,
+    )
+
+
+def _validated_yahoo_result(
+    data: Any,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
     if not isinstance(data, dict):
         raise ValueError("Yahoo BMOB3 response is not an object")
     chart = data.get("chart")
@@ -166,7 +218,11 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
     if chart.get("error"):
         raise ValueError(f"Yahoo BMOB3 response inneholder feil: {chart.get('error')}")
     results = chart.get("result")
-    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+    if (
+        not isinstance(results, list)
+        or len(results) != 1
+        or not isinstance(results[0], dict)
+    ):
         raise ValueError("Yahoo BMOB3 response mangler én entydig resultatserie")
 
     result = results[0]
@@ -185,85 +241,53 @@ def parse_bmob3_yahoo_quote(payload: bytes | str) -> Bmob3YahooQuote:
         ZoneInfo(timezone_name)
     except (KeyError, ValueError) as exc:
         raise ValueError("Yahoo BMOB3 har ugyldig exchangeTimezoneName") from exc
+    return result, meta, timezone_name
 
-    timestamps = result.get("timestamp")
-    indicators = result.get("indicators")
-    quote_rows = indicators.get("quote") if isinstance(indicators, dict) else None
-    quote_row = (
-        quote_rows[0]
-        if isinstance(quote_rows, list) and len(quote_rows) == 1 and isinstance(quote_rows[0], dict)
-        else None
-    )
-    closes = quote_row.get("close") if quote_row is not None else None
-    volumes = quote_row.get("volume") if quote_row is not None else None
+
+def _latest_timestamped_close(
+    timestamps: Any, closes: Any
+) -> tuple[int, Decimal] | None:
+    if not (
+        isinstance(timestamps, list)
+        and isinstance(closes, list)
+        and len(timestamps) == len(closes)
+    ):
+        return None
+
     candidates: list[tuple[int, Decimal]] = []
-    if isinstance(timestamps, list) and isinstance(closes, list) and len(timestamps) == len(closes):
-        for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
-            if raw_close is None:
-                continue
-            try:
-                timestamp = int(raw_timestamp)
-                price = Decimal(str(raw_close))
-            except (InvalidOperation, TypeError, ValueError):
-                continue
-            if price.is_finite() and Decimal("0") < price < Decimal("100000"):
-                candidates.append((timestamp, price))
-
-    if candidates:
-        timestamp, price = max(candidates, key=lambda item: item[0])
-    else:
-        regular_market_time = meta.get("regularMarketTime")
-        price = _decimal(meta.get("regularMarketPrice"))
-        if regular_market_time is None or price is None or price <= 0:
-            raise ValueError("Yahoo BMOB3 response mangler tidsstemplet intradagkurs")
+    for raw_timestamp, raw_close in zip(timestamps, closes, strict=True):
+        if raw_close is None:
+            continue
         try:
-            timestamp = int(regular_market_time)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Yahoo BMOB3 regularMarketTime er ugyldig") from exc
+            timestamp = int(raw_timestamp)
+            price = Decimal(str(raw_close))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if price.is_finite() and Decimal("0") < price < Decimal("100000"):
+            candidates.append((timestamp, price))
+    return max(candidates, key=lambda item: item[0]) if candidates else None
 
-    regular_volume = _nonnegative_int(meta.get("regularMarketVolume"))
-    minute_volume: int | None = None
-    if (
-        regular_volume is None
-        and isinstance(timestamps, list)
+
+def _minute_volume_through(
+    timestamps: Any, volumes: Any, latest_timestamp: int
+) -> int | None:
+    if not (
+        isinstance(timestamps, list)
         and isinstance(volumes, list)
         and len(timestamps) == len(volumes)
     ):
-        total = 0
-        found_volume = False
-        for raw_timestamp, raw_volume in zip(timestamps, volumes, strict=True):
-            try:
-                volume_timestamp = int(raw_timestamp)
-            except (TypeError, ValueError):
-                continue
-            if volume_timestamp > timestamp:
-                continue
-            volume = _nonnegative_int(raw_volume)
-            if volume is None:
-                continue
-            total += volume
-            found_volume = True
-        if found_volume:
-            minute_volume = total
+        return None
 
-    if regular_volume is not None:
-        volume_shares = regular_volume
-        volume_basis = "YAHOO_REGULAR_MARKET_VOLUME"
-    elif minute_volume is not None:
-        volume_shares = minute_volume
-        volume_basis = "YAHOO_1M_VOLUME_SUM"
-    else:
-        volume_shares = None
-        volume_basis = None
-
-    provider_datetime = datetime.fromtimestamp(timestamp, tz=UTC)
-    return Bmob3YahooQuote(
-        price=price,
-        provider_datetime=provider_datetime,
-        exchange_timezone=timezone_name,
-        volume_shares=volume_shares,
-        volume_basis=volume_basis,
-    )
+    valid_volumes: list[int] = []
+    for raw_timestamp, raw_volume in zip(timestamps, volumes, strict=True):
+        try:
+            volume_timestamp = int(raw_timestamp)
+        except (TypeError, ValueError):
+            continue
+        volume = _nonnegative_int(raw_volume)
+        if volume_timestamp <= latest_timestamp and volume is not None:
+            valid_volumes.append(volume)
+    return sum(valid_volumes) if valid_volumes else None
 
 
 def _quote_metadata(quote: Bmob3WebQuote, *, feed_mode: str) -> dict[str, Any]:
