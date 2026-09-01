@@ -57,6 +57,7 @@ function preload(view: View) {
     void loadDataQualityPage();
     preloadJson("/api/dashboard/runtime-status");
     preloadJson("/api/dashboard/report-status");
+    preloadJson("/api/bemobi/source-status");
   }
   if (view === "Nyheter") {
     void loadNewsEventsPage();

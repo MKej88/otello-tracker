@@ -100,6 +100,33 @@ def test_release_time_is_kept_when_forecast_is_not_published(monkeypatch) -> Non
     assert status["timed_events"] == 1
 
 
+def test_empty_success_response_is_reported_as_source_error(monkeypatch) -> None:
+    async def fake_fetch_html(url: str, *, fetcher=None) -> str:
+        return "<html><body>Access denied</body></html>"
+
+    monkeypatch.setattr(investing, "_fetch_html", fake_fetch_html)
+    events = [
+        {
+            "date": "2026-09-01",
+            "name": "BNP Q2",
+            "kind": "gdp",
+            "reference": "2026 Q2",
+        }
+    ]
+
+    enriched, status = asyncio.run(
+        investing.enrich_calendar_from_investing(
+            events,
+            as_of_date="2026-09-01",
+        )
+    )
+
+    assert enriched == events
+    assert status["ready"] is False
+    assert status["pages_ready"] == 0
+    assert "ValueError" in status["errors"]["gdp"]
+
+
 def test_copom_release_time_is_read_as_utc(monkeypatch) -> None:
     async def fake_fetch_html(url: str, *, fetcher=None) -> str:
         assert "interest-rate-decision-415" in url

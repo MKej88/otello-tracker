@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { usePollingResource } from "./usePollingResource";
 import "./bemobi-source-status.css";
 
 
@@ -72,36 +72,11 @@ function statusLabel(status: string) {
 }
 
 export default function BemobiSourceStatusPanel() {
-  const [data, setData] = useState<SourceStatus | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const loadStatus = () => {
-      fetch("/api/bemobi/source-status")
-        .then((response) => {
-          if (!response.ok) throw new Error("Datakildestatus API-feil");
-          return response.json() as Promise<SourceStatus>;
-        })
-        .then((result) => {
-          if (!active) return;
-          setData(result);
-          setFailed(false);
-        })
-        .catch(() => {
-          if (!active) return;
-          setFailed(true);
-        });
-    };
-    loadStatus();
-    const timer = window.setInterval(() => {
-      loadStatus();
-    }, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+  const { data, refreshFailed: failed } = usePollingResource<SourceStatus>(
+    "/api/bemobi/source-status",
+    AUTO_REFRESH_MS,
+    true,
+  );
 
   if (data == null && !failed) {
     return (
