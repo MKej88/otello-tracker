@@ -21,6 +21,19 @@ type Summary = {
       position_pct?: number | null;
     };
   };
+  bemobi_insights?: {
+    price_brl?: number | null;
+    price_date?: string | null;
+    daily_pct?: number | null;
+    month_pct?: number | null;
+    quarter_pct?: number | null;
+    quarter_label?: string | null;
+    nav_effect_1m_per_share_nok?: number | null;
+    value_per_otec_share_nok?: number | null;
+    holding_shares?: number | null;
+    ownership_pct?: number | null;
+    range_1y?: { low?: number | null; high?: number | null; position_pct?: number | null };
+  };
   nav_discount_insights?: {
     nav_per_share?: number | null;
     share_price?: number | null;
@@ -99,6 +112,8 @@ export default function OverviewPage() {
   );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const brl = summary?.brl_nok_insights;
+  const bemobi = summary?.bemobi_insights;
+  const bemobiRange = bemobi?.range_1y;
   const range = brl?.range_1y;
   const discount = summary?.nav_discount_insights;
   const historyStatistics = history?.estimated?.statistics;
@@ -111,6 +126,7 @@ export default function OverviewPage() {
       : ((nav.discount_pct - discountLow) / (discountHigh - discountLow)) * 100
     : null;
   const hasRange = range?.low != null && range?.high != null;
+  const hasBemobiRange = bemobiRange?.low != null && bemobiRange?.high != null;
   const brlNokStatus = summaryRefreshFailed
     ? summary
       ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
@@ -183,7 +199,34 @@ export default function OverviewPage() {
             <span>{hasDiscountRange ? `${formatNumber(discountHigh, 1)} %` : "—"}</span>
           </div>
         </article>
-        <article className="card kpi"><span className="label">Bemobi-verdi</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></article>
+        <article className="card kpi brlInsightCard bemobiInsightCard">
+          <span className="label">Bemobi</span>
+          <div className="brlCurrent">
+            <strong>{bemobi?.price_brl == null || !Number.isFinite(bemobi.price_brl) ? "—" : `${formatNumber(bemobi.price_brl, 2)} BRL`}</strong>
+            <strong className={tone(bemobi?.daily_pct)}>{signed(bemobi?.daily_pct, 1, " %")}</strong>
+          </div>
+          <small>Siste kurs {formatDate(bemobi?.price_date)}</small>
+          <div className="brlRows">
+            <div><span>1 mnd</span><b className={tone(bemobi?.month_pct)}>{signed(bemobi?.month_pct, 1, " %")}</b></div>
+            <div><span>{bemobi?.quarter_label ? `Siden ${bemobi.quarter_label}` : "Siden kvartal"}</span><b className={tone(bemobi?.quarter_pct)}>{signed(bemobi?.quarter_pct, 1, " %")}</b></div>
+            <div><span>NAV-effekt 1 mnd</span><b className={tone(bemobi?.nav_effect_1m_per_share_nok)}>{signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje")}</b></div>
+          </div>
+          <div className="brlRows bemobiExposureRows">
+            <div><span>Verdi / OTEC-aksje</span><b>{bemobi?.value_per_otec_share_nok == null || !Number.isFinite(bemobi.value_per_otec_share_nok) ? "—" : `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr`}</b></div>
+            <div><span>Otello eier</span><b>{bemobi?.holding_shares == null || !Number.isFinite(bemobi.holding_shares) || bemobi?.ownership_pct == null || !Number.isFinite(bemobi.ownership_pct) ? "—" : `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %`}</b></div>
+          </div>
+          <div className="brlRange">
+            <span>1 år</span>
+            <span>{hasBemobiRange ? formatNumber(bemobiRange?.low, 2) : "—"}</span>
+            <div className="brlRangeTrack" aria-label="BMOB3-posisjon i ettårsintervallet">
+              {bemobiRange?.position_pct != null && Number.isFinite(bemobiRange.position_pct) && (
+                <i style={{ left: `${Math.max(0, Math.min(100, bemobiRange.position_pct))}%` }} />
+              )}
+            </div>
+            <span>{hasBemobiRange ? formatNumber(bemobiRange?.high, 2) : "—"}</span>
+          </div>
+          <small className="brlExplanation">Sterkere BMOB3 = positivt for Otello NAV</small>
+        </article>
       </section>
 
       <section className="overviewGrid">
