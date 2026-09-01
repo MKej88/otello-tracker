@@ -220,6 +220,12 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "bemobi_source_status": reference_bemobi_source_status(database_path),
         "quotes": reference_market_quote_details(database_path),
     }
+    expected["quotes"]["methodology"]["life360"] = (
+        "Life360/LIF bruker Yahoo Finance. Under ordinær NASDAQ-handel "
+        "tolkes den nyeste dagsbaren som intradagssnapshot fra siste "
+        "30-minutters innhenting; etter stenging vises sluttkursen med "
+        "NASDAQs ordinære stengetid."
+    )
     for name, payload in expected.items():
         (expected_dir / f"{name}.json").write_text(
             json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
