@@ -50,6 +50,7 @@ type Payload = {
     range_52w?: string;
     otec_session?: string;
     otec_close?: string;
+    life360?: string;
   };
 };
 
@@ -196,7 +197,11 @@ function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
             <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
           )}
         {quote.symbol === "LIF" && (
-          <span>Life360 bruker lagret NASDAQ-sluttkurs fra Yahoo Finance.</span>
+          <span>
+            {quote.last_price_type === "LAST"
+              ? "Yahoo-kursen er et intradagssnapshot og oppdateres ved neste 30-minutters innhenting."
+              : "Yahoo-sluttkursen vises med ordinær NASDAQ-stengetid."}
+          </span>
         )}
       </div>
     </article>
@@ -226,6 +231,9 @@ export default function MarketQuotePanel() {
       </div>
       {data?.methodology?.range_52w && (
         <p className="marketQuoteMethod">{data.methodology.range_52w}</p>
+      )}
+      {data?.methodology?.life360 && (
+        <p className="marketQuoteMethod">{data.methodology.life360}</p>
       )}
     </section>
   );

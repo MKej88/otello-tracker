@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from statistics import mean
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -81,10 +81,12 @@ def _latest_price(connection, symbol: str) -> dict[str, Any] | None:
     row = connection.execute(
         """
         SELECT mp.id, mp.trading_date, mp.observed_at, mp.price_type, mp.price,
-               mp.currency, mp.quality, mp.metadata_json, s.code AS source_code
+               mp.currency, mp.quality, mp.metadata_json, s.code AS source_code,
+               sd.fetched_at AS source_retrieved_at
         FROM market_prices mp
         JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
+        LEFT JOIN source_documents sd ON sd.id=mp.source_document_id
         WHERE i.symbol=? AND mp.price_type IN ('LAST','CLOSE')
         ORDER BY mp.trading_date DESC,
                  CASE WHEN mp.price_type='CLOSE' THEN 0 ELSE 1 END,
@@ -94,6 +96,57 @@ def _latest_price(connection, symbol: str) -> dict[str, Any] | None:
         (symbol,),
     ).fetchone()
     return dict(row) if row is not None else None
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _nasdaq_close_timestamp(trading_date: str) -> str:
+    local_close = datetime.combine(
+        date.fromisoformat(trading_date),
+        time(hour=16),
+        tzinfo=ZoneInfo("America/New_York"),
+    )
+    return (
+        local_close.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+
+
+def _normalize_lif_yahoo_price(latest: dict[str, Any]) -> dict[str, Any]:
+    """Skill mellom løpende Yahoo-dagsbar og en fullført NASDAQ-dag."""
+    if latest.get("source_code") != "YAHOO_FINANCE":
+        return latest
+
+    trading_date = str(latest["trading_date"])
+    retrieved_at = _parse_timestamp(latest.get("source_retrieved_at"))
+    if retrieved_at is not None:
+        new_york_time = retrieved_at.astimezone(ZoneInfo("America/New_York"))
+        session_open = time(hour=9, minute=30)
+        session_close = time(hour=16)
+        if (
+            new_york_time.date() == date.fromisoformat(trading_date)
+            and session_open <= new_york_time.time() < session_close
+        ):
+            return {
+                **latest,
+                "price_type": "LAST",
+                "observed_at": retrieved_at.astimezone(UTC)
+                .isoformat(timespec="seconds")
+                .replace("+00:00", "Z"),
+            }
+
+    return {
+        **latest,
+        "price_type": "CLOSE",
+        "observed_at": _nasdaq_close_timestamp(trading_date),
+    }
 
 
 def _market_close(
@@ -433,6 +486,8 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
     latest = _latest_price(connection, symbol)
     if latest is None:
         return {"ready": False, "symbol": symbol, "reason": "missing_market_price"}
+    if symbol == "LIF":
+        latest = _normalize_lif_yahoo_price(latest)
     current_close = _latest_close(connection, symbol) if symbol == "OTEC" else None
     if current_close and str(current_close["trading_date"]) >= str(
         latest["trading_date"]
@@ -448,7 +503,11 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
     latest_close = _latest_close(
         connection,
         symbol,
-        trading_date if symbol == "OTEC" else None,
+        (
+            trading_date
+            if symbol == "OTEC" or latest.get("price_type") == "LAST"
+            else None
+        ),
     )
     return {
         "ready": True,
@@ -496,9 +555,9 @@ def market_quote_details(database_path: str | None = None) -> dict[str, Any]:
                 "siste handel fra fullført Euronext-dagsserie."
             ),
             "life360": (
-                "Life360/LIF bruker lagrede NASDAQ-sluttkurser i USD fra Yahoo "
-                "Finance. Intradag åpning/lav/høy og volum vises bare når slike "
-                "data faktisk er lagret."
+                "Life360/LIF bruker Yahoo Finance. Under ordinær NASDAQ-handel "
+                "vises siste innhenting som intradagssnapshot; etter stenging vises "
+                "sluttkurs med ordinær NASDAQ-stengetid."
             ),
         },
     }
