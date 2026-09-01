@@ -7,12 +7,14 @@ import urllib.parse
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
 
 from bounded_response import read_response_bytes
 
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
 FOCUS_URL = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 SERIES = {
     "selic": {"code": 432, "label": "Selic", "unit": "% p.a.", "mode": "level"},
@@ -20,6 +22,14 @@ SERIES = {
     "ibc_br": {"code": 24364, "label": "IBC-Br", "unit": "% m/m", "mode": "mom"},
     "ibc_services": {"code": 29605, "label": "IBC-Br tjenester", "unit": "% m/m", "mode": "mom"},
 }
+
+
+def _default_as_of_date(now: datetime | None = None) -> date:
+    """Return the Brazilian calendar date used to cap local source data."""
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    return current.astimezone(BRAZIL_TZ).date()
 
 IBGE_CALENDAR_URL = "https://www.ibge.gov.br/calendario/conjunturais.html"
 BCB_COPOM_URL = "https://www.bcb.gov.br/controleinflacao/copom"
@@ -554,7 +564,7 @@ async def brazil_dashboard(
     as_of_date: str | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    target = date.fromisoformat(as_of_date) if as_of_date else datetime.now(UTC).date()
+    target = date.fromisoformat(as_of_date) if as_of_date else _default_as_of_date()
     target_date = target.isoformat()
 
     tasks = [_load_sgs_series(key, as_of_date=target_date, fetcher=fetcher) for key in SERIES]

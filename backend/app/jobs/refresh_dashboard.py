@@ -51,7 +51,10 @@ def _staleness(summary: dict[str, Any], target_date: str) -> dict[str, Any]:
     if not as_of:
         return {"calendar_days": None, "stale": True}
     delta = (date.fromisoformat(target_date) - date.fromisoformat(as_of)).days
-    return {"calendar_days": max(delta, 0), "stale": delta > 3}
+    # A snapshot from after the requested target date is not fresh data for that
+    # target. This can happen when an operator backfills an older date in a database
+    # that already contains newer snapshots.
+    return {"calendar_days": max(delta, 0), "stale": delta < 0 or delta > 3}
 
 
 def run_refresh(
