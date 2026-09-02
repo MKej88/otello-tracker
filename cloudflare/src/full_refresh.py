@@ -19,8 +19,8 @@ except ImportError:
 
 JOB_NAME = "cloudflare_full_refresh"
 PHASE = "16.3"
-_HISTORY_MATERIALIZATION_BATCH_SIZE = 100
-_MAX_HISTORY_MATERIALIZATION_BATCHES = 12
+HISTORY_MATERIALIZATION_BATCH_SIZE = 50
+MAX_HISTORY_MATERIALIZATION_BATCHES = 24
 _SOURCE_CODE_BY_COMPONENT = {
     "norges_bank": "NORGES_BANK",
     "life360": "YAHOO_FINANCE",
@@ -299,56 +299,71 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     return total
 
 
-async def _materialize_history_until_guard(repository) -> dict[str, Any]:
+async def materialize_history_batch(database: Any) -> dict[str, Any]:
+    """Build one bounded history batch for a durable Workflow step."""
+    repository = PerformanceD1WriteRepository(database)
+    result = await materialize_estimated_nav_history(
+        repository,
+        batch_size=HISTORY_MATERIALIZATION_BATCH_SIZE,
+    )
+    return {**result, "repository": repository.performance_metrics()}
+
+
+def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str, Any]:
     total_written = 0
     failures: dict[tuple[str, str], dict[str, Any]] = {}
-
-    for batch_number in range(1, _MAX_HISTORY_MATERIALIZATION_BATCHES + 1):
-        result = await materialize_estimated_nav_history(
-            repository,
-            batch_size=_HISTORY_MATERIALIZATION_BATCH_SIZE,
-        )
-        written = int(result.get("written") or 0)
-        batch_failures = list(result.get("failures") or [])
-        attempted = written + len(batch_failures)
-        total_written += written
-
-        for failure in batch_failures:
+    for batch in batches:
+        total_written += int(batch.get("written") or 0)
+        for failure in batch.get("failures") or []:
             key = (str(failure.get("date") or ""), str(failure.get("reason") or ""))
             failures[key] = failure
 
-        if attempted < _HISTORY_MATERIALIZATION_BATCH_SIZE:
-            complete = not batch_failures
-            return {
-                "written": total_written,
-                "failures": list(failures.values())[:10],
-                "failure_count": len(failures),
-                "batches": batch_number,
-                "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
-                "complete": complete,
-                "stop_reason": "complete" if complete else "blocked_by_failures",
-            }
+    if not batches:
+        return {
+            "written": 0,
+            "failures": [],
+            "failure_count": 0,
+            "batches": 0,
+            "batch_size": HISTORY_MATERIALIZATION_BATCH_SIZE,
+            "complete": False,
+            "stop_reason": "not_started",
+        }
 
-        if written == 0:
-            return {
-                "written": total_written,
-                "failures": list(failures.values())[:10],
-                "failure_count": len(failures),
-                "batches": batch_number,
-                "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
-                "complete": False,
-                "stop_reason": "no_progress",
-            }
+    last = batches[-1]
+    last_written = int(last.get("written") or 0)
+    last_failures = list(last.get("failures") or [])
+    attempted = last_written + len(last_failures)
+    last_status = str(last.get("status") or "").lower()
 
-    return {
+    if last_status == "error" or last.get("error"):
+        complete = False
+        stop_reason = "batch_error"
+    elif attempted < HISTORY_MATERIALIZATION_BATCH_SIZE:
+        complete = not last_failures
+        stop_reason = "complete" if complete else "blocked_by_failures"
+    elif last_written == 0:
+        complete = False
+        stop_reason = "no_progress"
+    elif len(batches) >= MAX_HISTORY_MATERIALIZATION_BATCHES:
+        complete = False
+        stop_reason = "batch_limit"
+    else:
+        complete = False
+        stop_reason = "continue"
+
+    summary = {
         "written": total_written,
         "failures": list(failures.values())[:10],
         "failure_count": len(failures),
-        "batches": _MAX_HISTORY_MATERIALIZATION_BATCHES,
-        "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
-        "complete": False,
-        "stop_reason": "batch_limit",
+        "batches": len(batches),
+        "batch_size": HISTORY_MATERIALIZATION_BATCH_SIZE,
+        "complete": complete,
+        "stop_reason": stop_reason,
     }
+    if last.get("error"):
+        summary["error"] = str(last.get("error"))[:1000]
+        summary["error_type"] = last.get("error_type")
+    return summary
 
 
 async def finish_full_refresh(
@@ -360,6 +375,7 @@ async def finish_full_refresh(
     nav_result: dict[str, Any],
     preflight_result: dict[str, Any],
     archive_result: dict[str, Any] | None = None,
+    estimated_nav_history_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repository = PerformanceD1WriteRepository(database)
     errors: list[dict[str, str]] = []
@@ -443,12 +459,16 @@ async def finish_full_refresh(
     else:
         status = "SUCCESS"
 
-    # Backfill missing history in restart-safe batches. The guard bounds one nightly run,
-    # while normal steady-state refreshes stop after the first small/incomplete batch.
-    try:
-        estimated_nav_history = await _materialize_history_until_guard(repository)
-    except Exception as exc:
-        estimated_nav_history = {**error_result(exc), "non_critical": True}
+    # The production Workflow materializes history in separate durable steps before this
+    # finalization step. Keep a one-batch fallback for direct/non-Workflow callers only.
+    if estimated_nav_history_result is not None:
+        estimated_nav_history = estimated_nav_history_result
+    else:
+        try:
+            fallback_batch = await materialize_history_batch(database)
+            estimated_nav_history = summarize_history_materialization([fallback_batch])
+        except Exception as exc:
+            estimated_nav_history = {**error_result(exc), "non_critical": True}
 
     # Refresh the user-facing hot snapshot after all source/NAV writes. This is deliberately
     # non-critical: a cache build failure must not turn a valid full refresh into FAILED.
