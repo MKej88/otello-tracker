@@ -277,39 +277,46 @@ jobs:
             exit 1
           fi
 
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          # Cloudflare may return non-standard, temporary 5xx responses such as
+          # 524. curl's default retry list does not include those status codes.
+          curl_retry=(
+            --fail --show-error --silent
+            --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 360
+          )
+
+          curl "${curl_retry[@]}" \
             -D /tmp/otello-index.headers "$base/?${q}" -o /tmp/otello-index.html
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/bootstrap?${q}" -o /tmp/otello-bootstrap.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/summary?${q}" -o /tmp/otello-summary.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/history?days=365&max_points=300&${q}" -o /tmp/otello-history.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/discount-history?days=365&max_points=600&${q}" -o /tmp/otello-discount-history.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/economic?${q}" -o /tmp/otello-economic.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/waterfall?${q}" -o /tmp/otello-waterfall.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/report-status?${q}" -o /tmp/otello-report-status.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/runtime-status?${q}" -o /tmp/otello-runtime-status.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/dashboard/fx-backtest?${q}" -o /tmp/otello-fx-backtest.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/buybacks/forecast?${q}" -o /tmp/otello-forecast.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/buybacks/dashboard?${q}" -o /tmp/otello-buyback-dashboard.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/bemobi/dashboard?${q}" -o /tmp/otello-bemobi-dashboard.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/bemobi/consensus?${q}" -o /tmp/otello-bemobi-consensus.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/bemobi/source-status?${q}" -o /tmp/otello-bemobi-source-status.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/news-events?${q}" -o /tmp/otello-news-events.json
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 \
+          curl "${curl_retry[@]}" \
             "$base/api/market/quotes?${q}" -o /tmp/otello-quotes.json
           python - <<'PY'
           import json
