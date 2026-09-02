@@ -1,4 +1,4 @@
-import { formatDate, formatDateTime } from "./uiFormat";
+import { formatDate, formatNumber } from "./uiFormat";
 import { usePollingResource } from "./usePollingResource";
 import "./market-quote-panel.css";
 
@@ -8,202 +8,154 @@ type Quote = {
   currency?: string | null;
   source?: string | null;
   last?: number | null;
-  last_price_type?: string | null;
   last_updated_at?: string | null;
   trading_date?: string | null;
-  session?: {
-    open?: number | null;
-    low?: number | null;
-    high?: number | null;
-    basis?: string | null;
+  changes?: {
+    daily_pct?: number | null;
+    month_pct?: number | null;
+    three_month_pct?: number | null;
   };
-  last_close?: {
-    price?: number | null;
-    date?: string | null;
-    source?: string | null;
-    basis?: string | null;
-  };
-  volume?: {
-    latest?: number | null;
-    latest_date?: string | null;
-    average_3m?: number | null;
-    average_sessions?: number | null;
-    latest_above_average?: boolean | null;
-    unit?: string | null;
-    basis?: string | null;
-    source?: string | null;
-    provisional?: boolean | null;
-  };
-  range_52w?: {
-    low?: number | null;
-    high?: number | null;
-    sessions?: number | null;
-    basis?: string | null;
+  volume?: { relative_3m?: number | null };
+  range_52w?: { low?: number | null; high?: number | null };
+};
+
+type Payload = { ready: boolean; symbols?: Record<string, Quote> };
+
+type Summary = {
+  shares_outstanding?: number | null;
+  bemobi_insights?: {
+    nav_effect_1m_per_share_nok?: number | null;
+    value_per_otec_share_nok?: number | null;
+    holding_shares?: number | null;
+    ownership_pct?: number | null;
   };
 };
 
-type Payload = {
-  ready: boolean;
-  symbols?: Record<string, Quote>;
-  methodology?: {
-    average_volume?: string;
-    range_52w?: string;
-    otec_session?: string;
-    otec_close?: string;
-    life360?: string;
+type EconomicNav = {
+  nav_per_share?: number | null;
+  discount_pct?: number | null;
+  life360?: {
+    ready?: boolean;
+    market_value_mnok?: number | null;
+    nav_effect_1m_per_share_nok?: number | null;
   };
 };
+
+type Metric = { label: string; value: string; tone?: string };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
+const EMPTY = "—";
+
+function finite(value: number | null | undefined): value is number {
+  return value != null && Number.isFinite(value);
+}
 
 function price(value: number | null | undefined, currency?: string | null) {
-  if (value == null || !Number.isFinite(value)) return "–";
-  const formatted = value.toLocaleString("nb-NO", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  if (!finite(value)) return EMPTY;
+  const formatted = formatNumber(value, 2);
   if (currency === "BRL") return `R$ ${formatted}`;
   if (currency === "NOK") return `${formatted} kr`;
   if (currency === "USD") return `US$ ${formatted}`;
   return formatted;
 }
 
-function volume(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "–";
-  return Math.round(value).toLocaleString("nb-NO");
+function signed(value: number | null | undefined, digits = 1, suffix = " %") {
+  if (!finite(value)) return EMPTY;
+  return `${value > 0 ? "+" : ""}${formatNumber(value, digits)}${suffix}`;
 }
 
-function sessionBasisLabel(quote: Quote) {
-  if (quote.session?.basis === "EXCHANGE_SESSION_SUMMARY") return "Børssammendrag";
-  if (quote.session?.basis === "OBSERVED_TRADES") return "Observerte Euronext-handler";
-  if (quote.session?.basis === "CLOSE_ONLY") return "Kun sluttkurs lagret";
-  return "Lagrede markedsdata";
+function tone(value: number | null | undefined) {
+  if (!finite(value) || value === 0) return "neutral";
+  return value > 0 ? "positive" : "negative";
 }
 
-function QuoteCard({ quote, title }: { quote?: Quote; title: string }) {
+function sourceLabel(source?: string | null) {
+  if (source === "EURONEXT") return "Euronext";
+  if (source === "YAHOO_FINANCE") return "Yahoo Finance";
+  if (source === "B3") return "B3";
+  return source ?? EMPTY;
+}
+
+function timestamp(value?: string | null) {
+  if (!value) return EMPTY;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return EMPTY;
+  return parsed.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+}
+
+export function rangePosition(
+  current?: number | null,
+  low?: number | null,
+  high?: number | null,
+) {
+  if (!finite(current) || !finite(low) || !finite(high) || high < low) return null;
+  if (high === low) return 50;
+  return Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+}
+
+function MarketRange({ quote }: { quote: Quote }) {
+  const low = quote.range_52w?.low;
+  const high = quote.range_52w?.high;
+  const position = rangePosition(quote.last, low, high);
+  const available = finite(low) && finite(high) && high >= low;
+  return (
+    <div className="marketRange">
+      <span>52 uker</span>
+      <span>{available ? formatNumber(low, 2) : EMPTY}</span>
+      <div className="marketRangeTrack" aria-label="Posisjon i 52-ukersintervallet">
+        {position != null && <i style={{ left: `${position}%` }} />}
+      </div>
+      <span>{available ? formatNumber(high, 2) : EMPTY}</span>
+    </div>
+  );
+}
+
+function MetricRows({ metrics }: { metrics: Metric[] }) {
+  return <div className="marketMetrics">{metrics.map((metric) => (
+    <div className="marketMetricRow" key={metric.label}>
+      <span>{metric.label}</span><strong className={metric.tone}>{metric.value}</strong>
+    </div>
+  ))}</div>;
+}
+
+function MarketInsightCard({
+  quote,
+  title,
+  metrics,
+  footer,
+}: {
+  quote?: Quote;
+  title: string;
+  metrics: Metric[];
+  footer: string;
+}) {
   if (!quote?.ready) {
-    return (
-      <article className="card marketQuoteCard marketQuoteUnavailable">
-        <span className="label">{title}</span>
-        <strong>Kursdata mangler</strong>
-      </article>
-    );
+    return <article className="card marketQuoteCard marketQuoteUnavailable">
+      <span className="label">{title}</span><strong>Kursdata mangler</strong>
+    </article>;
   }
-
-  const currency = quote.currency;
-  const latestAboveAverage = quote.volume?.latest_above_average;
-  const yahooIntradayVolume =
-    quote.symbol === "BMOB3" &&
-    quote.volume?.provisional === true &&
-    quote.volume?.source === "YAHOO_FINANCE";
+  const source = sourceLabel(quote.source);
   return (
     <article className="card marketQuoteCard">
-      <div className="marketQuoteHeader">
-        <div>
-          <span className="label">{title}</span>
-          <div className="marketQuotePrice">{price(quote.last, currency)}</div>
-          <small>
-            {quote.last_price_type === "CLOSE" ? "Siste sluttkurs" : "Siste handel"} ·{" "}
-            {quote.source ?? "–"}
-          </small>
-        </div>
-        <div className="marketQuoteUpdated">
-          <span>
-            Sist oppdatert:{" "}
-            {quote.last_price_type === "CLOSE"
-              ? "Tidspunkt for sluttkurs"
-              : "Tidspunkt for siste handel"}
-          </span>
-          <strong>{formatDateTime(quote.last_updated_at)}</strong>
-          <small>
-            {quote.last_price_type === "CLOSE"
-              ? `Kursdato ${formatDate(quote.trading_date)}`
-              : "Endres først når en ny handel rapporteres"}
-          </small>
-        </div>
+      <span className="label">{title}</span>
+      <div className="marketQuoteHeadline">
+        <strong>{price(quote.last, quote.currency)}</strong>
+        <strong className={tone(quote.changes?.daily_pct)}>
+          {signed(quote.changes?.daily_pct)}
+        </strong>
       </div>
-
-      <div className="marketQuoteStats">
-        <div>
-          <span>Åpning</span>
-          <strong>{price(quote.session?.open, currency)}</strong>
-        </div>
-        <div>
-          <span>Dagens lav</span>
-          <strong>{price(quote.session?.low, currency)}</strong>
-        </div>
-        <div>
-          <span>Dagens høy</span>
-          <strong>{price(quote.session?.high, currency)}</strong>
-        </div>
-        <div>
-          <span>Siste sluttkurs</span>
-          <strong>{price(quote.last_close?.price, currency)}</strong>
-          <small>{formatDate(quote.last_close?.date)}</small>
-        </div>
-        <div>
-          <span>{yahooIntradayVolume ? "Dagens volum" : "Siste volum"}</span>
-          <strong>{volume(quote.volume?.latest)}</strong>
-          <small>{formatDate(quote.volume?.latest_date)}</small>
-          {yahooIntradayVolume && <small>Foreløpig · Yahoo Finance</small>}
-          {latestAboveAverage != null && (
-            <small>
-              {yahooIntradayVolume
-                ? latestAboveAverage
-                  ? "Høyere enn 3 mnd snitt hittil i dag"
-                  : "Ikke høyere enn 3 mnd snitt hittil i dag"
-                : latestAboveAverage
-                  ? "Høyere enn 3 mnd snitt"
-                  : "Ikke høyere enn 3 mnd snitt"}
-            </small>
-          )}
-        </div>
-        <div>
-          <span>3 mnd snittvolum</span>
-          <strong>{volume(quote.volume?.average_3m)}</strong>
-          <small>{quote.volume?.average_sessions ?? 0} sesjoner</small>
-        </div>
-        <div className="marketQuoteRange">
-          <span>52-ukers lav / høy</span>
-          <strong>
-            {price(quote.range_52w?.low, currency)} <i>→</i>{" "}
-            {price(quote.range_52w?.high, currency)}
-          </strong>
-          <small>{quote.range_52w?.sessions ?? 0} handelssesjoner</small>
-        </div>
-      </div>
-
-      <div className="marketQuoteFootnote">
-        <span>{sessionBasisLabel(quote)}</span>
-        {quote.symbol === "OTEC" && (
-          <span>
-            OTEC sjekkes hvert 30. minutt. Uendret tidspunkt betyr at Euronext
-            ikke har rapportert en nyere handel.
-          </span>
-        )}
-        {quote.symbol === "OTEC" &&
-          quote.last_close?.basis === "COMPLETED_SESSION_LAST_TRADE" && (
-            <span>OTEC sluttkurs = siste handel i siste fullførte Euronext-dag.</span>
-          )}
-        {quote.symbol === "BMOB3" && yahooIntradayVolume && (
-          <span>
-            Dagens volum er foreløpig fra Yahoo Finance. 3 mnd snittvolum bygges kun
-            fra offisiell B3 COTAHIST.
-          </span>
-        )}
-        {quote.symbol === "BMOB3" &&
-          !yahooIntradayVolume &&
-          (quote.volume?.average_sessions ?? 0) < 63 && (
-            <span>BMOB3-volum bygges opp fra offisiell B3 COTAHIST.</span>
-          )}
-        {quote.symbol === "LIF" && (
-          <span>
-            {quote.last_price_type === "LAST"
-              ? "Yahoo-kursen er et intradagssnapshot og oppdateres ved neste 30-minutters innhenting."
-              : "Yahoo-sluttkursen vises med ordinær NASDAQ-stengetid."}
-          </span>
-        )}
-      </div>
+      <small className="marketQuoteSubline">
+        {formatDate(quote.trading_date)} · {source} · {timestamp(quote.last_updated_at)}
+      </small>
+      <div className="marketDivider" />
+      <MetricRows metrics={metrics} />
+      <div className="marketDivider" />
+      <MetricRows metrics={[
+        { label: "1 mnd", value: signed(quote.changes?.month_pct), tone: tone(quote.changes?.month_pct) },
+        { label: "3 mnd", value: signed(quote.changes?.three_month_pct), tone: tone(quote.changes?.three_month_pct) },
+      ]} />
+      <MarketRange quote={quote} />
+      <small className="marketQuoteFooter">{footer}</small>
     </article>
   );
 }
@@ -214,27 +166,45 @@ export default function MarketQuotePanel() {
     AUTO_REFRESH_MS,
     true,
   );
+  const { data: summary } = usePollingResource<Summary>(
+    "/api/dashboard/summary",
+    AUTO_REFRESH_MS,
+    true,
+  );
+  const { data: nav } = usePollingResource<EconomicNav>(
+    "/api/dashboard/economic",
+    AUTO_REFRESH_MS,
+    true,
+  );
+  const bemobi = summary?.bemobi_insights;
+  const lifeValue = nav?.life360?.ready ? nav.life360.market_value_mnok : null;
+  const lifePerShare = finite(lifeValue) && finite(summary?.shares_outstanding) && summary.shares_outstanding > 0
+    ? lifeValue * 1_000_000 / summary.shares_outstanding
+    : null;
 
   return (
     <section className="marketQuoteSection">
       <div className="marketQuoteSectionHeader">
-        <div>
-          <span className="label">Markedsdata</span>
-          <h2>Kurser og handelsdata</h2>
-        </div>
+        <div><span className="label">Markedsdata</span><h2>Kurser og handelsdata</h2></div>
         {failed && <span className="pill muted">Viser sist hentet</span>}
       </div>
       <div className="marketQuoteGrid">
-        <QuoteCard quote={data?.symbols?.OTEC} title="OTEC" />
-        <QuoteCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" />
-        <QuoteCard quote={data?.symbols?.LIF} title="Life360 / LIF" />
+        <MarketInsightCard quote={data?.symbols?.OTEC} title="OTEC" footer="Kilde: Euronext · 30 min refresh" metrics={[
+          { label: "NAV / aksje", value: finite(nav?.nav_per_share) ? `${formatNumber(nav.nav_per_share, 2)} kr` : EMPTY },
+          { label: "NAV-rabatt", value: finite(nav?.discount_pct) ? `${formatNumber(nav.discount_pct, 1)} %` : EMPTY },
+          { label: "Volum vs 3 mnd", value: finite(data?.symbols?.OTEC?.volume?.relative_3m) ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×` : EMPTY },
+        ]} />
+        <MarketInsightCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" footer="Sterkere BMOB3 = positivt for Otello NAV" metrics={[
+          { label: "NAV-effekt 1 mnd", value: signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), tone: tone(bemobi?.nav_effect_1m_per_share_nok) },
+          { label: "Verdi / OTEC-aksje", value: finite(bemobi?.value_per_otec_share_nok) ? `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr` : EMPTY },
+          { label: "Otello eier", value: finite(bemobi?.holding_shares) && finite(bemobi?.ownership_pct) ? `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %` : EMPTY },
+        ]} />
+        <MarketInsightCard quote={data?.symbols?.LIF} title="Life360 / LIF" footer="Kilde: Yahoo Finance · 30 min refresh" metrics={[
+          { label: "Verdi for Otello", value: finite(lifeValue) ? `${formatNumber(lifeValue, 1)} mill. kr` : EMPTY },
+          { label: "Verdi / OTEC-aksje", value: finite(lifePerShare) ? `${formatNumber(lifePerShare, 2)} kr` : EMPTY },
+          { label: "NAV-effekt 1 mnd", value: signed(nav?.life360?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), tone: tone(nav?.life360?.nav_effect_1m_per_share_nok) },
+        ]} />
       </div>
-      {data?.methodology?.range_52w && (
-        <p className="marketQuoteMethod">{data.methodology.range_52w}</p>
-      )}
-      {data?.methodology?.life360 && (
-        <p className="marketQuoteMethod">{data.methodology.life360}</p>
-      )}
     </section>
   );
 }

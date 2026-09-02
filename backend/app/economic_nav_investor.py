@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.db.connection import get_connection
 from app.economic_nav import economic_nav_summary as accounting_economic_nav_summary
 from app.life360_nav import life360_nav_adjustment
 from app.nav.full_nav import FULL_CALCULATION_VERSION
-from app.option_settlement import MILLION, nav_cash_settlement, settlement_inputs_from_components
+from app.nav_waterfall_attribution import symmetric_two_factor_attribution
+from app.option_settlement import (
+    MILLION,
+    nav_cash_settlement,
+    settlement_inputs_from_components,
+)
 
 CONSERVATIVE_COST_POLICY = "MAX_BASE_RUN_RATE_AND_SOURCE_CONSERVATIVE"
 
@@ -17,7 +23,9 @@ def _float(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
 
 
-def _discount_pct(otec_price_nok: Decimal | None, nav_per_share_nok: Decimal) -> float | None:
+def _discount_pct(
+    otec_price_nok: Decimal | None, nav_per_share_nok: Decimal
+) -> float | None:
     if otec_price_nok is None or nav_per_share_nok <= 0:
         return None
     return float((Decimal("1") - otec_price_nok / nav_per_share_nok) * Decimal("100"))
@@ -49,13 +57,63 @@ def _life360_public(raw: dict[str, Any]) -> dict[str, Any]:
     adjustment = Decimal(str(raw.get("adjustment_nok") or "0"))
     result["adjustment_mnok"] = _float(adjustment / MILLION)
     if raw.get("market_value_nok") is not None:
-        result["market_value_mnok"] = _float(Decimal(str(raw["market_value_nok"])) / MILLION)
+        result["market_value_mnok"] = _float(
+            Decimal(str(raw["market_value_nok"])) / MILLION
+        )
     if raw.get("embedded_value_nok") is not None:
-        result["embedded_value_mnok"] = _float(Decimal(str(raw["embedded_value_nok"])) / MILLION)
+        result["embedded_value_mnok"] = _float(
+            Decimal(str(raw["embedded_value_nok"])) / MILLION
+        )
     return result
 
 
-def _apply_conservative_cost_floor(operating: dict[str, Any]) -> tuple[Decimal, Decimal, dict[str, Any]]:
+def _life360_month_price_effect(
+    start: dict[str, Any],
+    current: dict[str, Any],
+    start_shares_outstanding: int,
+    current_shares_outstanding: int,
+) -> float | None:
+    """Returner ren LIF-kurseffekt per OTEC-aksje, uten USD/NOK-effekten."""
+    if (
+        not start.get("ready")
+        or not current.get("ready")
+        or start_shares_outstanding <= 0
+        or current_shares_outstanding <= 0
+    ):
+        return None
+    try:
+        start_holding = int(start.get("shares") or 0)
+        current_holding = int(current.get("shares") or 0)
+        start_price = Decimal(str(start["price"]))
+        current_price = Decimal(str(current["price"]))
+        start_fx = Decimal(str(start["fx_rate"]))
+        current_fx = Decimal(str(current["fx_rate"]))
+    except (InvalidOperation, KeyError, TypeError, ValueError):
+        return None
+    if start_holding <= 0 or start_holding != current_holding:
+        return None
+    if not all(
+        value.is_finite() and value > 0
+        for value in (start_price, current_price, start_fx, current_fx)
+    ):
+        return None
+    attribution = symmetric_two_factor_attribution(
+        shares=current_holding,
+        anchor_price=start_price,
+        current_price=current_price,
+        anchor_fx=start_fx,
+        current_fx=current_fx,
+    )
+    reciprocal_scale = (
+        Decimal("1") / Decimal(start_shares_outstanding)
+        + Decimal("1") / Decimal(current_shares_outstanding)
+    ) / Decimal("2")
+    return float(attribution["price_effect_nok"] * reciprocal_scale)
+
+
+def _apply_conservative_cost_floor(
+    operating: dict[str, Any],
+) -> tuple[Decimal, Decimal, dict[str, Any]]:
     """A conservative scenario may never assume lower operating cost than BASE."""
     base_cost_nok = Decimal(str(operating.get("base_mnok") or "0")) * MILLION
     source_conservative_cost_nok = (
@@ -76,7 +134,9 @@ def _apply_conservative_cost_floor(operating: dict[str, Any]) -> tuple[Decimal, 
     base_annualized = operating.get("base_annualized_usd_m")
     source_conservative_annualized = operating.get("conservative_annualized_usd_m")
     if source_conservative_annualized is not None:
-        public_operating["conservative_source_annualized_usd_m"] = source_conservative_annualized
+        public_operating["conservative_source_annualized_usd_m"] = (
+            source_conservative_annualized
+        )
     if base_annualized is not None and source_conservative_annualized is not None:
         public_operating["conservative_annualized_usd_m"] = max(
             float(base_annualized), float(source_conservative_annualized)
@@ -104,10 +164,23 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             """,
             (FULL_CALCULATION_VERSION, as_of_date),
         ).fetchone()
+        month_target = (date.fromisoformat(as_of_date) - timedelta(days=30)).isoformat()
+        month_row = connection.execute(
+            """
+            SELECT substr(as_of_at, 1, 10) AS as_of_date, shares_outstanding
+            FROM nav_snapshots
+            WHERE calculation_version=? AND nav_scope='FULL'
+              AND substr(as_of_at, 1, 10) <= ?
+            ORDER BY as_of_at DESC, id DESC LIMIT 1
+            """,
+            (FULL_CALCULATION_VERSION, month_target),
+        ).fetchone()
     if row is None:
         return {"ready": False, "reason": "missing_full_nav_row"}
 
-    settlement_inputs = settlement_inputs_from_components(_components(row["components_json"]))
+    settlement_inputs = settlement_inputs_from_components(
+        _components(row["components_json"])
+    )
     if settlement_inputs is None:
         return {
             "ready": False,
@@ -117,22 +190,42 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
     option_count, strike_nok = settlement_inputs
 
     option_meta = dict(base.get("option") or {})
-    accounting_liability_nok = Decimal(str(option_meta.get("accounting_liability_mnok") or "0")) * MILLION
-    cash_fx_nok = Decimal(str((base.get("cash_fx") or {}).get("adjustment_mnok") or "0")) * MILLION
+    accounting_liability_nok = (
+        Decimal(str(option_meta.get("accounting_liability_mnok") or "0")) * MILLION
+    )
+    cash_fx_nok = (
+        Decimal(str((base.get("cash_fx") or {}).get("adjustment_mnok") or "0"))
+        * MILLION
+    )
     operating = base.get("operating_costs") or {}
-    base_cost_nok, conservative_cost_nok, public_operating = _apply_conservative_cost_floor(
-        operating
+    base_cost_nok, conservative_cost_nok, public_operating = (
+        _apply_conservative_cost_floor(operating)
     )
 
     life360 = life360_nav_adjustment(as_of_date=as_of_date, database_path=database_path)
+    life360_month_effect = None
+    if month_row is not None:
+        month_state = life360_nav_adjustment(
+            as_of_date=str(month_row["as_of_date"]), database_path=database_path
+        )
+        life360_month_effect = _life360_month_price_effect(
+            month_state,
+            life360,
+            int(month_row["shares_outstanding"]),
+            int(row["shares_outstanding"]),
+        )
     life360_adjustment_nok = (
-        Decimal(str(life360.get("adjustment_nok") or "0")) if life360.get("ready") else Decimal("0")
+        Decimal(str(life360.get("adjustment_nok") or "0"))
+        if life360.get("ready")
+        else Decimal("0")
     )
 
     full_nav_total_nok = Decimal(str(row["nav_total_nok"]))
     shares_outstanding = int(row["shares_outstanding"])
     otec_price_nok = (
-        Decimal(str(row["otec_price_nok"])) if row["otec_price_nok"] is not None else None
+        Decimal(str(row["otec_price_nok"]))
+        if row["otec_price_nok"] is not None
+        else None
     )
 
     base_pre_option_total = (
@@ -163,12 +256,16 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
     )
 
     economic_per_share = Decimal(str(settlement["nav_after_option_per_share_nok"]))
-    conservative_per_share = Decimal(str(conservative_settlement["nav_after_option_per_share_nok"]))
+    conservative_per_share = Decimal(
+        str(conservative_settlement["nav_after_option_per_share_nok"])
+    )
 
     option_meta.update(
         {
             "black_scholes_gross_mnok": option_meta.get("economic_value_mnok"),
-            "settlement_mnok": _float(Decimal(str(settlement["settlement_nok"])) / MILLION),
+            "settlement_mnok": _float(
+                Decimal(str(settlement["settlement_nok"])) / MILLION
+            ),
             "conservative_settlement_mnok": _float(
                 Decimal(str(conservative_settlement["settlement_nok"])) / MILLION
             ),
@@ -199,9 +296,14 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             "shares_outstanding": shares_outstanding,
             "discount_pct": _discount_pct(otec_price_nok, economic_per_share),
             "conservative_nav_per_share": _float(conservative_per_share),
-            "conservative_discount_pct": _discount_pct(otec_price_nok, conservative_per_share),
+            "conservative_discount_pct": _discount_pct(
+                otec_price_nok, conservative_per_share
+            ),
             "option": option_meta,
-            "life360": _life360_public(life360),
+            "life360": {
+                **_life360_public(life360),
+                "nav_effect_1m_per_share_nok": life360_month_effect,
+            },
             "operating_costs": public_operating,
             "economic_cash_note": (
                 "Kontantbeholdningen er før det hypotetiske opsjonsoppgjøret; scenarioet "
