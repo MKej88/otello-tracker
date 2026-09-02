@@ -67,6 +67,16 @@ def test_data_quality_shows_safe_preflight_warning_messages() -> None:
     assert ".map((warning) => warning.message)" in quality
 
 
+def test_data_quality_explains_partial_status_and_bemobi_fallback() -> None:
+    quality = read_frontend("DataQualityPage.tsx")
+
+    assert "«Delvis» betyr at kjøringen ble fullført" in quality
+    assert "stopper" in quality
+    assert "ikke oppdateringen når antall blokkeringer er 0" in quality
+    assert "kilden ble ikke fullt oppdatert" in quality
+    assert "siste gode data er beholdt" in quality
+
+
 def test_history_chart_has_a_text_summary() -> None:
     history = read_frontend("EstimatedHistoryPage.tsx")
 
