@@ -33,6 +33,15 @@ def test_bemobi_paid_is_split_out_without_changing_composition_total() -> None:
         "bemobi_net_cash_nok": 8_000_000,
         "bemobi_receipt_rows": 1,
         "withholding_rows": 1,
+        "bemobi_payment_events": [
+            {
+                "movement_date": "2026-08-28",
+                "movement_type": "BEMOBI_JCP",
+                "gross_nok": 10_000_000,
+                "withholding_nok": -2_000_000,
+                "net_nok": 8_000_000,
+            }
+        ],
     }
 
     before = sum(item["amount_mnok"] for item in result["current"]["composition"])
@@ -43,12 +52,16 @@ def test_bemobi_paid_is_split_out_without_changing_composition_total() -> None:
     bemobi = next(item for item in components if item["key"] == "bemobi_paid_since_report")
     residual = next(item for item in components if item["key"] == "other_cash_since_report")
 
-    assert bemobi["label"] == "Bekreftede øvrige kontantbevegelser"
-    assert bemobi["formula"] == "Utbetalt utbytte/renter fra Bemobi siden siste rapport"
+    assert bemobi["label"] == "Bemobi-utbetalinger"
+    assert bemobi["formula"] == (
+        "28.08.2026 · Rente på egenkapitalen\n"
+        "Brutto 10,0 mill. kr − kildeskatt 2,0 mill. kr = netto 8,0 mill. kr"
+    )
     assert bemobi["amount_mnok"] == 8.0
     assert bemobi["per_share_nok"] == 0.08
     assert bemobi["details"]["gross_mnok"] == 10.0
     assert bemobi["details"]["withholding_mnok"] == -2.0
+    assert bemobi["details"]["payment_events"][0]["movement_date"] == "2026-08-28"
     assert residual["amount_mnok"] == 4.0
     assert residual["per_share_nok"] == 0.04
     assert before == after

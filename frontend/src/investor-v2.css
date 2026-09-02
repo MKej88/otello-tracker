@@ -25,7 +25,7 @@
 .compositionHead { padding:0 12px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.08em; opacity:.55; }
 .compositionRow { padding:15px 12px; border-top:1px solid rgba(255,255,255,.075); }
 .compositionRow strong { font-size:14px; }
-.compositionRow small { opacity:.66; line-height:1.35; }
+.compositionRow small { opacity:.66; line-height:1.35; white-space:pre-line; }
 .driverLabel,.driverCell { display:grid; gap:7px; }
 .driverLabel small,.driverCell small { min-height:18px; padding-top:6px; border-top:1px solid rgba(255,255,255,.045); font-size:11px; }
 .driverCell > span { min-height:18px; }

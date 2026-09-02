@@ -258,7 +258,7 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
     parts.forEach((part) => groupedKeys.add(part.key));
     result.push({
       key: "bemobi_confirmed_cash",
-      label: "Bekreftede øvrige kontantbevegelser",
+      label: "Bemobi-utbetalinger",
       amount_mnok: parts.reduce((sum, part) => sum + (part.amount_mnok ?? 0), 0),
       per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0),
       breakdown: parts.map((part) => ({
@@ -322,10 +322,10 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
       }
       if (otherMovements != null) {
         breakdown.push({
-          label: "Andre kontantbevegelser",
+          label: "Restpost",
           movement: interestIncome == null
-            ? "Resterende kontantendring"
-            : "Resterende kontantendring etter drift og renter",
+            ? "Rest etter identifiserte kontantbevegelser"
+            : "Rest etter identifiserte kontantbevegelser, drift og renter",
           amount_mnok: otherMovements,
           per_share_nok: otherMovements * scale,
         });

@@ -137,8 +137,8 @@ def _share_count_driver(
 def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[str, Any]:
     rows = connection.execute(
         """
-        SELECT movement_date, movement_type, amount_nok, description,
-               external_movement_id, buyback_id
+        SELECT movement_date, movement_type, amount_nok, amount_original, currency,
+               description, external_movement_id, buyback_id
         FROM cash_movements
         WHERE movement_date > ? AND movement_date <= ?
           AND movement_type IN (
@@ -186,6 +186,7 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
     cross_start_weekly_excluded = 0
     bemobi_receipt_rows = 0
     withholding_rows = 0
+    bemobi_events: dict[tuple[str, str], dict[str, Any]] = {}
 
     for row in copied:
         movement_type = str(row.get("movement_type") or "")
@@ -219,6 +220,17 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
         if movement_type in {"BEMOBI_DIVIDEND", "BEMOBI_JCP"}:
             bemobi_gross += amount
             bemobi_receipt_rows += 1
+            event_key = (str(row.get("movement_date") or ""), movement_type)
+            event = bemobi_events.setdefault(
+                event_key,
+                {
+                    "movement_date": event_key[0],
+                    "movement_type": movement_type,
+                    "gross_nok": Decimal("0"),
+                    "withholding_nok": Decimal("0"),
+                },
+            )
+            event["gross_nok"] += amount
             continue
         if movement_type == "TAX" and (
             external_id.startswith("bemobi-withholding:")
@@ -226,6 +238,27 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
         ):
             bemobi_withholding += amount
             withholding_rows += 1
+            candidates = [
+                event
+                for (payment_date, event_type), event in bemobi_events.items()
+                if payment_date == str(row.get("movement_date") or "")
+                and event_type == "BEMOBI_JCP"
+            ]
+            if candidates:
+                candidates[-1]["withholding_nok"] += amount
+
+    payment_events = []
+    for event in bemobi_events.values():
+        gross = Decimal(str(event["gross_nok"]))
+        withholding = Decimal(str(event["withholding_nok"]))
+        payment_events.append(
+            {
+                **event,
+                "gross_nok": float(gross),
+                "withholding_nok": float(withholding),
+                "net_nok": float(gross + withholding),
+            }
+        )
 
     return {
         "ready": True,
@@ -239,6 +272,7 @@ def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[s
         "cross_start_weekly_excluded": cross_start_weekly_excluded,
         "bemobi_receipt_rows": bemobi_receipt_rows,
         "withholding_rows": withholding_rows,
+        "bemobi_payment_events": payment_events,
     }
 
 

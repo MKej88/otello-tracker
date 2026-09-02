@@ -125,7 +125,7 @@ CREATE TABLE "cash_movements" (
     movement_date TEXT NOT NULL,
     movement_type TEXT NOT NULL CHECK (movement_type IN (
         'BEMOBI_DIVIDEND', 'BEMOBI_JCP', 'OTELLO_BUYBACK', 'OTELLO_BUYBACK_DAILY',
-        'OTELLO_DISTRIBUTION', 'OPEX', 'TAX', 'FX', 'OTHER'
+        'OTELLO_DISTRIBUTION', 'PATENT_PROCEEDS', 'OPEX', 'TAX', 'FX', 'OTHER'
     )),
     amount_nok TEXT NOT NULL,
     amount_original TEXT,

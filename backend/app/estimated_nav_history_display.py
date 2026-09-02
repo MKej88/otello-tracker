@@ -118,16 +118,22 @@ def _confirmed_other_cash_display(
     event = events[0]
     event_date = str(event["movement_date"])
     display_date = _display_date(event_date)
-    external_id = str(event["external_movement_id"])
+    description = str(event["description"])
     event_name = (
-        "Patentoppgjør"
-        if external_id.startswith("otello-report-post-cash:PATENT_SALE_FINAL_INSTALMENT:")
-        else "Bekreftet kontantbevegelse"
+        "Siste avdrag fra patentsalg"
+        if "final" in description.lower() and "patent" in description.lower()
+        else "Patentoppgjør"
     )
     amount_original = _decimal(event["amount_original"])
-    amount_text = f"{amount_original / MILLION:.2f}".replace(".", ",").rstrip("0").rstrip(",")
+    amount_text = f"{amount_original:,.0f}".replace(",", " ")
     currency = str(event["currency"] or "")
-    return True, f"{event_name} {display_date}: {currency} {amount_text}m", events
+    amount_nok = _decimal(event["amount_nok"]) / MILLION
+    nok_text = f"{amount_nok:.1f}".replace(".", ",")
+    return (
+        True,
+        f"{display_date} · {event_name}\n{currency} {amount_text} → {nok_text} mill. kr",
+        events,
+    )
 
 
 def _report_split_state(database_path: str | None, report_date: str) -> dict[str, Any]:
@@ -312,7 +318,7 @@ def _split_current_composition(
                        description, external_movement_id, source_document_id
                 FROM cash_movements
                 WHERE movement_date > ? AND movement_date <= ?
-                  AND movement_type='OTHER' AND confidence='CONFIRMED'
+                  AND movement_type='PATENT_PROCEEDS' AND confidence='CONFIRMED'
                 ORDER BY movement_date, id
                 """,
                 (cash_report_date, current_date),
@@ -321,9 +327,13 @@ def _split_current_composition(
     buyback_nok = _decimal(cash_movements.get("buyback_cash_nok"))
     reported_cash_nok = _decimal(report["reported_cash_nok"])
     other_cash_nok = modeled_cash_nok - reported_cash_nok - buyback_nok
-    other_cash_confirmed, other_cash_formula, confirmed_other_events = _confirmed_other_cash_display(
-        confirmed_other_rows,
-        other_cash_nok,
+    patent_nok = sum(
+        (_decimal(row.get("amount_nok")) for row in confirmed_other_rows),
+        Decimal("0"),
+    )
+    residual_cash_nok = other_cash_nok - patent_nok
+    _confirmed, patent_formula, patent_events = _confirmed_other_cash_display(
+        confirmed_other_rows, patent_nok
     )
 
     old_ona_nok = _decimal(ona.get("amount_mnok")) * MILLION
@@ -420,23 +430,31 @@ def _split_current_composition(
             ),
         ]
     )
-    if abs(other_cash_nok) > TOLERANCE_NOK:
+    if abs(patent_nok) > TOLERANCE_NOK:
+        new_components.append(
+            _component(
+                "patent_proceeds_since_report",
+                "Patentoppgjør",
+                patent_nok,
+                shares,
+                patent_formula,
+                {"confirmed_events": patent_events},
+            )
+        )
+    if abs(residual_cash_nok) > TOLERANCE_NOK:
         new_components.append(
             _component(
                 "other_cash_since_report",
-                (
-                    "Bekreftede øvrige kontantbevegelser"
-                    if other_cash_confirmed
-                    else "Andre kontantbevegelser siden siste rapport"
-                ),
-                other_cash_nok,
+                "Andre kontantbevegelser",
+                residual_cash_nok,
                 shares,
-                other_cash_formula,
+                "Rest etter identifiserte kontantbevegelser",
                 {
                     "report_date": cash_report_date,
                     "current_date": current_date,
-                    "confirmed": other_cash_confirmed,
-                    "confirmed_events": confirmed_other_events,
+                    "residual_after_identified_movements_mnok": float(
+                        residual_cash_nok / MILLION
+                    ),
                 },
             )
         )

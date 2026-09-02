@@ -368,13 +368,44 @@ def _apply_bemobi_paid_split(
 
     gross_nok = _decimal(cash_breakdown.get("bemobi_gross_cash_nok"))
     withholding_nok = _decimal(cash_breakdown.get("bemobi_withholding_nok"))
+    payment_events = []
+    for raw_event in cash_breakdown.get("bemobi_payment_events") or []:
+        event = dict(raw_event)
+        movement_type = str(event.get("movement_type") or "")
+        event["payment_type_label"] = (
+            "Rente på egenkapitalen"
+            if movement_type == "BEMOBI_JCP"
+            else "Utbytte"
+        )
+        payment_events.append(event)
+
+    formula_lines = []
+    for event in payment_events:
+        payment_date = str(event.get("movement_date") or "")
+        try:
+            display_date = date.fromisoformat(payment_date).strftime("%d.%m.%Y")
+        except ValueError:
+            display_date = payment_date
+        gross = f"{_decimal(event.get('gross_nok')) / MILLION:.1f}".replace(".", ",")
+        withholding = f"{abs(_decimal(event.get('withholding_nok'))) / MILLION:.1f}".replace(
+            ".", ","
+        )
+        net = f"{_decimal(event.get('net_nok')) / MILLION:.1f}".replace(".", ",")
+        formula_lines.extend(
+            [
+                f"{display_date} · {event['payment_type_label']}",
+                f"Brutto {gross} mill. kr − kildeskatt {withholding} mill. kr "
+                f"= netto {net} mill. kr",
+            ]
+        )
+    formula = "\n".join(formula_lines) or "Mottatt netto fra Bemobi"
     new_components.append(
         {
             "key": "bemobi_paid_since_report",
-            "label": "Bekreftede øvrige kontantbevegelser",
+            "label": "Bemobi-utbetalinger",
             "amount_mnok": float(bemobi_paid_nok / MILLION),
             "per_share_nok": float(bemobi_paid_nok / Decimal(shares)),
-            "formula": "Utbetalt utbytte/renter fra Bemobi siden siste rapport",
+            "formula": formula,
             "details": {
                 "gross_mnok": float(gross_nok / MILLION),
                 "withholding_mnok": float(withholding_nok / MILLION),
@@ -382,6 +413,7 @@ def _apply_bemobi_paid_split(
                 "receipt_rows": int(cash_breakdown.get("bemobi_receipt_rows") or 0),
                 "withholding_rows": int(cash_breakdown.get("withholding_rows") or 0),
                 "display_policy": "EXPLICIT_POST_REPORT_CASH_MOVEMENT",
+                "payment_events": payment_events,
             },
         }
     )
