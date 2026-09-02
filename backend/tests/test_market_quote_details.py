@@ -300,9 +300,30 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     for label in (
         "NAV-effekt 1 mnd",
         "Verdi / OTEC-aksje",
-        "Otello eier",
         "Verdi for Otello",
         "52 uker",
     ):
         assert label in panel
+    bemobi_card = panel.split('title="Bemobi / BMOB3"', maxsplit=1)[1].split(
+        'title="Life360 / LIF"', maxsplit=1
+    )[0]
+    assert "Otello eier" not in bemobi_card
+    assert "Kilde: B3 · 30 min refresh" in bemobi_card
+    assert "summary?.bemobi_value_mnok" in bemobi_card
+    assert bemobi_card.index('label: "Verdi for Otello"') < bemobi_card.index(
+        'label: "Verdi / OTEC-aksje"'
+    ) < bemobi_card.index('label: "NAV-effekt 1 mnd"')
+    life360_card = panel.split('title="Life360 / LIF"', maxsplit=1)[1]
+    assert life360_card.index('label: "Verdi for Otello"') < life360_card.index(
+        'label: "Verdi / OTEC-aksje"'
+    ) < life360_card.index('label: "NAV-effekt 1 mnd"')
+    shared_card = panel.split("function MarketInsightCard", maxsplit=1)[1].split(
+        "export default function", maxsplit=1
+    )[0]
+    assert 'label: "1 mnd"' in shared_card
+    assert 'label: "3 mnd"' in shared_card
+    assert "<MarketRange quote={quote} />" in shared_card
+    assert "{footer}" in shared_card
+    assert 'const EMPTY = "—"' in panel
+    assert "Number.isFinite" in panel
     assert "<MarketQuotePanel />" in economic

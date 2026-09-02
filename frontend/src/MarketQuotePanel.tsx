@@ -23,6 +23,7 @@ type Payload = { ready: boolean; symbols?: Record<string, Quote> };
 
 type Summary = {
   shares_outstanding?: number | null;
+  bemobi_value_mnok?: number | null;
   bemobi_insights?: {
     nav_effect_1m_per_share_nok?: number | null;
     value_per_otec_share_nok?: number | null;
@@ -194,10 +195,10 @@ export default function MarketQuotePanel() {
           { label: "NAV-rabatt", value: finite(nav?.discount_pct) ? `${formatNumber(nav.discount_pct, 1)} %` : EMPTY },
           { label: "Volum vs 3 mnd", value: finite(data?.symbols?.OTEC?.volume?.relative_3m) ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×` : EMPTY },
         ]} />
-        <MarketInsightCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" footer="Sterkere BMOB3 = positivt for Otello NAV" metrics={[
-          { label: "NAV-effekt 1 mnd", value: signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), tone: tone(bemobi?.nav_effect_1m_per_share_nok) },
+        <MarketInsightCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" footer="Kilde: B3 · 30 min refresh" metrics={[
+          { label: "Verdi for Otello", value: finite(summary?.bemobi_value_mnok) ? `${formatNumber(summary.bemobi_value_mnok, 1)} mill. kr` : EMPTY },
           { label: "Verdi / OTEC-aksje", value: finite(bemobi?.value_per_otec_share_nok) ? `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr` : EMPTY },
-          { label: "Otello eier", value: finite(bemobi?.holding_shares) && finite(bemobi?.ownership_pct) ? `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %` : EMPTY },
+          { label: "NAV-effekt 1 mnd", value: signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), tone: tone(bemobi?.nav_effect_1m_per_share_nok) },
         ]} />
         <MarketInsightCard quote={data?.symbols?.LIF} title="Life360 / LIF" footer="Kilde: Yahoo Finance · 30 min refresh" metrics={[
           { label: "Verdi for Otello", value: finite(lifeValue) ? `${formatNumber(lifeValue, 1)} mill. kr` : EMPTY },
