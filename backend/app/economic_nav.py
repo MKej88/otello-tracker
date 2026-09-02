@@ -10,6 +10,8 @@ from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 from app.nav.full_nav import FULL_CALCULATION_VERSION
 
 MAX_FX_LOOKBACK_DAYS = 7
+MILLION = Decimal("1000000")
+CASH_BRIDGE_TOLERANCE_NOK = Decimal("1000")
 
 
 def _float(value: Decimal | str | int | float | None) -> float | None:
@@ -48,7 +50,9 @@ def _option_values(components: dict[str, Any]) -> tuple[Decimal, Decimal] | None
 
 
 def _nearest_fx(connection, base: str, day: str):
-    floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
+    floor_date = (
+        date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+    ).isoformat()
     return connection.execute(
         """
         SELECT id, substr(observed_at,1,10) AS rate_date, rate
@@ -62,14 +66,12 @@ def _nearest_fx(connection, base: str, day: str):
 
 
 def _latest_cost_anchors(connection, as_of_date: str) -> dict[str, dict[str, Any]]:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT id, published_at, metadata_json
         FROM source_documents
         WHERE document_type='ECONOMIC_NAV_COST_ANCHOR'
         ORDER BY published_at DESC, id DESC
-        """
-    ).fetchall()
+        """).fetchall()
     selected: dict[str, dict[str, Any]] = {}
     for row in rows:
         metadata = _metadata(row["metadata_json"])
@@ -96,14 +98,12 @@ def _latest_cost_anchors(connection, as_of_date: str) -> dict[str, dict[str, Any
 
 
 def _cash_fx_anchor(connection, cash_anchor_date: str) -> dict[str, Any] | None:
-    rows = connection.execute(
-        """
+    rows = connection.execute("""
         SELECT id, metadata_json
         FROM source_documents
         WHERE document_type='ECONOMIC_NAV_CASH_FX_ANCHOR'
         ORDER BY published_at DESC, id DESC
-        """
-    ).fetchall()
+        """).fetchall()
     for row in rows:
         metadata = _metadata(row["metadata_json"])
         if str(metadata.get("as_of_date") or "")[:10] == cash_anchor_date:
@@ -111,7 +111,9 @@ def _cash_fx_anchor(connection, cash_anchor_date: str) -> dict[str, Any] | None:
     return None
 
 
-def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) -> dict[str, Any]:
+def _cash_fx_revaluation(
+    connection, *, cash_anchor_date: str, as_of_date: str
+) -> dict[str, Any]:
     anchor = _cash_fx_anchor(connection, cash_anchor_date)
     if anchor is None:
         return {
@@ -238,6 +240,56 @@ def _cash_fx_revaluation(connection, *, cash_anchor_date: str, as_of_date: str) 
     }
 
 
+def build_cash_bridge(
+    *,
+    anchor_date: str,
+    reported_cash_nok: Decimal,
+    modeled_cash_nok: Decimal,
+    shares_outstanding: int,
+    buyback_cash_nok: Decimal = Decimal("0"),
+    bemobi_cash_nok: Decimal = Decimal("0"),
+    patent_proceeds_nok: Decimal = Decimal("0"),
+    operating_cost_nok: Decimal = Decimal("0"),
+    cash_fx_nok: Decimal = Decimal("0"),
+) -> dict[str, Any]:
+    """Build a compact bridge that reconciles reported and economic cash."""
+    identified_modeled_cash = buyback_cash_nok + bemobi_cash_nok + patent_proceeds_nok
+    other_cash_nok = modeled_cash_nok - reported_cash_nok - identified_modeled_cash
+    estimated_cash_nok = modeled_cash_nok + cash_fx_nok - operating_cost_nok
+    movements = [
+        ("bemobi_payments", "Bemobi-utbetalinger", bemobi_cash_nok),
+        ("patent_proceeds", "Patentoppgjør", patent_proceeds_nok),
+        ("buybacks", "Tilbakekjøp", buyback_cash_nok),
+        ("operating_costs", "Estimert drift", -operating_cost_nok),
+        ("cash_fx", "Valutaeffekt", cash_fx_nok),
+        ("other_cash", "Andre kontantbevegelser", other_cash_nok),
+    ]
+    visible_movements = [
+        {"key": key, "label": label, "amount_mnok": _float(amount / MILLION)}
+        for key, label, amount in movements
+        if abs(amount) > CASH_BRIDGE_TOLERANCE_NOK
+    ]
+    change_nok = estimated_cash_nok - reported_cash_nok
+    visible_total = sum(
+        (Decimal(str(item["amount_mnok"])) * MILLION for item in visible_movements),
+        Decimal("0"),
+    )
+    return {
+        "report_date": anchor_date,
+        "reported_cash_mnok": _float(reported_cash_nok / MILLION),
+        "estimated_cash_mnok": _float(estimated_cash_nok / MILLION),
+        "cash_per_share_nok": (
+            _float(estimated_cash_nok / Decimal(shares_outstanding))
+            if shares_outstanding > 0
+            else None
+        ),
+        "movements": visible_movements,
+        "change_since_report_mnok": _float(change_nok / MILLION),
+        "reconciles": abs(visible_total - change_nok) <= CASH_BRIDGE_TOLERANCE_NOK,
+        "tolerance_nok": _float(CASH_BRIDGE_TOLERANCE_NOK),
+    }
+
+
 def build_economic_nav_overlay(
     *,
     as_of_date: str,
@@ -259,14 +311,16 @@ def build_economic_nav_overlay(
     conservative_cost_metadata: dict[str, Any] | None = None,
     cash_fx_adjustment_nok: Decimal = Decimal("0"),
     cash_fx_details: dict[str, Any] | None = None,
+    reported_cash_nok: Decimal | None = None,
+    cash_bridge_movements: dict[str, Decimal] | None = None,
 ) -> dict[str, Any]:
     current = date.fromisoformat(as_of_date)
     anchor = date.fromisoformat(cash_anchor_date)
     days_since_anchor = max(0, (current - anchor).days)
 
     base_daily_usd = base_operating_cost_usd / Decimal(base_operating_cost_period_days)
-    conservative_daily_usd = (
-        conservative_operating_cost_usd / Decimal(conservative_operating_cost_period_days)
+    conservative_daily_usd = conservative_operating_cost_usd / Decimal(
+        conservative_operating_cost_period_days
     )
     base_cost_usd = base_daily_usd * Decimal(days_since_anchor)
     conservative_cost_usd = conservative_daily_usd * Decimal(days_since_anchor)
@@ -292,7 +346,7 @@ def build_economic_nav_overlay(
     base_meta = base_cost_metadata or {}
     conservative_meta = conservative_cost_metadata or {}
 
-    return {
+    result = {
         "ready": True,
         "as_of_date": as_of_date,
         "quality": "ESTIMATED_OVERLAY",
@@ -314,8 +368,12 @@ def build_economic_nav_overlay(
             "accounting_liability_mnok": _float(
                 accounting_option_liability_nok / Decimal("1000000")
             ),
-            "economic_value_mnok": _float(economic_option_value_nok / Decimal("1000000")),
-            "unrecognized_overhang_mnok": _float(option_overhang_nok / Decimal("1000000")),
+            "economic_value_mnok": _float(
+                economic_option_value_nok / Decimal("1000000")
+            ),
+            "unrecognized_overhang_mnok": _float(
+                option_overhang_nok / Decimal("1000000")
+            ),
             "method": "full-black-scholes-gross-value-v1",
         },
         "operating_costs": {
@@ -344,8 +402,12 @@ def build_economic_nav_overlay(
                 conservative_operating_cost_usd / Decimal("1000000")
             ),
             "conservative_source_measure": conservative_meta.get("source_measure"),
-            "conservative_source_document_id": conservative_meta.get("source_document_id"),
-            "conservative_source_effective_from": conservative_meta.get("effective_from"),
+            "conservative_source_document_id": conservative_meta.get(
+                "source_document_id"
+            ),
+            "conservative_source_effective_from": conservative_meta.get(
+                "effective_from"
+            ),
             "interest_income_included": False,
         },
         "note": (
@@ -356,6 +418,20 @@ def build_economic_nav_overlay(
             "interest income is not accrued."
         ),
     }
+    if reported_cash_nok is not None:
+        bridge = cash_bridge_movements or {}
+        result["cash_bridge"] = build_cash_bridge(
+            anchor_date=cash_anchor_date,
+            reported_cash_nok=reported_cash_nok,
+            modeled_cash_nok=cash_estimate_nok,
+            shares_outstanding=shares_outstanding,
+            buyback_cash_nok=bridge.get("buyback_cash_nok", Decimal("0")),
+            bemobi_cash_nok=bridge.get("bemobi_cash_nok", Decimal("0")),
+            patent_proceeds_nok=bridge.get("patent_proceeds_nok", Decimal("0")),
+            operating_cost_nok=base_cost_nok,
+            cash_fx_nok=cash_fx_adjustment_nok,
+        )
+    return result
 
 
 def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
@@ -409,7 +485,7 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
 
         anchor = connection.execute(
             """
-            SELECT as_of_date FROM cash_anchors
+            SELECT as_of_date, amount_nok FROM cash_anchors
             WHERE anchor_type='REPORTED' AND as_of_date <= ?
             ORDER BY as_of_date DESC, id DESC LIMIT 1
             """,
@@ -418,6 +494,28 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
         if anchor is None:
             return {"ready": False, "reason": "missing_reported_cash_anchor"}
         cash_anchor_date = str(anchor["as_of_date"])
+
+        from app.estimated_nav_history import _cash_breakdown
+
+        movement_breakdown = _cash_breakdown(
+            connection, start_date=cash_anchor_date, current_date=full_date
+        )
+        patent_rows = connection.execute(
+            """
+            SELECT amount_nok FROM cash_movements
+            WHERE movement_date > ? AND movement_date <= ?
+              AND identified_type='PATENT_PROCEEDS' AND confidence='CONFIRMED'
+            """,
+            (cash_anchor_date, full_date),
+        ).fetchall()
+        cash_bridge_movements = {
+            "buyback_cash_nok": Decimal(str(movement_breakdown["buyback_cash_nok"])),
+            "bemobi_cash_nok": Decimal(str(movement_breakdown["bemobi_net_cash_nok"])),
+            "patent_proceeds_nok": sum(
+                (Decimal(str(item["amount_nok"])) for item in patent_rows),
+                Decimal("0"),
+            ),
+        }
 
         fx = _nearest_fx(connection, "USD", full_date)
         if fx is None:
@@ -449,7 +547,9 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             nav_total_nok=Decimal(str(row["nav_total_nok"])),
             nav_per_share_nok=Decimal(str(row["nav_per_share_nok"])),
             otec_price_nok=(
-                Decimal(str(row["otec_price_nok"])) if row["otec_price_nok"] is not None else None
+                Decimal(str(row["otec_price_nok"]))
+                if row["otec_price_nok"] is not None
+                else None
             ),
             cash_estimate_nok=Decimal(str(row["cash_estimate_nok"])),
             shares_outstanding=int(row["shares_outstanding"]),
@@ -458,9 +558,13 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             base_operating_cost_usd=base_cost["amount_usd_decimal"],
             base_operating_cost_period_days=base_cost["period_days_int"],
             conservative_operating_cost_usd=conservative_cost["amount_usd_decimal"],
-            conservative_operating_cost_period_days=conservative_cost["period_days_int"],
+            conservative_operating_cost_period_days=conservative_cost[
+                "period_days_int"
+            ],
             base_cost_metadata=base_cost,
             conservative_cost_metadata=conservative_cost,
             cash_fx_adjustment_nok=cash_fx["adjustment_nok"],
             cash_fx_details=cash_fx["details"],
+            reported_cash_nok=Decimal(str(anchor["amount_nok"])),
+            cash_bridge_movements=cash_bridge_movements,
         )
