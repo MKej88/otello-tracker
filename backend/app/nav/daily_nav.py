@@ -67,7 +67,8 @@ def _nearest_fx(connection, base: str, as_of_date: str):
     ).isoformat()
     return connection.execute(
         """
-        SELECT fr.id, substr(fr.observed_at,1,10) AS rate_date, fr.rate,
+        SELECT fr.id, fr.observed_at,
+               substr(fr.observed_at,1,10) AS rate_date, fr.rate,
                fr.source_document_id, s.code AS source_code
         FROM fx_rates fr
         JOIN sources s ON s.id = fr.source_id
@@ -322,6 +323,7 @@ def calculate_daily_core_nav(
             "holding_shares": holding_shares,
             "brl_nok_id": brl_nok["id"],
             "brl_nok_date": brl_nok["rate_date"],
+            "brl_nok_observed_at": brl_nok["observed_at"],
             "brl_nok": brl_nok["rate"],
             "brl_nok_source": brl_nok["source_code"],
         },

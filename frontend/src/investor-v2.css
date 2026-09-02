@@ -13,6 +13,16 @@
 .estimatedHeroSide > div { display:flex; align-items:baseline; justify-content:space-between; gap:16px; }
 .estimatedHeroSide span,.estimatedHeroSide small { opacity:.7; }
 .estimatedHeroSide strong { font-size:22px; }
+.freshnessCard { gap:10px; }
+.freshnessRows { display:grid; gap:8px; }
+.freshnessRow { display:grid !important; grid-template-columns:8px minmax(58px,.8fr) minmax(82px,1fr) auto; align-items:center !important; gap:8px !important; font-size:12px; }
+.freshnessRow strong { font-size:12px; font-weight:650; }
+.freshnessRow span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.freshnessRow time { color:rgba(255,255,255,.78); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.freshnessDot { width:6px; height:6px; border-radius:50%; background:#718096; }
+.freshnessDot.fresh { background:#43c59e; }
+.freshnessDot.delayed { background:#e8b84a; }
+.freshnessDot.stale { background:#e16b6b; }
 
 .periodButtons { display:flex; flex-wrap:wrap; gap:7px; }
 .periodButtons button { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); color:inherit; border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
