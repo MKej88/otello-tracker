@@ -39,6 +39,14 @@ def test_production_acceptance_waits_for_exact_worker_revision() -> None:
     assert "health.get('revision') == os.environ['EXPECTED_SHA']" in step
 
 
+def test_production_acceptance_retries_all_temporary_cloudflare_errors() -> None:
+    step = _acceptance_step()
+
+    assert "curl_retry=(" in step
+    assert "--retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 360" in step
+    assert step.count('curl "${curl_retry[@]}"') == 17
+
+
 def test_production_acceptance_validates_bootstrap_payload() -> None:
     step = _acceptance_step()
 
