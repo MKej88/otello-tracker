@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from app.economic_nav import build_cash_bridge
-from cloudflare.tools.build_worker_runtime_fixture import build_worker_runtime_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -111,7 +110,13 @@ def test_worker_invalidates_old_cached_economic_payload() -> None:
 
 def test_worker_reference_fixture_supports_report_anchors_in_original_currency(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.syspath_prepend(ROOT)
+    from cloudflare.tools.build_worker_runtime_fixture import (
+        build_worker_runtime_fixture,
+    )
+
     result = build_worker_runtime_fixture(
         str(tmp_path / "reference.db"), tmp_path / "expected"
     )
