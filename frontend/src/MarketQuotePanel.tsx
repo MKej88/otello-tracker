@@ -162,13 +162,19 @@ function MarketInsightCard({
 
 export default function MarketQuotePanel() {
   const { data, refreshFailed: failed } = usePollingResource<Payload>(
-    "/api/market/quotes", AUTO_REFRESH_MS, true,
+    "/api/market/quotes",
+    AUTO_REFRESH_MS,
+    true,
   );
   const { data: summary } = usePollingResource<Summary>(
-    "/api/dashboard/summary", AUTO_REFRESH_MS, true,
+    "/api/dashboard/summary",
+    AUTO_REFRESH_MS,
+    true,
   );
   const { data: nav } = usePollingResource<EconomicNav>(
-    "/api/dashboard/economic", AUTO_REFRESH_MS, true,
+    "/api/dashboard/economic",
+    AUTO_REFRESH_MS,
+    true,
   );
   const bemobi = summary?.bemobi_insights;
   const lifeValue = nav?.life360?.ready ? nav.life360.market_value_mnok : null;
