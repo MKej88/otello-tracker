@@ -24,6 +24,9 @@ D1_LIFE360_PRICE_BACKFILL = ROOT / "cloudflare" / "migrations" / "0020_life360_p
 D1_BROKER_MODEL = ROOT / "cloudflare" / "migrations" / "0028_replace_aggregator_with_btg_model.sql"
 D1_NAV_SNAPSHOT_UPDATED_AT = ROOT / "cloudflare" / "migrations" / "0029_nav_snapshot_updated_at.sql"
 D1_PATENT_PROCEEDS = ROOT / "cloudflare" / "migrations" / "0030_patent_proceeds.sql"
+D1_ESTIMATED_NAV_HISTORY = (
+    ROOT / "cloudflare" / "migrations" / "0031_materialized_estimated_nav_history.sql"
+)
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -49,6 +52,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_LIFE360_HOLDINGS.read_text(encoding="utf-8"))
     connection.executescript(D1_NAV_SNAPSHOT_UPDATED_AT.read_text(encoding="utf-8"))
     connection.executescript(D1_PATENT_PROCEEDS.read_text(encoding="utf-8"))
+    connection.executescript(D1_ESTIMATED_NAV_HISTORY.read_text(encoding="utf-8"))
     return connection
 
 

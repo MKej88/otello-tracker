@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 FORMAT_VERSION = "d1-bootstrap-v1"
-LATEST_SQLITE_MIGRATION = "0033"
+LATEST_SQLITE_MIGRATION = "0034"
 
 REFERENCE_TABLES = (
     "sources",
@@ -39,6 +39,7 @@ DATA_TABLES = (
     "cash_period_calibrations",
     "cash_daily_estimates",
     "nav_snapshots",
+    "estimated_nav_history_points",
     "broker_estimate_sets",
     "broker_estimate_values",
     "consensus_snapshots",

@@ -11,6 +11,7 @@ from app.buybacks import buyback_status, collect_recent_buybacks
 from app.dashboard import dashboard_summary
 from app.db.migration_runner import init_database
 from app.history import seed_curated_history_if_needed
+from app.estimated_nav_history import materialize_estimated_nav_history
 from app.history.newsweb_2021_events import seed_2021_newsweb_events
 from app.jobs.refresh_helpers import safe_step as _safe_step
 from app.marketdata.b3_cotahist import download_cotahist_year
@@ -259,6 +260,11 @@ def run_refresh(
     )
     steps["daily_full_nav"] = _safe_step(
         "daily_full_nav", lambda: rebuild_daily_full_nav(database_path, end_date=end), errors
+    )
+    steps["estimated_nav_history"] = _safe_step(
+        "estimated_nav_history",
+        lambda: materialize_estimated_nav_history(database_path, batch_size=100),
+        errors,
     )
 
     summary = dashboard_summary(database_path)

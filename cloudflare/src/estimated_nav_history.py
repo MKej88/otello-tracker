@@ -7,10 +7,19 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from economic_nav import _cash_fx_revaluation, _latest_cost_anchors, _nearest_fx, _option_values
+from economic_nav import (
+    _cash_fx_revaluation,
+    _latest_cost_anchors,
+    _nearest_fx,
+    _option_values,
+)
 from life360_nav import life360_nav_adjustment
 from nav_refresh import _holding, _preferred_price
-from option_settlement import MILLION, nav_cash_settlement, settlement_inputs_from_components
+from option_settlement import (
+    MILLION,
+    nav_cash_settlement,
+    settlement_inputs_from_components,
+)
 
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 MAX_ESTIMATED_HISTORY_POINTS = 72
@@ -35,7 +44,14 @@ def _components(raw: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _component(key: str, label: str, amount_nok: Decimal, shares: int, formula: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+def _component(
+    key: str,
+    label: str,
+    amount_nok: Decimal,
+    shares: int,
+    formula: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "key": key,
         "label": label,
@@ -46,7 +62,9 @@ def _component(key: str, label: str, amount_nok: Decimal, shares: int, formula: 
     }
 
 
-def _pick_dates(dates: list[str], limit: int = MAX_ESTIMATED_HISTORY_POINTS) -> list[str]:
+def _pick_dates(
+    dates: list[str], limit: int = MAX_ESTIMATED_HISTORY_POINTS
+) -> list[str]:
     if len(dates) <= limit:
         return dates
     indexes = sorted({round(i * (len(dates) - 1) / (limit - 1)) for i in range(limit)})
@@ -188,7 +206,10 @@ async def _bemobi_market_attribution(
         start_fx=Decimal(str(start_fx["rate"])),
         current_fx=Decimal(str(current_fx["rate"])),
     )
-    if abs(attribution["total_change_nok"] - expected_change_nok) > ATTRIBUTION_TOLERANCE_NOK:
+    if (
+        abs(attribution["total_change_nok"] - expected_change_nok)
+        > ATTRIBUTION_TOLERANCE_NOK
+    ):
         return {
             "ready": False,
             "reason": "bemobi_attribution_does_not_reconcile",
@@ -212,7 +233,9 @@ async def _bemobi_market_attribution(
     }
 
 
-async def _cash_breakdown(repository, *, start_date: str, current_date: str) -> dict[str, Any]:
+async def _cash_breakdown(
+    repository, *, start_date: str, current_date: str
+) -> dict[str, Any]:
     rows = await repository.all(
         """
         SELECT movement_date, movement_type, amount_nok, description,
@@ -396,13 +419,14 @@ def _build_change_attribution(
     start_total_nok = Decimal(str(start["nav_total_mnok"])) * MILLION
     current_total_nok = Decimal(str(current["nav_total_mnok"])) * MILLION
     reciprocal_scale = (
-        Decimal("1") / Decimal(start_shares)
-        + Decimal("1") / Decimal(current_shares)
+        Decimal("1") / Decimal(start_shares) + Decimal("1") / Decimal(current_shares)
     ) / Decimal("2")
 
     drivers: list[dict[str, Any]] = []
 
-    bemobi_delta = _composition_amount_nok(current, "bemobi") - _composition_amount_nok(start, "bemobi")
+    bemobi_delta = _composition_amount_nok(current, "bemobi") - _composition_amount_nok(
+        start, "bemobi"
+    )
     if bemobi_market and bemobi_market.get("ready"):
         price_effect = Decimal(str(bemobi_market["price_effect_nok"]))
         fx_effect = Decimal(str(bemobi_market["fx_effect_nok"]))
@@ -415,10 +439,16 @@ def _build_change_attribution(
                         amount_nok=price_effect,
                         per_share_scale=reciprocal_scale,
                         details={
-                            "start_price_brl": _float(bemobi_market.get("start_price_brl")),
-                            "current_price_brl": _float(bemobi_market.get("current_price_brl")),
+                            "start_price_brl": _float(
+                                bemobi_market.get("start_price_brl")
+                            ),
+                            "current_price_brl": _float(
+                                bemobi_market.get("current_price_brl")
+                            ),
                             "start_price_date": bemobi_market.get("start_price_date"),
-                            "current_price_date": bemobi_market.get("current_price_date"),
+                            "current_price_date": bemobi_market.get(
+                                "current_price_date"
+                            ),
                         },
                     ),
                     _driver(
@@ -428,7 +458,9 @@ def _build_change_attribution(
                         per_share_scale=reciprocal_scale,
                         details={
                             "start_brl_nok": _float(bemobi_market.get("start_brl_nok")),
-                            "current_brl_nok": _float(bemobi_market.get("current_brl_nok")),
+                            "current_brl_nok": _float(
+                                bemobi_market.get("current_brl_nok")
+                            ),
                             "start_fx_date": bemobi_market.get("start_fx_date"),
                             "current_fx_date": bemobi_market.get("current_fx_date"),
                         },
@@ -448,7 +480,9 @@ def _build_change_attribution(
             )
         )
 
-    cash_delta = _composition_amount_nok(current, "cash") - _composition_amount_nok(start, "cash")
+    cash_delta = _composition_amount_nok(current, "cash") - _composition_amount_nok(
+        start, "cash"
+    )
     buyback_cash_nok = Decimal("0")
     bemobi_paid_nok = Decimal("0")
     if cash_breakdown and cash_breakdown.get("ready"):
@@ -461,11 +495,21 @@ def _build_change_attribution(
                 amount_nok=bemobi_paid_nok,
                 per_share_scale=reciprocal_scale,
                 details={
-                    "gross_mnok": _float(Decimal(str(cash_breakdown.get("bemobi_gross_cash_nok") or "0")) / MILLION),
-                    "withholding_mnok": _float(Decimal(str(cash_breakdown.get("bemobi_withholding_nok") or "0")) / MILLION),
+                    "gross_mnok": _float(
+                        Decimal(str(cash_breakdown.get("bemobi_gross_cash_nok") or "0"))
+                        / MILLION
+                    ),
+                    "withholding_mnok": _float(
+                        Decimal(
+                            str(cash_breakdown.get("bemobi_withholding_nok") or "0")
+                        )
+                        / MILLION
+                    ),
                     "net_mnok": _float(bemobi_paid_nok / MILLION),
                     "receipt_rows": int(cash_breakdown.get("bemobi_receipt_rows") or 0),
-                    "withholding_rows": int(cash_breakdown.get("withholding_rows") or 0),
+                    "withholding_rows": int(
+                        cash_breakdown.get("withholding_rows") or 0
+                    ),
                 },
             )
         )
@@ -479,19 +523,29 @@ def _build_change_attribution(
                     "cash_mnok": _float(buyback_cash_nok / MILLION),
                     "daily_rows": int(cash_breakdown.get("daily_buyback_rows") or 0),
                     "weekly_rows": int(cash_breakdown.get("weekly_buyback_rows") or 0),
-                    "weekly_rows_superseded": int(cash_breakdown.get("weekly_buyback_rows_superseded") or 0),
-                    "cross_start_weekly_excluded": int(cash_breakdown.get("cross_start_weekly_excluded") or 0),
+                    "weekly_rows_superseded": int(
+                        cash_breakdown.get("weekly_buyback_rows_superseded") or 0
+                    ),
+                    "cross_start_weekly_excluded": int(
+                        cash_breakdown.get("cross_start_weekly_excluded") or 0
+                    ),
                 },
             )
         )
 
     other_cash_delta = cash_delta - buyback_cash_nok - bemobi_paid_nok
-    start_operating_cost_nok = Decimal(
-        str(_composition_details(start, "cash").get("operating_cost_mnok") or "0")
-    ) * MILLION
-    current_operating_cost_nok = Decimal(
-        str(_composition_details(current, "cash").get("operating_cost_mnok") or "0")
-    ) * MILLION
+    start_operating_cost_nok = (
+        Decimal(
+            str(_composition_details(start, "cash").get("operating_cost_mnok") or "0")
+        )
+        * MILLION
+    )
+    current_operating_cost_nok = (
+        Decimal(
+            str(_composition_details(current, "cash").get("operating_cost_mnok") or "0")
+        )
+        * MILLION
+    )
     operating_cost_delta_nok = -(current_operating_cost_nok - start_operating_cost_nok)
     drivers.append(
         _driver(
@@ -500,8 +554,12 @@ def _build_change_attribution(
             amount_nok=other_cash_delta,
             per_share_scale=reciprocal_scale,
             details={
-                "start_amount_mnok": _float(_composition_amount_nok(start, "cash") / MILLION),
-                "current_amount_mnok": _float(_composition_amount_nok(current, "cash") / MILLION),
+                "start_amount_mnok": _float(
+                    _composition_amount_nok(start, "cash") / MILLION
+                ),
+                "current_amount_mnok": _float(
+                    _composition_amount_nok(current, "cash") / MILLION
+                ),
                 "operating_cost_mnok": _float(operating_cost_delta_nok / MILLION),
                 "other_movements_mnok": _float(
                     (other_cash_delta - operating_cost_delta_nok) / MILLION
@@ -510,7 +568,9 @@ def _build_change_attribution(
         )
     )
 
-    ona_delta = _composition_amount_nok(current, "ona") - _composition_amount_nok(start, "ona")
+    ona_delta = _composition_amount_nok(current, "ona") - _composition_amount_nok(
+        start, "ona"
+    )
     receivable_change = Decimal("0")
     receivable_ready = bool(
         start_receivable
@@ -521,7 +581,9 @@ def _build_change_attribution(
     if receivable_ready:
         assert start_receivable and current_receivable
         start_receivable_nok = Decimal(str(start_receivable.get("amount_nok") or "0"))
-        current_receivable_nok = Decimal(str(current_receivable.get("amount_nok") or "0"))
+        current_receivable_nok = Decimal(
+            str(current_receivable.get("amount_nok") or "0")
+        )
         receivable_change = current_receivable_nok - start_receivable_nok
         drivers.append(
             _driver(
@@ -546,8 +608,12 @@ def _build_change_attribution(
             amount_nok=other_ona_delta,
             per_share_scale=reciprocal_scale,
             details={
-                "start_amount_mnok": _float(_composition_amount_nok(start, "ona") / MILLION),
-                "current_amount_mnok": _float(_composition_amount_nok(current, "ona") / MILLION),
+                "start_amount_mnok": _float(
+                    _composition_amount_nok(start, "ona") / MILLION
+                ),
+                "current_amount_mnok": _float(
+                    _composition_amount_nok(current, "ona") / MILLION
+                ),
                 "bemobi_receivable_split": receivable_ready,
             },
         )
@@ -602,7 +668,9 @@ def _build_change_attribution(
         )
     )
 
-    total_change = Decimal(str(current["nav_per_share"])) - Decimal(str(start["nav_per_share"]))
+    total_change = Decimal(str(current["nav_per_share"])) - Decimal(
+        str(start["nav_per_share"])
+    )
     driver_total = sum(
         (Decimal(str(item.get("per_share_nok") or "0")) for item in drivers),
         Decimal("0"),
@@ -663,17 +731,31 @@ async def _estimated_point(repository, day: str) -> dict[str, Any]:
     base_cost = (await _latest_cost_anchors(repository, day)).get("BASE")
     if usd_nok is None or base_cost is None:
         return {"ready": False, "reason": "missing_estimated_nav_anchor", "date": day}
-    cash_fx = await _cash_fx_revaluation(repository, cash_anchor_date=cash_anchor_date, as_of_date=day)
+    cash_fx = await _cash_fx_revaluation(
+        repository, cash_anchor_date=cash_anchor_date, as_of_date=day
+    )
     if not cash_fx.get("ready"):
-        return {"ready": False, "reason": cash_fx.get("reason") or "cash_fx_not_ready", "date": day}
-    days_since_anchor = max(0, (date.fromisoformat(day) - date.fromisoformat(cash_anchor_date)).days)
+        return {
+            "ready": False,
+            "reason": cash_fx.get("reason") or "cash_fx_not_ready",
+            "date": day,
+        }
+    days_since_anchor = max(
+        0, (date.fromisoformat(day) - date.fromisoformat(cash_anchor_date)).days
+    )
     operating_cost_nok = (
-        Decimal(str(base_cost["amount_usd_decimal"])) / Decimal(int(base_cost["period_days_int"]))
-        * Decimal(days_since_anchor) * Decimal(str(usd_nok["rate"]))
+        Decimal(str(base_cost["amount_usd_decimal"]))
+        / Decimal(int(base_cost["period_days_int"]))
+        * Decimal(days_since_anchor)
+        * Decimal(str(usd_nok["rate"]))
     )
     cash_fx_nok = Decimal(str(cash_fx.get("adjustment_nok") or "0"))
     life360 = await life360_nav_adjustment(repository, as_of_date=day)
-    life360_adjustment_nok = Decimal(str(life360.get("adjustment_nok") or "0")) if life360.get("ready") else Decimal("0")
+    life360_adjustment_nok = (
+        Decimal(str(life360.get("adjustment_nok") or "0"))
+        if life360.get("ready")
+        else Decimal("0")
+    )
     full_nav_total_nok = Decimal(str(row["nav_total_nok"]))
     bemobi_nok = Decimal(str(row.get("bemobi_value_nok") or "0"))
     reported_cash_nok = Decimal(str(row.get("cash_estimate_nok") or "0"))
@@ -683,34 +765,122 @@ async def _estimated_point(repository, day: str) -> dict[str, Any]:
         return {"ready": False, "reason": "invalid_share_count", "date": day}
     cash_nok = reported_cash_nok + cash_fx_nok - operating_cost_nok
     ona_ex_option_nok = reported_ona_nok + accounting_option_nok
-    pre_option_total_nok = full_nav_total_nok + accounting_option_nok + cash_fx_nok + life360_adjustment_nok - operating_cost_nok
-    settlement = nav_cash_settlement(pre_option_total_nok=pre_option_total_nok, shares_outstanding=shares, option_count=option_count, strike_nok=strike_nok)
+    pre_option_total_nok = (
+        full_nav_total_nok
+        + accounting_option_nok
+        + cash_fx_nok
+        + life360_adjustment_nok
+        - operating_cost_nok
+    )
+    settlement = nav_cash_settlement(
+        pre_option_total_nok=pre_option_total_nok,
+        shares_outstanding=shares,
+        option_count=option_count,
+        strike_nok=strike_nok,
+    )
     settlement_nok = Decimal(str(settlement["settlement_nok"]))
-    estimated_total_nok = Decimal(str(settlement["economic_total_after_settlement_nok"]))
+    estimated_total_nok = Decimal(
+        str(settlement["economic_total_after_settlement_nok"])
+    )
     estimated_per_share = Decimal(str(settlement["nav_after_option_per_share_nok"]))
-    otec_price = Decimal(str(row["otec_price_nok"])) if row.get("otec_price_nok") is not None else None
-    discount = (Decimal("1") - otec_price / estimated_per_share) * Decimal("100") if otec_price is not None and estimated_per_share > 0 else None
+    otec_price = (
+        Decimal(str(row["otec_price_nok"]))
+        if row.get("otec_price_nok") is not None
+        else None
+    )
+    discount = (
+        (Decimal("1") - otec_price / estimated_per_share) * Decimal("100")
+        if otec_price is not None and estimated_per_share > 0
+        else None
+    )
     composition = [
-        _component("bemobi", "Bemobi", bemobi_nok, shares, "Bemobi-aksjer × BMOB3-kurs × BRL/NOK"),
-        _component("cash", "Estimert kontantbeholdning", cash_nok, shares, "Rapportert kontantbeholdning + valutaeffekt − estimert drift siden rapport", {"reported_cash_mnok": _float(reported_cash_nok / MILLION), "cash_fx_adjustment_mnok": _float(cash_fx_nok / MILLION), "operating_cost_mnok": _float(operating_cost_nok / MILLION), "cash_anchor_date": cash_anchor_date}),
-        _component("ona", "Øvrige nettoeiendeler", ona_ex_option_nok, shares, "Regnskapsmessig ONA + regnskapsført opsjonsforpliktelse", {"reported_ona_mnok": _float(reported_ona_nok / MILLION), "accounting_option_liability_mnok": _float(accounting_option_nok / MILLION)}),
-        _component("life360", "Life360 mark-to-market", life360_adjustment_nok, shares, "Dagens verdi av LIF − Life360-verdi innebygd i siste rapporterte ONA", {"active": bool(life360.get("ready")), "price_date": life360.get("price_date"), "anchor_date": life360.get("anchor_date")}),
-        _component("options", "Opsjoner – estimert kontantoppgjør", -settlement_nok, shares, "Selvkonsistent kontantoppgjør ved Estimert NAV", {"option_count": option_count, "strike_nok": _float(strike_nok), "settlement_mnok": _float(settlement_nok / MILLION)}),
+        _component(
+            "bemobi",
+            "Bemobi",
+            bemobi_nok,
+            shares,
+            "Bemobi-aksjer × BMOB3-kurs × BRL/NOK",
+        ),
+        _component(
+            "cash",
+            "Estimert kontantbeholdning",
+            cash_nok,
+            shares,
+            "Rapportert kontantbeholdning + valutaeffekt − estimert drift siden rapport",
+            {
+                "reported_cash_mnok": _float(reported_cash_nok / MILLION),
+                "cash_fx_adjustment_mnok": _float(cash_fx_nok / MILLION),
+                "operating_cost_mnok": _float(operating_cost_nok / MILLION),
+                "cash_anchor_date": cash_anchor_date,
+            },
+        ),
+        _component(
+            "ona",
+            "Øvrige nettoeiendeler",
+            ona_ex_option_nok,
+            shares,
+            "Regnskapsmessig ONA + regnskapsført opsjonsforpliktelse",
+            {
+                "reported_ona_mnok": _float(reported_ona_nok / MILLION),
+                "accounting_option_liability_mnok": _float(
+                    accounting_option_nok / MILLION
+                ),
+            },
+        ),
+        _component(
+            "life360",
+            "Life360 mark-to-market",
+            life360_adjustment_nok,
+            shares,
+            "Dagens verdi av LIF − Life360-verdi innebygd i siste rapporterte ONA",
+            {
+                "active": bool(life360.get("ready")),
+                "price_date": life360.get("price_date"),
+                "anchor_date": life360.get("anchor_date"),
+            },
+        ),
+        _component(
+            "options",
+            "Opsjoner – estimert kontantoppgjør",
+            -settlement_nok,
+            shares,
+            "Selvkonsistent kontantoppgjør ved Estimert NAV",
+            {
+                "option_count": option_count,
+                "strike_nok": _float(strike_nok),
+                "settlement_mnok": _float(settlement_nok / MILLION),
+            },
+        ),
     ]
-    composition_total = sum((Decimal(str(item["amount_mnok"])) * MILLION for item in composition), Decimal("0"))
+    composition_total = sum(
+        (Decimal(str(item["amount_mnok"])) * MILLION for item in composition),
+        Decimal("0"),
+    )
     return {
-        "ready": True, "date": day, "nav_total_mnok": _float(estimated_total_nok / MILLION),
-        "nav_per_share": _float(estimated_per_share), "otec_price": _float(otec_price), "discount_pct": _float(discount),
-        "shares_outstanding": shares, "accounting_nav_per_share": _float(row.get("nav_per_share_nok")),
-        "composition": composition, "reconciliation_residual_mnok": _float((estimated_total_nok - composition_total) / MILLION),
+        "ready": True,
+        "date": day,
+        "nav_total_mnok": _float(estimated_total_nok / MILLION),
+        "nav_per_share": _float(estimated_per_share),
+        "otec_price": _float(otec_price),
+        "discount_pct": _float(discount),
+        "shares_outstanding": shares,
+        "accounting_nav_per_share": _float(row.get("nav_per_share_nok")),
+        "composition": composition,
+        "reconciliation_residual_mnok": _float(
+            (estimated_total_nok - composition_total) / MILLION
+        ),
         "model": "ESTIMATED_NAV_V1",
     }
 
 
-async def _change(repository, start: dict[str, Any], current: dict[str, Any], requested_start: str) -> dict[str, Any]:
+async def _change(
+    repository, start: dict[str, Any], current: dict[str, Any], requested_start: str
+) -> dict[str, Any]:
     start_date = str(start["date"])
     current_date = str(current["date"])
-    bemobi_delta = _composition_amount_nok(current, "bemobi") - _composition_amount_nok(start, "bemobi")
+    bemobi_delta = _composition_amount_nok(current, "bemobi") - _composition_amount_nok(
+        start, "bemobi"
+    )
     (
         bemobi_market,
         cash_breakdown,
@@ -765,51 +935,138 @@ def _history_start_point(
     )
 
 
+ESTIMATED_NAV_CALCULATION_VERSION = "ESTIMATED_NAV_V1"
+
+
+def _stored_point(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ready": True,
+        "date": str(row["date"]),
+        "nav_total_mnok": row["nav_total_mnok"],
+        "nav_per_share": row["nav_per_share_nok"],
+        "otec_price": row.get("otec_price_nok"),
+        "discount_pct": row.get("discount_pct"),
+        "shares_outstanding": row["shares_outstanding"],
+        "accounting_nav_per_share": row.get("accounting_nav_per_share_nok"),
+        "composition": json.loads(str(row["composition_json"])),
+        "reconciliation_residual_mnok": row.get("reconciliation_residual_mnok"),
+        "model": ESTIMATED_NAV_CALCULATION_VERSION,
+    }
+
+
+async def materialize_estimated_nav_history(
+    repository, *, batch_size: int = 100
+) -> dict[str, Any]:
+    """Materialize one restart-safe batch of missing historical dates."""
+    rows = await repository.all(
+        """SELECT DISTINCT substr(n.as_of_at, 1, 10) AS date
+           FROM nav_snapshots n LEFT JOIN estimated_nav_history_points p
+             ON p.date=substr(n.as_of_at, 1, 10)
+            AND p.calculation_version=? AND p.quality='VALID'
+           WHERE n.calculation_version=? AND n.nav_scope='FULL' AND p.date IS NULL
+           ORDER BY date LIMIT ?""",
+        (ESTIMATED_NAV_CALCULATION_VERSION, FULL_CALCULATION_VERSION, batch_size),
+    )
+    written = 0
+    failures = []
+    for row in rows:
+        day = str(row["date"])
+        point = await _estimated_point(repository, day)
+        if not point.get("ready"):
+            failures.append({"date": day, "reason": point.get("reason")})
+            continue
+        await repository.run(
+            """INSERT INTO estimated_nav_history_points (date, calculation_version,
+               nav_total_mnok, nav_per_share_nok, otec_price_nok, discount_pct,
+               shares_outstanding, accounting_nav_per_share_nok, composition_json,
+               reconciliation_residual_mnok, quality, calculated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID',
+                       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+               ON CONFLICT(date, calculation_version) DO UPDATE SET
+               nav_total_mnok=excluded.nav_total_mnok, nav_per_share_nok=excluded.nav_per_share_nok,
+               otec_price_nok=excluded.otec_price_nok, discount_pct=excluded.discount_pct,
+               shares_outstanding=excluded.shares_outstanding,
+               accounting_nav_per_share_nok=excluded.accounting_nav_per_share_nok,
+               composition_json=excluded.composition_json,
+               reconciliation_residual_mnok=excluded.reconciliation_residual_mnok,
+               quality='VALID', calculated_at=excluded.calculated_at""",
+            (
+                day,
+                ESTIMATED_NAV_CALCULATION_VERSION,
+                point["nav_total_mnok"],
+                point["nav_per_share"],
+                point["otec_price"],
+                point["discount_pct"],
+                point["shares_outstanding"],
+                point["accounting_nav_per_share"],
+                json.dumps(point["composition"], ensure_ascii=False, sort_keys=True),
+                point["reconciliation_residual_mnok"],
+            ),
+        )
+        written += 1
+    return {"written": written, "failures": failures, "batch_size": batch_size}
+
+
 async def estimated_nav_history(
     repository, *, days: int, year_to_date: bool = False
 ) -> dict[str, Any]:
     days = max(30, min(int(days), 3650))
-    latest = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS max_date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL'", (FULL_CALCULATION_VERSION,))
-    current_date = latest.get("max_date") if latest is not None else None
+    latest = await repository.first(
+        "SELECT MAX(date) AS max_date FROM estimated_nav_history_points WHERE calculation_version=? AND quality='VALID'",
+        (ESTIMATED_NAV_CALCULATION_VERSION,),
+    )
+    current_date = latest.get("max_date") if latest else None
     if current_date is None:
-        return {"ready": False, "reason": "missing_full_nav", "points": []}
+        return {
+            "ready": False,
+            "reason": "materialized_history_not_ready",
+            "points": [],
+        }
     current_day = date.fromisoformat(str(current_date))
     requested_start = (
         date(current_day.year, 1, 1).isoformat()
         if year_to_date
         else (current_day - timedelta(days=days)).isoformat()
     )
-    rows = await repository.all("SELECT DISTINCT substr(as_of_at,1,10) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)>=? AND substr(as_of_at,1,10)<=? ORDER BY date", (FULL_CALCULATION_VERSION, requested_start, current_date))
-    predecessor = await repository.first("SELECT MAX(substr(as_of_at,1,10)) AS date FROM nav_snapshots WHERE calculation_version=? AND nav_scope='FULL' AND substr(as_of_at,1,10)<=?", (FULL_CALCULATION_VERSION, requested_start))
-    dates = [str(row["date"]) for row in rows if row.get("date")]
-    predecessor_date = predecessor.get("date") if predecessor is not None else None
-    if predecessor_date and predecessor_date not in dates:
-        dates.insert(0, str(predecessor_date))
-    if str(current_date) not in dates:
-        dates.append(str(current_date))
-    dates = sorted(set(dates))
-    # Hvert punkt leser uavhengige historiske data. Kjør dem samtidig slik at en
-    # periodeendring ikke må vente på mange serielle turer til D1-databasen.
-    calculated_points = await asyncio.gather(
-        *(_estimated_point(repository, day) for day in dates)
+    rows = await repository.all(
+        "SELECT * FROM estimated_nav_history_points WHERE calculation_version=? AND quality='VALID' AND date>=? AND date<=? ORDER BY date",
+        (ESTIMATED_NAV_CALCULATION_VERSION, requested_start, current_date),
     )
-    full_points, failures = [], []
-    for day, point in zip(dates, calculated_points, strict=True):
-        if point.get("ready"):
-            full_points.append(point)
-        else:
-            failures.append({"date": day, "reason": point.get("reason")})
+    predecessor = await repository.first(
+        "SELECT * FROM estimated_nav_history_points WHERE calculation_version=? AND quality='VALID' AND date<=? ORDER BY date DESC LIMIT 1",
+        (ESTIMATED_NAV_CALCULATION_VERSION, requested_start),
+    )
+    full_points = [_stored_point(row) for row in rows]
+    if predecessor and (
+        not full_points or predecessor["date"] != full_points[0]["date"]
+    ):
+        full_points.insert(0, _stored_point(predecessor))
     if not full_points:
-        return {"ready": False, "reason": "estimated_history_not_ready", "requested_start": requested_start, "current_date": current_date, "failures": failures[:10], "points": []}
-    current = next((item for item in reversed(full_points) if item["date"] == current_date), full_points[-1])
-    start = _history_start_point(full_points, requested_start, year_to_date=year_to_date)
-    statistics_points = [{"date": item["date"], "nav_per_share": item["nav_per_share"], "otec_price": item["otec_price"], "discount_pct": item["discount_pct"]} for item in full_points]
+        return {
+            "ready": False,
+            "reason": "materialized_history_not_ready",
+            "points": [],
+        }
+    current = full_points[-1]
+    start = _history_start_point(
+        full_points, requested_start, year_to_date=year_to_date
+    )
+    statistics_points = [
+        {
+            "date": item["date"],
+            "nav_per_share": item["nav_per_share"],
+            "otec_price": item["otec_price"],
+            "discount_pct": item["discount_pct"],
+        }
+        for item in full_points
+    ]
     chart_dates = set(_pick_dates([str(point["date"]) for point in statistics_points]))
-    chart_points = [point for point in statistics_points if str(point["date"]) in chart_dates]
-    change = await _change(repository, start, current, requested_start)
+    chart_points = [
+        point for point in statistics_points if str(point["date"]) in chart_dates
+    ]
     return {
         "ready": True,
-        "model": "ESTIMATED_NAV_V1",
+        "model": ESTIMATED_NAV_CALCULATION_VERSION,
         "requested_start": requested_start,
         "from": statistics_points[0]["date"],
         "to": statistics_points[-1]["date"],
@@ -819,12 +1076,8 @@ async def estimated_nav_history(
         "points": chart_points,
         "_statistics_points": statistics_points,
         "current": current,
-        "change": change,
-        "failures": failures[:10],
-        "note": (
-            "Estimert NAV bruker samme kildebelagte investorlogikk historisk som i dagens "
-            "Estimert NAV. Manglende historiske innganger gjettes ikke. Endringsbroen "
-            "skiller Bemobi-kurs, BRL/NOK, utbyttefordring og utbetalt utbytte/renter, samt "
-            "tilbakekjøpenes kontantbruk og aksjereduksjon."
-        ),
+        "change": await _change(repository, start, current, requested_start),
+        "failures": [],
+        "history_materialized_through": current_date,
+        "note": "Estimert NAV leses fra validert, materialisert historikk.",
     }

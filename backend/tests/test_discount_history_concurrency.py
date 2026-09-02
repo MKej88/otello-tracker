@@ -26,10 +26,10 @@ def _gather_call_count(path: Path, function_name: str) -> int:
     )
 
 
-def test_estimated_history_calculates_independent_points_concurrently() -> None:
+def test_estimated_history_does_not_calculate_points_on_request_path() -> None:
     path = CLOUDFLARE_SRC / "estimated_nav_history.py"
 
-    assert _gather_call_count(path, "estimated_nav_history") == 1
+    assert _gather_call_count(path, "estimated_nav_history") == 0
 
 
 def test_change_attribution_fetches_independent_inputs_concurrently() -> None:
