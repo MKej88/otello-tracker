@@ -318,7 +318,7 @@ def _split_current_composition(
                        description, external_movement_id, source_document_id
                 FROM cash_movements
                 WHERE movement_date > ? AND movement_date <= ?
-                  AND movement_type='PATENT_PROCEEDS' AND confidence='CONFIRMED'
+                  AND identified_type='PATENT_PROCEEDS' AND confidence='CONFIRMED'
                 ORDER BY movement_date, id
                 """,
                 (cash_report_date, current_date),

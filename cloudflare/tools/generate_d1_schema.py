@@ -18,6 +18,7 @@ ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0016_other_shares_and_life360_report_anchor.sql",
     MIGRATIONS / "0017_life360_holding_anchors.sql",
     MIGRATIONS / "0029_nav_snapshot_updated_at.sql",
+    MIGRATIONS / "0030_patent_proceeds.sql",
 )
 
 sys.path.insert(0, str(BACKEND))

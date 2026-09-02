@@ -137,8 +137,8 @@ def _share_count_driver(
 def _cash_breakdown(connection, *, start_date: str, current_date: str) -> dict[str, Any]:
     rows = connection.execute(
         """
-        SELECT movement_date, movement_type, amount_nok, amount_original, currency,
-               description, external_movement_id, buyback_id
+        SELECT movement_date, movement_type, amount_nok, description,
+               external_movement_id, buyback_id
         FROM cash_movements
         WHERE movement_date > ? AND movement_date <= ?
           AND movement_type IN (

@@ -47,7 +47,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         assert {"reported_amount", "reported_currency", "fx_rate_to_nok"} <= cash_columns
 
         movement_columns = {row["name"] for row in connection.execute("PRAGMA table_info(cash_movements)")}
-        assert {"corporate_action_id", "buyback_id", "external_movement_id"} <= movement_columns
+        assert {
+            "corporate_action_id",
+            "buyback_id",
+            "external_movement_id",
+            "identified_type",
+        } <= movement_columns
 
         action_columns = {row["name"] for row in connection.execute("PRAGMA table_info(corporate_actions)")}
         assert {

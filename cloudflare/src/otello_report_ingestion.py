@@ -717,7 +717,7 @@ async def _upsert_post_report_cash_events(
                 await repository.run(
                     """
                     UPDATE cash_movements
-                    SET movement_type='PATENT_PROCEEDS', amount_nok=?, fx_rate_to_nok=?,
+                    SET identified_type='PATENT_PROCEEDS', amount_nok=?, fx_rate_to_nok=?,
                         description=?, source_document_id=?
                     WHERE id=?
                     """,
@@ -746,9 +746,10 @@ async def _upsert_post_report_cash_events(
         await repository.run(
             """
             INSERT INTO cash_movements(
-                movement_date, movement_type, amount_nok, amount_original, currency,
-                fx_rate_to_nok, description, source_document_id, confidence, external_movement_id
-            ) VALUES (?, 'PATENT_PROCEEDS', ?, ?, 'USD', ?, ?, ?, 'CONFIRMED', ?)
+                movement_date, movement_type, identified_type, amount_nok,
+                amount_original, currency, fx_rate_to_nok, description,
+                source_document_id, confidence, external_movement_id
+            ) VALUES (?, 'OTHER', 'PATENT_PROCEEDS', ?, ?, 'USD', ?, ?, ?, 'CONFIRMED', ?)
             """,
             (
                 movement_date,

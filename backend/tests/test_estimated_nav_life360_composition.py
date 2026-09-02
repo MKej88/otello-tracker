@@ -156,7 +156,7 @@ def test_confirmed_other_cash_display_exposes_patent_settlement() -> None:
     rows = [
         {
             "movement_date": "2026-07-22",
-            "movement_type": "PATENT_PROCEEDS",
+            "movement_type": "OTHER",
             "amount_nok": "6200000",
             "amount_original": "650000",
             "currency": "USD",
@@ -189,7 +189,7 @@ def test_confirmed_other_cash_display_falls_back_if_events_do_not_reconcile() ->
     rows = [
         {
             "movement_date": "2026-07-22",
-            "movement_type": "PATENT_PROCEEDS",
+            "movement_type": "OTHER",
             "amount_nok": "6200000",
             "amount_original": "650000",
             "currency": "USD",
