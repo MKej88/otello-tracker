@@ -65,6 +65,14 @@ const SOURCE_LABELS: Record<string, string> = {
   EURONEXT: "Euronext / OTEC",
 };
 
+function sourceWarningLabel(code: string, sourceStatus: string) {
+  const label = SOURCE_LABELS[code] ?? code;
+  if (code === "BEMOBI_IR" && sourceStatus !== "OK") {
+    return `${label}: ${statusLabel(sourceStatus)} – kilden ble ikke fullt oppdatert, og siste gode data er beholdt.`;
+  }
+  return `${label}: ${statusLabel(sourceStatus)}`;
+}
+
 function durationLabel(startedAt?: string | null, finishedAt?: string | null) {
   if (!startedAt || !finishedAt) return "–";
   const seconds = Math.max(
@@ -96,7 +104,7 @@ export default function DataQualityPage() {
   const nightlyWarnings = [
     ...nightlySources
       .filter(([, sourceStatus]) => sourceStatus !== "OK")
-      .map(([code, sourceStatus]) => `${SOURCE_LABELS[code] ?? code}: ${statusLabel(sourceStatus)}`),
+      .map(([code, sourceStatus]) => sourceWarningLabel(code, sourceStatus)),
     ...(nightly?.preflight?.warnings ?? []).map((warning) => warning.message).filter(Boolean),
   ];
   const operationalWarnings = [
@@ -148,6 +156,13 @@ export default function DataQualityPage() {
                 ? " Advarslene stoppet ikke oppdateringen."
                 : " Oppdateringen er ikke godkjent, og siste gode data beholdes."}
             </p>
+            {nightly?.status === "PARTIAL" && nightly.preflight.ready && (
+              <p>
+                «Delvis» betyr at kjøringen ble fullført, men at minst én datakilde
+                hadde et avvik. «Advarsel» er en ekstra kvalitetskontroll og stopper
+                ikke oppdateringen når antall blokkeringer er 0.
+              </p>
+            )}
             {nightlyWarnings.length > 0 && <ul>{nightlyWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
             {nightlyWarnings.length === 0 && <p>Detaljene gjelder nattens datakontroll og finnes i den lagrede nattdiagnosen.</p>}
           </div>
