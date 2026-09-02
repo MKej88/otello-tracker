@@ -34,7 +34,11 @@ type Summary = {
 type EconomicNav = {
   nav_per_share?: number | null;
   discount_pct?: number | null;
-  life360?: { ready?: boolean; market_value_mnok?: number | null };
+  life360?: {
+    ready?: boolean;
+    market_value_mnok?: number | null;
+    nav_effect_1m_per_share_nok?: number | null;
+  };
 };
 
 type Metric = { label: string; value: string; tone?: string };
@@ -192,7 +196,7 @@ export default function MarketQuotePanel() {
         <MarketInsightCard quote={data?.symbols?.LIF} title="Life360 / LIF" footer="Kilde: Yahoo Finance · 30 min refresh" metrics={[
           { label: "Verdi for Otello", value: finite(lifeValue) ? `${formatNumber(lifeValue, 1)} mill. kr` : EMPTY },
           { label: "Verdi / OTEC-aksje", value: finite(lifePerShare) ? `${formatNumber(lifePerShare, 2)} kr` : EMPTY },
-          { label: "NAV-effekt 1 mnd", value: EMPTY },
+          { label: "NAV-effekt 1 mnd", value: signed(nav?.life360?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), tone: tone(nav?.life360?.nav_effect_1m_per_share_nok) },
         ]} />
       </div>
     </section>
