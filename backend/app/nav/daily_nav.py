@@ -67,7 +67,8 @@ def _nearest_fx(connection, base: str, as_of_date: str):
     ).isoformat()
     return connection.execute(
         """
-        SELECT fr.id, substr(fr.observed_at,1,10) AS rate_date, fr.rate,
+        SELECT fr.id, fr.observed_at,
+               substr(fr.observed_at,1,10) AS rate_date, fr.rate,
                fr.source_document_id, s.code AS source_code
         FROM fx_rates fr
         JOIN sources s ON s.id = fr.source_id
