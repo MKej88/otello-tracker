@@ -114,7 +114,7 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
 def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
     quotes = (FRONTEND_SRC / "MarketQuotePanel.tsx").read_text(encoding="utf-8")
 
-    assert "usePollingResource<Payload>(" in quotes
+    assert "usePollingResource<MarketQuotePayload>(" in quotes
     assert '    "/api/market/quotes",' in quotes
     assert "    true," in quotes
     assert 'fetch("/api/market/quotes")' not in quotes

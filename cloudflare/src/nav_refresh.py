@@ -33,8 +33,9 @@ async def _nearest_fx(repository, base: str, as_of_date: str) -> dict[str, Any] 
     floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
     return await repository.first(
         """
-        SELECT fr.id, substr(fr.observed_at, 1, 10) AS rate_date, fr.rate,
-               fr.source_document_id
+        SELECT fr.id, fr.observed_at,
+               substr(fr.observed_at, 1, 10) AS rate_date, fr.rate,
+               fr.source_document_id, s.code AS source_code
         FROM fx_rates fr
         JOIN sources s ON s.id=fr.source_id
         WHERE fr.base_currency=? AND fr.quote_currency='NOK'
@@ -411,7 +412,9 @@ async def calculate_core_nav(repository, as_of_date: str) -> dict[str, Any]:
             "holding_shares": holding_shares,
             "brl_nok_id": brl_nok["id"],
             "brl_nok_date": brl_nok["rate_date"],
+            "brl_nok_observed_at": brl_nok["observed_at"],
             "brl_nok": brl_nok["rate"],
+            "brl_nok_source": brl_nok["source_code"],
         },
         "otec": {
             "price_id": otec["id"],

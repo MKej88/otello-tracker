@@ -16,6 +16,8 @@ def _insert_core_snapshot(database: str, *, bmob3_date: str, fx_date: str, otec_
             "price_observed_at": f"{bmob3_date}T21:00:00Z",
             "price_type": "CLOSE",
             "brl_nok_date": fx_date,
+            "brl_nok_observed_at": f"{fx_date}T14:00:00Z",
+            "brl_nok_source": "NORGES_BANK",
         },
         "otec": {
             "price_date": otec_date,
@@ -67,6 +69,11 @@ def test_freshness_marks_cross_market_dates_as_mixed_and_hides_stale_ownership(t
     assert result["market_timestamps"]["component_skew_days"] == 3
     assert result["market_timestamps"]["otec"]["date"] == "2026-08-17"
     assert result["market_timestamps"]["bmob3"]["date"] == "2026-08-14"
+    assert result["market_timestamps"]["brl_nok"] == {
+        "date": "2026-08-14",
+        "observed_at": "2026-08-14T14:00:00Z",
+        "source": "NORGES_BANK",
+    }
     assert result["bemobi_ownership_quality"] == "STALE_REPORTED"
     assert result["bemobi_ownership_reported_pct"] is not None
     assert result["bemobi_ownership_pct"] is None

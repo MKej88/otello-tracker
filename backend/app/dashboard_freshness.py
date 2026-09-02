@@ -110,7 +110,11 @@ def enrich_dashboard_summary(
             "observed_at": bmob3.get("price_observed_at"),
             "price_type": bmob3.get("price_type"),
         },
-        "brl_nok": {"date": bmob3.get("brl_nok_date")},
+        "brl_nok": {
+            "date": bmob3.get("brl_nok_date"),
+            "observed_at": bmob3.get("brl_nok_observed_at"),
+            "source": bmob3.get("brl_nok_source"),
+        },
         "note": (
             "MIXED means the NAV combines valid inputs from different market dates. "
             "This is common before Brazil/FX has caught up with a fresh Oslo trade and "
