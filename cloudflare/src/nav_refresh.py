@@ -411,6 +411,7 @@ async def calculate_core_nav(repository, as_of_date: str) -> dict[str, Any]:
             "holding_shares": holding_shares,
             "brl_nok_id": brl_nok["id"],
             "brl_nok_date": brl_nok["rate_date"],
+            "brl_nok_observed_at": brl_nok["observed_at"],
             "brl_nok": brl_nok["rate"],
         },
         "otec": {

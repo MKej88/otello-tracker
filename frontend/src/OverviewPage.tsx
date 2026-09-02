@@ -1,8 +1,17 @@
 import type { ReactNode } from "react";
 
-import MarketQuotePanel from "./MarketQuotePanel";
+import {
+  MarketQuotePanelWithData,
+  type MarketQuotePayload,
+  type Quote,
+} from "./MarketQuotePanel";
+import {
+  freshnessStatus,
+  freshnessTimestamp,
+  type FreshnessCadence,
+} from "./dataFreshness";
 import { usePollingResource } from "./usePollingResource";
-import { formatDate, formatDateTime, formatInteger, formatNumber } from "./uiFormat";
+import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 
 const REFRESH_MS = 2 * 60 * 1000;
 
@@ -48,10 +57,58 @@ type Summary = {
   bemobi_value_mnok?: number | null;
   bemobi_ownership_pct?: number | null;
   market_timestamps?: {
-    brl_nok?: { date?: string | null };
+    brl_nok?: { date?: string | null; observed_at?: string | null; source?: string | null };
   };
   latest_buyback?: { trade_date?: string; shares?: number } | null;
 };
+
+type FreshnessRow = {
+  label: string;
+  source: string;
+  timestamp?: string | null;
+  cadence: FreshnessCadence;
+};
+
+function readableSource(source?: string | null): string {
+  const labels: Record<string, string> = {
+    EURONEXT: "Euronext",
+    B3: "B3",
+    YAHOO_FINANCE: "Yahoo Finance",
+    NORGES_BANK: "Norges Bank",
+  };
+  return source ? labels[source] ?? "—" : "—";
+}
+
+function quoteRow(label: string, quote?: Quote): FreshnessRow {
+  return {
+    label,
+    source: readableSource(quote?.source),
+    timestamp: quote?.last_updated_at,
+    cadence: "intraday",
+  };
+}
+
+function FreshnessCard({ rows }: { rows: FreshnessRow[] }) {
+  return (
+    <div className="estimatedHeroSide freshnessCard">
+      <span className="label">Datakilder og ferskhet</span>
+      <div className="freshnessRows">
+        {rows.map((row) => {
+          const status = freshnessStatus(row.cadence, row.timestamp);
+          return (
+            <div className="freshnessRow" key={row.label}>
+              <i className={`freshnessDot ${status}`} aria-label={status} />
+              <strong>{row.label}</strong>
+              <span>{row.source}</span>
+              <time>{freshnessTimestamp(row.timestamp)}</time>
+            </div>
+          );
+        })}
+      </div>
+      <small>Grønn er fersk for kildens normale frekvens.</small>
+    </div>
+  );
+}
 
 function signed(value: number | null | undefined, digits: number, suffix: string): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -159,7 +216,7 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
-  const { data: nav, refreshFailed } = usePollingResource<EstimatedNav>(
+  const { data: nav } = usePollingResource<EstimatedNav>(
     "/api/dashboard/economic",
     REFRESH_MS,
     true,
@@ -174,6 +231,8 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
+  const { data: quotes, refreshFailed: quotesRefreshFailed } =
+    usePollingResource<MarketQuotePayload>("/api/market/quotes", REFRESH_MS, true);
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const cashBridge = nav?.cash_bridge;
   const brl = summary?.brl_nok_insights;
@@ -197,6 +256,24 @@ export default function OverviewPage() {
       ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
       : "Kurs utilgjengelig"
     : `Siste kurs ${formatDate(brlNokDate)}`;
+  const freshnessRows: FreshnessRow[] = [
+    quoteRow("OTEC", quotes?.symbols?.OTEC),
+    quoteRow("Bemobi", quotes?.symbols?.BMOB3),
+    quoteRow("Life360", quotes?.symbols?.LIF),
+    {
+      label: "BRL/NOK",
+      source: readableSource(summary?.market_timestamps?.brl_nok?.source),
+      timestamp: summary?.market_timestamps?.brl_nok?.observed_at
+        ?? summary?.market_timestamps?.brl_nok?.date,
+      cadence: "daily",
+    },
+    {
+      label: "NAV",
+      source: "Beregnet",
+      timestamp: nav?.calculated_at,
+      cadence: "intraday",
+    },
+  ];
 
   return (
     <div className="investorPage overviewV2">
@@ -209,13 +286,7 @@ export default function OverviewPage() {
             valuta, kontantbeholdning, drift og opsjonsoppgjør.
           </p>
         </div>
-        <div className="estimatedHeroSide">
-          <div><span>OTEC</span><strong>{formatNumber(summary?.otec_price)} kr</strong></div>
-          <div><span>Rabatt til NAV</span><strong>{formatNumber(nav?.discount_pct, 1)} %</strong></div>
-          <small>Sist oppdatert {formatDateTime(nav?.calculated_at)}</small>
-          <small>Kontrolleres hvert 30. minutt</small>
-          {refreshFailed && <small>Viser siste gode data</small>}
-        </div>
+        <FreshnessCard rows={freshnessRows} />
       </section>
 
       <section className="kpiGrid overviewKpiGrid">
@@ -332,7 +403,7 @@ export default function OverviewPage() {
         </article>
       </section>
 
-      <MarketQuotePanel />
+      <MarketQuotePanelWithData data={quotes} failed={quotesRefreshFailed} />
     </div>
   );
 }

@@ -322,6 +322,7 @@ def calculate_daily_core_nav(
             "holding_shares": holding_shares,
             "brl_nok_id": brl_nok["id"],
             "brl_nok_date": brl_nok["rate_date"],
+            "brl_nok_observed_at": brl_nok["observed_at"],
             "brl_nok": brl_nok["rate"],
             "brl_nok_source": brl_nok["source_code"],
         },

@@ -2,7 +2,7 @@ import { formatDate, formatNumber } from "./uiFormat";
 import { usePollingResource } from "./usePollingResource";
 import "./market-quote-panel.css";
 
-type Quote = {
+export type Quote = {
   ready: boolean;
   symbol: string;
   currency?: string | null;
@@ -19,7 +19,7 @@ type Quote = {
   range_52w?: { low?: number | null; high?: number | null };
 };
 
-type Payload = { ready: boolean; symbols?: Record<string, Quote> };
+export type MarketQuotePayload = { ready: boolean; symbols?: Record<string, Quote> };
 
 type Summary = {
   shares_outstanding?: number | null;
@@ -161,12 +161,10 @@ function MarketInsightCard({
   );
 }
 
-export default function MarketQuotePanel() {
-  const { data, refreshFailed: failed } = usePollingResource<Payload>(
-    "/api/market/quotes",
-    AUTO_REFRESH_MS,
-    true,
-  );
+function MarketQuotePanelContent({ data, failed = false }: {
+  data: MarketQuotePayload | null;
+  failed?: boolean;
+}) {
   const { data: summary } = usePollingResource<Summary>(
     "/api/dashboard/summary",
     AUTO_REFRESH_MS,
@@ -208,4 +206,20 @@ export default function MarketQuotePanel() {
       </div>
     </section>
   );
+}
+
+export function MarketQuotePanelWithData({ data, failed = false }: {
+  data: MarketQuotePayload | null;
+  failed?: boolean;
+}) {
+  return <MarketQuotePanelContent data={data} failed={failed} />;
+}
+
+export default function MarketQuotePanel() {
+  const { data, refreshFailed: failed } = usePollingResource<MarketQuotePayload>(
+    "/api/market/quotes",
+    AUTO_REFRESH_MS,
+    true,
+  );
+  return <MarketQuotePanelContent data={data} failed={failed} />;
 }
