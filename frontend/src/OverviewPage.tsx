@@ -115,7 +115,25 @@ type EstimatedNav = {
   nav_per_share?: number | null;
   discount_pct?: number | null;
   economic_cash_mnok?: number | null;
+  cash_bridge?: {
+    report_date?: string | null;
+    reported_cash_mnok?: number | null;
+    estimated_cash_mnok?: number | null;
+    cash_per_share_nok?: number | null;
+    change_since_report_mnok?: number | null;
+    movements?: Array<{
+      key: string;
+      label: string;
+      amount_mnok?: number | null;
+    }>;
+  };
 };
+
+function cashAmount(value: number | null | undefined, signedValue = false): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const prefix = signedValue && value > 0 ? "+" : "";
+  return `${prefix}${formatNumber(value, 1)} mill. kr`;
+}
 
 type Forecast = {
   ready: boolean;
@@ -157,6 +175,7 @@ export default function OverviewPage() {
     true,
   );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
+  const cashBridge = nav?.cash_bridge;
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
   const bemobiRange = bemobi?.range_1y;
@@ -278,13 +297,38 @@ export default function OverviewPage() {
           </div>
         </article>
 
-        <article className="card">
-          <div className="cardHeader"><div><span className="label">Underliggende verdi</span><h2>Bemobi</h2></div></div>
-          <div className="placeholderRows">
-            <div><span>Verdi for Otello</span><strong>{formatNumber(summary?.bemobi_value_mnok, 1)} mill. kr</strong></div>
-            <div><span>Otellos eierandel</span><strong>{formatNumber(summary?.bemobi_ownership_pct, 1)} %</strong></div>
-            <div><span>Estimert kontantbeholdning</span><strong>{formatNumber(nav?.economic_cash_mnok, 1)} mill. kr</strong></div>
+        <article className="card estimatedCashCard">
+          <span className="label">Estimert kontantbeholdning</span>
+          <strong className="estimatedCashValue">{cashAmount(nav?.economic_cash_mnok)}</strong>
+          <strong className="estimatedCashPerShare">
+            {cashBridge?.cash_per_share_nok == null || !Number.isFinite(cashBridge.cash_per_share_nok)
+              ? "—"
+              : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}
+          </strong>
+          <small className="estimatedCashDate">Estimert per {formatDate(nav?.as_of_date)}</small>
+          <div className="cashBridgeRows">
+            <div>
+              <span>Rapportert kontantbeholdning</span>
+              <strong>{cashAmount(cashBridge?.reported_cash_mnok)}</strong>
+            </div>
+            {(cashBridge?.movements ?? []).map((movement) => (
+              <div key={movement.key}>
+                <span>{movement.label}</span>
+                <strong className={tone(movement.amount_mnok)}>
+                  {cashAmount(movement.amount_mnok, true)}
+                </strong>
+              </div>
+            ))}
+            <div className="cashBridgeChange">
+              <span>Endring siden siste rapport</span>
+              <strong className={tone(cashBridge?.change_since_report_mnok)}>
+                {cashAmount(cashBridge?.change_since_report_mnok, true)}
+              </strong>
+            </div>
           </div>
+          <small className="estimatedCashFootnote">
+            Siste rapporterte kontantbeholdning: {formatDate(cashBridge?.report_date)}
+          </small>
         </article>
       </section>
 

@@ -93,6 +93,16 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .overviewBuybackRows > div { align-items: center; }
 .overviewBuybackValue { display: grid; justify-items: end; gap: 3px; text-align: right; }
 .overviewBuybackValue small { color: #71809a; font-size: 10px; }
+.estimatedCashCard { min-height: 0; }
+.estimatedCashValue { display: block; margin-top: 12px; color: #e9f1ff; font-size: 27px; letter-spacing: -.025em; }
+.estimatedCashPerShare { display: block; margin-top: 4px; color: #b9cef0; font-size: 14px; }
+.estimatedCashDate, .estimatedCashFootnote { display: block; margin-top: 5px; color: #71809a; font-size: 10px; }
+.cashBridgeRows { display: grid; margin-top: 14px; }
+.cashBridgeRows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; padding: 7px 0; color: #91a0b8; font-size: 12px; }
+.cashBridgeRows strong { text-align: right; }
+.cashBridgeRows > div:first-child { padding-top: 12px; border-top: 1px solid #1b2a40; }
+.cashBridgeRows .cashBridgeChange { margin-top: 5px; padding-top: 12px; border-top: 1px solid #1b2a40; color: #b9c7db; font-weight: 700; }
+.estimatedCashFootnote { margin-top: 7px; }
 .exposure { display: flex; align-items: center; gap: 22px; margin-top: 16px; }
 .grow { flex: 1; }
 .donut { width: 92px; height: 92px; flex: 0 0 92px; border-radius: 50%; display: grid; place-items: center; position: relative; }
