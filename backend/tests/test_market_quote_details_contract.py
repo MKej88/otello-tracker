@@ -53,11 +53,15 @@ def test_issue_83_market_quote_contract() -> None:
         "1 mnd",
         "3 mnd",
         "NAV / aksje",
-        "Volum vs 3 mnd",
+        "Siste dagsvolum vs 3 mnd snitt",
         "NAV-effekt 1 mnd",
         "Verdi for Otello",
     ):
         assert label in frontend
+
+    assert "latest_date?: string | null" in frontend
+    assert "Number.isFinite" in frontend
+    assert 'const EMPTY = "—"' in frontend
 
     assert "/api/market/quotes" in ci
     assert "worker-quotes.json" in ci

@@ -15,7 +15,10 @@ export type Quote = {
     month_pct?: number | null;
     three_month_pct?: number | null;
   };
-  volume?: { relative_3m?: number | null };
+  volume?: {
+    latest_date?: string | null;
+    relative_3m?: number | null;
+  };
   range_52w?: { low?: number | null; high?: number | null };
 };
 
@@ -42,7 +45,7 @@ type EconomicNav = {
   };
 };
 
-type Metric = { label: string; value: string; tone?: string };
+type Metric = { label: string; value: string; detail?: string; tone?: string };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const EMPTY = "—";
@@ -114,7 +117,11 @@ function MarketRange({ quote }: { quote: Quote }) {
 function MetricRows({ metrics }: { metrics: Metric[] }) {
   return <div className="marketMetrics">{metrics.map((metric) => (
     <div className="marketMetricRow" key={metric.label}>
-      <span>{metric.label}</span><strong className={metric.tone}>{metric.value}</strong>
+      <span>
+        {metric.label}
+        {metric.detail && <small>{metric.detail}</small>}
+      </span>
+      <strong className={metric.tone}>{metric.value}</strong>
     </div>
   ))}</div>;
 }
@@ -191,7 +198,15 @@ function MarketQuotePanelContent({ data, failed = false }: {
         <MarketInsightCard quote={data?.symbols?.OTEC} title="OTEC" footer="Kilde: Euronext · 30 min refresh" metrics={[
           { label: "NAV / aksje", value: finite(nav?.nav_per_share) ? `${formatNumber(nav.nav_per_share, 2)} kr` : EMPTY },
           { label: "NAV-rabatt", value: finite(nav?.discount_pct) ? `${formatNumber(nav.discount_pct, 1)} %` : EMPTY },
-          { label: "Volum vs 3 mnd", value: finite(data?.symbols?.OTEC?.volume?.relative_3m) ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×` : EMPTY },
+          {
+            label: "Siste dagsvolum vs 3 mnd snitt",
+            value: finite(data?.symbols?.OTEC?.volume?.relative_3m)
+              ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×`
+              : EMPTY,
+            detail: data?.symbols?.OTEC?.volume?.latest_date
+              ? formatDate(data.symbols.OTEC.volume.latest_date)
+              : undefined,
+          },
         ]} />
         <MarketInsightCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" footer="Kilde: B3 · 30 min refresh" metrics={[
           { label: "Verdi for Otello", value: finite(summary?.bemobi_value_mnok) ? `${formatNumber(summary.bemobi_value_mnok, 1)} mill. kr` : EMPTY },

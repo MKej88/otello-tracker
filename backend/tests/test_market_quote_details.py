@@ -227,7 +227,11 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     assert otec["session"]["basis"] == "OBSERVED_TRADES"
     assert otec["last_close"]["price"] == 18.2
     assert otec["volume"]["latest"] is not None
+    assert otec["volume"]["latest_date"] == "2026-08-24"
     assert otec["volume"]["average_sessions"] == 63
+    assert otec["volume"]["relative_3m"] == pytest.approx(
+        otec["volume"]["latest"] / otec["volume"]["average_3m"]
+    )
 
 
 def test_otec_card_uses_completed_close_and_previous_day_close(tmp_path) -> None:
@@ -295,7 +299,9 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/market/quotes")' in worker
     assert "market_quote_details" in worker_service
     assert '"NAV / aksje"' in panel
-    assert '"Volum vs 3 mnd"' in panel
+    assert '"Siste dagsvolum vs 3 mnd snitt"' in panel
+    assert "volume?.latest_date" in panel
+    assert ": undefined" in panel
     assert "30 min refresh" in panel
     for label in (
         "NAV-effekt 1 mnd",
