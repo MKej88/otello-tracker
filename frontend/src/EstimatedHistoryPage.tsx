@@ -161,7 +161,7 @@ export default function EstimatedHistoryPage() {
         <div>
           <span className="label">HISTORIKK</span>
           <h2>Rabatt til NAV</h2>
-          <p>OTEC-kursen målt mot NAV gjennom valgt periode. Grafen viser faktiske prosentverdier på Y-aksen og datoer på X-aksen.</p>
+          <p>Basert på historiske NAV-beregninger, markedsdata og valutakurser. Kun datoer med godt nok datagrunnlag brukes.</p>
         </div>
         <PeriodButtons selected={period} onChange={setPeriod} />
       </section>
