@@ -795,7 +795,7 @@ def estimated_nav_history(
             dates.insert(0, str(predecessor_date))
         if str(current_date) not in dates:
             dates.append(str(current_date))
-        dates = _pick_dates(sorted(set(dates)))
+        dates = sorted(set(dates))
         placeholders = ",".join("?" for _ in dates)
         snapshot_rows = connection.execute(
             f"""WITH ranked AS (
@@ -848,7 +848,7 @@ def estimated_nav_history(
         requested_start,
         year_to_date=year_to_date,
     )
-    public_points = [
+    statistics_points = [
         {
             "date": item["date"],
             "nav_per_share": item["nav_per_share"],
@@ -857,14 +857,23 @@ def estimated_nav_history(
         }
         for item in full_points
     ]
+    chart_dates = set(
+        _pick_dates([str(point["date"]) for point in statistics_points])
+    )
+    chart_points = [
+        point for point in statistics_points if str(point["date"]) in chart_dates
+    ]
     return {
         "ready": True,
         "model": "ESTIMATED_NAV_V1",
         "requested_start": requested_start,
-        "from": public_points[0]["date"],
-        "to": public_points[-1]["date"],
-        "point_count": len(public_points),
-        "points": public_points,
+        "from": statistics_points[0]["date"],
+        "to": statistics_points[-1]["date"],
+        "observation_count": len(statistics_points),
+        "chart_point_count": len(chart_points),
+        "point_count": len(chart_points),
+        "points": chart_points,
+        "_statistics_points": statistics_points,
         "current": current,
         "change": _change(start, current, requested_start, database_path),
         "failures": failures[:10],
