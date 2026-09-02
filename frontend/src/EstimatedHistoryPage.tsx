@@ -19,7 +19,7 @@ type Statistics = {
   maximum_discount_date?: string | null;
   current_percentile?: number | null;
 };
-type EstimatedHistory = { ready: boolean; from?: string; to?: string; point_count?: number; points?: Point[]; statistics?: Statistics; note?: string };
+type EstimatedHistory = { ready: boolean; from?: string; to?: string; observation_count?: number; chart_point_count?: number; points?: Point[]; statistics?: Statistics; note?: string };
 type Payload = { estimated?: EstimatedHistory };
 type EconomicNav = { ready: boolean; discount_pct?: number | null; calculated_at?: string | null };
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
@@ -174,7 +174,7 @@ export default function EstimatedHistoryPage() {
         <>
           <section className="historyKpiGrid">
             <article className="card historyKpi"><span className="label">Dagens rabatt</span><strong>{formatNumber(economicNav?.discount_pct)} %</strong><small>{formatDate(economicNav?.calculated_at)}</small></article>
-            <article className="card historyKpi"><span className="label">Median</span><strong>{formatNumber(stats.median_discount_pct)} %</strong><small>{stats.count} observasjoner</small></article>
+            <article className="card historyKpi"><span className="label">Median</span><strong>{formatNumber(stats.median_discount_pct)} %</strong><small>{(data.observation_count ?? stats.count).toLocaleString("nb-NO")} dagsobservasjoner</small></article>
             <article className="card historyKpi"><span className="label">Gjennomsnitt</span><strong>{formatNumber(stats.average_discount_pct)} %</strong><small>{formatDate(data.from)}–{formatDate(data.to)}</small></article>
             <article className="card historyKpi"><span className="label">Dagens persentil</span><strong>{formatNumber(stats.current_percentile, 0)}.</strong><small>Høyere = større rabatt</small></article>
           </section>

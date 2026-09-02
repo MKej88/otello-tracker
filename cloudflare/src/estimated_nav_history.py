@@ -787,7 +787,7 @@ async def estimated_nav_history(
         dates.insert(0, str(predecessor_date))
     if str(current_date) not in dates:
         dates.append(str(current_date))
-    dates = _pick_dates(sorted(set(dates)))
+    dates = sorted(set(dates))
     # Hvert punkt leser uavhengige historiske data. Kjør dem samtidig slik at en
     # periodeendring ikke må vente på mange serielle turer til D1-databasen.
     calculated_points = await asyncio.gather(
@@ -803,16 +803,21 @@ async def estimated_nav_history(
         return {"ready": False, "reason": "estimated_history_not_ready", "requested_start": requested_start, "current_date": current_date, "failures": failures[:10], "points": []}
     current = next((item for item in reversed(full_points) if item["date"] == current_date), full_points[-1])
     start = _history_start_point(full_points, requested_start, year_to_date=year_to_date)
-    public_points = [{"date": item["date"], "nav_per_share": item["nav_per_share"], "otec_price": item["otec_price"], "discount_pct": item["discount_pct"]} for item in full_points]
+    statistics_points = [{"date": item["date"], "nav_per_share": item["nav_per_share"], "otec_price": item["otec_price"], "discount_pct": item["discount_pct"]} for item in full_points]
+    chart_dates = set(_pick_dates([str(point["date"]) for point in statistics_points]))
+    chart_points = [point for point in statistics_points if str(point["date"]) in chart_dates]
     change = await _change(repository, start, current, requested_start)
     return {
         "ready": True,
         "model": "ESTIMATED_NAV_V1",
         "requested_start": requested_start,
-        "from": public_points[0]["date"],
-        "to": public_points[-1]["date"],
-        "point_count": len(public_points),
-        "points": public_points,
+        "from": statistics_points[0]["date"],
+        "to": statistics_points[-1]["date"],
+        "observation_count": len(statistics_points),
+        "chart_point_count": len(chart_points),
+        "point_count": len(chart_points),
+        "points": chart_points,
+        "_statistics_points": statistics_points,
         "current": current,
         "change": change,
         "failures": failures[:10],

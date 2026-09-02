@@ -435,7 +435,8 @@ def _estimated_extension(
                 "current_reason": current_report.get("reason"),
                 "policy": "FAIL_CLOSED_UNLESS_BOTH_REPORTS_SUPPORT_FAIR_VALUE_SPLIT",
             }
-    return {**result, "statistics": _discount_statistics(result.get("points") or [])}
+    statistics_points = result.pop("_statistics_points", result.get("points") or [])
+    return {**result, "statistics": _discount_statistics(statistics_points)}
 
 
 def discount_history(

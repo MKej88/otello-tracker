@@ -39,7 +39,7 @@ class _CountingConnection:
 
 def test_history_batches_snapshot_reads(monkeypatch) -> None:
     start = date(2026, 6, 1)
-    days = [(start + timedelta(days=offset)).isoformat() for offset in range(72)]
+    days = [(start + timedelta(days=offset)).isoformat() for offset in range(200)]
     connection = _CountingConnection(days)
     received_rows = 0
 
@@ -68,5 +68,11 @@ def test_history_batches_snapshot_reads(monkeypatch) -> None:
     result = history_module.estimated_nav_history(days=3650)
 
     assert result["ready"] is True
-    assert received_rows == 72
+    assert received_rows == 200
     assert connection.snapshot_queries == 1
+    assert result["observation_count"] == 200
+    assert result["chart_point_count"] == 72
+    assert result["point_count"] == 72
+    assert len(result["points"]) == 72
+    assert result["points"][0]["date"] == days[0]
+    assert result["points"][-1]["date"] == days[-1]
