@@ -13,6 +13,8 @@
 .marketDivider { height: 1px; margin: 17px 0; background: #1a2a41; }
 .marketMetrics { display: grid; gap: 11px; }
 .marketMetricRow { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 16px; color: #8191aa; font-size: 12px; }
+.marketMetricRow > span { min-width: 0; }
+.marketMetricRow small { display: block; margin-top: 3px; color: #71839e; font-size: 10px; }
 .marketMetricRow strong { color: #e5edf9; font-size: 13px; text-align: right; }
 .marketQuoteCard .positive { color: #27d3a5; }
 .marketQuoteCard .negative { color: #ff6b7d; }
