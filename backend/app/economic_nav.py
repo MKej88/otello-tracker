@@ -485,7 +485,8 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
 
         anchor = connection.execute(
             """
-            SELECT as_of_date, amount_nok FROM cash_anchors
+            SELECT as_of_date, amount_nok, reported_amount, reported_currency
+            FROM cash_anchors
             WHERE anchor_type='REPORTED' AND as_of_date <= ?
             ORDER BY as_of_date DESC, id DESC LIMIT 1
             """,
@@ -494,6 +495,23 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
         if anchor is None:
             return {"ready": False, "reason": "missing_reported_cash_anchor"}
         cash_anchor_date = str(anchor["as_of_date"])
+        reported_amount = anchor["reported_amount"]
+        reported_currency = str(anchor["reported_currency"] or "NOK")
+        if reported_amount is not None:
+            anchor_fx = (
+                None
+                if reported_currency == "NOK"
+                else _nearest_fx(connection, reported_currency, cash_anchor_date)
+            )
+            if reported_currency != "NOK" and anchor_fx is None:
+                return {"ready": False, "reason": "missing_reported_cash_fx"}
+            reported_cash_nok = Decimal(str(reported_amount)) * (
+                Decimal("1") if anchor_fx is None else Decimal(str(anchor_fx["rate"]))
+            )
+        elif anchor["amount_nok"] is not None:
+            reported_cash_nok = Decimal(str(anchor["amount_nok"]))
+        else:
+            return {"ready": False, "reason": "missing_reported_cash_value"}
 
         from app.estimated_nav_history import _cash_breakdown
 
@@ -565,6 +583,6 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             conservative_cost_metadata=conservative_cost,
             cash_fx_adjustment_nok=cash_fx["adjustment_nok"],
             cash_fx_details=cash_fx["details"],
-            reported_cash_nok=Decimal(str(anchor["amount_nok"])),
+            reported_cash_nok=reported_cash_nok,
             cash_bridge_movements=cash_bridge_movements,
         )

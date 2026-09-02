@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from app.economic_nav import build_cash_bridge
+from cloudflare.tools.build_worker_runtime_fixture import build_worker_runtime_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -105,3 +107,15 @@ def test_worker_invalidates_old_cached_economic_payload() -> None:
 
     assert 'STATE_KEY = "dashboard_hot_snapshot_v5"' in source
     assert "SNAPSHOT_VERSION = 5" in source
+
+
+def test_worker_reference_fixture_supports_report_anchors_in_original_currency(
+    tmp_path: Path,
+) -> None:
+    result = build_worker_runtime_fixture(
+        str(tmp_path / "reference.db"), tmp_path / "expected"
+    )
+    economic = json.loads((tmp_path / "expected/economic.json").read_text())
+
+    assert result["economic_ready"] is True
+    assert economic["cash_bridge"]["reported_cash_mnok"] == 160.08048
