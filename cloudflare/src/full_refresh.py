@@ -19,6 +19,8 @@ except ImportError:
 
 JOB_NAME = "cloudflare_full_refresh"
 PHASE = "16.3"
+_HISTORY_MATERIALIZATION_BATCH_SIZE = 100
+_MAX_HISTORY_MATERIALIZATION_BATCHES = 12
 _SOURCE_CODE_BY_COMPONENT = {
     "norges_bank": "NORGES_BANK",
     "life360": "YAHOO_FINANCE",
@@ -297,6 +299,58 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     return total
 
 
+async def _materialize_history_until_guard(repository) -> dict[str, Any]:
+    total_written = 0
+    failures: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for batch_number in range(1, _MAX_HISTORY_MATERIALIZATION_BATCHES + 1):
+        result = await materialize_estimated_nav_history(
+            repository,
+            batch_size=_HISTORY_MATERIALIZATION_BATCH_SIZE,
+        )
+        written = int(result.get("written") or 0)
+        batch_failures = list(result.get("failures") or [])
+        attempted = written + len(batch_failures)
+        total_written += written
+
+        for failure in batch_failures:
+            key = (str(failure.get("date") or ""), str(failure.get("reason") or ""))
+            failures[key] = failure
+
+        if attempted < _HISTORY_MATERIALIZATION_BATCH_SIZE:
+            complete = not batch_failures
+            return {
+                "written": total_written,
+                "failures": list(failures.values())[:10],
+                "failure_count": len(failures),
+                "batches": batch_number,
+                "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
+                "complete": complete,
+                "stop_reason": "complete" if complete else "blocked_by_failures",
+            }
+
+        if written == 0:
+            return {
+                "written": total_written,
+                "failures": list(failures.values())[:10],
+                "failure_count": len(failures),
+                "batches": batch_number,
+                "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
+                "complete": False,
+                "stop_reason": "no_progress",
+            }
+
+    return {
+        "written": total_written,
+        "failures": list(failures.values())[:10],
+        "failure_count": len(failures),
+        "batches": _MAX_HISTORY_MATERIALIZATION_BATCHES,
+        "batch_size": _HISTORY_MATERIALIZATION_BATCH_SIZE,
+        "complete": False,
+        "stop_reason": "batch_limit",
+    }
+
+
 async def finish_full_refresh(
     database: Any,
     *,
@@ -389,11 +443,10 @@ async def finish_full_refresh(
     else:
         status = "SUCCESS"
 
-    # Build one restart-safe history batch before refreshing the user-facing cache.
+    # Backfill missing history in restart-safe batches. The guard bounds one nightly run,
+    # while normal steady-state refreshes stop after the first small/incomplete batch.
     try:
-        estimated_nav_history = await materialize_estimated_nav_history(
-            repository, batch_size=100
-        )
+        estimated_nav_history = await _materialize_history_until_guard(repository)
     except Exception as exc:
         estimated_nav_history = {**error_result(exc), "non_critical": True}
 
