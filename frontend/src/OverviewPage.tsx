@@ -199,6 +199,21 @@ type Forecast = {
   estimate?: { base_case_shares?: number; low_shares?: number; high_shares?: number };
 };
 
+type BuybackProgramStatus = {
+  program?: {
+    cumulative_shares?: number | null;
+    vwap_nok?: string | number | null;
+    cash_spent_nok?: string | number | null;
+    share_count_nav_effect_per_share_nok?: number | null;
+  };
+};
+
+function finiteNumber(value: string | number | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 type DiscountHistory = {
   estimated?: {
     ready: boolean;
@@ -226,6 +241,11 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
+  const { data: buybackStatus } = usePollingResource<BuybackProgramStatus>(
+    "/api/buybacks/dashboard",
+    REFRESH_MS,
+    true,
+  );
   const { data: history } = usePollingResource<DiscountHistory>(
     "/api/dashboard/discount-history?days=365&max_points=72",
     REFRESH_MS,
@@ -235,6 +255,9 @@ export default function OverviewPage() {
     usePollingResource<MarketQuotePayload>("/api/market/quotes", REFRESH_MS, true);
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const cashBridge = nav?.cash_bridge;
+  const buybackProgram = buybackStatus?.program;
+  const programVwap = finiteNumber(buybackProgram?.vwap_nok);
+  const programCash = finiteNumber(buybackProgram?.cash_spent_nok);
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
   const bemobiRange = bemobi?.range_1y;
@@ -365,6 +388,11 @@ export default function OverviewPage() {
               </span>
             </div>
             <div><span>Estimatintervall</span><strong>{formatInteger(forecast?.estimate?.low_shares)}–{formatInteger(forecast?.estimate?.high_shares)}</strong></div>
+            <div className="overviewBuybackDivider" aria-hidden="true" />
+            <div><span>Kjøpt siden programstart</span><strong>{buybackProgram?.cumulative_shares == null || !Number.isFinite(buybackProgram.cumulative_shares) ? "—" : `${formatNumber(buybackProgram.cumulative_shares / 1_000_000, 2)} mill. aksjer`}</strong></div>
+            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
+            <div><span>Kontantbruk hittil</span><strong className="negative">{programCash == null ? "—" : `${formatNumber(programCash / 1_000_000, 1)} mill. kr`}</strong></div>
+            <div><span>NAV-effekt fra færre aksjer</span><strong className={tone(buybackProgram?.share_count_nav_effect_per_share_nok)}>{signed(buybackProgram?.share_count_nav_effect_per_share_nok, 2, " kr/aksje")}</strong></div>
           </div>
         </article>
 

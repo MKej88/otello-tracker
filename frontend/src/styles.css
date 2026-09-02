@@ -91,6 +91,7 @@ h2 { margin: 4px 0 0; font-size: 17px; }
 .historyRangeRows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .historyRangeRows small { grid-column: 2; text-align: right; }
 .overviewBuybackRows > div { align-items: center; }
+.overviewBuybackRows .overviewBuybackDivider { height: 1px; margin: 5px 0; padding: 0; border: 0; background: #2a3b54; }
 .overviewBuybackValue { display: grid; justify-items: end; gap: 3px; text-align: right; }
 .overviewBuybackValue small { color: #71809a; font-size: 10px; }
 .estimatedCashCard { min-height: 0; }
