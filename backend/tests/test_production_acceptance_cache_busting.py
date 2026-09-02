@@ -52,6 +52,16 @@ def test_production_acceptance_validates_bootstrap_payload() -> None:
     assert "isinstance(snapshot_version, int) and snapshot_version > 0" in step
 
 
+def test_production_acceptance_allows_history_materialization_to_finish() -> None:
+    step = _acceptance_step()
+
+    assert "estimated_ready = estimated.get('ready') is True" in step
+    assert "if estimated_ready:" in step
+    assert "estimated.get('reason') == 'materialized_history_not_ready'" in step
+    assert "estimated.get('points') == []" in step
+    assert "estimated_statistics.get('count') == 0" in step
+
+
 def test_production_acceptance_requires_source_backed_life360_holding() -> None:
     step = _acceptance_step()
 
