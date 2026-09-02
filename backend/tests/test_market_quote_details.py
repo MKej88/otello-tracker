@@ -294,18 +294,15 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert '@app.get("/api/market/quotes")' in backend
     assert '@app.get("/api/market/quotes")' in worker
     assert "market_quote_details" in worker_service
-    assert '"Tidspunkt for siste handel"' in panel
-    assert "OTEC sjekkes hvert 30. minutt" in panel
-    assert "Uendret tidspunkt betyr at Euronext" in panel
+    assert '"NAV / aksje"' in panel
+    assert '"Volum vs 3 mnd"' in panel
+    assert "30 min refresh" in panel
     for label in (
-        "52-ukers lav / høy",
-        "3 mnd snittvolum",
-        "Høyere enn 3 mnd snitt",
-        "Siste volum",
-        "Åpning",
-        "Dagens lav",
-        "Dagens høy",
-        "Siste sluttkurs",
+        "NAV-effekt 1 mnd",
+        "Verdi / OTEC-aksje",
+        "Otello eier",
+        "Verdi for Otello",
+        "52 uker",
     ):
         assert label in panel
     assert "<MarketQuotePanel />" in economic

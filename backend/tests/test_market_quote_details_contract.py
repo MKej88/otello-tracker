@@ -42,20 +42,20 @@ def test_issue_83_market_quote_contract() -> None:
         assert '"average_3m"' in source
         assert '"latest_above_average"' in source
         assert '"range_52w"' in source
+        assert '"changes"' in source
+        assert '"relative_3m"' in source
         assert '"open"' in source
         assert '"low"' in source
         assert '"high"' in source
 
     for label in (
-        "Sist oppdatert",
-        "52-ukers lav / høy",
-        "3 mnd snittvolum",
-        "Høyere enn 3 mnd snitt",
-        "Siste volum",
-        "Åpning",
-        "Dagens lav",
-        "Dagens høy",
-        "Siste sluttkurs",
+        "52 uker",
+        "1 mnd",
+        "3 mnd",
+        "NAV / aksje",
+        "Volum vs 3 mnd",
+        "NAV-effekt 1 mnd",
+        "Verdi for Otello",
     ):
         assert label in frontend
 

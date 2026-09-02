@@ -374,19 +374,14 @@ def _volume_stats(
     latest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if symbol == "OTEC":
-        rows = [
-            dict(row)
-            for row in connection.execute(
-                """
+        rows = [dict(row) for row in connection.execute("""
                 SELECT trading_date, volume_shares
                 FROM market_activity ma
                 JOIN instruments i ON i.id=ma.instrument_id
                 WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
                 ORDER BY trading_date DESC, ma.id DESC
                 LIMIT 126
-                """
-            )
-        ]
+                """)]
         deduped: dict[str, float] = {}
         for row in rows:
             if row["trading_date"] in deduped:
@@ -415,9 +410,7 @@ def _volume_stats(
     latest_value = volume_rows[0][1] if volume_rows else None
     latest_date = volume_rows[0][0] if volume_rows else None
     basis = (
-        "B3_COTAHIST_QUANTITY"
-        if symbol == "BMOB3"
-        else "STORED_MARKET_PRICE_METADATA"
+        "B3_COTAHIST_QUANTITY" if symbol == "BMOB3" else "STORED_MARKET_PRICE_METADATA"
     )
     source = "B3" if symbol == "BMOB3" else None
     provisional = False
@@ -482,6 +475,49 @@ def _range_52w(history: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _price_changes(
+    history: list[dict[str, Any]], current_price: Any, current_date: str
+) -> dict[str, float | None]:
+    """Beregn kursendringer mot siste gyldige handelsdag på eller før måldato."""
+    current = _number(current_price)
+    observations = [
+        (date.fromisoformat(str(row["trading_date"])), _number(row.get("price")))
+        for row in history
+    ]
+    valid = [
+        (day, value) for day, value in observations if value is not None and value > 0
+    ]
+
+    def change(reference_date: date) -> float | None:
+        if current is None or not current > 0:
+            return None
+        references = [value for day, value in valid if day <= reference_date]
+        if not references:
+            return None
+        return (current / references[-1] - 1) * 100
+
+    as_of = date.fromisoformat(current_date)
+    previous = [value for day, value in valid if day < as_of]
+    return {
+        "daily_pct": (
+            (current / previous[-1] - 1) * 100
+            if current is not None and current > 0 and previous
+            else None
+        ),
+        "month_pct": change(as_of - timedelta(days=30)),
+        "three_month_pct": change(as_of - timedelta(days=90)),
+    }
+
+
+def _relative_volume(volume: dict[str, Any]) -> float | None:
+    latest = _number(volume.get("latest"))
+    average = _number(volume.get("average_3m"))
+    sessions = int(volume.get("average_sessions") or 0)
+    if latest is None or latest < 0 or average is None or average <= 0 or sessions < 2:
+        return None
+    return latest / average
+
+
 def _quote(connection, symbol: str) -> dict[str, Any]:
     latest = _latest_price(connection, symbol)
     if latest is None:
@@ -509,6 +545,8 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
             else None
         ),
     )
+    volume = _volume_stats(connection, symbol, history, latest)
+    volume["relative_3m"] = _relative_volume(volume)
     return {
         "ready": True,
         "symbol": symbol,
@@ -525,7 +563,8 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
             "source": latest_close.get("source_code") if latest_close else None,
             "basis": latest_close.get("close_basis") if latest_close else None,
         },
-        "volume": _volume_stats(connection, symbol, history, latest),
+        "changes": _price_changes(history, latest.get("price"), trading_date),
+        "volume": volume,
         "range_52w": _range_52w(history),
     }
 
