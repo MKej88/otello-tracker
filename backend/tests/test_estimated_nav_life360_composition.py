@@ -172,7 +172,10 @@ def test_confirmed_other_cash_display_exposes_patent_settlement() -> None:
     )
 
     assert confirmed is True
-    assert formula == "Patentoppgjør 22.07.2026: USD 0,65m"
+    assert formula == (
+        "22.07.2026 · Siste avdrag fra patentsalg\n"
+        "USD 650 000 → 6,2 mill. kr"
+    )
     assert events[0]["amount_original"] == 650000.0
     assert events[0]["source_document_id"] == 99
 
@@ -252,8 +255,11 @@ def test_report_cash_alliance_life360_and_residual_are_split_without_changing_na
         == "Kontantbruk på egne aksjer etter 31.03.2026"
     )
     assert by_key["other_cash_since_report"]["amount_mnok"] == -3.0
-    assert by_key["other_cash_since_report"]["label"] == "Andre kontantbevegelser siden siste rapport"
-    assert by_key["other_cash_since_report"]["details"]["confirmed"] is False
+    assert by_key["other_cash_since_report"]["label"] == "Andre kontantbevegelser"
+    assert (
+        by_key["other_cash_since_report"]["formula"]
+        == "Rest etter identifiserte kontantbevegelser"
+    )
     assert by_key["fx_since_report"]["amount_mnok"] == 2.0
     assert by_key["alliance_venture_spring"]["amount_mnok"] == 25.0
     assert by_key["alliance_venture_spring"]["details"]["shares"] == 7_411_532

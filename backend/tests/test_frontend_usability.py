@@ -84,3 +84,16 @@ def test_history_chart_has_a_text_summary() -> None:
     assert 'className="chartSummary"' in history
     assert "Siste rabatt er" in history
     assert "siste OTEC-kurs er" in history
+
+
+def test_cash_movement_explanations_are_permanently_visible_in_calculation_column() -> None:
+    nav_page = read_frontend("NavPageV2.tsx")
+    styles = read_frontend("investor-v2.css")
+
+    assert "<span>Beregning</span>" in nav_page
+    assert "<small>{available ? item.formula" in nav_page
+    assert 'label: "Bemobi-utbetalinger"' in nav_page
+    assert "Rest etter identifiserte kontantbevegelser" in nav_page
+    assert "white-space:pre-line" in styles
+    assert "accordion" not in nav_page.lower()
+    assert "tooltip" not in nav_page.lower()
