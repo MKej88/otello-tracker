@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from buyback_service import LOOKBACK_DAYS, SAFE_HARBOUR_SHARE, buyback_forecast
-
+from estimated_nav_history import _share_count_driver
 
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 
@@ -38,11 +38,15 @@ def _completion(
         pace = 0
         basis = "UNAVAILABLE"
 
-    weeks = math.ceil(remaining_shares / pace) if remaining_shares > 0 and pace > 0 else 0
+    weeks = (
+        math.ceil(remaining_shares / pace) if remaining_shares > 0 and pace > 0 else 0
+    )
     forecast_week = forecast.get("forecast_week") or {}
     first_end = forecast_week.get("to")
     if not first_end and latest_period_end:
-        first_end = (date.fromisoformat(latest_period_end) + timedelta(days=7)).isoformat()
+        first_end = (
+            date.fromisoformat(latest_period_end) + timedelta(days=7)
+        ).isoformat()
 
     completion_date = None
     if weeks > 0 and first_end:
@@ -125,7 +129,9 @@ async def _latest_week_metrics(repository, latest) -> dict[str, int | float | No
     result = {
         **empty,
         "market_volume_shares": market_volume or None,
-        "volume_share_pct": round(actual / market_volume * 100, 2) if market_volume else None,
+        "volume_share_pct": (
+            round(actual / market_volume * 100, 2) if market_volume else None
+        ),
     }
 
     lookback = await repository.all(
@@ -186,15 +192,39 @@ def _nav_effect(nav_snapshot, latest, shares) -> dict[str, float | None]:
     }
 
 
+def _share_count_nav_effect(
+    start_snapshot, nav_snapshot, latest, shares
+) -> float | None:
+    """Reuse the NAV attribution's pure denominator effect for the active program."""
+    if (
+        start_snapshot is None
+        or nav_snapshot is None
+        or latest is None
+        or shares is None
+    ):
+        return None
+    bought = int(latest["cumulative_program_shares"] or 0)
+    current_shares = int(shares["outstanding_shares"] or 0)
+    if bought <= 0 or current_shares <= 0:
+        return None
+    driver = _share_count_driver(
+        start_total_nok=Decimal(str(start_snapshot["nav_total_nok"])),
+        current_total_nok=Decimal(str(nav_snapshot["nav_total_nok"])),
+        start_shares=current_shares + bought,
+        current_shares=current_shares,
+    )
+    return driver["per_share_nok"]
+
+
 async def buyback_dashboard(
     repository,
     *,
     as_of_date: str | None = None,
 ) -> dict[str, Any]:
     forecast = await buyback_forecast(repository, as_of_date=as_of_date)
-    as_of = str(
-        forecast.get("as_of_date") or as_of_date or date.today().isoformat()
-    )[:10]
+    as_of = str(forecast.get("as_of_date") or as_of_date or date.today().isoformat())[
+        :10
+    ]
 
     latest = await repository.first(
         """
@@ -204,10 +234,12 @@ async def buyback_dashboard(
                b.treasury_shares_after, p.external_program_id, p.max_shares,
                p.max_price_nok, p.start_date, p.end_date
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
-        WHERE b.trade_date <= ?
+        WHERE b.trade_date <= ? AND p.status = 'ACTIVE'
+          AND (p.start_date IS NULL OR p.start_date <= ?)
+          AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
         """,
-        (as_of,),
+        (as_of, as_of, as_of),
     )
     share_count = await repository.first(
         """
@@ -229,6 +261,18 @@ async def buyback_dashboard(
         """,
         (FULL_CALCULATION_VERSION, as_of),
     )
+    start_nav_snapshot = None
+    if latest is not None and latest.get("start_date"):
+        start_nav_snapshot = await repository.first(
+            """
+            SELECT nav_total_nok
+            FROM nav_snapshots
+            WHERE calculation_version = ? AND nav_scope = 'FULL'
+              AND substr(as_of_at, 1, 10) <= ?
+            ORDER BY as_of_at DESC, id DESC LIMIT 1
+            """,
+            (FULL_CALCULATION_VERSION, latest["start_date"]),
+        )
 
     raw_history = list(forecast.get("recent_program_weeks") or [])
     volumes: dict[str, int] = {}
@@ -245,10 +289,7 @@ async def buyback_dashboard(
             """,
             (start, end),
         )
-        volumes = {
-            str(row["trading_date"]): int(row["volume_shares"])
-            for row in rows
-        }
+        volumes = {str(row["trading_date"]): int(row["volume_shares"]) for row in rows}
     history = _enrich_history(raw_history, volumes)
     latest_metrics = await _latest_week_metrics(repository, latest)
 
@@ -256,7 +297,6 @@ async def buyback_dashboard(
     _normalize_latest_numeric_fields(latest_payload)
     if latest_payload is not None:
         latest_payload.update(latest_metrics)
-
 
     shares = None
     if share_count is not None or latest_payload is not None:
@@ -292,7 +332,9 @@ async def buyback_dashboard(
             "effective_from": (
                 latest_payload.get("trade_date")
                 if use_latest and latest_payload
-                else (share_count["effective_from"] if share_count is not None else None)
+                else (
+                    share_count["effective_from"] if share_count is not None else None
+                )
             ),
             "treasury_source": "LATEST_BUYBACK" if use_latest else "SHARE_COUNT",
         }
@@ -322,6 +364,10 @@ async def buyback_dashboard(
         "vwap_nok": str(vwap) if vwap is not None else None,
         "progress_pct": (
             round(cumulative / max_shares * 100, 1) if max_shares else None
+        ),
+        "cash_spent_nok": -cumulative_amount if cumulative_amount else None,
+        "share_count_nav_effect_per_share_nok": _share_count_nav_effect(
+            start_nav_snapshot, nav_snapshot, latest, shares
         ),
     }
 
