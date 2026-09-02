@@ -106,8 +106,7 @@ def _seed_current_program(database: str) -> None:
             """,
             (document_id,),
         )
-        connection.execute(
-            """
+        connection.execute("""
             INSERT INTO nav_snapshots(
                 as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
                 cash_estimate_nok, other_net_assets_nok, shares_outstanding,
@@ -117,10 +116,19 @@ def _seed_current_program(database: str) -> None:
                 '500000000', '0', 85599607, 'full-market-nav-daily-v2',
                 'full-nav-test', 'OK', 'FULL'
             )
-            """
-        )
-        connection.execute(
-            """
+            """)
+        connection.execute("""
+            INSERT INTO nav_snapshots(
+                as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
+                cash_estimate_nok, other_net_assets_nok, shares_outstanding,
+                calculation_version, inputs_hash, status, nav_scope
+            ) VALUES (
+                '2026-06-08T16:30:00Z', '1680000000', '19.49', '1180000000',
+                '500000000', '0', 86200000, 'full-market-nav-daily-v2',
+                'full-nav-program-start', 'OK', 'FULL'
+            )
+            """)
+        connection.execute("""
             INSERT INTO nav_snapshots(
                 as_of_at, nav_total_nok, nav_per_share_nok, bemobi_value_nok,
                 cash_estimate_nok, other_net_assets_nok, shares_outstanding,
@@ -130,8 +138,7 @@ def _seed_current_program(database: str) -> None:
                 '500000000', '0', 85599607, 'core-nav-daily-v1',
                 'core-nav-test', 'OK', 'CORE'
             )
-            """
-        )
+            """)
         connection.commit()
 
 
@@ -143,7 +150,9 @@ def _database(tmp_path: Path) -> str:
     return database
 
 
-def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(tmp_path: Path) -> None:
+def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(
+    tmp_path: Path,
+) -> None:
     database = _database(tmp_path)
     result = reference_dashboard(database, as_of_date="2026-08-17")
 
@@ -166,7 +175,10 @@ def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(tmp_path: Pa
     assert result["forecast"]["estimate"]["base_case_shares"] > 0
     assert result["backtest"]["metrics"]["weeks"] >= 8
     assert len(result["backtest"]["weeks"]) == 8
-    assert all(item["actual_volume_share_pct"] is not None for item in result["backtest"]["weeks"])
+    assert all(
+        item["actual_volume_share_pct"] is not None
+        for item in result["backtest"]["weeks"]
+    )
     assert result["completion"]["estimated_weeks_remaining"] is not None
     assert result["completion"]["estimated_completion_date"] is not None
 
@@ -208,3 +220,96 @@ def test_nav_effect_uses_full_nav_snapshot(tmp_path: Path) -> None:
         "pct": 0.1004,
     }
     assert worker["nav_effect"] == reference["nav_effect"]
+
+
+def test_program_status_uses_active_program_cumulative_facts(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+
+    reference = reference_dashboard(database, as_of_date="2026-08-17")
+    program = reference["program"]
+
+    assert program["cumulative_shares"] == 600_393
+    assert program["vwap_nok"] == "17"
+    assert program["cash_spent_nok"] == -10_206_681
+    assert program["share_count_nav_effect_per_share_nok"] == 0.13751285161489648
+
+    worker = asyncio.run(
+        worker_dashboard(SQLiteAsyncRepository(database), as_of_date="2026-08-17")
+    )
+    assert worker["program"] == program
+
+
+def test_program_status_excludes_older_program_and_uses_weighted_price(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        latest_id = connection.execute(
+            "SELECT id FROM buybacks ORDER BY trade_date DESC, id DESC LIMIT 1"
+        ).fetchone()["id"]
+        connection.execute(
+            """
+            UPDATE buybacks
+            SET cumulative_program_amount_nok = '10807074',
+                cumulative_program_avg_price_nok = NULL
+            WHERE id = ?
+            """,
+            (latest_id,),
+        )
+        program_document_id = connection.execute(
+            "SELECT source_document_id FROM buyback_programs LIMIT 1"
+        ).fetchone()["source_document_id"]
+        old_program_id = connection.execute(
+            """
+            INSERT INTO buyback_programs(
+                external_program_id, announced_at, start_date, end_date,
+                status, source_document_id
+            ) VALUES ('old-program', '2025-01-01', '2025-01-01', '2025-12-31',
+                      'COMPLETED', ?)
+            """,
+            (program_document_id,),
+        ).lastrowid
+        document_id = create_source_document(
+            connection,
+            source_code="NEWSWEB",
+            external_id="old-program-late-row",
+            document_type="REGULATORY_NEWS",
+            title="Old program late row",
+            url="https://newsweb.oslobors.no/message/old-program-late-row",
+        )
+        connection.execute(
+            """
+            INSERT INTO buybacks(
+                program_id, trade_date, shares, avg_price_nok, amount_nok,
+                cumulative_program_shares, cumulative_program_amount_nok,
+                source_document_id
+            ) VALUES (?, '2026-08-17', 999999, '99', '98999901',
+                      999999, '98999901', ?)
+            """,
+            (old_program_id, document_id),
+        )
+        connection.commit()
+
+    result = reference_dashboard(database, as_of_date="2026-08-17")
+
+    assert result["program"]["cumulative_shares"] == 600_393
+    assert result["program"]["vwap_nok"] == "18"
+    assert result["program"]["cash_spent_nok"] == -10_807_074
+
+
+def test_overview_buyback_card_has_program_status_and_null_guards() -> None:
+    page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
+
+    for label in (
+        "Siste rapporterte kjøp",
+        "Neste uke – baseestimat",
+        "Estimatintervall",
+        "Kjøpt siden programstart",
+        "Gjennomsnittlig kjøpskurs",
+        "Kontantbruk hittil",
+        "NAV-effekt fra færre aksjer",
+    ):
+        assert label in page
+    assert 'className="overviewBuybackDivider"' in page
+    assert "finiteNumber" in page
+    assert "return Number.isFinite(parsed) ? parsed : null" in page
