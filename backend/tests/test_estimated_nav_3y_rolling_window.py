@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import json
 
 import pytest
 
@@ -33,38 +34,38 @@ class _FakeConnection:
     def execute(self, query: str, params=()):
         normalized = " ".join(query.split())
 
-        if "SELECT MAX(substr(as_of_at,1,10)) AS max_date" in normalized:
+        if "SELECT MAX(date) AS max_date" in normalized:
             return _Cursor(one={"max_date": self.current_day})
 
-        if "SELECT DISTINCT substr(as_of_at,1,10) AS date" in normalized:
+        if "date>=? AND date<=?" in normalized:
             requested_start = str(params[1])
             current_date = str(params[2])
             self.seen_requested_start = requested_start
             return _Cursor(
                 rows=[
-                    {"date": requested_start},
-                    {"date": current_date},
+                    _stored_row(requested_start),
+                    _stored_row(current_date),
                 ]
             )
 
-        if "SELECT MAX(substr(as_of_at,1,10)) AS date" in normalized:
+        if "date<=? ORDER BY date DESC LIMIT 1" in normalized:
             requested_start = str(params[1])
-            return _Cursor(one={"date": requested_start})
-
-        if "WITH ranked AS" in normalized:
-            return _Cursor(rows=[{"date": str(day)} for day in params[1:]])
+            return _Cursor(one=_stored_row(requested_start))
 
         raise AssertionError(f"Unexpected SQL in rolling-window test: {normalized}")
 
 
-def _estimated_point(_connection, day: str, _database_path, *, snapshot_row=None):
-    assert snapshot_row == {"date": day}
+def _stored_row(day: str) -> dict:
     return {
-        "ready": True,
         "date": day,
-        "nav_per_share": 10.0,
-        "otec_price": 5.0,
+        "nav_total_mnok": 100.0,
+        "nav_per_share_nok": 10.0,
+        "otec_price_nok": 5.0,
         "discount_pct": 50.0,
+        "shares_outstanding": 10,
+        "accounting_nav_per_share_nok": 9.0,
+        "composition_json": json.dumps([]),
+        "reconciliation_residual_mnok": 0.0,
     }
 
 
@@ -99,7 +100,6 @@ def test_three_year_window_rolls_from_latest_full_nav_date(
         "get_connection",
         lambda _database_path=None: connection,
     )
-    monkeypatch.setattr(history_module, "_estimated_point", _estimated_point)
     monkeypatch.setattr(history_module, "_change", _change)
 
     result = history_module.estimated_nav_history(days=1095)
@@ -113,7 +113,6 @@ def test_three_year_window_rolls_from_latest_full_nav_date(
     assert result["change"]["requested_start"] == expected_start
     assert result["change"]["resolved_start"] == expected_start
     assert result["change"]["current_date"] == current_day
-    assert (
-        date.fromisoformat(current_day) - date.fromisoformat(result["requested_start"])
-        == timedelta(days=1095)
-    )
+    assert date.fromisoformat(current_day) - date.fromisoformat(
+        result["requested_start"]
+    ) == timedelta(days=1095)
