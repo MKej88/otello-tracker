@@ -200,6 +200,7 @@ type Forecast = {
 };
 
 type BuybackProgramStatus = {
+  forecast?: Forecast;
   program?: {
     cumulative_shares?: number | null;
     vwap_nok?: string | number | null;
@@ -236,11 +237,6 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
-  const { data: forecast } = usePollingResource<Forecast>(
-    "/api/buybacks/forecast",
-    REFRESH_MS,
-    true,
-  );
   const { data: buybackStatus } = usePollingResource<BuybackProgramStatus>(
     "/api/buybacks/dashboard",
     REFRESH_MS,
@@ -255,6 +251,7 @@ export default function OverviewPage() {
     usePollingResource<MarketQuotePayload>("/api/market/quotes", REFRESH_MS, true);
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const cashBridge = nav?.cash_bridge;
+  const forecast = buybackStatus?.forecast;
   const buybackProgram = buybackStatus?.program;
   const programVwap = finiteNumber(buybackProgram?.vwap_nok);
   const programCash = finiteNumber(buybackProgram?.cash_spent_nok);
