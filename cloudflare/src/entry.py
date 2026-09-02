@@ -180,11 +180,14 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from bemobi_web_refresh_runtime import refresh_bemobi_web
         from cvm_full_refresh import refresh_bemobi_cvm
         from full_refresh import (
+            MAX_HISTORY_MATERIALIZATION_BATCHES,
             error_result,
             finish_full_refresh,
+            materialize_history_batch,
             preflight,
             refresh_nav,
             start_full_refresh,
+            summarize_history_materialization,
         )
         from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
         from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
@@ -562,6 +565,35 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 archive_result = error_result(exc)
             await renew_lock("after snapshot")
 
+            history_batches: list[dict] = []
+            estimated_nav_history = summarize_history_materialization(history_batches)
+            for batch_number in range(1, MAX_HISTORY_MATERIALIZATION_BATCHES + 1):
+
+                @step.do(
+                    f"materialize estimated NAV history {batch_number}",
+                    config={
+                        "retries": {"limit": 2, "delay": "15 seconds"},
+                        "timeout": "10 minutes",
+                    },
+                )
+                async def estimated_nav_history_step():
+                    return await materialize_history_batch(self.env.DB)
+
+                try:
+                    history_batch = await estimated_nav_history_step()
+                except Exception as exc:
+                    history_batch = {
+                        **error_result(exc),
+                        "written": 0,
+                        "failures": [],
+                    }
+
+                history_batches.append(history_batch)
+                estimated_nav_history = summarize_history_materialization(history_batches)
+                await renew_lock(f"after estimated NAV history {batch_number}")
+                if estimated_nav_history.get("stop_reason") != "continue":
+                    break
+
             @step.do(
                 "finish full refresh",
                 config={"retries": {"limit": 3, "delay": "10 seconds"}, "timeout": "3 minutes"},
@@ -575,6 +607,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     nav_result=nav_result,
                     preflight_result=preflight_result,
                     archive_result=archive_result,
+                    estimated_nav_history_result=estimated_nav_history,
                 )
 
             result = await finish_step()
