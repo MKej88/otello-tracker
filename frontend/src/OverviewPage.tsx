@@ -105,7 +105,7 @@ function FreshnessCard({ rows }: { rows: FreshnessRow[] }) {
           );
         })}
       </div>
-      <small>Grønn er fersk for kildens normale frekvens.</small>
+      <small>Grønn = fersk for kildens normale frekvens.</small>
     </div>
   );
 }
