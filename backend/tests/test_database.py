@@ -24,12 +24,12 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015",
         "0016", "0017", "0019", "0020", "0021", "0022", "0023", "0024",
         "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032",
-        "0033", "0034",
+        "0033", "0034", "0035",
     ]
     assert init_database(database_path) == []
 
     status = database_status(database_path)
-    assert status["latest_migration"] == "0034"
+    assert status["latest_migration"] == "0035"
     assert status["table_counts"]["sources"] == 19
     assert status["table_counts"]["instruments"] == 4
     assert status["table_counts"]["bemobi_investor_facts"] == 18
@@ -38,6 +38,7 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     assert status["table_counts"]["other_net_assets_daily_estimates"] == 0
     assert status["table_counts"]["buyback_daily_transactions"] == 0
     assert status["table_counts"]["market_activity"] == 6
+    assert status["table_counts"]["estimated_nav_history_retry_queue"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -159,6 +160,7 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cash_period_calibrations'").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='runtime_state'").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='life360_holding_anchors'").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='estimated_nav_history_retry_queue'").fetchone()[0] == 1
 
         connection.execute(
             """
@@ -293,7 +295,7 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert response.status_code == 200
             payload = response.json()
             assert payload["status"] == "ok"
-            assert payload["latest_migration"] == "0034"
+            assert payload["latest_migration"] == "0035"
             assert payload["table_counts"]["sources"] == 19
             assert payload["table_counts"]["instruments"] == 4
             assert payload["table_counts"]["bemobi_investor_facts"] == 18
@@ -301,5 +303,6 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert payload["table_counts"]["buyback_daily_transactions"] == 0
             assert payload["table_counts"]["market_activity"] > 500
             assert payload["table_counts"]["life360_holding_anchors"] == 2
+            assert payload["table_counts"]["estimated_nav_history_retry_queue"] == 0
     finally:
         settings.database_path = previous_path
