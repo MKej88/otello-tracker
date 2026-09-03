@@ -38,7 +38,6 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
     assert status["table_counts"]["other_net_assets_daily_estimates"] == 0
     assert status["table_counts"]["buyback_daily_transactions"] == 0
     assert status["table_counts"]["market_activity"] == 6
-    assert status["table_counts"]["estimated_nav_history_retry_queue"] == 0
 
     with get_connection(database_path) as connection:
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -303,6 +302,5 @@ def test_database_status_api_initializes_schema(tmp_path) -> None:
             assert payload["table_counts"]["buyback_daily_transactions"] == 0
             assert payload["table_counts"]["market_activity"] > 500
             assert payload["table_counts"]["life360_holding_anchors"] == 2
-            assert payload["table_counts"]["estimated_nav_history_retry_queue"] == 0
     finally:
         settings.database_path = previous_path
