@@ -566,8 +566,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             await renew_lock("after snapshot")
 
             history_batches: list[dict] = []
+            history_cursor: str | None = None
             estimated_nav_history = summarize_history_materialization(history_batches)
             for batch_number in range(1, MAX_HISTORY_MATERIALIZATION_BATCHES + 1):
+                batch_after_date = history_cursor
 
                 @step.do(
                     f"materialize estimated NAV history {batch_number}",
@@ -577,7 +579,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     },
                 )
                 async def estimated_nav_history_step():
-                    return await materialize_history_batch(self.env.DB)
+                    return await materialize_history_batch(
+                        self.env.DB,
+                        after_date=batch_after_date,
+                    )
 
                 try:
                     history_batch = await estimated_nav_history_step()
@@ -585,10 +590,15 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     history_batch = {
                         **error_result(exc),
                         "written": 0,
+                        "attempted": 0,
                         "failures": [],
+                        "after_date": batch_after_date,
+                        "next_cursor": batch_after_date,
+                        "cursor_advanced": False,
                     }
 
                 history_batches.append(history_batch)
+                history_cursor = history_batch.get("next_cursor") or history_cursor
                 estimated_nav_history = summarize_history_materialization(history_batches)
                 await renew_lock(f"after estimated NAV history {batch_number}")
                 if estimated_nav_history.get("stop_reason") != "continue":
