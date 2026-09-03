@@ -109,11 +109,11 @@ async def _queue_failure(repository, day: str, reason: Any) -> None:
                ?, ?, ?, 1,
                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-               datetime('now', ?)
+               strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)
            )
            ON CONFLICT(date, calculation_version) DO UPDATE SET
                reason=excluded.reason,
-               attempts=estimated_nav_history_retry_queue.attempts + 1,
+               attempts=attempts + 1,
                last_failed_at=excluded.last_failed_at,
                next_retry_at=excluded.next_retry_at""",
         (
