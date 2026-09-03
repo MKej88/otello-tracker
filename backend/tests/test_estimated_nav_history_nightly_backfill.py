@@ -50,7 +50,8 @@ def test_nightly_history_backfill_uses_separate_durable_workflow_steps() -> None
     assert "RETRY_BATCH_SIZE = 10" in materializer
     assert "RETRY_DELAY_DAYS = 7" in materializer
     assert "async def _retry_due_failures(" in materializer
-    assert "attempts=estimated_nav_history_retry_queue.attempts + 1" in materializer
+    assert "strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)" in materializer
+    assert "attempts=attempts + 1" in materializer
     assert "if attempted < batch_size" in materializer
 
     assert "for batch_number in range(1, MAX_HISTORY_MATERIALIZATION_BATCHES + 1):" in entry
