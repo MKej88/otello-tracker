@@ -7,14 +7,18 @@ from typing import Any
 try:
     from .d1_preflight import run_d1_preflight
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from .estimated_nav_history_materialization import (
+        materialize_estimated_nav_history_batch,
+    )
     from .nav_refresh import refresh_dirty_nav_layers
-    from .estimated_nav_history import materialize_estimated_nav_history
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
     from d1_preflight import run_d1_preflight
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from estimated_nav_history_materialization import (
+        materialize_estimated_nav_history_batch,
+    )
     from nav_refresh import refresh_dirty_nav_layers
-    from estimated_nav_history import materialize_estimated_nav_history
     from performance_repository import PerformanceD1WriteRepository
 
 JOB_NAME = "cloudflare_full_refresh"
@@ -299,21 +303,29 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
     return total
 
 
-async def materialize_history_batch(database: Any) -> dict[str, Any]:
-    """Build one bounded history batch for a durable Workflow step."""
+async def materialize_history_batch(
+    database: Any, *, after_date: str | None = None
+) -> dict[str, Any]:
+    """Build one bounded, cursor-aware history batch for a durable Workflow step."""
     repository = PerformanceD1WriteRepository(database)
-    result = await materialize_estimated_nav_history(
+    result = await materialize_estimated_nav_history_batch(
         repository,
         batch_size=HISTORY_MATERIALIZATION_BATCH_SIZE,
+        after_date=after_date,
     )
     return {**result, "repository": repository.performance_metrics()}
 
 
 def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str, Any]:
     total_written = 0
+    total_attempted = 0
     failures: dict[tuple[str, str], dict[str, Any]] = {}
     for batch in batches:
         total_written += int(batch.get("written") or 0)
+        total_attempted += int(
+            batch.get("attempted")
+            or (int(batch.get("written") or 0) + len(batch.get("failures") or []))
+        )
         for failure in batch.get("failures") or []:
             key = (str(failure.get("date") or ""), str(failure.get("reason") or ""))
             failures[key] = failure
@@ -321,27 +333,31 @@ def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str
     if not batches:
         return {
             "written": 0,
+            "attempted": 0,
+            "skipped": 0,
             "failures": [],
             "failure_count": 0,
             "batches": 0,
             "batch_size": HISTORY_MATERIALIZATION_BATCH_SIZE,
             "complete": False,
             "stop_reason": "not_started",
+            "next_cursor": None,
         }
 
     last = batches[-1]
     last_written = int(last.get("written") or 0)
     last_failures = list(last.get("failures") or [])
-    attempted = last_written + len(last_failures)
+    last_attempted = int(last.get("attempted") or (last_written + len(last_failures)))
     last_status = str(last.get("status") or "").lower()
+    cursor_advanced = bool(last.get("cursor_advanced"))
 
     if last_status == "error" or last.get("error"):
         complete = False
         stop_reason = "batch_error"
-    elif attempted < HISTORY_MATERIALIZATION_BATCH_SIZE:
-        complete = not last_failures
-        stop_reason = "complete" if complete else "blocked_by_failures"
-    elif last_written == 0:
+    elif last_attempted < HISTORY_MATERIALIZATION_BATCH_SIZE:
+        complete = True
+        stop_reason = "complete" if not last_failures else "complete_with_skips"
+    elif not cursor_advanced:
         complete = False
         stop_reason = "no_progress"
     elif len(batches) >= MAX_HISTORY_MATERIALIZATION_BATCHES:
@@ -353,12 +369,15 @@ def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str
 
     summary = {
         "written": total_written,
+        "attempted": total_attempted,
+        "skipped": total_attempted - total_written,
         "failures": list(failures.values())[:10],
         "failure_count": len(failures),
         "batches": len(batches),
         "batch_size": HISTORY_MATERIALIZATION_BATCH_SIZE,
         "complete": complete,
         "stop_reason": stop_reason,
+        "next_cursor": last.get("next_cursor"),
     }
     if last.get("error"):
         summary["error"] = str(last.get("error"))[:1000]
