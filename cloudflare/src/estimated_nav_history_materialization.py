@@ -247,11 +247,11 @@ async def materialize_estimated_nav_history_batch(
         written += 1
 
     persisted_cursor_after = await _save_scan_cursor(repository, next_cursor)
-    history_scan_complete = attempted < batch_size
-    retry = (
-        await _retry_due_failures(repository)
-        if history_scan_complete
-        else {
+    if attempted < batch_size:
+        retry = await _retry_due_failures(repository)
+        period_cache = await _materialize_period_cache(repository)
+    else:
+        retry = {
             "attempted": 0,
             "written": 0,
             "failures": [],
@@ -260,15 +260,10 @@ async def materialize_estimated_nav_history_batch(
             "retry_delay_days": RETRY_DELAY_DAYS,
             "deferred": True,
         }
-    )
-    period_cache = (
-        await _materialize_period_cache(repository)
-        if history_scan_complete
-        else {
+        period_cache = {
             "status": "deferred",
             "reason": "history_scan_continues",
         }
-    )
 
     return {
         "written": written,
