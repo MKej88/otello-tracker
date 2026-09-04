@@ -307,9 +307,11 @@ def test_overview_buyback_card_has_program_status_and_null_guards() -> None:
         "Kjøpt siden programstart",
         "Gjennomsnittlig kjøpskurs",
         "Kontantbruk hittil",
-        "NAV-effekt fra færre aksjer",
+        "Netto NAV-effekt fra tilbakekjøp",
     ):
         assert label in page
-    assert 'className="overviewBuybackDivider"' in page
+    assert 'className="overviewBuybackDivider"' not in page
+    assert "formatInteger(buybackProgram.cumulative_shares)" in page
+    assert "buybackStatus?.nav_effect?.per_share_nok" in page
     assert "finiteNumber" in page
     assert "return Number.isFinite(parsed) ? parsed : null" in page
