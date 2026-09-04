@@ -69,6 +69,7 @@ def test_investing_overrides_focus_when_event_forecast_exists(monkeypatch) -> No
     assert expectation["value"] == 0.4
     assert expectation["previous"] == "1.1%"
     assert expectation["release_at_utc"] == "2026-09-01T12:00:00Z"
+    assert enriched[0]["investing_consensus_status"]["code"] == "AVAILABLE"
     assert status["consensus_events"] == 1
     assert status["timed_events"] == 1
 
@@ -96,8 +97,36 @@ def test_release_time_is_kept_when_forecast_is_not_published(monkeypatch) -> Non
     assert expectation["event_consensus"] is False
     assert expectation["release_at_utc"] == "2026-09-15T12:00:00Z"
     assert "value" not in expectation
+    assert (
+        enriched[0]["investing_consensus_status"]["code"]
+        == "NO_FORECAST_PUBLISHED"
+    )
     assert status["consensus_events"] == 0
     assert status["timed_events"] == 1
+
+
+def test_valid_page_without_matching_date_is_reported_separately(monkeypatch) -> None:
+    async def fake_fetch_html(url: str, *, fetcher=None) -> str:
+        assert "services-sector-growth" in url
+        return _page(_row("Aug 14, 2026", "12:00", "0.3%", "0.2%", "0.1%"))
+
+    monkeypatch.setattr(investing, "_fetch_html", fake_fetch_html)
+    events = [
+        {
+            "date": "2026-09-10",
+            "name": "Tjenesteaktivitet (PMS)",
+            "kind": "services",
+            "reference": "jul. 2026",
+        }
+    ]
+
+    enriched, status = asyncio.run(
+        investing.enrich_calendar_from_investing(events, as_of_date="2026-09-01")
+    )
+
+    assert enriched[0]["investing_consensus_status"]["code"] == "NO_MATCH"
+    assert status["pages_ready"] == 1
+    assert status["matched_events"] == 0
 
 
 def test_empty_success_response_is_reported_as_source_error(monkeypatch) -> None:
@@ -121,7 +150,8 @@ def test_empty_success_response_is_reported_as_source_error(monkeypatch) -> None
         )
     )
 
-    assert enriched == events
+    assert enriched[0]["date"] == events[0]["date"]
+    assert enriched[0]["investing_consensus_status"]["code"] == "SOURCE_ERROR"
     assert status["ready"] is False
     assert status["pages_ready"] == 0
     assert "ValueError" in status["errors"]["gdp"]
