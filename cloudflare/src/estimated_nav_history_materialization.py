@@ -180,6 +180,24 @@ async def _retry_due_failures(
     }
 
 
+async def _materialize_period_cache(repository) -> dict[str, Any]:
+    """Build the six investor-period payloads without making cache failure block NAV history."""
+    try:
+        try:
+            from .materialized_discount_history import materialize_discount_periods
+        except ImportError:
+            from materialized_discount_history import materialize_discount_periods
+
+        return await materialize_discount_periods(repository)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc)[:1000] or type(exc).__name__,
+            "error_type": type(exc).__name__,
+            "non_critical": True,
+        }
+
+
 async def materialize_estimated_nav_history_batch(
     repository,
     *,
@@ -229,10 +247,11 @@ async def materialize_estimated_nav_history_batch(
         written += 1
 
     persisted_cursor_after = await _save_scan_cursor(repository, next_cursor)
-    retry = (
-        await _retry_due_failures(repository)
-        if attempted < batch_size
-        else {
+    if attempted < batch_size:
+        retry = await _retry_due_failures(repository)
+        period_cache = await _materialize_period_cache(repository)
+    else:
+        retry = {
             "attempted": 0,
             "written": 0,
             "failures": [],
@@ -241,7 +260,10 @@ async def materialize_estimated_nav_history_batch(
             "retry_delay_days": RETRY_DELAY_DAYS,
             "deferred": True,
         }
-    )
+        period_cache = {
+            "status": "deferred",
+            "reason": "history_scan_continues",
+        }
 
     return {
         "written": written,
@@ -255,4 +277,5 @@ async def materialize_estimated_nav_history_batch(
         "persistent_cursor_after": persisted_cursor_after,
         "cursor_advanced": bool(rows) and next_cursor != effective_after_date,
         "retry": retry,
+        "period_cache": period_cache,
     }

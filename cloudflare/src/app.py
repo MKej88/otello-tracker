@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from dashboard_hot_snapshot import dashboard_bootstrap_payload, dashboard_hot_component
 from performance_repository import PerformanceD1Repository, PerformanceD1WriteRepository
 
-API_VERSION = "0.13.1"
+API_VERSION = "0.13.2"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -25,6 +25,7 @@ CACHE_POLICIES = {
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
     "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/discount-history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
+    "/api/dashboard/nav-periods": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/buybacks/forecast": ("public, max-age=300", "public, max-age=900, stale-while-revalidate=1800"),
     "/api/buybacks/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
@@ -170,14 +171,21 @@ async def get_discount_history(
     max_points: int = Query(default=600, ge=50, le=1000),
     year_to_date: bool = Query(default=False),
 ) -> dict:
-    from discount_history import discount_history
+    from materialized_discount_history import materialized_discount_history
 
-    return await discount_history(
+    return await materialized_discount_history(
         _repository(request),
         days=days,
         max_points=max_points,
         year_to_date=year_to_date,
     )
+
+
+@app.get("/api/dashboard/nav-periods")
+async def get_nav_periods(request: Request) -> dict:
+    from materialized_discount_history import materialized_nav_period_bundle
+
+    return await materialized_nav_period_bundle(_repository(request))
 
 
 @app.get("/api/market/quotes")
