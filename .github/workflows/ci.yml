@@ -56,7 +56,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Audit locked dependencies
-        run: npm audit --audit-level=high
+        run: bash tools/npm-audit-ci.sh
       - name: Build
         run: npm run build
       - name: Verify Cloudflare static headers are emitted into dist
