@@ -207,6 +207,10 @@ type BuybackProgramStatus = {
     cash_spent_nok?: string | number | null;
     share_count_nav_effect_per_share_nok?: number | null;
   };
+  nav_effect?: {
+    per_share_nok?: number | null;
+    pct?: number | null;
+  };
 };
 
 function finiteNumber(value: string | number | null | undefined): number | null {
@@ -255,6 +259,7 @@ export default function OverviewPage() {
   const buybackProgram = buybackStatus?.program;
   const programVwap = finiteNumber(buybackProgram?.vwap_nok);
   const programCash = finiteNumber(buybackProgram?.cash_spent_nok);
+  const buybackNavEffect = buybackStatus?.nav_effect?.per_share_nok;
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
   const bemobiRange = bemobi?.range_1y;
@@ -385,11 +390,10 @@ export default function OverviewPage() {
               </span>
             </div>
             <div><span>Estimatintervall</span><strong>{formatInteger(forecast?.estimate?.low_shares)}–{formatInteger(forecast?.estimate?.high_shares)}</strong></div>
-            <div className="overviewBuybackDivider" aria-hidden="true" />
-            <div><span>Kjøpt siden programstart</span><strong>{buybackProgram?.cumulative_shares == null || !Number.isFinite(buybackProgram.cumulative_shares) ? "—" : `${formatNumber(buybackProgram.cumulative_shares / 1_000_000, 2)} mill. aksjer`}</strong></div>
+            <div><span>Kjøpt siden programstart</span><strong>{buybackProgram?.cumulative_shares == null || !Number.isFinite(buybackProgram.cumulative_shares) ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer`}</strong></div>
             <div><span>Gjennomsnittlig kjøpskurs</span><strong>{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
             <div><span>Kontantbruk hittil</span><strong className="negative">{programCash == null ? "—" : `${formatNumber(programCash / 1_000_000, 1)} mill. kr`}</strong></div>
-            <div><span>NAV-effekt fra færre aksjer</span><strong className={tone(buybackProgram?.share_count_nav_effect_per_share_nok)}>{signed(buybackProgram?.share_count_nav_effect_per_share_nok, 2, " kr/aksje")}</strong></div>
+            <div><span>Netto NAV-effekt fra tilbakekjøp</span><strong className={tone(buybackNavEffect)}>{signed(buybackNavEffect, 2, " kr/aksje")}</strong></div>
           </div>
         </article>
 
