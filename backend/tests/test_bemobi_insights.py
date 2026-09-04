@@ -109,9 +109,9 @@ def test_bemobi_card_has_labels_and_safe_fallbacks() -> None:
         "NAV-effekt 1 mnd",
         "Verdi / OTEC-aksje",
         "Otello eier",
-        "Sterkere BMOB3 = positivt for Otello NAV",
     ):
         assert text in page
+    assert "Sterkere BMOB3 = positivt for Otello NAV" not in page
     assert 'return "—"' in page and "Number.isFinite" in page
     assert "bemobi?.price_brl == null" in page
     assert "!Number.isFinite(bemobi.price_brl)" in page

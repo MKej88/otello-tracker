@@ -12,9 +12,9 @@ def test_brl_card_renders_investor_fields_and_safe_fallbacks() -> None:
         "Siden ${brl.quarter_label}",
         "NAV-effekt 1 mnd",
         "range_1y",
-        "Sterkere BRL = positivt for Otello NAV",
     ):
         assert text in page
+    assert "Sterkere BRL = positivt for Otello NAV" not in page
     assert 'return "—"' in page
     assert "Number.isFinite" in page
     assert "InsightRange" in page

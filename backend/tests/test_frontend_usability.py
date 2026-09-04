@@ -91,7 +91,8 @@ def test_cash_movement_explanations_are_permanently_visible_in_calculation_colum
     styles = read_frontend("investor-v2.css")
 
     assert "<span>Beregning</span>" in nav_page
-    assert "<small>{available ? item.formula" in nav_page
+    assert "displayFormula(item)" in nav_page
+    assert 'item.formula.replace("Estimert NAV", "NAV")' in nav_page
     assert 'label: "Bemobi-utbetalinger"' in nav_page
     assert "Rest etter identifiserte kontantbevegelser" in nav_page
     assert "white-space:pre-line" in styles

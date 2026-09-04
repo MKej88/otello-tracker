@@ -168,6 +168,13 @@ function displayAvailable(details?: Record<string, unknown>) {
   return details?.display_available !== false;
 }
 
+function displayFormula(item: Composition) {
+  if (item.key === "options" && item.formula) {
+    return item.formula.replace("Estimert NAV", "NAV");
+  }
+  return item.formula;
+}
+
 function driverMovement(driver: Driver) {
   if (driver.key === "life360" && !displayAvailable(driver.details)) {
     return "Datagrunnlag mangler";
@@ -433,7 +440,7 @@ export default function NavPageV2() {
                   <strong>{item.key === "life360" ? "Life360" : item.label}</strong>
                   <span>{available ? `${value(item.amount_mnok, 1)} mill. kr` : "–"}</span>
                   <span className={available && item.per_share_nok < 0 ? "negative" : ""}>{available ? `${value(item.per_share_nok)} kr` : "–"}</span>
-                  <small>{available ? item.formula : "Mangler gyldig LIF-kurs og rapportanker"}</small>
+                  <small>{available ? displayFormula(item) : "Mangler gyldig LIF-kurs og rapportanker"}</small>
                 </div>
               );
             })}
