@@ -6,7 +6,21 @@ import "./news-events.css";
 const REFRESH_MS = 5 * 60 * 1000;
 type Importance = "HIGH" | "MEDIUM" | "LOW";
 type CompanyFilter = "Alle" | "Otello" | "Bemobi";
-type NewsItem = { id: number; company: "Otello" | "Bemobi"; headline: string; published_at?: string | null; category_label: string; importance: Importance; summary?: string | null; source?: string | null; url?: string | null };
+type ContentType = "OFFICIAL" | "MEDIA";
+type ContentFilter = "Alle typer" | "Offisielt" | "Media";
+type NewsItem = {
+  id: number;
+  company: "Otello" | "Bemobi";
+  headline: string;
+  published_at?: string | null;
+  category_label: string;
+  importance: Importance;
+  summary?: string | null;
+  source?: string | null;
+  url?: string | null;
+  content_type?: ContentType;
+  original_language?: string | null;
+};
 type EventItem = { id: string; date: string; company: "Otello" | "Bemobi"; title: string; importance: Importance; date_label: string; confirmed: boolean; source?: string | null; url?: string | null };
 type Payload = { ready: boolean; news?: NewsItem[]; events?: EventItem[]; counts?: { news?: number; events?: number } };
 const importanceLabels: Record<Importance, string> = { HIGH: "Høy", MEDIUM: "Middels", LOW: "Lav" };
@@ -22,6 +36,13 @@ function SourceLink({ url, source }: { url?: string | null; source?: string | nu
 function ImportanceBadge({ importance }: { importance: Importance }) {
   return <span className={`importanceBadge importance${importance}`}>{importanceLabels[importance]}</span>;
 }
+function contentType(item: NewsItem): ContentType {
+  return item.content_type === "MEDIA" ? "MEDIA" : "OFFICIAL";
+}
+function matchesContentFilter(item: NewsItem, filter: ContentFilter) {
+  if (filter === "Alle typer") return true;
+  return filter === "Media" ? contentType(item) === "MEDIA" : contentType(item) === "OFFICIAL";
+}
 
 export default function NewsEventsPage() {
   const { data, refreshFailed } = usePollingResource<Payload>(
@@ -30,23 +51,59 @@ export default function NewsEventsPage() {
     true,
   );
   const [company, setCompany] = useState<CompanyFilter>("Alle");
-  const news = useMemo(() => (data?.news ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.news]);
+  const [contentFilter, setContentFilter] = useState<ContentFilter>("Alle typer");
+  const news = useMemo(() => (data?.news ?? []).filter((item) => (
+    (company === "Alle" || item.company === company) && matchesContentFilter(item, contentFilter)
+  )), [company, contentFilter, data?.news]);
   const events = useMemo(() => (data?.events ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.events]);
   return (
     <div className="investorPage newsEventsPage">
       <section className="card newsHero">
-        <div><span className="label">NYHETER OG KALENDER</span><h2>Det viktigste rundt Otello og Bemobi</h2><p>Offentlige meldinger og kjente datoer samlet uten automatisk KI-tolkning. Bemobi-meldinger vises på engelsk, basert på offisielle CVM-metadata.</p></div>
+        <div>
+          <span className="label">NYHETER OG KALENDER</span>
+          <h2>Det viktigste rundt Otello og Bemobi</h2>
+          <p>Offisielle meldinger, relevant medieomtale og kjente datoer. Portugisisk Bemobi-omtale vises med automatisk engelsk oversettelse av tilgjengelig RSS-metadata; originalkilden er alltid tilgjengelig.</p>
+        </div>
         <div className="newsHeroStats"><div><strong>{data?.counts?.news ?? "–"}</strong><span>meldinger</span></div><div><strong>{data?.counts?.events ?? "–"}</strong><span>kommende datoer</span></div>{refreshFailed && <small>Viser siste gode data</small>}</div>
       </section>
       <section className="newsToolbar" aria-label="Filtrer innhold">
-        {(["Alle", "Otello", "Bemobi"] as CompanyFilter[]).map((item) => <button className={company === item ? "periodButton active" : "periodButton"} key={item} onClick={() => setCompany(item)} type="button">{item}</button>)}
+        <div className="newsFilterGroup">
+          <span className="newsFilterLabel">Selskap</span>
+          <div className="newsFilterButtons">
+            {(["Alle", "Otello", "Bemobi"] as CompanyFilter[]).map((item) => <button className={company === item ? "periodButton active" : "periodButton"} key={item} onClick={() => setCompany(item)} type="button">{item}</button>)}
+          </div>
+        </div>
+        <div className="newsFilterGroup">
+          <span className="newsFilterLabel">Type</span>
+          <div className="newsFilterButtons">
+            {(["Alle typer", "Offisielt", "Media"] as ContentFilter[]).map((item) => <button className={contentFilter === item ? "periodButton active" : "periodButton"} key={item} onClick={() => setContentFilter(item)} type="button">{item}</button>)}
+          </div>
+        </div>
       </section>
       <section className="newsLayout">
         <div className="newsColumn">
           <div className="sectionHeading"><div><span className="label">SISTE MELDINGER</span><h2>Nyheter</h2></div><span className="pill">{news.length} VIST</span></div>
           {!data && <article className="card emptyNewsCard">Laster meldinger …</article>}
           {data && news.length === 0 && <article className="card emptyNewsCard">Ingen meldinger funnet for dette filteret.</article>}
-          <div className="newsList">{news.map((item) => <article className="card newsCard" key={item.id}><div className="newsMeta"><span className={`companyTag company${item.company}`}>{item.company}</span><span>{item.category_label}</span><ImportanceBadge importance={item.importance} /></div><h3>{item.headline}</h3>{item.summary && <p>{item.summary}</p>}<div className="newsCardFooter"><time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time><SourceLink source={item.source} url={item.url} /></div></article>)}</div>
+          <div className="newsList">
+            {news.map((item) => {
+              const itemType = contentType(item);
+              return (
+                <article className="card newsCard" key={item.id}>
+                  <div className="newsMeta">
+                    <span className={`companyTag company${item.company}`}>{item.company}</span>
+                    <span className={`contentTypeBadge content${itemType}`}>{itemType === "MEDIA" ? "Media" : "Official"}</span>
+                    <span>{item.category_label}</span>
+                    <ImportanceBadge importance={item.importance} />
+                  </div>
+                  <h3>{item.headline}</h3>
+                  {item.summary && <p>{item.summary}</p>}
+                  {itemType === "MEDIA" && item.original_language && <span className="translationNote">Automatically translated from Portuguese · RSS metadata</span>}
+                  <div className="newsCardFooter"><time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time><SourceLink source={item.source} url={item.url} /></div>
+                </article>
+              );
+            })}
+          </div>
         </div>
         <aside className="calendarColumn">
           <div className="sectionHeading"><div><span className="label">FREMOVER</span><h2>Hendelseskalender</h2></div></div>
