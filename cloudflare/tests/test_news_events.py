@@ -56,8 +56,15 @@ class FakeNewsRepository:
             ]
         return []
 
-    async def first(self, query: str) -> None:
+    async def first(
+        self, query: str, parameters: tuple[object, ...] = ()
+    ) -> dict[str, object] | None:
+        if "FROM job_runs" in query:
+            self.assert_media_status_parameters(parameters)
         return None
+
+    def assert_media_status_parameters(self, parameters: tuple[object, ...]) -> None:
+        assert parameters == ("bemobi_media_refresh",)
 
 
 class NewsPaginationTest(unittest.IsolatedAsyncioTestCase):
@@ -72,6 +79,10 @@ class NewsPaginationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(repository.news_offsets, [0, 3])
         self.assertEqual([item["id"] for item in result["news"]], [42])
+        self.assertEqual(
+            result["media_status"],
+            {"available": False, "status": None, "window_days": 30},
+        )
 
 
 if __name__ == "__main__":
