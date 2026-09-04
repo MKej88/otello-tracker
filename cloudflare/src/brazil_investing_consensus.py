@@ -185,6 +185,75 @@ def _merge_row(
     return enriched, has_consensus
 
 
+def _latest_high_importance_release(
+    events: list[dict[str, Any]],
+    pages: dict[str, tuple[str, list[dict[str, Any]]]],
+    *,
+    as_of_date: str,
+) -> dict[str, Any] | None:
+    """Return the newest released macro event using the exact existing 'Høy' criterion."""
+    templates: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if str(event.get("importance") or "") != "Høy":
+            continue
+        key = _event_source_key(event)
+        if key is not None and key in pages:
+            templates.setdefault(key, event)
+
+    candidates: list[dict[str, Any]] = []
+    for key, event in templates.items():
+        source_url, rows = pages[key]
+        for row in rows:
+            event_date = str(row.get("date") or "")
+            if not event_date or event_date > as_of_date:
+                continue
+            actual_text = _compact(row.get("actual"))
+            actual_value = _numeric_value(actual_text)
+            if actual_value is None:
+                continue
+
+            forecast_text = _compact(row.get("forecast")) or None
+            forecast_value = _numeric_value(forecast_text or "")
+            unit = "%" if "%" in actual_text or (forecast_text and "%" in forecast_text) else ""
+            surprise = (
+                actual_value - forecast_value
+                if forecast_value is not None and unit == "%"
+                else None
+            )
+            hour_minute = str(row.get("time_utc") or "")
+            candidates.append(
+                {
+                    "date": event_date,
+                    "release_at_utc": (
+                        f"{event_date}T{hour_minute}:00Z" if hour_minute else None
+                    ),
+                    "name": event.get("name"),
+                    "kind": event.get("kind"),
+                    "importance": "Høy",
+                    "actual": actual_text,
+                    "actual_value": actual_value,
+                    "forecast": forecast_text,
+                    "forecast_value": forecast_value,
+                    "previous": row.get("previous"),
+                    "unit": unit,
+                    "surprise": surprise,
+                    "bemobi_impact": event.get("bemobi_impact"),
+                    "source": "Investing.com",
+                    "source_url": source_url,
+                }
+            )
+
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            str(item.get("date") or ""),
+            str(item.get("release_at_utc") or ""),
+        ),
+    )
+
+
 async def enrich_calendar_from_investing(
     events: list[dict[str, Any]],
     *,
@@ -227,7 +296,20 @@ async def enrich_calendar_from_investing(
     for raw in events:
         event = dict(raw)
         key = _event_source_key(event)
-        page = pages.get(key or "")
+        if key is None:
+            enriched.append(event)
+            continue
+
+        if key in errors:
+            event["investing_consensus_status"] = {
+                "code": "SOURCE_ERROR",
+                "provider": "Investing.com",
+                "source_url": targets.get(key),
+            }
+            enriched.append(event)
+            continue
+
+        page = pages.get(key)
         if page is None:
             enriched.append(event)
             continue
@@ -236,8 +318,14 @@ async def enrich_calendar_from_investing(
             (item for item in rows if item.get("date") == event.get("date")), None
         )
         if row is None:
+            event["investing_consensus_status"] = {
+                "code": "NO_MATCH",
+                "provider": "Investing.com",
+                "source_url": url,
+            }
             enriched.append(event)
             continue
+
         matched += 1
         event, has_consensus = _merge_row(
             event,
@@ -245,6 +333,11 @@ async def enrich_calendar_from_investing(
             source_url=url,
             as_of_date=as_of_date,
         )
+        event["investing_consensus_status"] = {
+            "code": "AVAILABLE" if has_consensus else "NO_FORECAST_PUBLISHED",
+            "provider": "Investing.com",
+            "source_url": url,
+        }
         timed += 1
         if has_consensus:
             consensus += 1
@@ -259,5 +352,10 @@ async def enrich_calendar_from_investing(
         "timed_events": timed,
         "consensus_events": consensus,
         "errors": errors,
+        "latest_high_importance_release": _latest_high_importance_release(
+            events,
+            pages,
+            as_of_date=as_of_date,
+        ),
     }
     return enriched, status
