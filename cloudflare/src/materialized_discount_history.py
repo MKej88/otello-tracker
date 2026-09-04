@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
 from typing import Any
@@ -7,11 +8,15 @@ from typing import Any
 try:
     from .discount_history import discount_history
     from .estimated_nav_history import ESTIMATED_NAV_CALCULATION_VERSION
+    from .historical_investment_attribution import apply_historical_life360_change_split
+    from .life360_nav import life360_market_value
 except ImportError:
     from discount_history import discount_history
     from estimated_nav_history import ESTIMATED_NAV_CALCULATION_VERSION
+    from historical_investment_attribution import apply_historical_life360_change_split
+    from life360_nav import life360_market_value
 
-PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V1"
+PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V2"
 PERIOD_CACHE_KEY_PREFIX = "materialized_discount_period"
 PERIOD_MAX_POINTS = 72
 _FIXED_PERIOD_DAYS = {
@@ -65,6 +70,37 @@ def _period_specs(latest_history_date: str) -> tuple[tuple[str, int, bool], ...]
         ("1y", 365, False),
         ("3y", 1095, False),
     )
+
+
+async def _enrich_life360_period(repository, payload: dict[str, Any]) -> dict[str, Any]:
+    """Make source-backed Life360 net effect available for every investor preset."""
+    estimated = payload.get("estimated") if isinstance(payload, dict) else None
+    change = estimated.get("change") if isinstance(estimated, dict) else None
+    if not isinstance(change, dict) or not change.get("ready"):
+        return payload
+
+    start_date = str(change.get("resolved_start") or "").strip()
+    current_date = str(change.get("current_date") or "").strip()
+    if not start_date or not current_date:
+        return payload
+
+    start_state, current_state = await asyncio.gather(
+        life360_market_value(repository, as_of_date=start_date),
+        life360_market_value(repository, as_of_date=current_date),
+    )
+    if not apply_historical_life360_change_split(change, start_state, current_state):
+        change["life360_period_attribution_status"] = {
+            "ready": False,
+            "start_reason": start_state.get("reason"),
+            "current_reason": current_state.get("reason"),
+        }
+    else:
+        change["life360_period_attribution_status"] = {
+            "ready": True,
+            "start_date": start_state.get("as_of_date"),
+            "current_date": current_state.get("as_of_date"),
+        }
+    return payload
 
 
 def _decode_entry(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -146,6 +182,7 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
                 max_points=PERIOD_MAX_POINTS,
                 year_to_date=year_to_date,
             )
+            payload = await _enrich_life360_period(repository, payload)
         except Exception as exc:
             failures.append(
                 {
@@ -221,12 +258,13 @@ async def materialized_discount_history(
         ):
             return dict(entry["payload"])
 
-    return await discount_history(
+    payload = await discount_history(
         repository,
         days=days,
         max_points=max_points,
         year_to_date=year_to_date,
     )
+    return await _enrich_life360_period(repository, payload)
 
 
 async def materialized_nav_period_bundle(repository) -> dict[str, Any]:

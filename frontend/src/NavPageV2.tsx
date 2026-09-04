@@ -107,6 +107,11 @@ function detailNumber(driver: Driver, key: string) {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
+function detailText(driver: Driver, key: string) {
+  const raw = driver.details?.[key];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
 function compositionDetailNumber(item: Composition | undefined, key: string) {
   const raw = item?.details?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
@@ -283,25 +288,64 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
   for (const driver of drivers) {
     if (groupedKeys.has(driver.key)) continue;
     if (driver.key === "life360") {
+      if (!displayAvailable(driver.details)) {
+        result.push({ ...driver, label: "Life 360" });
+        continue;
+      }
+
       const priceEffect = detailNumber(driver, "price_effect_per_share_nok");
       const fxEffect = detailNumber(driver, "fx_effect_per_share_nok");
-      result.push({
-        ...driver,
-        label: "Life 360",
-        breakdown: priceEffect == null || fxEffect == null ? undefined : [
+      const holdingEffect = detailNumber(driver, "holding_effect_per_share_nok");
+      const currency = detailText(driver, "attribution_currency")
+        ?? detailText(driver, "start_currency")
+        ?? "USD";
+      const startPrice = detailNumber(driver, "start_price") ?? detailNumber(driver, "start_price_usd");
+      const currentPrice = detailNumber(driver, "current_price") ?? detailNumber(driver, "current_price_usd");
+      const startFx = detailNumber(driver, "start_fx_nok") ?? detailNumber(driver, "start_usd_nok");
+      const currentFx = detailNumber(driver, "current_fx_nok") ?? detailNumber(driver, "current_usd_nok");
+      const breakdown: DriverBreakdown[] = [];
+
+      if (priceEffect != null && fxEffect != null) {
+        breakdown.push(
           {
             label: "Aksjekurs",
-            movement: `USD ${value(detailNumber(driver, "start_price_usd"))} → USD ${value(detailNumber(driver, "current_price_usd"))}`,
+            movement: `${currency} ${value(startPrice)} → ${currency} ${value(currentPrice)}`,
             amount_mnok: detailNumber(driver, "price_effect_mnok"),
             per_share_nok: priceEffect,
           },
           {
-            label: "Valuta (USD/NOK)",
-            movement: `USD/NOK ${value(detailNumber(driver, "start_usd_nok"), 4)} → ${value(detailNumber(driver, "current_usd_nok"), 4)}`,
+            label: `Valuta (${currency}/NOK)`,
+            movement: `${currency}/NOK ${value(startFx, 4)} → ${value(currentFx, 4)}`,
             amount_mnok: detailNumber(driver, "fx_effect_mnok"),
             per_share_nok: fxEffect,
           },
-        ],
+        );
+        const holdingAmount = detailNumber(driver, "holding_effect_mnok");
+        if (holdingEffect != null && (Math.abs(holdingEffect) > 1e-9 || Math.abs(holdingAmount ?? 0) > 1e-9)) {
+          breakdown.push({
+            label: "Beholdning",
+            movement: `${integer(detailNumber(driver, "start_holder_shares"))} → ${integer(detailNumber(driver, "current_holder_shares"))} aksjer`,
+            amount_mnok: holdingAmount,
+            per_share_nok: holdingEffect,
+          });
+        }
+      } else {
+        const startAmount = detailNumber(driver, "start_amount_mnok");
+        const currentAmount = detailNumber(driver, "current_amount_mnok");
+        breakdown.push({
+          label: "Markedsverdi",
+          movement: startAmount != null && currentAmount != null
+            ? `${value(startAmount, 1)} → ${value(currentAmount, 1)} mill. kr`
+            : driverMovement(driver),
+          amount_mnok: driver.amount_mnok,
+          per_share_nok: driver.per_share_nok,
+        });
+      }
+
+      result.push({
+        ...driver,
+        label: "Life 360",
+        breakdown,
       });
       continue;
     }
@@ -495,7 +539,7 @@ export default function NavPageV2() {
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Bekreftede Bemobi-utdelinger vises som én livsløpslinje: først som fordring fra ex-dato og deretter som utbetalt netto kontantbevegelse på betalingsdato. Overgangen fra fordring til kontanter endrer ikke NAV i seg selv. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Life360 vises med samlet markedsverdieffekt for hele perioden. Når start og slutt bruker samme notering og valuta, deles effekten videre i aksjekurs, valuta og eventuell beholdningsendring; ved skifte mellom 360.AX/AUD og LIF/USD vises samlet markedsverdi uten å konstruere en kunstig kurs-/valutasplitt. Bekreftede Bemobi-utdelinger vises som én livsløpslinje: først som fordring fra ex-dato og deretter som utbetalt netto kontantbevegelse på betalingsdato. Overgangen fra fordring til kontanter endrer ikke NAV i seg selv. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske NAV-observasjoner for valgt periode.</p>

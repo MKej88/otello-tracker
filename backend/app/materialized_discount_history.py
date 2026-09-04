@@ -7,8 +7,10 @@ from typing import Any
 from app.db.connection import get_connection
 from app.discount_history import discount_history
 from app.estimated_nav_history import ESTIMATED_NAV_CALCULATION_VERSION
+from app.historical_investment_attribution import apply_historical_life360_change_split
+from app.life360_nav import life360_market_value
 
-PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V1"
+PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V2"
 PERIOD_CACHE_KEY_PREFIX = "materialized_discount_period"
 PERIOD_MAX_POINTS = 72
 _FIXED_PERIOD_DAYS = {
@@ -65,6 +67,50 @@ def _period_specs(latest_history_date: str) -> tuple[tuple[str, int, bool], ...]
     )
 
 
+def _enrich_life360_period(
+    database_path: str | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Make Life360 period attribution available for every investor preset.
+
+    The historical market-value series starts before Otello's separate fair-value
+    presentation. Using the two period endpoints here means YTD/1Y/3Y get the same
+    source-backed net effect as the short periods, while the helper keeps total NAV
+    unchanged by reallocating any embedded historical amount from other ONA.
+    """
+    estimated = payload.get("estimated") if isinstance(payload, dict) else None
+    change = estimated.get("change") if isinstance(estimated, dict) else None
+    if not isinstance(change, dict) or not change.get("ready"):
+        return payload
+
+    start_date = str(change.get("resolved_start") or "").strip()
+    current_date = str(change.get("current_date") or "").strip()
+    if not start_date or not current_date:
+        return payload
+
+    start_state = life360_market_value(
+        as_of_date=start_date,
+        database_path=database_path,
+    )
+    current_state = life360_market_value(
+        as_of_date=current_date,
+        database_path=database_path,
+    )
+    if not apply_historical_life360_change_split(change, start_state, current_state):
+        change["life360_period_attribution_status"] = {
+            "ready": False,
+            "start_reason": start_state.get("reason"),
+            "current_reason": current_state.get("reason"),
+        }
+    else:
+        change["life360_period_attribution_status"] = {
+            "ready": True,
+            "start_date": start_state.get("as_of_date"),
+            "current_date": current_state.get("as_of_date"),
+        }
+    return payload
+
+
 def _load_entry(database_path: str | None, period_key: str) -> dict[str, Any] | None:
     with get_connection(database_path) as connection:
         row = connection.execute(
@@ -98,11 +144,14 @@ def materialize_discount_periods(database_path: str | None = None) -> dict[str, 
     failures: list[dict[str, Any]] = []
     for period_key, days, year_to_date in _period_specs(latest_history_date):
         try:
-            payload = discount_history(
+            payload = _enrich_life360_period(
                 database_path,
-                days=days,
-                max_points=PERIOD_MAX_POINTS,
-                year_to_date=year_to_date,
+                discount_history(
+                    database_path,
+                    days=days,
+                    max_points=PERIOD_MAX_POINTS,
+                    year_to_date=year_to_date,
+                ),
             )
         except Exception as exc:
             failures.append(
@@ -195,11 +244,14 @@ def materialized_discount_history(
         ):
             return dict(entry["payload"])
 
-    return discount_history(
+    return _enrich_life360_period(
         database_path,
-        days=days,
-        max_points=max_points,
-        year_to_date=year_to_date,
+        discount_history(
+            database_path,
+            days=days,
+            max_points=max_points,
+            year_to_date=year_to_date,
+        ),
     )
 
 
