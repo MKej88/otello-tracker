@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html import unescape
 from html.parser import HTMLParser
@@ -26,21 +26,43 @@ MEDIA_LOOKBACK_DAYS = 30
 USER_AGENT = "otello-tracker/1.0 private-investor-dashboard"
 
 GOOGLE_NEWS_SOURCE = "Google News Brasil"
-GOOGLE_NEWS_QUERY = '"Bemobi" OR BMOB3 OR "Pedro Ripper"'
-GOOGLE_NEWS_RSS_URL = (
-    "https://news.google.com/rss/search?q="
-    + quote_plus(GOOGLE_NEWS_QUERY + f" when:{MEDIA_LOOKBACK_DAYS}d")
-    + "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
-)
+BING_NEWS_SOURCE = "Bing News Brasil"
+SEARCH_TERMS = ("Bemobi", "BMOB3", '"Pedro Ripper"')
 
-# Direct feeds give richer publisher snippets when available. Google News is the
-# catch-all for Valor, Mobile Time, Bloomberg Linea and other Brazilian outlets.
+
+def _google_news_url(query: str) -> str:
+    return (
+        "https://news.google.com/rss/search?q="
+        + quote_plus(query + f" when:{MEDIA_LOOKBACK_DAYS}d")
+        + "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    )
+
+
+def _bing_news_url(query: str) -> str:
+    return (
+        "https://www.bing.com/news/search?q="
+        + quote_plus(query)
+        + "&format=RSS&setlang=pt-br&cc=br"
+    )
+
+
+GOOGLE_NEWS_RSS_URLS = tuple(_google_news_url(term) for term in SEARCH_TERMS)
+BING_NEWS_RSS_URLS = tuple(_bing_news_url(term) for term in SEARCH_TERMS)
+# Compatibility aliases used by tests and diagnostics.
+GOOGLE_NEWS_RSS_URL = GOOGLE_NEWS_RSS_URLS[0]
+BING_NEWS_RSS_URL = BING_NEWS_RSS_URLS[0]
+SEARCH_FEED_SOURCES = frozenset({GOOGLE_NEWS_SOURCE, BING_NEWS_SOURCE})
+
+# Direct publisher feeds give richer snippets when available. Search feeds are
+# deliberately split into simple queries and duplicated across Google/Bing so a
+# transient block at one provider cannot remove all broad Bemobi coverage.
 FEEDS = (
     ("InfoMoney", "https://www.infomoney.com.br/feed/"),
     ("NeoFeed", "https://neofeed.com.br/feed/"),
     ("Brazil Journal", "https://braziljournal.com/feed/"),
     ("CNN Brasil", "https://www.cnnbrasil.com.br/tudo-sobre/economia/feed/"),
-    (GOOGLE_NEWS_SOURCE, GOOGLE_NEWS_RSS_URL),
+    *((GOOGLE_NEWS_SOURCE, url) for url in GOOGLE_NEWS_RSS_URLS),
+    *((BING_NEWS_SOURCE, url) for url in BING_NEWS_RSS_URLS),
 )
 
 _RELEVANCE_TERMS = ("bemobi", "bmob3", "pedro ripper")
@@ -167,6 +189,24 @@ def _published_iso(value: Any) -> str | None:
     return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _within_lookback(published_at: str | None, *, now: datetime | None = None) -> bool:
+    """Keep search-engine results inside the same 30-day window used by Google News."""
+    if not published_at:
+        return True
+    try:
+        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=UTC)
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    current = current.astimezone(UTC)
+    published = published.astimezone(UTC)
+    return current - timedelta(days=MEDIA_LOOKBACK_DAYS) <= published <= current + timedelta(days=1)
+
+
 def _parse_feed(
     payload: bytes,
     *,
@@ -184,9 +224,9 @@ def _parse_feed(
             continue
         summary = _child_markup_text(entry, "description", "summary", "encoded", "content")
         # Direct publisher feeds are broad, so they still require an explicit Bemobi term
-        # in RSS metadata. The Google News feed is already produced by our narrow Bemobi /
-        # BMOB3 / Pedro Ripper query; applying the same snippet filter again drops valid
-        # stories where the company is mentioned only in the indexed article body.
+        # in RSS metadata. Google/Bing search feeds already come from narrow Bemobi queries;
+        # applying the same snippet filter again drops valid stories where the company is
+        # mentioned only in the indexed article body.
         if not trust_query_relevance and not _is_relevant(title, summary):
             continue
         published = _published_iso(
@@ -415,10 +455,11 @@ async def refresh_bemobi_media_news(
 ) -> dict[str, Any]:
     """Fetch relevant Brazilian Bemobi media and store English renderings.
 
-    Google News searches the last 30 days and is trusted as the relevance filter for that
-    feed. Direct publisher feeds still require Bemobi terms in their RSS metadata. On a new
-    installation the first run gets a larger bounded write budget so the 30-day history is
-    populated quickly; subsequent 30-minute runs retain the smaller steady-state budget.
+    Search-engine coverage uses three simple Bemobi/BMOB3/Pedro Ripper queries against both
+    Google News and Bing News. Direct publisher feeds still require Bemobi terms in their RSS
+    metadata. Search results are deduplicated and constrained to the same 30-day window. On a
+    new installation the first run gets a larger bounded write budget so history is populated
+    quickly; subsequent 30-minute runs retain the smaller steady-state budget.
 
     Only RSS/Atom metadata is ingested. Full article bodies and paywalled content are not copied.
     Failures are best-effort and must never block market-data refreshes.
@@ -451,6 +492,7 @@ async def refresh_bemobi_media_news(
     feed_errors: list[dict[str, str]] = []
     candidates: dict[str, dict[str, Any]] = {}
     feeds_succeeded = 0
+    search_now = datetime.now(UTC)
 
     for feed_source, feed_url in FEEDS:
         try:
@@ -459,7 +501,7 @@ async def refresh_bemobi_media_news(
                 payload,
                 fallback_source=feed_source,
                 feed_url=feed_url,
-                trust_query_relevance=feed_source == GOOGLE_NEWS_SOURCE,
+                trust_query_relevance=feed_source in SEARCH_FEED_SOURCES,
             )
         except Exception as exc:
             feed_errors.append(
@@ -472,6 +514,10 @@ async def refresh_bemobi_media_news(
             continue
         feeds_succeeded += 1
         for article in articles:
+            if feed_source in SEARCH_FEED_SOURCES and not _within_lookback(
+                article.get("published_at"), now=search_now
+            ):
+                continue
             candidates.setdefault(_article_external_id(article), article)
 
     ordered = sorted(
