@@ -302,7 +302,6 @@ def test_overview_buyback_card_has_program_status_and_null_guards() -> None:
 
     for label in (
         "Siste rapporterte kjøp",
-        "Neste uke – baseestimat",
         "Estimatintervall",
         "Kjøpt siden programstart",
         "Gjennomsnittlig kjøpskurs",
@@ -310,6 +309,7 @@ def test_overview_buyback_card_has_program_status_and_null_guards() -> None:
         "Netto NAV-effekt fra tilbakekjøp",
     ):
         assert label in page
+    assert "<span>{forecastPeriodLabel(forecast?.forecast_week)} – baseestimat</span>" in page
     assert 'className="overviewBuybackDivider"' not in page
     assert "formatInteger(buybackProgram.cumulative_shares)" in page
     assert "buybackStatus?.nav_effect?.per_share_nok" in page

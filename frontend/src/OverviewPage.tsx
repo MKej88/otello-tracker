@@ -219,6 +219,43 @@ function finiteNumber(value: string | number | null | undefined): number | null 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function osloDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Oslo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+function weekStartKey(input?: string | null) {
+  if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) return null;
+  const date = new Date(`${input}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const weekday = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - weekday + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysKey(input: string, days: number) {
+  const date = new Date(`${input}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function forecastPeriodLabel(week?: { from?: string; to?: string }) {
+  const currentWeek = weekStartKey(osloDateKey());
+  const forecastWeek = weekStartKey(week?.from);
+  if (!currentWeek || !forecastWeek) return "Kommende uke";
+  if (forecastWeek === currentWeek) return "Denne uken";
+  if (forecastWeek === addDaysKey(currentWeek, 7)) return "Neste uke";
+  return forecastWeek > currentWeek ? "Kommende uke" : "Siste prognose";
+}
+
 type DiscountHistory = {
   estimated?: {
     ready: boolean;
@@ -383,7 +420,7 @@ export default function OverviewPage() {
               </span>
             </div>
             <div>
-              <span>Neste uke – baseestimat</span>
+              <span>{forecastPeriodLabel(forecast?.forecast_week)} – baseestimat</span>
               <span className="overviewBuybackValue">
                 <strong>{formatInteger(forecast?.estimate?.base_case_shares)} aksjer</strong>
                 <small>{formatDate(forecast?.forecast_week?.from)}–{formatDate(forecast?.forecast_week?.to)}</small>
