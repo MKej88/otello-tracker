@@ -33,6 +33,10 @@ def test_issue_168_has_all_requested_periods_and_nav_views() -> None:
     assert "sortCompositionByValue(" in nav
     assert "right.amount_mnok - left.amount_mnok" in nav
     assert "filter(driverHasChange)" in nav
+    assert '"/api/buybacks/dashboard"' in nav
+    assert "Aksjegrunnlag" in nav
+    assert "Siste kjente aksjeantall" in nav
+    assert "shareBasisTooltip" in nav
     assert "Rabatt til NAV" in history
     assert "axisLabel" in history
     assert "Rabatt / premie" in history
