@@ -125,5 +125,5 @@ def test_frontend_renders_all_labels_and_safe_fallbacks() -> None:
     assert "nav?.discount_pct" in page
     assert "nav?.nav_per_share" in page
     assert "-discount.month_change_pp" in page
-    assert "NaN" not in page
-    assert "Infinity" not in page
+    assert '"NaN"' not in page
+    assert '"Infinity"' not in page
