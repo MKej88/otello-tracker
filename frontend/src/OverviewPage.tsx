@@ -105,7 +105,7 @@ function FreshnessCard({ rows }: { rows: FreshnessRow[] }) {
           );
         })}
       </div>
-      <small>Grønn = fersk for kildens normale frekvens.</small>
+      <small>Grønn = fersk · Gul = forventet forsinket / marked stengt · Rød = uventet forsinket</small>
     </div>
   );
 }
