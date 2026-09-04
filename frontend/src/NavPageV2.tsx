@@ -71,6 +71,16 @@ type EstimatedNav = {
   shares_outstanding?: number | null;
 };
 
+type BuybackShareBasis = {
+  shares?: {
+    total_shares?: number | null;
+    treasury_shares?: number | null;
+    outstanding_shares?: number | null;
+    effective_from?: string | null;
+    treasury_source?: string | null;
+  } | null;
+};
+
 function value(input?: number | null, digits = 2) {
   if (input == null || !Number.isFinite(input)) return "–";
   return input.toLocaleString("nb-NO", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -100,6 +110,10 @@ function dateTimeLabel(input?: string | null) {
 function integer(input?: number | null) {
   if (input == null || !Number.isFinite(input)) return "–";
   return Math.round(input).toLocaleString("nb-NO");
+}
+
+function shareSourceLabel(input?: string | null) {
+  return input === "LATEST_BUYBACK" ? "siste buyback-melding" : "rapportert aksjetall";
 }
 
 function detailNumber(driver: Driver, key: string) {
@@ -419,6 +433,7 @@ export default function NavPageV2() {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const { data: live } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
+  const { data: buyback } = usePollingResource<BuybackShareBasis>("/api/buybacks/dashboard", REFRESH_MS);
   const data = cache[period.key];
 
   useEffect(() => {
@@ -450,6 +465,27 @@ export default function NavPageV2() {
   const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
   const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
   const changedDrivers = groupedDrivers(change?.drivers ?? []).filter(driverHasChange);
+  const shareBasis = buyback?.shares;
+  const shareBasisMatchesNav = shareBasis?.outstanding_shares != null
+    && displayedSharesOutstanding != null
+    && Math.round(shareBasis.outstanding_shares) === Math.round(displayedSharesOutstanding);
+  const shareBasisStatus = shareBasisMatchesNav ? "Oppdatert" : "Kan være forsinket";
+  const shareBasisTooltip = shareBasis
+    ? [
+        "Aksjegrunnlag",
+        `Totalt antall aksjer: ${integer(shareBasis.total_shares)}`,
+        `− Egne aksjer: ${integer(shareBasis.treasury_shares)}`,
+        `= Utestående: ${integer(shareBasis.outstanding_shares)}`,
+        `Grunnlag per: ${dateLabel(shareBasis.effective_from)}`,
+        `Kilde: ${shareSourceLabel(shareBasis.treasury_source)}`,
+        `Status: ${shareBasisStatus}`,
+      ].join("\n")
+    : "Aksjegrunnlag: siste rapporterte aksjetall, oppdatert for registrerte tilbakekjøp.";
+  const shareBasisSummary = shareBasis
+    ? shareBasis.treasury_source === "LATEST_BUYBACK"
+      ? `Siste kjente aksjeantall, oppdatert for registrerte tilbakekjøp · per ${dateLabel(shareBasis.effective_from)}`
+      : `Siste rapporterte aksjeantall · per ${dateLabel(shareBasis.effective_from)}`
+    : null;
 
   return (
     <div className="investorPage navV2">
@@ -457,7 +493,18 @@ export default function NavPageV2() {
         <div>
           <span className="label">NAV</span>
           <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : "Laster …"}</h2>
-          <p>Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.</p>
+          <p>
+            Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.{" "}
+            <span
+              aria-label={shareBasisTooltip}
+              tabIndex={0}
+              title={shareBasisTooltip}
+              style={{ cursor: "help", opacity: 0.82, whiteSpace: "nowrap" }}
+            >
+              ⓘ
+            </span>
+          </p>
+          {shareBasisSummary && <small>{shareBasisSummary}</small>}
         </div>
         <div className="estimatedHeroSide">
           <div><span>Rabatt</span><strong>{value(displayedDiscountPct, 1)} %</strong></div>
