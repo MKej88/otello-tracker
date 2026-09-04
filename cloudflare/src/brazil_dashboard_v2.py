@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Awaitable, Callable
 
 import brazil_dashboard as base
@@ -17,6 +18,7 @@ base.SERIES["ibc_services"]["code"] = 29606
 
 _EXTERNAL_CONSENSUS_KINDS = {"services", "retail", "activity"}
 _FOCUS_EVENT_KINDS = {"copom", "inflation", "gdp", "labor"}
+_LATEST_HIGH_MACRO_STATE_KEY = "brazil.latest_high_macro.v1"
 
 
 def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -145,6 +147,54 @@ def _append_investing_source(result: dict[str, Any]) -> None:
     )
 
 
+async def _load_latest_high_macro(repository) -> dict[str, Any] | None:
+    row = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
+        (_LATEST_HIGH_MACRO_STATE_KEY,),
+    )
+    if row is None:
+        return None
+    try:
+        payload = json.loads(str(row.get("value") or ""))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+async def _resolve_latest_high_macro(
+    repository,
+    candidate: dict[str, Any] | None,
+    *,
+    as_of_date: str,
+) -> dict[str, Any] | None:
+    """Keep the newest exact-Høy release visible until a newer one is observed."""
+    existing = await _load_latest_high_macro(repository)
+    existing_date = str((existing or {}).get("date") or "")
+    candidate_date = str((candidate or {}).get("date") or "")
+
+    if candidate is not None and candidate_date:
+        if existing_date and existing_date > candidate_date:
+            return existing if existing_date <= as_of_date else candidate
+        await repository.run(
+            """
+            INSERT INTO runtime_state(key, value, updated_at)
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                updated_at=excluded.updated_at
+            """,
+            (
+                _LATEST_HIGH_MACRO_STATE_KEY,
+                json.dumps(candidate, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        return candidate
+
+    if existing is not None and existing_date and existing_date <= as_of_date:
+        return existing
+    return None
+
+
 async def brazil_dashboard(
     repository,
     *,
@@ -196,6 +246,7 @@ async def brazil_dashboard(
         [dict(item) for item in calendar if isinstance(item, dict)],
         focus_values,
     )
+    latest_candidate: dict[str, Any] | None = None
     try:
         enriched, status = await enrich_calendar_expectations(
             calendar_rows,
@@ -209,6 +260,9 @@ async def brazil_dashboard(
                 as_of_date=target_date,
                 fetcher=fetcher,
             )
+            candidate = investing_status.pop("latest_high_importance_release", None)
+            if isinstance(candidate, dict):
+                latest_candidate = candidate
         except Exception as exc:
             investing_status = {
                 "ready": False,
@@ -280,4 +334,23 @@ async def brazil_dashboard(
         if restore_error:
             fallback_status["cache_restore_error"] = restore_error
         result.setdefault("source_status", {})["focus_event_expectations"] = fallback_status
+
+    try:
+        latest_release = await _resolve_latest_high_macro(
+            repository,
+            latest_candidate,
+            as_of_date=target_date,
+        )
+        result["latest_high_importance_release"] = latest_release
+        result.setdefault("source_status", {})["latest_high_macro"] = {
+            "ready": latest_release is not None,
+            "source": "Investing.com",
+            "persisted": latest_release is not None and latest_candidate is None,
+        }
+    except Exception as exc:
+        result.setdefault("source_status", {})["latest_high_macro"] = {
+            "ready": False,
+            "source": "Investing.com",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return result
