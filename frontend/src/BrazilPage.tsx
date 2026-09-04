@@ -49,6 +49,11 @@ type MarketConsensus = {
   provider?: string | null;
   note?: string;
 };
+type InvestingConsensusStatus = {
+  code: "AVAILABLE" | "NO_FORECAST_PUBLISHED" | "NO_MATCH" | "SOURCE_ERROR";
+  provider?: string;
+  source_url?: string | null;
+};
 type CalendarEvent = {
   date: string;
   name: string;
@@ -60,6 +65,24 @@ type CalendarEvent = {
   bemobi_impact: string;
   expectation?: CalendarExpectation | null;
   market_consensus?: MarketConsensus | null;
+  investing_consensus_status?: InvestingConsensusStatus | null;
+};
+type LatestHighMacroRelease = {
+  date: string;
+  release_at_utc?: string | null;
+  name?: string | null;
+  kind?: string | null;
+  importance: "Høy";
+  actual?: string | null;
+  actual_value?: number | null;
+  forecast?: string | null;
+  forecast_value?: number | null;
+  previous?: string | null;
+  unit?: string | null;
+  surprise?: number | null;
+  bemobi_impact?: string | null;
+  source?: string | null;
+  source_url?: string | null;
 };
 type BrazilPayload = {
   ready: boolean;
@@ -75,6 +98,7 @@ type BrazilPayload = {
   };
   calendar?: CalendarEvent[];
   calendar_note?: string;
+  latest_high_importance_release?: LatestHighMacroRelease | null;
   source_status?: Record<string, { ready?: boolean; error?: string }>;
   sources?: Array<{ name: string; url: string }>;
 };
@@ -107,6 +131,12 @@ function eventLabel(event: CalendarEvent) {
     labor: "Arbeidsledighet",
   };
   return labels[event.kind] ?? event.name;
+}
+
+function latestMacroLabel(release: LatestHighMacroRelease) {
+  if (release.kind === "copom") return "Rentebeslutning fra sentralbanken";
+  if (release.kind === "inflation") return release.name?.includes("15") ? "Foreløpig prisvekst" : "Prisvekst";
+  return release.name || "Makropublisering";
 }
 
 function expectationLabel(value: string) {
@@ -172,6 +202,27 @@ function norwayReleaseTime(value?: string | null) {
   }).format(parsed);
 }
 
+function calendarExpectationNote(event: CalendarEvent) {
+  const code = event.investing_consensus_status?.code;
+  const hasAnnualProxy = event.market_consensus?.coverage === "BCB_FOCUS_ANNUAL_PROXY";
+  const annualSuffix = hasAnnualProxy
+    ? " Årsestimatet i tabellen over er kun bakgrunn og brukes ikke som konsensus for denne publiseringen."
+    : "";
+  if (code === "SOURCE_ERROR") {
+    return `Investing.com-hentingen feilet eller ble blokkert, så hendelseskonsensus kunne ikke oppdateres.${annualSuffix}`;
+  }
+  if (code === "NO_FORECAST_PUBLISHED") {
+    return `Investing.com-siden ble hentet, men Forecast-feltet er tomt for denne publiseringen.${annualSuffix}`;
+  }
+  if (code === "NO_MATCH") {
+    return `Investing.com-siden ble hentet, men ingen rad matcher den offisielle publiseringsdatoen ennå.${annualSuffix}`;
+  }
+  if (hasAnnualProxy) {
+    return "Årsestimatet finnes i tabellen over, men brukes ikke som konsensus for denne publiseringen.";
+  }
+  return financialText(event.market_consensus?.note) || "Markedsforventning nær hendelsen er ikke tilgjengelig nå";
+}
+
 function Sparkline({ points }: { points?: SeriesPoint[] }) {
   const path = useMemo(() => {
     const values = (points ?? [])
@@ -233,6 +284,39 @@ function MetricCard({ metric }: { metric?: Metric }) {
   );
 }
 
+function LatestHighMacroCard({ release }: { release?: LatestHighMacroRelease | null }) {
+  if (!release) return null;
+  const releaseTime = norwayReleaseTime(release.release_at_utc);
+  const sourceName = release.source || "Investing.com";
+  return (
+    <section className="card brazilLatestMacroCard">
+      <div className="brazilLatestMacroHeader">
+        <div>
+          <span className="label">SISTE VIKTIGE MAKROTALL</span>
+          <h2>{latestMacroLabel(release)}</h2>
+          <div className="brazilLatestMacroMeta">
+            {dateLabel(release.date)}{releaseTime ? ` · norsk tid kl. ${releaseTime}` : ""}
+          </div>
+        </div>
+        <span className="brazilImportance high">Høy</span>
+      </div>
+      <div className="brazilLatestMacroGrid">
+        <div><span className="label">FAKTISK</span><strong>{release.actual || "–"}</strong></div>
+        <div><span className="label">FORVENTET</span><strong>{release.forecast || "–"}</strong></div>
+        <div><span className="label">AVVIK</span><strong>{release.surprise != null ? `${signed(release.surprise, 2)} pp` : "–"}</strong></div>
+      </div>
+      <div className="brazilLatestBemobiImpact">
+        <span className="label">BEMOBI-RELEVANS</span>
+        <p>{financialText(release.bemobi_impact) || "Ingen særskilt Bemobi-vurdering er knyttet til publiseringen."}</p>
+      </div>
+      <div className="brazilLatestMacroFooter">
+        <span>{release.previous ? `Forrige: ${release.previous}` : ""}</span>
+        {release.source_url ? <a href={release.source_url} rel="noreferrer" target="_blank">{sourceName}</a> : <span>{sourceName}</span>}
+      </div>
+    </section>
+  );
+}
+
 function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: string }) {
   const year = Number(asOfDate?.slice(0, 4) || new Date().getFullYear());
   const rows = [
@@ -268,11 +352,8 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
 }
 
 function CalendarRow({ event }: { event: CalendarEvent }) {
-  const consensus = event.market_consensus;
   const expectation = event.expectation;
   const hasIngestedEventConsensus = expectation?.event_consensus === true;
-  const externalNotIngested = consensus?.coverage === "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED";
-  const annualProxy = consensus?.coverage === "BCB_FOCUS_ANNUAL_PROXY";
   const releaseTime = norwayReleaseTime(expectation?.release_at_utc);
   return (
     <article className="brazilCalendarRow">
@@ -298,20 +379,10 @@ function CalendarRow({ event }: { event: CalendarEvent }) {
             {expectation.previous ? <small>Forrige: {expectation.previous}</small> : null}
             {expectation.respondents ? <small>{expectation.respondents} respondenter</small> : null}
           </>
-        ) : annualProxy ? (
-          <>
-            <strong>–</strong>
-            <small>Årsestimatet finnes i tabellen over, men brukes ikke som konsensus for denne publiseringen</small>
-          </>
-        ) : externalNotIngested ? (
-          <>
-            <strong>–</strong>
-            <small>Hendelseskonsensus er ikke publisert eller tilgjengelig fra Investing.com ennå</small>
-          </>
         ) : (
           <>
             <strong>–</strong>
-            <small>{financialText(consensus?.note) || "Markedsforventning nær hendelsen er ikke tilgjengelig nå"}</small>
+            <small>{calendarExpectationNote(event)}</small>
           </>
         )}
       </div>
@@ -349,6 +420,8 @@ export default function BrazilPage() {
           {refreshFailed && <small>Forrige data beholdt</small>}
         </div>
       </section>
+
+      <LatestHighMacroCard release={data.latest_high_importance_release} />
 
       <section>
         <div className="sectionHeading">
