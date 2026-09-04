@@ -48,6 +48,36 @@ def test_media_feed_parser_keeps_only_relevant_bemobi_articles() -> None:
     assert articles[0]["published_at"] == "2026-09-03T12:00:00Z"
 
 
+def test_google_news_query_can_keep_relevant_result_without_bemobi_in_snippet() -> None:
+    media = _media_module()
+    payload = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <rss version='2.0'><channel>
+      <item>
+        <title>Small caps tambem vao surfar onda de otimismo?</title>
+        <link>https://news.google.com/articles/example</link>
+        <description>Veja as empresas mais recomendadas pelos analistas.</description>
+        <pubDate>Fri, 04 Sep 2026 08:00:00 GMT</pubDate>
+        <source>InfoMoney</source>
+      </item>
+    </channel></rss>"""
+
+    direct_articles = media._parse_feed(
+        payload,
+        fallback_source="InfoMoney",
+        feed_url="https://www.infomoney.com.br/feed/",
+    )
+    google_articles = media._parse_feed(
+        payload,
+        fallback_source=media.GOOGLE_NEWS_SOURCE,
+        feed_url=media.GOOGLE_NEWS_RSS_URL,
+        trust_query_relevance=True,
+    )
+
+    assert direct_articles == []
+    assert len(google_articles) == 1
+    assert google_articles[0]["publisher"] == "InfoMoney"
+
+
 def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -> None:
     media_source = (CLOUDFLARE_SRC / "bemobi_media_news.py").read_text(encoding="utf-8")
     worker_source = (CLOUDFLARE_SRC / "worker.py").read_text(encoding="utf-8")
@@ -56,6 +86,9 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     config = json.loads((ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8"))
 
     assert 'TRANSLATION_MODEL = "@cf/meta/m2m100-1.2b"' in media_source
+    assert 'MEDIA_LOOKBACK_DAYS = 30' in media_source
+    assert 'INITIAL_BACKFILL_MAX_ARTICLES = 24' in media_source
+    assert 'trust_query_relevance=feed_source == GOOGLE_NEWS_SOURCE' in media_source
     assert '"source_lang": "portuguese"' in media_source
     assert '"target_lang": "english"' in media_source
     assert '"content_type": "MEDIA"' in media_source
@@ -68,14 +101,20 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
 
     assert "refresh_bemobi_media_news" in worker_source
     assert 'FAST_REFRESH_CRON = "*/30 * * * *"' in worker_source
+    assert 'MEDIA_JOB_NAME = "bemobi_media_refresh"' in worker_source
+    assert "repository.start_job" in worker_source
+    assert "repository.finish_job" in worker_source
     assert '"non_critical": True' in worker_source
     assert config["ai"]["binding"] == "AI"
 
     assert 'content_type": "MEDIA" if is_media else "OFFICIAL"' in news_source
     assert "and not is_media" in news_source
     assert 'metadata.get("publisher")' in news_source
+    assert '"media_status": media_status' in news_source
 
     assert 'type ContentFilter = "Alle typer" | "Offisielt" | "Media"' in frontend_source
     assert 'contentTypeBadge' in frontend_source
+    assert 'MEDIAINNHENTING' in frontend_source
+    assert 'media_status?: MediaStatus' in frontend_source
     assert 'Automatically translated from Portuguese' in frontend_source
     assert 'originalkilden er alltid tilgjengelig' in frontend_source

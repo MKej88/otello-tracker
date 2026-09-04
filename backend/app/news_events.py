@@ -19,6 +19,8 @@ CATEGORY_LABELS = {
     "CORPORATE": "Selskapsmelding",
     "OTHER": "Annet",
 }
+MEDIA_JOB_NAME = "bemobi_media_refresh"
+DEFAULT_MEDIA_WINDOW_DAYS = 30
 
 
 def _importance(category: str, nav_impact: str) -> str:
@@ -40,6 +42,53 @@ def _decode_payload(value: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _error_count(metadata: dict[str, Any], error_message: Any) -> int:
+    feed_errors = metadata.get("feed_errors")
+    translation_errors = metadata.get("translation_errors")
+    count = len(feed_errors) if isinstance(feed_errors, list) else 0
+    count += len(translation_errors) if isinstance(translation_errors, list) else 0
+    if count == 0 and str(error_message or "").strip():
+        count = 1
+    return count
+
+
+async def _media_refresh_status(repository) -> dict[str, Any]:
+    row = await repository.first(
+        """
+        SELECT started_at, finished_at, status, records_written,
+               error_message, metadata_json
+        FROM job_runs
+        WHERE job_name=?
+        ORDER BY started_at DESC, id DESC
+        LIMIT 1
+        """,
+        (MEDIA_JOB_NAME,),
+    )
+    if row is None:
+        return {
+            "available": False,
+            "status": None,
+            "window_days": DEFAULT_MEDIA_WINDOW_DAYS,
+        }
+
+    metadata = _decode_payload(row.get("metadata_json"))
+    return {
+        "available": True,
+        "status": row.get("status"),
+        "started_at": row.get("started_at"),
+        "finished_at": row.get("finished_at"),
+        "feeds_checked": int(metadata.get("feeds_checked") or 0),
+        "candidates": int(metadata.get("candidates") or 0),
+        "written": int(row.get("records_written") or metadata.get("written") or 0),
+        "skipped_existing": int(metadata.get("skipped_existing") or 0),
+        "error_count": _error_count(metadata, row.get("error_message")),
+        "initial_backfill": bool(metadata.get("initial_backfill")),
+        "article_limit": int(metadata.get("article_limit") or 0),
+        "window_days": int(metadata.get("window_days") or DEFAULT_MEDIA_WINDOW_DAYS),
+        "error_message": str(row.get("error_message") or "")[:300] or None,
+    }
 
 
 def _news_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +171,7 @@ async def news_and_events(
 ) -> dict[str, Any]:
     today = date.fromisoformat(as_of_date) if as_of_date else date.today()
     safe_limit = max(1, min(news_limit, 100))
+    media_status = await _media_refresh_status(repository)
     news_rows = await repository.all(
         """
         SELECT cn.id, cn.headline,
@@ -288,6 +338,7 @@ async def news_and_events(
         "news": news,
         "events": events[:40],
         "counts": {"news": len(news), "events": min(len(events), 40)},
+        "media_status": media_status,
     }
 
 
