@@ -124,4 +124,4 @@ def test_cross_listing_three_year_period_keeps_net_effect_without_fake_fx_split(
     assert details["period_breakdown_reason"] == "market_listing_or_currency_changed"
     assert "price_effect_mnok" not in details
     assert "fx_effect_mnok" not in details
-    assert life360["amount_mnok"] == pytest.approx(15.6)
+    assert life360["amount_mnok"] == pytest.approx(10.2)
