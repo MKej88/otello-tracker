@@ -325,7 +325,7 @@ export default function OverviewPage() {
           ]} />
           <InsightMetricGroup metrics={[{}, {}]} />
           <InsightRange ariaLabel="Posisjon i ettårsintervallet" low={hasRange ? formatNumber(range?.low, 2) : "—"} high={hasRange ? formatNumber(range?.high, 2) : "—"} position={range?.position_pct} />
-          <small className="insightFootnote">Sterkere BRL = positivt for Otello NAV</small>
+          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
         </article>
         <article className="card kpi insightCard">
           <span className="label">NAV-rabatt</span>
@@ -362,7 +362,7 @@ export default function OverviewPage() {
             { label: "Otello eier", value: bemobi?.holding_shares == null || !Number.isFinite(bemobi.holding_shares) || bemobi?.ownership_pct == null || !Number.isFinite(bemobi.ownership_pct) ? "—" : `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %` },
           ]} />
           <InsightRange ariaLabel="BMOB3-posisjon i ettårsintervallet" low={hasBemobiRange ? formatNumber(bemobiRange?.low, 2) : "—"} high={hasBemobiRange ? formatNumber(bemobiRange?.high, 2) : "—"} position={bemobiRange?.position_pct} />
-          <small className="insightFootnote">Sterkere BMOB3 = positivt for Otello NAV</small>
+          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
         </article>
       </section>
 
