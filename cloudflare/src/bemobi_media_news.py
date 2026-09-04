@@ -21,12 +21,15 @@ MEDIA_SOURCE_NAME = "Brasiliansk medieomtale"
 TRANSLATION_MODEL = "@cf/meta/m2m100-1.2b"
 MAX_FEED_BYTES = 2 * 1024 * 1024
 MAX_NEW_ARTICLES_PER_RUN = 8
+INITIAL_BACKFILL_MAX_ARTICLES = 24
+MEDIA_LOOKBACK_DAYS = 30
 USER_AGENT = "otello-tracker/1.0 private-investor-dashboard"
 
+GOOGLE_NEWS_SOURCE = "Google News Brasil"
 GOOGLE_NEWS_QUERY = '"Bemobi" OR BMOB3 OR "Pedro Ripper"'
 GOOGLE_NEWS_RSS_URL = (
     "https://news.google.com/rss/search?q="
-    + quote_plus(GOOGLE_NEWS_QUERY + " when:30d")
+    + quote_plus(GOOGLE_NEWS_QUERY + f" when:{MEDIA_LOOKBACK_DAYS}d")
     + "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
 )
 
@@ -37,7 +40,7 @@ FEEDS = (
     ("NeoFeed", "https://neofeed.com.br/feed/"),
     ("Brazil Journal", "https://braziljournal.com/feed/"),
     ("CNN Brasil", "https://www.cnnbrasil.com.br/tudo-sobre/economia/feed/"),
-    ("Google News Brasil", GOOGLE_NEWS_RSS_URL),
+    (GOOGLE_NEWS_SOURCE, GOOGLE_NEWS_RSS_URL),
 )
 
 _RELEVANCE_TERMS = ("bemobi", "bmob3", "pedro ripper")
@@ -144,7 +147,13 @@ def _published_iso(value: Any) -> str | None:
     return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _parse_feed(payload: bytes, *, fallback_source: str, feed_url: str) -> list[dict[str, Any]]:
+def _parse_feed(
+    payload: bytes,
+    *,
+    fallback_source: str,
+    feed_url: str,
+    trust_query_relevance: bool = False,
+) -> list[dict[str, Any]]:
     root = ET.fromstring(payload)
     entries = [node for node in root.iter() if _tag_name(node) in {"item", "entry"}]
     articles: list[dict[str, Any]] = []
@@ -154,7 +163,11 @@ def _parse_feed(payload: bytes, *, fallback_source: str, feed_url: str) -> list[
         if not title or not link:
             continue
         summary = _child_markup_text(entry, "description", "summary", "encoded", "content")
-        if not _is_relevant(title, summary):
+        # Direct publisher feeds are broad, so they still require an explicit Bemobi term
+        # in RSS metadata. The Google News feed is already produced by our narrow Bemobi /
+        # BMOB3 / Pedro Ripper query; applying the same snippet filter again drops valid
+        # stories where the company is mentioned only in the indexed article body.
+        if not trust_query_relevance and not _is_relevant(title, summary):
             continue
         published = _published_iso(
             _child_text(entry, "pubdate", "published", "updated", "date")
@@ -283,6 +296,18 @@ async def _bemobi_instrument_id(repository) -> int:
     return int(row["id"])
 
 
+async def _existing_media_count(repository, source_id: int) -> int:
+    row = await repository.first(
+        """
+        SELECT COUNT(*) AS count
+        FROM source_documents
+        WHERE source_id=? AND document_type='MEDIA_ARTICLE'
+        """,
+        (source_id,),
+    )
+    return int((row or {}).get("count") or 0)
+
+
 async def _already_seen(repository, source_id: int, external_id: str) -> bool:
     row = await repository.first(
         "SELECT id FROM source_documents WHERE source_id=? AND external_id=? LIMIT 1",
@@ -366,9 +391,14 @@ async def refresh_bemobi_media_news(
     *,
     ai_binding: Any | None,
     fetcher=None,
-    max_new_articles: int = MAX_NEW_ARTICLES_PER_RUN,
+    max_new_articles: int | None = None,
 ) -> dict[str, Any]:
     """Fetch relevant Brazilian Bemobi media and store English renderings.
+
+    Google News searches the last 30 days and is trusted as the relevance filter for that
+    feed. Direct publisher feeds still require Bemobi terms in their RSS metadata. On a new
+    installation the first run gets a larger bounded write budget so the 30-day history is
+    populated quickly; subsequent 30-minute runs retain the smaller steady-state budget.
 
     Only RSS/Atom metadata is ingested. Full article bodies and paywalled content are not copied.
     Failures are best-effort and must never block market-data refreshes.
@@ -379,18 +409,36 @@ async def refresh_bemobi_media_news(
             "reason": "workers_ai_binding_unavailable",
             "written": 0,
             "feeds_checked": 0,
-            "errors": [],
+            "candidates": 0,
+            "skipped_existing": 0,
+            "feed_errors": [],
+            "translation_errors": [],
+            "window_days": MEDIA_LOOKBACK_DAYS,
+            "initial_backfill": False,
+            "article_limit": 0,
         }
 
     source_id = await _ensure_source(repository)
     instrument_id = await _bemobi_instrument_id(repository)
+    existing_before = await _existing_media_count(repository, source_id)
+    initial_backfill = existing_before == 0
+    article_limit = (
+        max(1, int(max_new_articles))
+        if max_new_articles is not None
+        else INITIAL_BACKFILL_MAX_ARTICLES if initial_backfill else MAX_NEW_ARTICLES_PER_RUN
+    )
     feed_errors: list[dict[str, str]] = []
     candidates: dict[str, dict[str, Any]] = {}
 
     for feed_source, feed_url in FEEDS:
         try:
             payload = await _fetch_feed(feed_url, fetcher=fetcher)
-            articles = _parse_feed(payload, fallback_source=feed_source, feed_url=feed_url)
+            articles = _parse_feed(
+                payload,
+                fallback_source=feed_source,
+                feed_url=feed_url,
+                trust_query_relevance=feed_source == GOOGLE_NEWS_SOURCE,
+            )
         except Exception as exc:
             feed_errors.append(
                 {
@@ -413,7 +461,7 @@ async def refresh_bemobi_media_news(
     translation_errors: list[dict[str, str]] = []
 
     for article in ordered:
-        if written >= max(1, int(max_new_articles)):
+        if written >= article_limit:
             break
         external_id = _article_external_id(article)
         if await _already_seen(repository, source_id, external_id):
@@ -457,4 +505,8 @@ async def refresh_bemobi_media_news(
         "feed_errors": feed_errors,
         "translation_errors": translation_errors,
         "translation_model": TRANSLATION_MODEL,
+        "window_days": MEDIA_LOOKBACK_DAYS,
+        "initial_backfill": initial_backfill,
+        "existing_before": existing_before,
+        "article_limit": article_limit,
     }
