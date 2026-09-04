@@ -1,13 +1,16 @@
 .newsEventsPage { gap: 24px; }
 .newsHero { display: flex; justify-content: space-between; gap: 32px; padding: 30px; background: linear-gradient(135deg, rgba(25, 54, 48, .98), rgba(17, 34, 31, .98)); color: #f6f2e8; }
 .newsHero h2 { margin: 8px 0 10px; font-size: clamp(1.55rem, 3vw, 2.35rem); }
-.newsHero p { max-width: 720px; margin: 0; color: rgba(246, 242, 232, .76); line-height: 1.65; }
+.newsHero p { max-width: 760px; margin: 0; color: rgba(246, 242, 232, .76); line-height: 1.65; }
 .newsHeroStats { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 12px; min-width: 280px; align-content: center; }
 .newsHeroStats div { padding: 16px; border: 1px solid rgba(255,255,255,.14); border-radius: 14px; background: rgba(255,255,255,.06); }
 .newsHeroStats strong, .newsHeroStats span { display: block; }
 .newsHeroStats strong { font-size: 1.8rem; }
 .newsHeroStats span, .newsHeroStats small { color: rgba(246, 242, 232, .66); }
-.newsToolbar { display: flex; gap: 8px; }
+.newsToolbar { display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: end; }
+.newsFilterGroup { display: grid; gap: 7px; }
+.newsFilterLabel { color: var(--muted); font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.newsFilterButtons { display: flex; flex-wrap: wrap; gap: 8px; }
 .newsLayout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(310px, .8fr); gap: 24px; align-items: start; }
 .sectionHeading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 12px; }
 .sectionHeading h2 { margin: 4px 0 0; }
@@ -16,12 +19,15 @@
 .newsCard h3, .calendarEvent h3 { margin: 10px 0 8px; line-height: 1.35; }
 .newsCard p, .calendarEvent p { color: var(--muted); line-height: 1.55; }
 .newsMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: .76rem; }
-.companyTag, .importanceBadge { padding: 4px 8px; border-radius: 999px; font-weight: 750; letter-spacing: .04em; }
+.companyTag, .importanceBadge, .contentTypeBadge { padding: 4px 8px; border-radius: 999px; font-weight: 750; letter-spacing: .04em; }
 .companyOtello { color: #145a49; background: #daf0e8; }
 .companyBemobi { color: #35559a; background: #e5ebfa; }
+.contentOFFICIAL { color: #35559a; background: #e8edf8; }
+.contentMEDIA { color: #6b4b15; background: #f5ead1; }
 .importanceHIGH { color: #8b3027; background: #f9dfdb; }
 .importanceMEDIUM { color: #805d12; background: #f8eccb; }
 .importanceLOW { color: #52625e; background: #e8eeec; }
+.translationNote { display: block; margin-top: 10px; color: var(--muted); font-size: .72rem; font-style: italic; }
 .newsCardFooter { display: flex; justify-content: space-between; gap: 14px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
 .newsSourceLink { color: var(--accent); font-weight: 700; text-decoration: none; }
 .newsSourceLink:hover { text-decoration: underline; }
@@ -39,4 +45,4 @@
 .calendarNote, .emptyCalendar, .emptyNewsCard { color: var(--muted); line-height: 1.5; }
 .emptyNewsCard { padding: 24px; }
 @media (max-width: 980px) { .newsLayout { grid-template-columns: 1fr; } .calendarColumn { position: static; } }
-@media (max-width: 640px) { .newsHero { display: block; padding: 22px; } .newsHeroStats { margin-top: 20px; min-width: 0; } .newsCardFooter { display: grid; } }
+@media (max-width: 640px) { .newsHero { display: block; padding: 22px; } .newsHeroStats { margin-top: 20px; min-width: 0; } .newsToolbar { display: grid; } .newsCardFooter { display: grid; } }

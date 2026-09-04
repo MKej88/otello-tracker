@@ -7,6 +7,9 @@
   "triggers": {
     "crons": ["*/30 * * * *"]
   },
+  "ai": {
+    "binding": "AI"
+  },
   "workflows": [
     {
       "name": "otello-full-refresh",
