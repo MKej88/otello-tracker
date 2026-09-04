@@ -199,7 +199,10 @@ def _update_retry_from(
         retry_from = str(existing["value"]) if existing is not None else None
         if errors:
             failed_from = min(str(item["published_at"])[:10] for item in errors)
-            value = min(retry_from, failed_from) if retry_from else failed_from
+            if retry_from is not None and start > retry_from:
+                value = min(retry_from, failed_from)
+            else:
+                value = failed_from
             connection.execute(
                 """
                 INSERT INTO runtime_state(key, value) VALUES (?, ?)

@@ -153,6 +153,48 @@ def test_standardoppdatering_prover_eldre_feilet_melding_paa_nytt(
     assert old_attempts == 2
 
 
+def test_retrydato_flyttes_frem_nar_gammel_feil_er_reparert(
+    tmp_path, monkeypatch
+) -> None:
+    """En reparert gammel feil skal ikke holde historikkvinduet kunstig langt."""
+    database = str(tmp_path / "flyttet-retrydato.db")
+    init_database(database)
+    old_message = _message(401, "2026-01-02T08:00:00Z")
+    new_message = _message(402, "2026-08-20T08:00:00Z")
+    run_number = 0
+
+    monkeypatch.setattr(
+        history,
+        "discover_otec_messages",
+        lambda *_args, **_kwargs: [old_message, new_message],
+    )
+
+    def alternating_failures(message_id: int, **_kwargs) -> NewsWebMessage:
+        if run_number == 1 and message_id == old_message.message_id:
+            raise TimeoutError("gammel midlertidig timeout")
+        if run_number == 2 and message_id == new_message.message_id:
+            raise TimeoutError("nyere midlertidig timeout")
+        return old_message if message_id == old_message.message_id else new_message
+
+    monkeypatch.setattr(history, "fetch_message", alternating_failures)
+
+    run_number = 1
+    first = history.collect_newsweb_history(database, to_date="2026-08-31")
+    assert first["errors"][0]["message_id"] == old_message.message_id
+    assert history.history_start_for_refresh(database) == "2026-01-02"
+
+    run_number = 2
+    second = history.collect_newsweb_history(database, to_date="2026-08-31")
+    assert second["errors"][0]["message_id"] == new_message.message_id
+    with get_connection(database) as connection:
+        retry_from = connection.execute(
+            "SELECT value FROM runtime_state WHERE key=?",
+            (history.RETRY_FROM_STATE_KEY,),
+        ).fetchone()["value"]
+    assert retry_from == "2026-08-20"
+    assert history.history_start_for_refresh(database) == "2026-08-06"
+
+
 def test_tomt_api_svar_gir_tydelig_nullresultat_uten_databaseinnhold(
     tmp_path, monkeypatch
 ) -> None:
