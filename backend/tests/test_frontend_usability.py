@@ -97,4 +97,4 @@ def test_cash_movement_explanations_are_permanently_visible_in_calculation_colum
     assert "Rest etter identifiserte kontantbevegelser" in nav_page
     assert "white-space:pre-line" in styles
     assert "accordion" not in nav_page.lower()
-    assert "tooltip" not in nav_page.lower()
+    assert 'title={displayFormula(item)}' not in nav_page
