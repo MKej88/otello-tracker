@@ -59,7 +59,55 @@ def test_news_events_dashboard_is_safe_on_empty_database(tmp_path) -> None:
         "news": [],
         "events": [],
         "counts": {"news": 0, "events": 0},
+        "media_status": {
+            "available": False,
+            "status": None,
+            "window_days": 30,
+        },
     }
+
+
+def test_news_events_exposes_latest_bemobi_media_refresh_status(tmp_path) -> None:
+    database = str(tmp_path / "media-status.db")
+    init_database(database)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO job_runs(
+                job_name, started_at, finished_at, status,
+                records_written, error_message, metadata_json
+            ) VALUES (?, ?, ?, 'PARTIAL', 3, ?, ?)
+            """,
+            (
+                "bemobi_media_refresh",
+                "2026-09-04T09:00:00Z",
+                "2026-09-04T09:00:05Z",
+                "InfoMoney HTTP 503",
+                (
+                    '{"feeds_checked":5,"candidates":11,"written":3,'
+                    '"skipped_existing":6,"window_days":30,'
+                    '"initial_backfill":true,"article_limit":24,'
+                    '"feed_errors":[{"source":"InfoMoney","error":"HTTP 503"}],'
+                    '"translation_errors":[]}'
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = asyncio.run(news_events_dashboard(database, as_of_date="2026-09-04"))
+    status = result["media_status"]
+
+    assert status["available"] is True
+    assert status["status"] == "PARTIAL"
+    assert status["finished_at"] == "2026-09-04T09:00:05Z"
+    assert status["feeds_checked"] == 5
+    assert status["candidates"] == 11
+    assert status["written"] == 3
+    assert status["skipped_existing"] == 6
+    assert status["error_count"] == 1
+    assert status["initial_backfill"] is True
+    assert status["article_limit"] == 24
+    assert status["window_days"] == 30
 
 
 def test_news_uses_document_date_when_news_date_is_missing(tmp_path) -> None:
