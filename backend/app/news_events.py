@@ -45,25 +45,45 @@ def _decode_payload(value: Any) -> dict[str, Any]:
 def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     category = str(row.get("category") or "OTHER")
     nav_impact = str(row.get("nav_impact") or "NONE")
+    metadata = _decode_payload(row.get("metadata_json"))
+    content_type = str(metadata.get("content_type") or "OFFICIAL").upper()
+    is_media = content_type == "MEDIA"
     headline = row.get("headline")
     summary = row.get("summary")
-    if row.get("symbol") == "BMOB3":
+    if row.get("symbol") == "BMOB3" and not is_media:
         headline, summary = translate_bemobi_news(
             headline=headline,
             summary=summary,
-            metadata=_decode_payload(row.get("metadata_json")),
+            metadata=metadata,
         )
+    source = (
+        metadata.get("publisher")
+        if is_media and metadata.get("publisher")
+        else row.get("source_name") or row.get("source_code")
+    )
+    url = (
+        metadata.get("original_url")
+        if is_media and metadata.get("original_url")
+        else row.get("url")
+    )
+    category_label = (
+        "Medieomtale"
+        if is_media and category == "OTHER"
+        else CATEGORY_LABELS.get(category, "Annet")
+    )
     return {
         "id": int(row["id"]),
         "company": "Bemobi" if row.get("symbol") == "BMOB3" else "Otello",
         "headline": headline,
         "published_at": row.get("published_at"),
         "category": category,
-        "category_label": CATEGORY_LABELS.get(category, "Annet"),
+        "category_label": category_label,
         "importance": _importance(category, nav_impact),
         "summary": summary,
-        "source": row.get("source_name") or row.get("source_code"),
-        "url": _safe_url(row.get("url")),
+        "source": source,
+        "url": _safe_url(url),
+        "content_type": "MEDIA" if is_media else "OFFICIAL",
+        "original_language": metadata.get("original_language") if is_media else None,
     }
 
 
