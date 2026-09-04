@@ -461,9 +461,15 @@ export default function NavPageV2() {
   const components = sortCompositionByValue(
     compositionWithoutSeparateFxRow(current?.composition ?? []),
   );
-  const displayedNavPerShare = current?.nav_per_share ?? (live?.ready ? live.nav_per_share : null);
-  const displayedSharesOutstanding = current?.shares_outstanding ?? live?.shares_outstanding;
-  const displayedDiscountPct = current?.discount_pct ?? live?.discount_pct;
+  const displayedNavPerShare = live?.ready && live.nav_per_share != null
+    ? live.nav_per_share
+    : current?.nav_per_share;
+  const displayedSharesOutstanding = live?.ready && live.shares_outstanding != null
+    ? live.shares_outstanding
+    : current?.shares_outstanding;
+  const displayedDiscountPct = live?.ready && live.discount_pct != null
+    ? live.discount_pct
+    : current?.discount_pct;
   const changedDrivers = groupedDrivers(change?.drivers ?? []).filter(driverHasChange);
   const shareBasis = buyback?.shares;
   const shareBasisMatchesNav = shareBasis?.outstanding_shares != null
