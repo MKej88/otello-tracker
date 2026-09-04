@@ -12,5 +12,7 @@ def test_overview_nav_copy_is_compact_and_case_calendar_is_investor_focused() ->
     assert "basert på markedsverdier," not in page
     assert "NESTE VIKTIGE DATOER" in page
     assert 'if (event.importance !== "Høy"' in page
-    assert 'return "BCB – rentebeslutning";' in page
-    assert '"Brasil – IPCA"' in page
+    assert 'return "Rentebeslutning fra sentralbanken";' in page
+    assert '"Foreløpig prisvekst" : "Prisvekst"' in page
+    assert 'return "BCB – rentebeslutning";' not in page
+    assert '"Brasil – IPCA"' not in page
