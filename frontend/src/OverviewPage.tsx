@@ -301,14 +301,21 @@ type OverviewCaseEvent = {
 };
 
 function eventTitle(event: BrazilCalendarEvent) {
-  if (event.kind === "copom") return "BCB – rentebeslutning";
-  if (event.kind === "inflation") return event.name.includes("15") ? "Brasil – IPCA-15" : "Brasil – IPCA";
-  return event.name;
+  const labels: Record<string, string> = {
+    copom: "Rentebeslutning fra sentralbanken",
+    services: "Aktivitet i tjenestenæringene",
+    retail: "Omsetning i detaljhandelen",
+    activity: "Samlet økonomisk aktivitet",
+    labor: "Arbeidsledighet",
+  };
+  if (event.kind === "inflation") return event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst";
+  if (event.kind === "gdp") return event.name.replace("BNP", "Økonomisk vekst (BNP)");
+  return labels[event.kind] ?? event.name;
 }
 
 function eventNote(event: BrazilCalendarEvent) {
-  if (event.kind === "copom") return "Renter påvirker BRL og verdsettelsen av brasilianske vekstaksjer.";
-  if (event.kind === "inflation") return "Inflasjon påvirker renteutsiktene og verdsettelsen av Bemobi.";
+  if (event.kind === "copom") return "Styringsrenten påvirker BRL og verdsettelsen av brasilianske vekstaksjer.";
+  if (event.kind === "inflation") return "Prisvekst påvirker renteutsiktene og verdsettelsen av Bemobi.";
   return event.bemobi_impact || "Makrotall med høy relevans for Bemobi-caset.";
 }
 
