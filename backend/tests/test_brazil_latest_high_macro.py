@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
@@ -68,7 +70,7 @@ def test_latest_high_macro_uses_exact_high_importance_only() -> None:
     assert latest["importance"] == "Høy"
     assert latest["actual"] == "0.30%"
     assert latest["forecast"] == "0.35%"
-    assert latest["surprise"] == -0.05
+    assert latest["surprise"] == pytest.approx(-0.05)
 
 
 def test_investing_explains_missing_forecast_and_source_error(monkeypatch) -> None:
@@ -92,7 +94,10 @@ def test_investing_explains_missing_forecast_and_source_error(monkeypatch) -> No
     enriched, _ = asyncio.run(
         investing.enrich_calendar_from_investing(events, as_of_date="2026-09-04")
     )
-    assert enriched[0]["investing_consensus_status"]["code"] == "NO_FORECAST_PUBLISHED"
+    assert (
+        enriched[0]["investing_consensus_status"]["code"]
+        == "NO_FORECAST_PUBLISHED"
+    )
 
     async def blocked(url: str, *, fetcher=None) -> str:
         del url, fetcher
