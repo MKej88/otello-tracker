@@ -299,7 +299,6 @@ export default function BemobiPage({
   const cvmQuarters = valuation?.source_quarters ?? [];
   const latestCvm = cvmQuarters.at(-1);
   const harmonizedRevenueTtm = completeTtm(cvmQuarters, "harmonized_net_revenue_mbrl");
-  const reportedRevenueTtm = completeTtm(cvmQuarters, "reported_revenue_mbrl");
   const reportedEbitTtm = completeTtm(cvmQuarters, "reported_ebit_mbrl");
   const reportedNetIncomeTtm = completeTtm(cvmQuarters, "reported_net_income_parent_mbrl");
   const reportedOperatingCashFlowTtm = completeTtm(cvmQuarters, "reported_operating_cash_flow_mbrl");
@@ -479,31 +478,92 @@ export default function BemobiPage({
 
           <div className="bemobiValuationBase">
             <div className="bemobiSectionTitle">
-              <span>TTM-grunnlag · Bemobi + CVM</span>
+              <span>TTM-grunnlag</span>
               <small>{ttmRange}</small>
             </div>
-            <div className="placeholderRows">
-              <div><span>Harmonisert nettoomsetning TTM · Bemobi/CVM release</span><strong>R$ {value(harmonizedRevenueTtm, 1)}m</strong></div>
-              <div><span>Regnskapsført omsetning TTM · CVM 3.01 · kontroll</span><strong>R$ {value(reportedRevenueTtm, 1)}m</strong></div>
-              <div><span>Rapportert EBIT TTM · CVM 3.05</span><strong>R$ {value(reportedEbitTtm, 1)}m</strong></div>
-              <div><span>Rapportert resultat TTM · CVM 3.11.01</span><strong>R$ {value(reportedNetIncomeTtm ?? valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Operasjonell kontantstrøm TTM · CVM 6.01</span><strong>R$ {value(reportedOperatingCashFlowTtm, 1)}m</strong></div>
-              <div><span>Capex TTM · CVM DFC</span><strong>R$ {value(reportedCapexTtm, 1)}m</strong></div>
-              <div><span>FCF TTM · CVM CFO − capex</span><strong>R$ {value(reportedFcfTtm, 1)}m</strong></div>
-              <div><span>Netto kontant · CVM {latestCvm?.period ?? "siste"}</span><strong>R$ {value(cvmNetCash, 1)}m</strong></div>
-              <div><span>Enterprise value · CVM-first</span><strong>R$ {value(cvmEnterpriseValue, 0)}m</strong></div>
-              <div><span>Justert resultat TTM · Bemobi</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Justert EBITDA TTM · Bemobi</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Justert FCF-proxy TTM</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
-              <div><span>Justert capex TTM · EBITDA − FCF-proxy</span><strong>R$ {value(adjustedCapexTtm, 1)}m</strong></div>
+
+            <div className="bemobiTtmSummary">
+              <div>
+                <span>Harmonisert omsetning</span>
+                <strong>R$ {value(harmonizedRevenueTtm, 1)}m</strong>
+                <small>Bemobi / CVM</small>
+              </div>
+              <div>
+                <span>Justert EBITDA</span>
+                <strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong>
+                <small>Bemobi</small>
+              </div>
+              <div>
+                <span>Justert resultat</span>
+                <strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong>
+                <small>Bemobi</small>
+              </div>
+              <div>
+                <span>Justert FCF-proxy</span>
+                <strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong>
+                <small>TTM</small>
+              </div>
+              <div>
+                <span>Netto kontant</span>
+                <strong>R$ {value(cvmNetCash, 1)}m</strong>
+                <small>{latestCvm?.period ?? "siste CVM"}</small>
+              </div>
+            </div>
+
+            <div className="bemobiTtmSections">
+              <section className="bemobiTtmSection">
+                <div className="bemobiTtmSectionHeader">
+                  <strong>Rapportert regnskap</strong>
+                  <small>CVM</small>
+                </div>
+                <div className="bemobiTtmRows">
+                  <div><span>EBIT</span><strong>R$ {value(reportedEbitTtm, 1)}m</strong></div>
+                  <div><span>Resultat</span><strong>R$ {value(reportedNetIncomeTtm ?? valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
+                </div>
+              </section>
+
+              <section className="bemobiTtmSection">
+                <div className="bemobiTtmSectionHeader">
+                  <strong>Kontantstrøm</strong>
+                  <small>TTM</small>
+                </div>
+                <div className="bemobiTtmRows">
+                  <div><span>Operasjonell kontantstrøm</span><strong>R$ {value(reportedOperatingCashFlowTtm, 1)}m</strong></div>
+                  <div><span>Capex</span><strong>−R$ {value(reportedCapexTtm, 1)}m</strong></div>
+                  <div className="emphasis"><span>Fri kontantstrøm</span><strong>R$ {value(reportedFcfTtm, 1)}m</strong></div>
+                </div>
+              </section>
+
+              <section className="bemobiTtmSection">
+                <div className="bemobiTtmSectionHeader">
+                  <strong>Justerte nøkkeltall</strong>
+                  <small>Bemobi</small>
+                </div>
+                <div className="bemobiTtmRows">
+                  <div><span>Justert EBITDA</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
+                  <div><span>Justert resultat</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
+                  <div><span>Justert FCF-proxy</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
+                  <div><span>Justert capex</span><strong>R$ {value(adjustedCapexTtm, 1)}m</strong></div>
+                </div>
+              </section>
+
+              <section className="bemobiTtmSection">
+                <div className="bemobiTtmSectionHeader">
+                  <strong>Verdsettelse</strong>
+                  <small>CVM-first</small>
+                </div>
+                <div className="bemobiTtmRows">
+                  <div><span>Netto kontant</span><strong>R$ {value(cvmNetCash, 1)}m</strong></div>
+                  <div className="emphasis"><span>Enterprise value</span><strong>R$ {value(cvmEnterpriseValue, 0)}m</strong></div>
+                </div>
+              </section>
             </div>
           </div>
         </div>
 
         <p className="bemobiValuationNote">
-          <strong>Omsetning:</strong> Harmonisert nettoomsetning fra Bemobis offisielle resultatrapport brukes som
-          hovedmål fordi M4U-bruttoføringen ellers blåser opp både omsetning og kostnader. CVM DRE 3.01 beholdes
-          uendret som regulatorisk kontrolltall.
+          <strong>Omsetning:</strong> Harmonisert omsetning fra Bemobis offisielle resultatrapport brukes som
+          investorens omsetningsmål fordi M4U-bruttoføringen ellers blåser opp både omsetning og kostnader.
         </p>
 
         {(reportedCapexTtm != null || adjustedCapexTtm != null) && (
@@ -552,14 +612,9 @@ export default function BemobiPage({
 
           <div className="bemobiResultGrid">
             <div>
-              <span>Harmonisert nettoomsetning</span>
+              <span>Harmonisert omsetning</span>
               <strong>R$ {value(result?.adjusted_net_revenue_mbrl ?? latestCvm?.harmonized_net_revenue_mbrl, 1)}m</strong>
-              <em>Bemobi/CVM release</em>
-            </div>
-            <div>
-              <span>Regnskapsført omsetning</span>
-              <strong>R$ {value(latestCvm?.reported_revenue_mbrl, 1)}m</strong>
-              <em>CVM 3.01 · kontroll</em>
+              <em>Bemobi / CVM</em>
             </div>
             <div>
               <span>Rapportert EBIT</span>

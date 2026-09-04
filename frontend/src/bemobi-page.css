@@ -112,7 +112,7 @@
 
 .bemobiValuationBody {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-top: 14px;
 }
@@ -158,6 +158,94 @@
 
 .bemobiValuationBase .placeholderRows { margin-top: 5px; }
 .bemobiValuationBase .placeholderRows > div { padding: 10px 0; font-size: 12px; }
+
+.bemobiTtmSummary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid #1b2a40;
+  border-radius: 10px;
+  background: #1b2a40;
+}
+
+.bemobiTtmSummary > div {
+  min-height: 92px;
+  padding: 14px 15px;
+  background: #0c192b;
+}
+
+.bemobiTtmSummary span,
+.bemobiTtmSummary small {
+  display: block;
+  color: #71829d;
+  font-size: 10px;
+}
+
+.bemobiTtmSummary strong {
+  display: block;
+  margin: 8px 0 5px;
+  color: #edf4ff;
+  font-size: 20px;
+  letter-spacing: -.02em;
+}
+
+.bemobiTtmSections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.bemobiTtmSection {
+  min-width: 0;
+  border: 1px solid #1b2a40;
+  border-radius: 10px;
+  padding: 14px 15px;
+  background: rgba(10, 23, 40, .72);
+}
+
+.bemobiTtmSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #1b2a40;
+}
+
+.bemobiTtmSectionHeader strong {
+  color: #b8c6d9;
+  font-size: 11px;
+  letter-spacing: .01em;
+}
+
+.bemobiTtmSectionHeader small {
+  color: #657691;
+  font-size: 9px;
+}
+
+.bemobiTtmRows > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(27, 42, 64, .82);
+  color: #8191aa;
+  font-size: 11px;
+}
+
+.bemobiTtmRows > div:last-child { border-bottom: 0; }
+.bemobiTtmRows span { min-width: 0; }
+.bemobiTtmRows strong {
+  flex: 0 0 auto;
+  color: #eaf2ff;
+  font-size: 12px;
+  text-align: right;
+}
+.bemobiTtmRows > div.emphasis strong { color: #f5f8ff; font-size: 13px; }
 
 .bemobiQuarterSources {
   display: flex;
@@ -283,16 +371,18 @@
 @media (max-width: 1180px) {
   .bemobiKpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bemobiValuationMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bemobiValuationBody, .bemobiTwoColumn { grid-template-columns: 1fr; }
+  .bemobiTtmSummary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .bemobiTwoColumn { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
   .bemobiHero { align-items: flex-start; flex-direction: column; }
   .bemobiHeroMeta { align-items: flex-start; }
   .bemobiResultGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bemobiTtmSummary, .bemobiTtmSections { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bemobiGrowthStrip, .bemobiScenarioGrid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 500px) {
-  .bemobiKpiGrid, .bemobiResultGrid, .bemobiValuationMetrics { grid-template-columns: 1fr; }
+  .bemobiKpiGrid, .bemobiResultGrid, .bemobiValuationMetrics, .bemobiTtmSummary, .bemobiTtmSections { grid-template-columns: 1fr; }
 }
