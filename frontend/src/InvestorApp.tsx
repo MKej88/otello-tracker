@@ -3,7 +3,7 @@ import InvestorNavigation from "./InvestorNavigation";
 import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
 import OverviewPage from "./OverviewPage";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
-import { preloadJson } from "./navigationDataPreload";
+import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 import "./investor-v2.css";
 
 const loadNavPage = () => import("./NavPageV2");
@@ -31,6 +31,11 @@ function ViewFallback() {
 function preload(view: View) {
   if (view === "NAV") {
     void loadNavPage();
+    preloadNavPeriodBundle(Object.fromEntries(
+      investorPeriods().map((period) => [period.key, discountHistoryUrl(period)]),
+    ));
+    // Keep the first-period preload explicit; it reuses the bundle promise and also
+    // preserves a direct fallback if the nightly materialization has not run yet.
     preloadJson(discountHistoryUrl(investorPeriods()[0]));
   }
   if (view === "Historikk") {
