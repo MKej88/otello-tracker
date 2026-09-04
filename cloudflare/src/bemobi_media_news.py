@@ -44,6 +44,10 @@ FEEDS = (
 )
 
 _RELEVANCE_TERMS = ("bemobi", "bmob3", "pedro ripper")
+_ILLEGAL_XML_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_BARE_AMPERSAND_BYTES = re.compile(
+    rb"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)"
+)
 
 
 class _TextExtractor(HTMLParser):
@@ -76,6 +80,22 @@ def _strip_html(value: Any) -> str:
 def _is_relevant(title: Any, summary: Any = None) -> bool:
     haystack = f"{_clean(title)} {_strip_html(summary)}".casefold()
     return any(term in haystack for term in _RELEVANCE_TERMS)
+
+
+def _repair_xml_payload(payload: bytes) -> bytes:
+    """Repair common publisher-feed XML defects without changing valid XML."""
+    repaired = _ILLEGAL_XML_BYTES.sub(b"", payload)
+    return _BARE_AMPERSAND_BYTES.sub(b"&amp;", repaired)
+
+
+def _parse_xml_root(payload: bytes) -> ET.Element:
+    try:
+        return ET.fromstring(payload)
+    except ET.ParseError as original_error:
+        repaired = _repair_xml_payload(payload)
+        if repaired == payload:
+            raise original_error
+        return ET.fromstring(repaired)
 
 
 def _tag_name(element: ET.Element) -> str:
@@ -154,7 +174,7 @@ def _parse_feed(
     feed_url: str,
     trust_query_relevance: bool = False,
 ) -> list[dict[str, Any]]:
-    root = ET.fromstring(payload)
+    root = _parse_xml_root(payload)
     entries = [node for node in root.iter() if _tag_name(node) in {"item", "entry"}]
     articles: list[dict[str, Any]] = []
     for entry in entries:
@@ -409,6 +429,7 @@ async def refresh_bemobi_media_news(
             "reason": "workers_ai_binding_unavailable",
             "written": 0,
             "feeds_checked": 0,
+            "feeds_succeeded": 0,
             "candidates": 0,
             "skipped_existing": 0,
             "feed_errors": [],
@@ -429,6 +450,7 @@ async def refresh_bemobi_media_news(
     )
     feed_errors: list[dict[str, str]] = []
     candidates: dict[str, dict[str, Any]] = {}
+    feeds_succeeded = 0
 
     for feed_source, feed_url in FEEDS:
         try:
@@ -448,6 +470,7 @@ async def refresh_bemobi_media_news(
                 }
             )
             continue
+        feeds_succeeded += 1
         for article in articles:
             candidates.setdefault(_article_external_id(article), article)
 
@@ -495,11 +518,12 @@ async def refresh_bemobi_media_news(
 
     status = "ok"
     if translation_errors or feed_errors:
-        status = "partial" if written or candidates else "error"
+        status = "partial" if feeds_succeeded > 0 else "error"
     return {
         "status": status,
         "written": written,
         "feeds_checked": len(FEEDS),
+        "feeds_succeeded": feeds_succeeded,
         "candidates": len(candidates),
         "skipped_existing": skipped_existing,
         "feed_errors": feed_errors,
