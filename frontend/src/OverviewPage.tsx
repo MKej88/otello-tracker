@@ -14,6 +14,7 @@ import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 
 const REFRESH_MS = 2 * 60 * 1000;
+const EVENT_REFRESH_MS = 30 * 60 * 1000;
 
 type Summary = {
   ready: boolean;
@@ -267,6 +268,138 @@ type DiscountHistory = {
   };
 };
 
+type BemobiCalendarPayload = {
+  next_report?: {
+    period?: string | null;
+    date?: string | null;
+    date_quality?: string | null;
+    label?: string | null;
+  };
+};
+
+type BrazilCalendarEvent = {
+  date: string;
+  name: string;
+  kind: string;
+  importance: string;
+  bemobi_impact?: string | null;
+  expectation?: { release_at_utc?: string | null } | null;
+};
+
+type BrazilCalendarPayload = {
+  calendar?: BrazilCalendarEvent[];
+};
+
+type OverviewCaseEvent = {
+  key: string;
+  date: string;
+  title: string;
+  badge: string;
+  kind: "bemobi" | "macro";
+  note?: string | null;
+  releaseAtUtc?: string | null;
+};
+
+function eventTitle(event: BrazilCalendarEvent) {
+  if (event.kind === "copom") return "BCB – rentebeslutning";
+  if (event.kind === "inflation") return event.name.includes("15") ? "Brasil – IPCA-15" : "Brasil – IPCA";
+  return event.name;
+}
+
+function eventNote(event: BrazilCalendarEvent) {
+  if (event.kind === "copom") return "Renter påvirker BRL og verdsettelsen av brasilianske vekstaksjer.";
+  if (event.kind === "inflation") return "Inflasjon påvirker renteutsiktene og verdsettelsen av Bemobi.";
+  return event.bemobi_impact || "Makrotall med høy relevans for Bemobi-caset.";
+}
+
+function eventDateLabel(input: string) {
+  const date = new Date(`${input}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return formatDate(input);
+  return new Intl.DateTimeFormat("nb-NO", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(date).replace(".", "");
+}
+
+function daysUntil(input: string) {
+  const today = osloDateKey();
+  if (!today) return null;
+  const current = new Date(`${today}T00:00:00Z`).getTime();
+  const target = new Date(`${input}T00:00:00Z`).getTime();
+  if (!Number.isFinite(current) || !Number.isFinite(target)) return null;
+  return Math.round((target - current) / 86_400_000);
+}
+
+function countdownLabel(input: string) {
+  const days = daysUntil(input);
+  if (days == null) return "";
+  if (days === 0) return "I dag";
+  if (days === 1) return "I morgen";
+  return days > 1 ? `Om ${days} dager` : "";
+}
+
+function releaseTimeLabel(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("nb-NO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/Oslo",
+  }).format(parsed);
+}
+
+function updatedTimeLabel(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleTimeString("nb-NO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Oslo",
+  });
+}
+
+function buildUpcomingEvents(
+  bemobi?: BemobiCalendarPayload | null,
+  brazil?: BrazilCalendarPayload | null,
+): OverviewCaseEvent[] {
+  const today = osloDateKey();
+  if (!today) return [];
+  const events: OverviewCaseEvent[] = [];
+  const report = bemobi?.next_report;
+  if (report?.date && report.date >= today) {
+    const confirmed = String(report.date_quality || "").toUpperCase() === "CONFIRMED";
+    events.push({
+      key: `bemobi-${report.date}-${report.period || "report"}`,
+      date: report.date,
+      title: `Bemobi ${report.period || "resultat"}`,
+      badge: "RESULTAT",
+      kind: "bemobi",
+      note: confirmed
+        ? report.label || "Kvartalsresultat og investoroppdatering."
+        : `${report.label || "Kommende rapport"} · dato ikke offisielt bekreftet`,
+    });
+  }
+  for (const event of brazil?.calendar ?? []) {
+    if (event.importance !== "Høy" || !event.date || event.date < today) continue;
+    events.push({
+      key: `macro-${event.date}-${event.kind}-${event.name}`,
+      date: event.date,
+      title: eventTitle(event),
+      badge: "HØY",
+      kind: "macro",
+      note: eventNote(event),
+      releaseAtUtc: event.expectation?.release_at_utc,
+    });
+  }
+  return events
+    .sort((left, right) => left.date.localeCompare(right.date) || left.title.localeCompare(right.title))
+    .slice(0, 4);
+}
+
 export default function OverviewPage() {
   const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>(
     "/api/dashboard/summary",
@@ -290,6 +423,14 @@ export default function OverviewPage() {
   );
   const { data: quotes, refreshFailed: quotesRefreshFailed } =
     usePollingResource<MarketQuotePayload>("/api/market/quotes", REFRESH_MS, true);
+  const { data: bemobiCalendar } = usePollingResource<BemobiCalendarPayload>(
+    "/api/bemobi/dashboard",
+    EVENT_REFRESH_MS,
+  );
+  const { data: brazilCalendar } = usePollingResource<BrazilCalendarPayload>(
+    "/api/brazil/dashboard",
+    EVENT_REFRESH_MS,
+  );
   const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
   const cashBridge = nav?.cash_bridge;
   const forecast = buybackStatus?.forecast;
@@ -336,19 +477,71 @@ export default function OverviewPage() {
       cadence: "intraday",
     },
   ];
+  const upcomingEvents = buildUpcomingEvents(bemobiCalendar, brazilCalendar);
+  const nextEvent = upcomingEvents[0];
 
   return (
     <div className="investorPage overviewV2">
-      <section className="estimatedHero card">
-        <div>
+      <section className="overviewHeroGrid">
+        <article className="card overviewNavCard">
           <span className="label">NAV</span>
           <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share)} kr` : "Laster …"}</h2>
-          <p>
-            Dagens beste estimat på verdien per Otello-aksje basert på markedsverdier,
-            valuta, kontantbeholdning, drift og opsjonsoppgjør.
-          </p>
-        </div>
-        <FreshnessCard rows={freshnessRows} />
+          <p>Dagens beste estimat på verdien per Otello-aksje.</p>
+          <div className="overviewNavMeta">
+            <div>
+              <span>Rabatt</span>
+              <strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong>
+            </div>
+            <div>
+              <span>Oppdatert</span>
+              <strong>{updatedTimeLabel(nav?.calculated_at)}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article className="card overviewUpcomingCard">
+          <div className="overviewUpcomingHeader">
+            <div>
+              <span className="label">NESTE VIKTIGE DATOER</span>
+              <h2>Hva bør følges nå?</h2>
+            </div>
+          </div>
+          {nextEvent ? (
+            <>
+              <div className="overviewNextEvent">
+                <div className="overviewNextEventDate">
+                  <strong>{eventDateLabel(nextEvent.date)}</strong>
+                  <span>{countdownLabel(nextEvent.date)}</span>
+                </div>
+                <div className="overviewNextEventMain">
+                  <div>
+                    <strong>{nextEvent.title}</strong>
+                    <span className={`overviewEventBadge ${nextEvent.kind}`}>{nextEvent.badge}</span>
+                  </div>
+                  <small>
+                    {nextEvent.releaseAtUtc && releaseTimeLabel(nextEvent.releaseAtUtc)
+                      ? `Norsk tid kl. ${releaseTimeLabel(nextEvent.releaseAtUtc)} · `
+                      : ""}
+                    {nextEvent.note}
+                  </small>
+                </div>
+              </div>
+              {upcomingEvents.length > 1 && (
+                <div className="overviewUpcomingRows">
+                  {upcomingEvents.slice(1).map((event) => (
+                    <div key={event.key}>
+                      <time>{eventDateLabel(event.date)}</time>
+                      <strong>{event.title}</strong>
+                      <span className={`overviewEventBadge ${event.kind}`}>{event.badge}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="overviewUpcomingEmpty">Venter på neste bekreftede Bemobi-dato eller makrohendelse med høy relevans.</div>
+          )}
+        </article>
       </section>
 
       <section className="kpiGrid overviewKpiGrid">
