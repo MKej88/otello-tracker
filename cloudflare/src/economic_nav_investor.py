@@ -7,6 +7,7 @@ from typing import Any
 
 from economic_nav import economic_nav_summary as accounting_economic_nav_summary
 from life360_nav import life360_nav_adjustment
+from live_nav_composition import live_nav_composition
 from option_settlement import (
     MILLION,
     nav_cash_settlement,
@@ -16,6 +17,7 @@ from nav_waterfall_attribution import symmetric_two_factor_attribution
 
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 CONSERVATIVE_COST_POLICY = "MAX_BASE_RUN_RATE_AND_SOURCE_CONSERVATIVE"
+LIVE_COMPOSITION_TOLERANCE_NOK = Decimal("0.000001")
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -252,6 +254,9 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
         strike_nok=strike_nok,
     )
 
+    economic_total_nok = Decimal(
+        str(settlement["economic_total_after_settlement_nok"])
+    )
     economic_per_share = Decimal(str(settlement["nav_after_option_per_share_nok"]))
     conservative_per_share = Decimal(
         str(conservative_settlement["nav_after_option_per_share_nok"])
@@ -281,6 +286,20 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
         }
     )
 
+    live_composition = await live_nav_composition(repository, as_of_date)
+    composition_ready = bool(live_composition.get("ready"))
+    if composition_ready:
+        composition_nav = Decimal(str(live_composition.get("nav_per_share") or "0"))
+        if abs(composition_nav - economic_per_share) > LIVE_COMPOSITION_TOLERANCE_NOK:
+            composition_ready = False
+            live_composition = {
+                "ready": False,
+                "reason": "live_composition_nav_mismatch",
+                "date": as_of_date,
+                "composition_nav_per_share": float(composition_nav),
+                "economic_nav_per_share": float(economic_per_share),
+            }
+
     base.update(
         {
             "quality": (
@@ -288,6 +307,7 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
                 if life360.get("ready")
                 else "NAV_SETTLEMENT_SCENARIO"
             ),
+            "nav_total_mnok": _float(economic_total_nok / MILLION),
             "nav_per_share": _float(economic_per_share),
             "calculated_at": str(row.get("updated_at") or row["created_at"]),
             "shares_outstanding": shares_outstanding,
@@ -296,6 +316,21 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
             "conservative_discount_pct": _discount_pct(
                 otec_price_nok, conservative_per_share
             ),
+            "composition_ready": composition_ready,
+            "composition_date": (
+                live_composition.get("date") if composition_ready else None
+            ),
+            "composition": (
+                live_composition.get("composition") if composition_ready else None
+            ),
+            "composition_reconciliation_residual_mnok": (
+                live_composition.get("reconciliation_residual_mnok")
+                if composition_ready
+                else None
+            ),
+            "composition_split_status": live_composition.get("composition_split_status"),
+            "composition_display_policy": live_composition.get("display_policy"),
+            "composition_status": live_composition,
             "option": option_meta,
             "life360": {
                 **_life360_public(life360),
