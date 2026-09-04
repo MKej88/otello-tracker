@@ -22,7 +22,21 @@ type NewsItem = {
   original_language?: string | null;
 };
 type EventItem = { id: string; date: string; company: "Otello" | "Bemobi"; title: string; importance: Importance; date_label: string; confirmed: boolean; source?: string | null; url?: string | null };
-type Payload = { ready: boolean; news?: NewsItem[]; events?: EventItem[]; counts?: { news?: number; events?: number } };
+type MediaStatus = {
+  available?: boolean;
+  status?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  feeds_checked?: number;
+  candidates?: number;
+  written?: number;
+  skipped_existing?: number;
+  error_count?: number;
+  initial_backfill?: boolean;
+  window_days?: number;
+  error_message?: string | null;
+};
+type Payload = { ready: boolean; news?: NewsItem[]; events?: EventItem[]; counts?: { news?: number; events?: number }; media_status?: MediaStatus };
 const importanceLabels: Record<Importance, string> = { HIGH: "Høy", MEDIUM: "Middels", LOW: "Lav" };
 
 function dateLabel(input?: string | null, includeTime = false) {
@@ -43,6 +57,19 @@ function matchesContentFilter(item: NewsItem, filter: ContentFilter) {
   if (filter === "Alle typer") return true;
   return filter === "Media" ? contentType(item) === "MEDIA" : contentType(item) === "OFFICIAL";
 }
+function mediaStatusLabel(status?: string | null) {
+  if (status === "SUCCESS") return "OK";
+  if (status === "PARTIAL") return "Delvis";
+  if (status === "FAILED") return "Feil";
+  if (status === "RUNNING") return "Kjører";
+  return "Ikke kjørt";
+}
+function mediaStatusClass(status?: string | null) {
+  if (status === "SUCCESS") return "mediaStatusSuccess";
+  if (status === "PARTIAL") return "mediaStatusPartial";
+  if (status === "FAILED") return "mediaStatusFailed";
+  return "mediaStatusNeutral";
+}
 
 export default function NewsEventsPage() {
   const { data, refreshFailed } = usePollingResource<Payload>(
@@ -56,6 +83,8 @@ export default function NewsEventsPage() {
     (company === "Alle" || item.company === company) && matchesContentFilter(item, contentFilter)
   )), [company, contentFilter, data?.news]);
   const events = useMemo(() => (data?.events ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.events]);
+  const mediaStatus = data?.media_status;
+  const mediaCheckedAt = mediaStatus?.finished_at ?? mediaStatus?.started_at;
   return (
     <div className="investorPage newsEventsPage">
       <section className="card newsHero">
@@ -79,6 +108,19 @@ export default function NewsEventsPage() {
             {(["Alle typer", "Offisielt", "Media"] as ContentFilter[]).map((item) => <button className={contentFilter === item ? "periodButton active" : "periodButton"} key={item} onClick={() => setContentFilter(item)} type="button">{item}</button>)}
           </div>
         </div>
+      </section>
+      <section className={`card mediaRefreshStatus ${mediaStatusClass(mediaStatus?.status)}`} aria-label="Status for medieinnhenting">
+        <div className="mediaRefreshLead">
+          <div><span className="label">MEDIAINNHENTING</span><strong>{mediaStatusLabel(mediaStatus?.status)}</strong></div>
+          <p>{mediaStatus?.available ? <>Sist sjekket {dateLabel(mediaCheckedAt, true)} · {mediaStatus.window_days ?? 30} dagers søkevindu{mediaStatus.initial_backfill ? " · første backfill" : ""}</> : <>Venter på første mediekjøring. Google News søker de siste {mediaStatus?.window_days ?? 30} dagene.</>}</p>
+        </div>
+        <div className="mediaRefreshMetrics" aria-label="Resultat fra siste mediekjøring">
+          <span><strong>{mediaStatus?.feeds_checked ?? "–"}</strong> feeds</span>
+          <span><strong>{mediaStatus?.candidates ?? "–"}</strong> kandidater</span>
+          <span><strong>{mediaStatus?.written ?? "–"}</strong> nye</span>
+          <span><strong>{mediaStatus?.error_count ?? "–"}</strong> feil</span>
+        </div>
+        {mediaStatus?.error_message && <small className="mediaRefreshError">{mediaStatus.error_message}</small>}
       </section>
       <section className="newsLayout">
         <div className="newsColumn">
