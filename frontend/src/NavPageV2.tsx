@@ -66,9 +66,14 @@ type EstimatedNav = {
   ready: boolean;
   as_of_date?: string;
   calculated_at?: string | null;
+  nav_total_mnok?: number | null;
   nav_per_share?: number | null;
   discount_pct?: number | null;
   shares_outstanding?: number | null;
+  composition_ready?: boolean;
+  composition_date?: string | null;
+  composition?: Composition[] | null;
+  composition_reconciliation_residual_mnok?: number | null;
 };
 
 type BuybackShareBasis = {
@@ -458,8 +463,14 @@ export default function NavPageV2() {
 
   const current = data?.current;
   const change = data?.change;
+  const liveCompositionReady = live?.ready === true
+    && live.composition_ready === true
+    && (live.composition?.length ?? 0) > 0;
+  const compositionSource = liveCompositionReady
+    ? (live?.composition ?? [])
+    : (current?.composition ?? []);
   const components = sortCompositionByValue(
-    compositionWithoutSeparateFxRow(current?.composition ?? []),
+    compositionWithoutSeparateFxRow(compositionSource),
   );
   const displayedNavPerShare = live?.ready && live.nav_per_share != null
     ? live.nav_per_share
@@ -470,6 +481,15 @@ export default function NavPageV2() {
   const displayedDiscountPct = live?.ready && live.discount_pct != null
     ? live.discount_pct
     : current?.discount_pct;
+  const compositionNavTotalMnok = liveCompositionReady && live?.nav_total_mnok != null
+    ? live.nav_total_mnok
+    : current?.nav_total_mnok;
+  const compositionNavPerShare = liveCompositionReady && live?.nav_per_share != null
+    ? live.nav_per_share
+    : current?.nav_per_share;
+  const compositionDate = liveCompositionReady
+    ? (live?.composition_date ?? live?.as_of_date)
+    : (current?.date ?? live?.as_of_date);
   const changedDrivers = groupedDrivers(change?.drivers ?? []).filter(driverHasChange);
   const shareBasis = buyback?.shares;
   const shareBasisMatchesNav = shareBasis?.outstanding_shares != null
@@ -522,11 +542,11 @@ export default function NavPageV2() {
       <section className="card compositionCard">
         <div className="cardHeader">
           <div><span className="label">SAMMENSETNING</span><h2>Hva består NAV av i dag?</h2></div>
-          <span className="pill">{dateLabel(current?.date ?? live?.as_of_date)}</span>
+          <span className="pill">{dateLabel(compositionDate)}</span>
         </div>
-        {loading && !data && <p className="dataNotice">Beregner sammensetningen …</p>}
-        {failed && !data && <p className="dataNotice">Kunne ikke hente NAV-sammensetningen.</p>}
-        {data && !data.ready && <p className="dataNotice">Historisk NAV er ikke komplett nok ennå.</p>}
+        {loading && !data && !liveCompositionReady && <p className="dataNotice">Beregner sammensetningen …</p>}
+        {failed && !data && !liveCompositionReady && <p className="dataNotice">Kunne ikke hente NAV-sammensetningen.</p>}
+        {data && !data.ready && !liveCompositionReady && <p className="dataNotice">Historisk NAV er ikke komplett nok ennå.</p>}
         {components.length > 0 && (
           <div className="compositionTable">
             <div className="compositionHead"><span>Komponent</span><span>Verdi</span><span>Per aksje</span><span>Beregning</span></div>
@@ -543,8 +563,8 @@ export default function NavPageV2() {
             })}
             <div className="compositionTotal">
               <strong>NAV</strong>
-              <span>{value(current?.nav_total_mnok, 1)} mill. kr</span>
-              <span>{value(current?.nav_per_share)} kr</span>
+              <span>{value(compositionNavTotalMnok, 1)} mill. kr</span>
+              <span>{value(compositionNavPerShare)} kr</span>
               <small>Sum av komponentene over</small>
             </div>
           </div>

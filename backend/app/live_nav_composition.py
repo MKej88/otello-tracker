@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from typing import Any
+
+from app.db.connection import get_connection
+from app.estimated_nav_history import _estimated_point
+from app.estimated_nav_history_display import _split_current_composition
+from app.life360_nav import life360_nav_adjustment
+
+
+def live_nav_composition(
+    database_path: str | None,
+    day: str,
+) -> dict[str, Any]:
+    """Build one current investor-NAV composition without period attribution."""
+    with get_connection(database_path) as connection:
+        point = _estimated_point(connection, day, database_path)
+    if not point.get("ready"):
+        return {
+            "ready": False,
+            "reason": point.get("reason") or "live_composition_point_not_ready",
+            "date": day,
+        }
+
+    life360_state = life360_nav_adjustment(as_of_date=day, database_path=database_path)
+    split_ready = _split_current_composition(database_path, point, life360_state)
+    return {
+        "ready": True,
+        "date": str(point.get("date") or day),
+        "nav_total_mnok": point.get("nav_total_mnok"),
+        "nav_per_share": point.get("nav_per_share"),
+        "shares_outstanding": point.get("shares_outstanding"),
+        "composition": point.get("composition") or [],
+        "reconciliation_residual_mnok": point.get("reconciliation_residual_mnok"),
+        "composition_split_status": point.get("composition_split_status"),
+        "display_policy": (
+            "REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX"
+            if split_ready
+            else "LEGACY_COMPOSITION_FAIL_CLOSED"
+        ),
+    }
