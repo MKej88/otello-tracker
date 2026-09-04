@@ -56,7 +56,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Audit locked dependencies
-        run: npm audit --audit-level=high
+        run: bash tools/npm-audit-ci.sh
       - name: Build
         run: npm run build
       - name: Verify Cloudflare static headers are emitted into dist
@@ -195,14 +195,14 @@ jobs:
           curl -fsS -D /tmp/worker-economic.headers http://127.0.0.1:8787/api/dashboard/economic -o /tmp/worker-economic.json
           curl -fsS http://127.0.0.1:8787/api/dashboard/waterfall -o /tmp/worker-waterfall.json
           curl -fsS http://127.0.0.1:8787/api/dashboard/report-status -o /tmp/worker-report-status.json
-          curl -fsS -D /tmp/worker-history.headers 'http://127.0.0.1:8787/api/dashboard/history?days=365&max_points=300' -o /tmp/worker-history.json
-          curl -fsS -D /tmp/worker-discount-history.headers 'http://127.0.0.1:8787/api/dashboard/discount-history?days=365&max_points=600' -o /tmp/worker-discount-history.json
-          curl -fsS -D /tmp/worker-forecast.headers 'http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17' -o /tmp/worker-forecast.json
-          curl -fsS 'http://127.0.0.1:8787/api/buybacks/dashboard?as_of_date=2026-08-17' -o /tmp/worker-buyback-dashboard.json
+          curl -fsS -D /tmp/worker-history.headers http://127.0.0.1:8787/api/dashboard/history?days=365\&max_points=300 -o /tmp/worker-history.json
+          curl -fsS -D /tmp/worker-discount-history.headers http://127.0.0.1:8787/api/dashboard/discount-history?days=365\&max_points=600 -o /tmp/worker-discount-history.json
+          curl -fsS -D /tmp/worker-forecast.headers http://127.0.0.1:8787/api/buybacks/forecast?as_of_date=2026-08-17 -o /tmp/worker-forecast.json
+          curl -fsS http://127.0.0.1:8787/api/buybacks/dashboard?as_of_date=2026-08-17 -o /tmp/worker-buyback-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/dashboard -o /tmp/worker-bemobi-dashboard.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/consensus -o /tmp/worker-bemobi-consensus.json
           curl -fsS http://127.0.0.1:8787/api/bemobi/source-status -o /tmp/worker-bemobi-source-status.json
-          curl -fsS 'http://127.0.0.1:8787/api/news-events?as_of_date=2026-08-27' -o /tmp/worker-news-events.json
+          curl -fsS http://127.0.0.1:8787/api/news-events?as_of_date=2026-08-27 -o /tmp/worker-news-events.json
           curl -fsS -D /tmp/worker-quotes.headers http://127.0.0.1:8787/api/market/quotes -o /tmp/worker-quotes.json
           curl -fsS -D /tmp/worker-index.headers http://127.0.0.1:8787/ -o /tmp/worker-index.html
           curl -fsS http://127.0.0.1:8787/dashboard/history > /tmp/worker-spa-fallback.html
