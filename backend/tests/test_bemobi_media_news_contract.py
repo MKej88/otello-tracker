@@ -48,6 +48,28 @@ def test_media_feed_parser_keeps_only_relevant_bemobi_articles() -> None:
     assert articles[0]["published_at"] == "2026-09-03T12:00:00Z"
 
 
+def test_media_feed_parser_repairs_common_invalid_xml_tokens() -> None:
+    media = _media_module()
+    payload = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <rss version='2.0'><channel>
+      <item>
+        <title>Bemobi & pagamentos recorrentes</title>
+        <link>https://example.com/bemobi-invalid-xml</link>
+        <description>Bemobi cresce no Brasil.</description>
+        <pubDate>Fri, 04 Sep 2026 12:00:00 GMT</pubDate>
+      </item>
+    </channel></rss>"""
+
+    articles = media._parse_feed(
+        payload,
+        fallback_source="fixture",
+        feed_url="https://example.com/feed",
+    )
+
+    assert len(articles) == 1
+    assert articles[0]["title"] == "Bemobi & pagamentos recorrentes"
+
+
 def test_google_news_query_can_keep_relevant_result_without_bemobi_in_snippet() -> None:
     media = _media_module()
     payload = b"""<?xml version='1.0' encoding='UTF-8'?>
@@ -89,6 +111,9 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert 'MEDIA_LOOKBACK_DAYS = 30' in media_source
     assert 'INITIAL_BACKFILL_MAX_ARTICLES = 24' in media_source
     assert 'trust_query_relevance=feed_source == GOOGLE_NEWS_SOURCE' in media_source
+    assert "_repair_xml_payload" in media_source
+    assert "feeds_succeeded += 1" in media_source
+    assert 'status = "partial" if feeds_succeeded > 0 else "error"' in media_source
     assert '"source_lang": "portuguese"' in media_source
     assert '"target_lang": "english"' in media_source
     assert '"content_type": "MEDIA"' in media_source
@@ -116,5 +141,7 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert 'contentTypeBadge' in frontend_source
     assert 'MEDIAINNHENTING' in frontend_source
     assert 'media_status?: MediaStatus' in frontend_source
+    assert "mediaErrorSummary" in frontend_source
+    assert "mediaStatus.error_message &&" not in frontend_source
     assert 'Automatically translated from Portuguese' in frontend_source
     assert 'originalkilden er alltid tilgjengelig' in frontend_source

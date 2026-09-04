@@ -70,6 +70,15 @@ function mediaStatusClass(status?: string | null) {
   if (status === "FAILED") return "mediaStatusFailed";
   return "mediaStatusNeutral";
 }
+function mediaErrorSummary(status?: string | null, errorCount?: number) {
+  const count = errorCount ?? 0;
+  if (count <= 0) return null;
+  const noun = count === 1 ? "feil" : "feil";
+  if (status === "FAILED") {
+    return `${count} ${noun} ved siste sjekk. Ingen mediekilder kunne behandles ferdig; nytt forsøk skjer automatisk ved neste kjøring.`;
+  }
+  return `${count} ${noun} ved siste sjekk. Øvrige kilder ble behandlet, og de feilede kildene prøves automatisk igjen.`;
+}
 
 export default function NewsEventsPage() {
   const { data, refreshFailed } = usePollingResource<Payload>(
@@ -85,6 +94,7 @@ export default function NewsEventsPage() {
   const events = useMemo(() => (data?.events ?? []).filter((item) => company === "Alle" || item.company === company), [company, data?.events]);
   const mediaStatus = data?.media_status;
   const mediaCheckedAt = mediaStatus?.finished_at ?? mediaStatus?.started_at;
+  const mediaErrorText = mediaErrorSummary(mediaStatus?.status, mediaStatus?.error_count);
   return (
     <div className="investorPage newsEventsPage">
       <section className="card newsHero">
@@ -120,7 +130,7 @@ export default function NewsEventsPage() {
           <span><strong>{mediaStatus?.written ?? "–"}</strong> nye</span>
           <span><strong>{mediaStatus?.error_count ?? "–"}</strong> feil</span>
         </div>
-        {mediaStatus?.error_message && <small className="mediaRefreshError">{mediaStatus.error_message}</small>}
+        {mediaErrorText && <small className="mediaRefreshError">{mediaErrorText}</small>}
       </section>
       <section className="newsLayout">
         <div className="newsColumn">
