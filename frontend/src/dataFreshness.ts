@@ -37,16 +37,22 @@ export function freshnessStatus(
     return "stale";
   }
 
+  // Intradagspanelet blander Oslo-, Brasil- og USA-markeder. Før de utenlandske
+  // børsene normalt har rukket å åpne, er gårsdagens sluttkurs forventet og skal
+  // derfor ikke vises som en rød feil. Vi bruker et konservativt felles vindu
+  // fra kl. 16 norsk/lokal tid for å avgjøre om en gammel intradagverdi faktisk
+  // burde ha vært oppdatert. Ferske beregnede verdier (f.eks. NAV) forblir grønne.
+  if (ageMinutes <= 60) return "fresh";
+
   const weekday = now.getDay() !== 0 && now.getDay() !== 6;
   const hour = now.getHours();
-  const normalMarketWindow = weekday && hour >= 9 && hour < 22;
-  if (normalMarketWindow) {
-    if (ageMinutes <= 60) return "fresh";
+  const strictIntradayWindow = weekday && hour >= 16 && hour < 22;
+  if (strictIntradayWindow) {
     if (ageMinutes <= 6 * 60) return "delayed";
     return "stale";
   }
-  if (businessAge === 0) return "fresh";
-  if (businessAge === 1) return "delayed";
+
+  if (businessAge <= 1) return "delayed";
   return "stale";
 }
 
