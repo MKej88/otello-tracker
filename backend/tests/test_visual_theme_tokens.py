@@ -68,6 +68,30 @@ def test_investor_pages_share_one_surface_hierarchy() -> None:
     assert "!important" not in theme
 
 
+def test_explicit_surface_roles_keep_large_sections_neutral() -> None:
+    roles = read_frontend("surface-hierarchy.css")
+
+    for selector in (
+        ".bemobiCleanHero",
+        ".bemobiCleanSection",
+        ".bemobiCleanValuation",
+        ".bemobiCleanHistory",
+        ".bemobiCleanWatch",
+        ".consensusHeroV2",
+        ".consensusForwardV2",
+    ):
+        assert selector in roles
+
+    assert "background: var(--ot-surface);" in roles
+    assert "background: var(--ot-surface-inset);" in roles
+    assert "background: var(--ot-surface-inset-nested);" in roles
+    assert ".bemobiQuarterTable td" in roles
+    assert ".consensusTable td" in roles
+    assert "repeat(auto-fit, minmax(220px, 1fr))" in roles
+    assert ".forecastCard::before" in roles
+    assert "!important" not in roles
+
+
 def test_history_context_uses_shared_chart_contract() -> None:
     history = read_frontend("history-context.css")
 
@@ -91,7 +115,8 @@ def test_theme_load_order_is_explicit_and_override_files_are_gone() -> None:
     base_index = main.index('import "./styles.css"')
     theme_index = main.index('import "./otello-theme.css"')
     history_index = main.index('import "./history-context.css"')
-    assert base_index < theme_index < history_index
+    hierarchy_index = main.index('import "./surface-hierarchy.css"')
+    assert base_index < theme_index < history_index < hierarchy_index
     assert 'import "./otello-theme.css"' not in app
 
     for removed_name in (
