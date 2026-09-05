@@ -343,10 +343,7 @@ export default function CashPage() {
     const netOtecMnok = netOtecMbrl == null || distributionBrlNok == null
       ? null
       : netOtecMbrl * distributionBrlNok;
-    const netPerOtecShare = netOtecMnok == null || metrics.shares == null || metrics.shares <= 0
-      ? null
-      : netOtecMnok * 1_000_000 / metrics.shares;
-    return { grossOtecMbrl, netOtecMbrl, netOtecMnok, netPerOtecShare };
+    return { grossOtecMbrl, netOtecMbrl, netOtecMnok };
   };
 
   const jcp3Q = jcpEstimate(JCP_3Q26_ESTIMATE_MBRL);
@@ -560,7 +557,7 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            Hovedmodellen antar for enkelhets skyld at hele den modellerte 2026-distribusjonen utbetales som ordinært utbytte og ilegges 10 % brasiliansk kildeskatt. JCP vises separat nedenfor og er en del av Bemobis samlede payout – ikke et tillegg til denne modellen.
+            Hovedmodellen antar for enkelhets skyld at hele den modellerte 2026-distribusjonen utbetales som ordinært utbytte og ilegges 10 % brasiliansk kildeskatt. JCP-seksjonen nedenfor viser hvordan deler av denne payouten kan komme tidligere gjennom kvartalsvis JCP; beløpene skal ikke legges oppå hovedestimatet.
           </p>
         </article>
       </section>
@@ -579,12 +576,12 @@ export default function CashPage() {
             <div>
               <span>1Q26</span>
               <strong>R$ {formatNumber(JCP_1Q26_ACTUAL_MBRL, 1)}m</strong>
-              <small>faktisk / annonsert</small>
+              <small>annonsert</small>
             </div>
             <div>
               <span>2Q26</span>
               <strong>R$ {formatNumber(JCP_2Q26_ACTUAL_MBRL, 1)}m</strong>
-              <small>faktisk / annonsert</small>
+              <small>annonsert</small>
             </div>
             <div>
               <span>3Q26E</span>
@@ -631,7 +628,7 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            1Q26 og 2Q26 er rapporterte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP inngår i Bemobis 100 % payout-policy og skal derfor ikke legges oppå utbyttemodellen over.
+            1Q26 og 2Q26 er annonserte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP behandles som timing/form på Bemobis samlede 100 % payout og dobbelttelles derfor ikke mot utbyttemodellen over.
           </p>
         </article>
 
@@ -805,7 +802,7 @@ export default function CashPage() {
           <div><strong>Direkte cash</strong><span>Samme estimerte kontantbeholdning og cash per aksje som på Oversikt, hentet fra den økonomiske cash-bridgen.</span></div>
           <div><strong>Look-through cash</strong><span>Otellos eierandel av Bemobis siste rapporterte cash, omregnet med siste BRL/NOK i tracker.</span></div>
           <div><strong>Utbyttemodell</strong><span>TTM-resultat × gjeldende payout-policy × Otellos distribusjonsandel, der hovedscenarioet antar ordinært utbytte og 10 % brasiliansk kildeskatt.</span></div>
-          <div><strong>JCP-estimat</strong><span>JCP vises separat med 15 % kildeskatt, men inngår i Bemobis samlede payout og skal ikke dobbelttelles mot utbyttemodellen.</span></div>
+          <div><strong>JCP-estimat</strong><span>JCP vises separat med 15 % kildeskatt som timing/form på deler av samme payout, og skal ikke dobbelttelles mot utbyttemodellen.</span></div>
         </div>
       </section>
     </div>
