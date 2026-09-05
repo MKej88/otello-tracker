@@ -1,0 +1,385 @@
+.cashPage {
+  display: grid;
+  gap: 18px;
+}
+
+.cashHero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 24px;
+}
+
+.cashHero h2 {
+  margin: 6px 0 8px;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+}
+
+.cashHero p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--ot-text-secondary);
+  line-height: 1.55;
+}
+
+.cashHeroMeta {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  min-width: 220px;
+  color: var(--ot-text-muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.cashKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cashKpi {
+  min-height: 132px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cashKpi strong {
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  letter-spacing: -0.02em;
+}
+
+.cashKpi small {
+  color: var(--ot-text-muted);
+  line-height: 1.35;
+}
+
+.cashKpiEmphasis {
+  border-color: var(--ot-accent-border);
+  background: linear-gradient(180deg, rgba(79, 145, 212, 0.07), var(--ot-surface));
+}
+
+.cashMainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(340px, 0.88fr);
+  gap: 16px;
+}
+
+.cashCompositionCard,
+.cashModelCard,
+.cashEngineCard,
+.cashDistributionCard,
+.cashBuybackCard,
+.cashMethodCard {
+  padding: 22px;
+}
+
+.cashSplitBar {
+  height: 18px;
+  display: flex;
+  overflow: hidden;
+  margin: 24px 0 18px;
+  border: 1px solid var(--ot-border-strong);
+  background: var(--ot-surface-muted);
+}
+
+.cashSplitDirect {
+  min-width: 0;
+  background: var(--ot-accent);
+}
+
+.cashSplitIndirect {
+  min-width: 0;
+  background: #4a535f;
+}
+
+.cashLegendRows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cashLegendRows > div {
+  display: grid;
+  gap: 5px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ot-border-soft);
+}
+
+.cashLegendRows span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ot-text-secondary);
+}
+
+.cashLegendRows strong {
+  font-size: 1.18rem;
+}
+
+.cashLegendRows small {
+  color: var(--ot-text-muted);
+}
+
+.cashLegendSwatch {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+}
+
+.cashLegendSwatch.direct {
+  background: var(--ot-accent);
+}
+
+.cashLegendSwatch.indirect {
+  background: #4a535f;
+}
+
+.cashNote {
+  margin: 16px 0 0;
+  color: var(--ot-text-muted);
+  font-size: 0.83rem;
+  line-height: 1.55;
+}
+
+.cashModelValue {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 0 18px;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.cashModelValue strong {
+  font-size: clamp(1.7rem, 2.4vw, 2.35rem);
+}
+
+.cashModelValue span {
+  color: var(--ot-text-muted);
+}
+
+.cashModelRows {
+  margin-top: 4px;
+}
+
+.cashMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+  border-top: 1px solid var(--ot-border-soft);
+  border-left: 1px solid var(--ot-border-soft);
+}
+
+.cashMetricGrid > div {
+  min-height: 108px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 15px;
+  border-right: 1px solid var(--ot-border-soft);
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.cashMetricGrid span,
+.cashInterestStrip span,
+.cashDistributionHeadline span,
+.cashBuybackResults span {
+  color: var(--ot-text-secondary);
+  font-size: 0.86rem;
+}
+
+.cashMetricGrid strong {
+  font-size: 1.22rem;
+}
+
+.cashMetricGrid small,
+.cashBuybackResults small,
+.cashDistributionHeadline small {
+  color: var(--ot-text-muted);
+}
+
+.cashInterestStrip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 16px;
+  background: var(--ot-border-soft);
+  border: 1px solid var(--ot-border-soft);
+}
+
+.cashInterestStrip > div {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  background: var(--ot-surface-muted);
+}
+
+.cashInterestStrip strong {
+  font-size: 1.08rem;
+}
+
+.cashDistributionHeadline {
+  display: grid;
+  gap: 7px;
+  margin: 22px 0 12px;
+  padding: 20px;
+  border: 1px solid var(--ot-border-soft);
+  background: var(--ot-surface-muted);
+}
+
+.cashDistributionHeadline strong {
+  font-size: clamp(1.7rem, 2.2vw, 2.25rem);
+}
+
+.cashBuybackLayout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.95fr) minmax(0, 1.05fr);
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.cashControls {
+  display: grid;
+  gap: 22px;
+}
+
+.cashControls label {
+  display: grid;
+  gap: 10px;
+}
+
+.cashControls label > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.cashControls label strong {
+  font-size: 0.94rem;
+}
+
+.cashControls label em {
+  color: var(--ot-text-secondary);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.cashControls input[type="range"] {
+  width: 100%;
+  accent-color: var(--ot-accent);
+}
+
+.cashAssumptionRows {
+  border-top: 1px solid var(--ot-border-soft);
+}
+
+.cashAssumptionRows > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ot-border-soft);
+  color: var(--ot-text-secondary);
+}
+
+.cashAssumptionRows strong {
+  color: var(--ot-text);
+  font-size: 0.92rem;
+  text-align: right;
+}
+
+.cashBuybackResults {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--ot-border-soft);
+  border-left: 1px solid var(--ot-border-soft);
+}
+
+.cashBuybackResults > div {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  min-height: 128px;
+  padding: 18px;
+  border-right: 1px solid var(--ot-border-soft);
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.cashBuybackResults strong {
+  font-size: 1.45rem;
+}
+
+.cashBuybackResults .cashAccretion {
+  background: var(--ot-surface-muted);
+}
+
+.cashBuybackResults .cashAccretion.positive strong {
+  color: var(--ot-positive);
+}
+
+.cashBuybackResults .cashAccretion.negative strong {
+  color: var(--ot-negative);
+}
+
+.cashMethodGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 16px;
+  background: var(--ot-border-soft);
+  border: 1px solid var(--ot-border-soft);
+}
+
+.cashMethodGrid > div {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 128px;
+  padding: 16px;
+  background: var(--ot-surface-muted);
+}
+
+.cashMethodGrid span {
+  color: var(--ot-text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 1180px) {
+  .cashKpiGrid,
+  .cashMethodGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cashMainGrid,
+  .cashBuybackLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .cashHero {
+    flex-direction: column;
+  }
+
+  .cashHeroMeta {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .cashKpiGrid,
+  .cashMetricGrid,
+  .cashLegendRows,
+  .cashInterestStrip,
+  .cashBuybackResults,
+  .cashMethodGrid {
+    grid-template-columns: 1fr;
+  }
+}
