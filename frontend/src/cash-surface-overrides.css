@@ -1,0 +1,20 @@
+/* Cash page: keep inset panels in the same blue/navy family as the page.
+ * The generic raised theme surface is charcoal (#171c23) and reads almost black
+ * inside the navy Cash cards, so this page uses a dedicated blue-tinted layer.
+ */
+.investorPage.cashPage {
+  --cash-inset-surface: #17283d;
+  --cash-inset-surface-nested: #142237;
+}
+
+.investorPage.cashPage .cashBuybackSecondaryFacts > div {
+  background: var(--cash-inset-surface-nested);
+}
+
+.investorPage.cashPage .cashDistributionHeadline,
+.investorPage.cashPage .cashInterestStrip,
+.investorPage.cashPage .cashBuybackFlowCard,
+.investorPage.cashPage .cashMethodGrid,
+.investorPage.cashPage .cashBuybackSecondaryFacts > div {
+  border-color: rgba(79, 145, 212, 0.24);
+}
