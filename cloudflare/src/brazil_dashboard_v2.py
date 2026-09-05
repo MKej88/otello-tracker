@@ -11,6 +11,7 @@ from brazil_focus_resilience import (
     resolve_annual_focus,
 )
 from brazil_investing_consensus import enrich_calendar_from_investing
+from brazil_investor_insights import build_focus_trend, build_investor_summary
 
 # Bruk sesongjustert IBC-Br tjenester når vi viser måned-til-måned-endring.
 # 29605 er ujustert nivå; 29606 er samme tjenestekomponent med sesongjustering.
@@ -230,6 +231,25 @@ async def brazil_dashboard(
         _recompute_focus_signals(result, focus_values, int(target_date[:4]))
     except Exception as exc:
         result.setdefault("source_status", {})["focus_resilience"] = {
+            "ready": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    # Investor view: compare the same official Focus series with snapshots around
+    # one week and one month ago. Historical failures are isolated from live data.
+    try:
+        focus_trend, focus_trend_status = await build_focus_trend(
+            as_of_date=target_date,
+            current_focus=result.get("focus"),
+            fetcher=fetcher,
+        )
+        result["focus_trend"] = focus_trend
+        result.setdefault("source_status", {})["focus_trend"] = focus_trend_status
+        result["investor_summary"] = build_investor_summary(result, focus_trend)
+    except Exception as exc:
+        result["focus_trend"] = {"ready": False, "comparisons": {}}
+        result["investor_summary"] = build_investor_summary(result, result["focus_trend"])
+        result.setdefault("source_status", {})["focus_trend"] = {
             "ready": False,
             "error": f"{type(exc).__name__}: {exc}",
         }
