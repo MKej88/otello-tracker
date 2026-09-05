@@ -449,7 +449,7 @@ export default function BuybackPage() {
             <div><span>Gjennomført</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
             <div><span>Makspris</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
             <div><span>Snittpris</span><strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
-            <div><span>Programslutt</span><strong>{dateLabel(program?.end_date)}</strong></div>
+            <div><span>Estimert programslutt</span><strong>{completionText(data.completion)}</strong></div>
           </div>
         </article>
       </section>
