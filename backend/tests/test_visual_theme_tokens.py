@@ -68,7 +68,7 @@ def test_investor_pages_share_one_surface_hierarchy() -> None:
     assert "!important" not in theme
 
 
-def test_explicit_surface_roles_keep_large_sections_neutral() -> None:
+def test_explicit_surface_roles_use_navy_as_compact_accent_only() -> None:
     roles = read_frontend("surface-hierarchy.css")
 
     for selector in (
@@ -82,11 +82,21 @@ def test_explicit_surface_roles_keep_large_sections_neutral() -> None:
     ):
         assert selector in roles
 
-    assert "background: var(--ot-surface);" in roles
+    assert "Compact KPI/data accents" in roles
+    assert "Larger nested panels stay neutral/raised" in roles
+    assert "background: var(--ot-surface-raised);" in roles
+    assert ".cashMethodGrid > div" in roles
+    assert ".consensusWaitingPreview" in roles
+    assert ".consensusRevisionEvent" in roles
+    assert ".accuracyGrid > div" in roles
     assert "background: var(--ot-surface-inset);" in roles
-    assert "background: var(--ot-surface-inset-nested);" in roles
-    assert ".bemobiQuarterTable td" in roles
-    assert ".consensusTable td" in roles
+    assert ".cashInterestStrip > div" in roles
+    assert ".bemobiDriverGrid > div" in roles
+    assert ".cashMethodGrid" in roles
+    assert "gap: 10px;" in roles
+    assert "border-radius: 10px;" in roles
+    assert ".bemobiQuarterTable th" in roles
+    assert ".consensusTable th" in roles
     assert "repeat(auto-fit, minmax(220px, 1fr))" in roles
     assert ".forecastCard::before" in roles
     assert "!important" not in roles
