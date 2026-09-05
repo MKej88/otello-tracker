@@ -1,7 +1,7 @@
 /* Cross-page surface roles.
- * Large sections stay neutral; navy is reserved for nested data/emphasis panels.
- * Keep selectors intentionally more specific than lazy-loaded page CSS so these
- * hierarchy decisions stay consistent after route chunks mount.
+ * NAV/Oversikt is the reference: large containers stay neutral and navy is an accent
+ * for compact, important data. Avoid turning whole sections, methods or tables blue.
+ * Selectors are intentionally more specific than lazy-loaded page CSS.
  */
 
 /* Outer / section cards -------------------------------------------------- */
@@ -24,7 +24,12 @@
   border-color: var(--ot-border);
 }
 
-/* Nested information panels -------------------------------------------- */
+/* Compact KPI/data accents ---------------------------------------------- */
+.investorMainV2 .overviewNavSnapshot > div,
+.investorMainV2 .cashPage :is(
+  .cashInterestStrip > div,
+  .cashDistributionHeadline
+),
 .investorMainV2 .bemobiPageClean :is(
   .bemobiDriverGrid > div,
   .bemobiCashMetricGrid > div,
@@ -33,27 +38,68 @@
   .bemobiCleanScenarioGrid > div
 ),
 .investorMainV2 .consensusPageV2 :is(
+  .consensusForwardRevisionGrid > div,
+  .consensusRevisionEventGrid > div
+) {
+  background: var(--ot-surface-inset);
+  border-color: var(--ot-border-inset);
+}
+
+/* Larger nested panels stay neutral/raised ------------------------------ */
+.investorMainV2 .cashPage :is(
+  .cashBuybackFlowCard,
+  .cashMethodGrid > div,
+  .cashBuybackSecondaryFacts > div,
+  .cashMetricGrid > div,
+  .cashBuybackResults > div
+),
+.investorMainV2 .buybackPage .accuracyGrid > div,
+.investorMainV2 .bemobiPageClean .bemobiCleanScenarioBlock,
+.investorMainV2 .consensusPageV2 :is(
   .consensusWaitingPreview,
   .consensusBeatSummaryGrid > div,
   .consensusForwardRevision,
   .consensusRevisionEvent,
   .beatMissGridDetails > article
-),
-.investorMainV2 .buybackPage .accuracyGrid > div {
+) {
+  background: var(--ot-surface-raised);
+  border-color: var(--ot-border-soft);
+}
+
+/* Joined Cash grids should read as individual cards, like the NAV snapshot. */
+.investorMainV2 .cashPage :is(
+  .cashInterestStrip,
+  .cashMethodGrid,
+  .cashMetricGrid,
+  .cashBuybackResults
+) {
+  gap: 10px;
+  border: 0;
+  background: transparent;
+}
+
+.investorMainV2 .cashPage :is(
+  .cashInterestStrip > div,
+  .cashMethodGrid > div,
+  .cashMetricGrid > div,
+  .cashBuybackResults > div
+) {
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+}
+
+.investorMainV2 .cashPage .cashInterestStrip > div,
+.investorMainV2 .cashPage .cashDistributionHeadline {
+  border-color: var(--ot-border-inset);
+}
+
+/* Keep the value-accretion result as emphasis without colouring the whole grid. */
+.investorMainV2 .cashPage .cashBuybackResults .cashAccretion {
   background: var(--ot-surface-inset);
   border-color: var(--ot-border-inset);
 }
 
-.investorMainV2 .bemobiPageClean .bemobiCleanScenarioBlock,
-.investorMainV2 .consensusPageV2 :is(
-  .consensusForwardRevisionGrid > div,
-  .consensusRevisionEventGrid > div
-) {
-  background: var(--ot-surface-inset-nested);
-  border-color: var(--ot-border-soft);
-}
-
-/* Tables: blue is a header cue, not the body surface -------------------- */
+/* Tables are neutral. Header hierarchy comes from typography and a raised row. */
 .investorMainV2 .bemobiPageClean .bemobiQuarterTable,
 .investorMainV2 .consensusPageV2 .consensusTable,
 .investorMainV2 .buybackPage .buybackTable {
@@ -63,8 +109,8 @@
 .investorMainV2 .bemobiPageClean .bemobiQuarterTable th,
 .investorMainV2 .consensusPageV2 .consensusTable th,
 .investorMainV2 .buybackPage .buybackTable th {
-  background: var(--ot-surface-inset);
-  border-color: var(--ot-border-inset);
+  background: var(--ot-surface-raised);
+  border-color: var(--ot-border-soft);
 }
 
 .investorMainV2 .bemobiPageClean .bemobiQuarterTable td,
@@ -78,7 +124,7 @@
   background: var(--ot-accent-soft);
 }
 
-/* Consensus summary: never leave unused grey columns when only 2 metrics exist. */
+/* Consensus summary: compact neutral cards and no unused columns. */
 .investorMainV2 .consensusPageV2 .consensusBeatSummaryGrid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
@@ -87,7 +133,7 @@
   background: transparent;
 }
 
-/* Remove page-specific decorative blue glow where the same role is neutral elsewhere. */
+/* Remove page-specific decorative glow. */
 .investorMainV2 .buybackPage .forecastCard::before {
   display: none;
 }
