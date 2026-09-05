@@ -5,17 +5,16 @@ ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend" / "src"
 
 
-def test_overview_renders_all_freshness_rows_and_readable_sources() -> None:
+def test_overview_uses_compact_market_strip_without_freshness_diagnostics() -> None:
     page = (FRONTEND / "OverviewPage.tsx").read_text(encoding="utf-8")
 
-    for label in ("OTEC", "Bemobi", "Life360", "BRL/NOK", "NAV"):
-        assert f'"{label}"' in page
-    for source in ("Euronext", "B3", "Yahoo Finance", "Norges Bank", "Beregnet"):
-        assert f'"{source}"' in page
-    assert "Datakilder og ferskhet" in page
-    assert "Rabatt til NAV" not in page
-    assert "Kontrolleres hvert 30. minutt" not in page
-    assert "MarketQuotePanelWithData" in page
+    for label in ("OTEC", "BMOB3", "BRL/NOK", "LIF", "MARKED"):
+        assert label in page
+    assert '"/api/market/quotes"' in page
+    assert "overviewTickerGrid" in page
+    assert "Datakilder og ferskhet" not in page
+    assert "FreshnessCard" not in page
+    assert "MarketQuotePanelWithData" not in page
 
 
 def test_timestamp_formatter_is_null_safe_and_uses_date_for_older_data() -> None:
