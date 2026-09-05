@@ -72,6 +72,28 @@ type NewsEventsPayload = {
   events?: NewsEvent[];
 };
 
+type BrazilCalendarEvent = {
+  date: string;
+  name: string;
+  kind: string;
+  importance: string;
+};
+
+type BrazilCalendarPayload = {
+  calendar?: BrazilCalendarEvent[];
+};
+
+type OverviewEvent = {
+  id: string;
+  date: string;
+  title: string;
+  badge: string;
+  badgeClass: "bemobi" | "otello" | "macro";
+  confirmed: boolean;
+  source?: string | null;
+  importance: number;
+};
+
 function finiteNumber(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
@@ -139,17 +161,57 @@ function countdownLabel(input: string) {
   return days > 1 ? `Om ${days} dager` : "";
 }
 
-function upcomingEvents(payload?: NewsEventsPayload | null) {
+function macroTitle(event: BrazilCalendarEvent) {
+  const labels: Record<string, string> = {
+    copom: "Rentebeslutning fra sentralbanken",
+    services: "Aktivitet i tjenestenæringene",
+    retail: "Omsetning i detaljhandelen",
+    activity: "Samlet økonomisk aktivitet",
+    labor: "Arbeidsledighet",
+  };
+  if (event.kind === "inflation") return event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst";
+  if (event.kind === "gdp") return event.name.replace("BNP", "Økonomisk vekst (BNP)");
+  return labels[event.kind] ?? event.name;
+}
+
+function upcomingEvents(
+  companyPayload?: NewsEventsPayload | null,
+  brazilPayload?: BrazilCalendarPayload | null,
+): OverviewEvent[] {
   const today = osloDateKey();
   if (!today) return [];
-  return (payload?.events ?? [])
-    .filter((event) => event.date >= today)
-    .sort((left, right) => {
-      const dateOrder = left.date.localeCompare(right.date);
-      if (dateOrder !== 0) return dateOrder;
-      const importance = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
-      return importance[left.importance] - importance[right.importance];
-    })
+  const events: OverviewEvent[] = [];
+
+  for (const event of companyPayload?.events ?? []) {
+    if (!event.date || event.date < today) continue;
+    events.push({
+      id: `company-${event.id}`,
+      date: event.date,
+      title: event.title,
+      badge: event.company,
+      badgeClass: event.company === "Bemobi" ? "bemobi" : "otello",
+      confirmed: event.confirmed,
+      source: event.source,
+      importance: event.importance === "HIGH" ? 0 : event.importance === "MEDIUM" ? 1 : 2,
+    });
+  }
+
+  for (const event of brazilPayload?.calendar ?? []) {
+    if (!event.date || event.date < today || !event.importance.startsWith("Høy")) continue;
+    events.push({
+      id: `macro-${event.date}-${event.kind}-${event.name}`,
+      date: event.date,
+      title: macroTitle(event),
+      badge: "Makro",
+      badgeClass: "macro",
+      confirmed: true,
+      source: "BCB / IBGE",
+      importance: 0,
+    });
+  }
+
+  return events
+    .sort((left, right) => left.date.localeCompare(right.date) || left.importance - right.importance || left.title.localeCompare(right.title))
     .slice(0, 4);
 }
 
@@ -202,6 +264,11 @@ export default function OverviewPage() {
     EVENT_REFRESH_MS,
     true,
   );
+  const { data: brazilCalendar } = usePollingResource<BrazilCalendarPayload>(
+    "/api/brazil/dashboard",
+    EVENT_REFRESH_MS,
+    true,
+  );
 
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
@@ -213,7 +280,7 @@ export default function OverviewPage() {
   const discountSpread = nav?.discount_pct != null && discountMedian != null
     ? nav.discount_pct - discountMedian
     : null;
-  const events = upcomingEvents(newsEvents);
+  const events = upcomingEvents(newsEvents, brazilCalendar);
   const nextEvent = events[0];
   const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
 
@@ -252,7 +319,7 @@ export default function OverviewPage() {
                 <div className="overviewNextEventMain">
                   <div>
                     <strong>{nextEvent.title}</strong>
-                    <span className={`overviewEventBadge ${nextEvent.company === "Bemobi" ? "bemobi" : "otello"}`}>{nextEvent.company}</span>
+                    <span className={`overviewEventBadge ${nextEvent.badgeClass}`}>{nextEvent.badge}</span>
                   </div>
                   <small>{nextEvent.confirmed ? "Bekreftet dato" : "Forventet dato"}{nextEvent.source ? ` · ${nextEvent.source}` : ""}</small>
                 </div>
@@ -263,14 +330,14 @@ export default function OverviewPage() {
                     <div key={event.id}>
                       <time>{eventDateLabel(event.date)}</time>
                       <strong>{event.title}</strong>
-                      <span className={`overviewEventBadge ${event.company === "Bemobi" ? "bemobi" : "otello"}`}>{event.company}</span>
+                      <span className={`overviewEventBadge ${event.badgeClass}`}>{event.badge}</span>
                     </div>
                   ))}
                 </div>
               )}
             </>
           ) : (
-            <div className="overviewUpcomingEmpty">Ingen kommende hendelser er registrert i den sentrale nyhets- og hendelseskalenderen.</div>
+            <div className="overviewUpcomingEmpty">Ingen kommende selskaps- eller makrohendelser med høy relevans er registrert.</div>
           )}
         </article>
       </section>
