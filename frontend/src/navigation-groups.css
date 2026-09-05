@@ -1,0 +1,33 @@
+.investorNav {
+  display: grid;
+  gap: 16px;
+}
+
+.navGroup {
+  display: grid;
+  gap: 5px;
+}
+
+.navGroup + .navGroup {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.navGroupLabel {
+  padding: 0 12px 4px;
+  color: #53647f;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.navGroupItems {
+  display: grid;
+  gap: 4px;
+}
+
+.investorNav .navItem {
+  width: 100%;
+}
