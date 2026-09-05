@@ -1,10 +1,10 @@
 .historyPercentileBand {
-  fill: rgba(79, 139, 255, 0.08);
+  fill: var(--ot-chart-band);
   pointer-events: none;
 }
 
 .historyMedianLine {
-  stroke: rgba(159, 193, 255, 0.9);
+  stroke: var(--ot-chart-reference);
   stroke-width: 1.5;
   stroke-dasharray: 6 6;
   vector-effect: non-scaling-stroke;
@@ -12,7 +12,7 @@
 }
 
 .historyHoverGuide {
-  stroke: rgba(255, 255, 255, 0.36);
+  stroke: var(--ot-chart-guide);
   stroke-width: 1;
   stroke-dasharray: 3 4;
   vector-effect: non-scaling-stroke;
@@ -21,7 +21,7 @@
 
 .historyHoverPoint {
   fill: var(--ot-surface);
-  stroke: #e6efff;
+  stroke: var(--ot-chart-point);
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -29,7 +29,7 @@
 
 .historyHoverPricePoint {
   fill: var(--ot-surface);
-  stroke: #55c9b5;
+  stroke: var(--ot-chart-secondary);
   stroke-width: 2.5;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -47,7 +47,7 @@
   background: var(--ot-surface-raised);
   border: 1px solid var(--ot-border-strong);
   border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--ot-shadow-overlay);
   pointer-events: none;
 }
 
@@ -75,13 +75,13 @@
 .axisChartLegend .percentileBandLegendItem::before {
   height: 8px;
   margin-bottom: 0;
-  border: 1px solid rgba(79, 139, 255, 0.35);
-  background: rgba(79, 139, 255, 0.12);
+  border: 1px solid var(--ot-chart-band-border);
+  background: var(--ot-chart-band-legend);
 }
 
 .axisChartLegend .medianLegendItem::before {
   height: 0;
-  border-top: 2px dashed rgba(159, 193, 255, 0.9);
+  border-top: 2px dashed var(--ot-chart-reference);
   background: transparent;
 }
 
