@@ -13,10 +13,13 @@
   --ot-surface: #12161c;
   --ot-surface-raised: #171c23;
   --ot-surface-muted: #101419;
+  --ot-surface-inset: #17283d;
+  --ot-surface-inset-nested: #142237;
 
   --ot-border: #272d36;
   --ot-border-soft: #20262e;
   --ot-border-strong: #343c47;
+  --ot-border-inset: rgba(79, 145, 212, 0.24);
 
   --ot-text: #f5f7fa;
   --ot-text-secondary: #a2abb7;
@@ -30,6 +33,15 @@
   --ot-positive: #36c99a;
   --ot-negative: #f06f7d;
   --ot-warning: #d2a851;
+
+  --ot-chart-secondary: #55c9b5;
+  --ot-chart-reference: rgba(159, 193, 255, 0.9);
+  --ot-chart-band: rgba(79, 139, 255, 0.08);
+  --ot-chart-band-border: rgba(79, 139, 255, 0.35);
+  --ot-chart-band-legend: rgba(79, 139, 255, 0.12);
+  --ot-chart-guide: rgba(255, 255, 255, 0.36);
+  --ot-chart-point: #e6efff;
+  --ot-shadow-overlay: 0 12px 28px rgba(0, 0, 0, 0.25);
 
   color: var(--ot-text);
   background: var(--ot-bg);
@@ -88,9 +100,8 @@ body {
 }
 
 /* Typography ------------------------------------------------------------- */
-h1,
-h2,
-.card strong {
+/* Defaults stay deliberately low-specificity so semantic state classes can win. */
+:where(h1, h2, .card strong) {
   color: var(--ot-text);
 }
 
@@ -261,11 +272,6 @@ h2,
 .freshnessDot.fresh,
 .qualityDot.ok,
 .positiveBar {
-  color: var(--ot-positive);
-}
-
-.positive,
-.sourceOk {
   color: var(--ot-positive);
 }
 
