@@ -1,0 +1,533 @@
+.dataQualityPage {
+  display: grid;
+  gap: 16px;
+}
+
+.qualityTrustHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 28px;
+  align-items: start;
+  padding: 22px;
+}
+
+.qualityTrustLead h2 {
+  margin-top: 7px;
+  font-size: 24px;
+  letter-spacing: -.025em;
+}
+
+.qualityTrustLead p {
+  margin: 8px 0 0;
+  color: #91a0b8;
+  font-size: 13px;
+}
+
+.qualityTrustLead small {
+  display: block;
+  margin-top: 10px;
+  color: #657690;
+  font-size: 11px;
+}
+
+.qualityTrustDimensions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid #1b2a40;
+}
+
+.qualityTrustDimensions > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px 16px 0 0;
+}
+
+.qualityTrustDimensions > div + div {
+  padding-left: 16px;
+  border-left: 1px solid #1b2a40;
+}
+
+.qualityTrustDimensions span:first-child {
+  color: #91a0b8;
+  font-size: 12px;
+}
+
+.qualityState {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 52px;
+  padding: 5px 8px;
+  border: 1px solid #2c3748;
+  border-radius: 999px;
+  background: #151e2c;
+  color: #8c9ab0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+
+.qualityStateOK {
+  border-color: rgba(43, 210, 164, .28);
+  background: rgba(23, 90, 75, .22);
+  color: #61d9b6;
+}
+
+.qualityStateDEGRADED,
+.qualityStateWAITING {
+  border-color: rgba(228, 185, 92, .3);
+  background: rgba(94, 71, 23, .2);
+  color: #e4b95c;
+}
+
+.qualityStateERROR {
+  border-color: rgba(255, 108, 136, .32);
+  background: rgba(112, 38, 52, .2);
+  color: #ff8aa1;
+}
+
+.qualityIssuesCard,
+.qualityCriticalCard,
+.qualitySourcesCard,
+.qualityReportCard {
+  padding: 20px;
+}
+
+.qualityIssueList {
+  display: grid;
+  gap: 0;
+  margin-top: 14px;
+}
+
+.qualityIssue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid #1b2a40;
+}
+
+.qualityIssue strong {
+  color: #e9f1ff;
+  font-size: 13px;
+}
+
+.qualityIssue p {
+  margin: 5px 0 0;
+  color: #91a0b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.qualityIssueMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: #657690;
+  font-size: 10px;
+}
+
+.qualityCriticalTable,
+.qualitySourceTable {
+  margin-top: 16px;
+}
+
+.qualityCriticalHead,
+.qualityCriticalRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.25fr) minmax(130px, 1fr) minmax(120px, .8fr) minmax(80px, auto);
+  gap: 16px;
+  align-items: center;
+}
+
+.qualityCriticalHead,
+.qualitySourceHead {
+  padding: 0 10px 9px;
+  color: #657690;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.qualityCriticalRow {
+  padding: 13px 10px;
+  border-top: 1px solid rgba(255, 255, 255, .075);
+  color: #91a0b8;
+  font-size: 12px;
+}
+
+.qualityCriticalRow > strong {
+  color: #e9f1ff;
+  font-size: 13px;
+}
+
+.qualityFootnote {
+  margin: 13px 0 0;
+  color: #657690;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.qualitySourceHead,
+.qualitySourceRow > summary {
+  display: grid;
+  grid-template-columns: minmax(120px, .9fr) minmax(200px, 1.35fr) minmax(90px, .65fr) minmax(110px, .75fr) minmax(145px, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.qualitySourceRow {
+  border-top: 1px solid rgba(255, 255, 255, .075);
+}
+
+.qualitySourceRow > summary {
+  position: relative;
+  padding: 13px 30px 13px 10px;
+  color: #91a0b8;
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.qualitySourceRow > summary::-webkit-details-marker {
+  display: none;
+}
+
+.qualitySourceRow > summary::after {
+  content: "+";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  color: #657690;
+  font-size: 15px;
+  transform: translateY(-50%);
+}
+
+.qualitySourceRow[open] > summary::after {
+  content: "−";
+}
+
+.qualitySourceName {
+  color: #dbe9ff;
+  font-weight: 700;
+}
+
+.qualitySourceDetail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 10px 13px;
+  padding: 13px;
+  border: 1px solid #1c2b43;
+  border-radius: 10px;
+  background: #0a1628;
+  color: #91a0b8;
+  font-size: 11px;
+}
+
+.qualitySourceDetail > span {
+  display: grid;
+  gap: 4px;
+}
+
+.qualitySourceDetail b {
+  color: #657690;
+  font-size: 9px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.qualitySourceDetail a,
+.qualityReportSummary a {
+  color: #9fc4ff;
+  text-decoration: none;
+}
+
+.qualityReportAttention {
+  border-color: rgba(228, 185, 92, .35);
+}
+
+.qualityReportSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 14px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #1b2a40;
+  color: #91a0b8;
+  font-size: 12px;
+}
+
+.qualityReportSummary > span {
+  display: grid;
+  gap: 4px;
+}
+
+.qualityReportSummary b {
+  color: #657690;
+  font-size: 9px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.qualityReportDetails {
+  margin-top: 12px;
+}
+
+.qualityReportDetails > summary {
+  width: fit-content;
+  color: #9fc4ff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.qualityPipeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.qualityPipelineStep {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid #1c2b43;
+  border-radius: 9px;
+  background: #0a1628;
+  color: #91a0b8;
+  font-size: 11px;
+}
+
+.qualityPipelineStep strong {
+  color: #71809a;
+  font-size: 9px;
+}
+
+.qualityPipelineState {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #596a84;
+}
+
+.pipelineOK { background: #27d3a5; }
+.pipelineKJØRER { background: #4b91ff; }
+.pipelineFEIL { background: #ff6c88; }
+.pipelineVENTER { background: #d5a85d; }
+.pipelineIKKEAKTUELL { background: #596a84; }
+
+.qualityDiagnostics {
+  padding: 0;
+  overflow: hidden;
+}
+
+.qualityDiagnostics > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  align-items: center;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.qualityDiagnostics > summary::-webkit-details-marker {
+  display: none;
+}
+
+.qualityDiagnostics > summary > span:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.qualityDiagnostics > summary > span:first-child > strong {
+  font-size: 14px;
+}
+
+.qualityDiagnosticsSummary {
+  color: #71809a;
+  font-size: 11px;
+  text-align: right;
+}
+
+.qualityDiagnosticsBody {
+  padding: 0 20px 20px;
+  border-top: 1px solid #1b2a40;
+}
+
+.qualityDiagnosticGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.qualityDiagnosticGrid > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #1c2b43;
+  border-radius: 9px;
+  background: #0a1628;
+}
+
+.qualityDiagnosticGrid span {
+  color: #657690;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.qualityDiagnosticGrid strong {
+  color: #e9f1ff;
+  font-size: 13px;
+}
+
+.qualityDiagnosticGrid small {
+  color: #71809a;
+  font-size: 10px;
+}
+
+.qualityPreflight {
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid #273852;
+  border-radius: 9px;
+  background: rgba(25, 49, 82, .2);
+  color: #91a0b8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.qualityPreflight > strong {
+  color: #dbe9ff;
+}
+
+.qualityPreflight p {
+  margin: 5px 0 0;
+}
+
+.qualityPreflight ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 1050px) {
+  .qualityTrustDimensions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 12px;
+  }
+
+  .qualityTrustDimensions > div:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .qualitySourceHead,
+  .qualitySourceRow > summary {
+    grid-template-columns: minmax(110px, .8fr) minmax(180px, 1.25fr) minmax(85px, .6fr) minmax(100px, .7fr);
+  }
+
+  .qualitySourceHead span:last-child,
+  .qualitySourceRow > summary > span:last-child {
+    display: none;
+  }
+
+  .qualityPipeline,
+  .qualityDiagnosticGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .qualityTrustHero {
+    grid-template-columns: 1fr;
+  }
+
+  .qualityTrustHero > .qualityState {
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .qualityTrustLead {
+    grid-row: 1 / span 2;
+    padding-right: 72px;
+  }
+
+  .qualityTrustDimensions {
+    grid-template-columns: 1fr;
+  }
+
+  .qualityTrustDimensions > div,
+  .qualityTrustDimensions > div + div,
+  .qualityTrustDimensions > div:nth-child(3) {
+    padding: 11px 0 0;
+    border-left: 0;
+  }
+
+  .qualityCriticalHead,
+  .qualitySourceHead {
+    display: none;
+  }
+
+  .qualityCriticalRow {
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+  }
+
+  .qualityCriticalRow > span:nth-child(2),
+  .qualityCriticalRow > span:nth-child(3) {
+    grid-column: 1;
+  }
+
+  .qualityCriticalRow > .qualityState {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .qualitySourceRow > summary {
+    grid-template-columns: 1fr auto;
+    gap: 5px 12px;
+    padding-right: 30px;
+  }
+
+  .qualitySourceRow > summary > span:nth-child(2),
+  .qualitySourceRow > summary > span:nth-child(4) {
+    grid-column: 1;
+  }
+
+  .qualitySourceRow > summary > .qualityState {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .qualitySourceDetail,
+  .qualityReportSummary,
+  .qualityPipeline,
+  .qualityDiagnosticGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .qualityDiagnostics > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .qualityDiagnosticsSummary {
+    text-align: left;
+  }
+}
