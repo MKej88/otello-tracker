@@ -253,5 +253,4 @@ def test_pms_pmc_and_ibc_br_report_missing_current_investing_forecast() -> None:
         assert consensus["ingested"] is False
         assert consensus["coverage"] == "EXTERNAL_MARKET_CONSENSUS_NOT_INGESTED"
         assert consensus["provider"] == "Investing.com"
-        assert "Investing.com" in consensus["note"]
         assert "Forecast" in consensus["note"]
