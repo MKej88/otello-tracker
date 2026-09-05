@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
@@ -96,32 +96,35 @@ type ConsensusPayload = {
   };
   beat_miss?: BeatMissPeriod[];
   history_link?: ConsensusHistoryLink;
-  reference_model?: {
-    broker?: string | null;
-    rating?: string | null;
-    target_price_brl?: number | null;
-    published_date?: string | null;
-    pe_2026_reported?: number | null;
-    ev_ebitda_2026_reported?: number | null;
-    source_url?: string | null;
-    note?: string | null;
-  };
   sources?: Array<{ label: string; source: string; url?: string | null }>;
+};
+
+type BeatSummary = {
+  key: string;
+  label: string;
+  beats: number;
+  total: number;
+  averagePct: number | null;
 };
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
 
+function finite(input: number | null | undefined): input is number {
+  return input != null && Number.isFinite(input);
+}
+
 function value(input: number | null | undefined, digits = 1) {
-  if (input == null || !Number.isFinite(input)) return "–";
+  if (!finite(input)) return "–";
   return input.toLocaleString("nb-NO", {
     minimumFractionDigits: digits,
-    maximumFractionDigits: digits
+    maximumFractionDigits: digits,
   });
 }
 
 function signedPct(input: number | null | undefined, digits = 1) {
-  if (input == null || !Number.isFinite(input)) return "–";
-  return `${input > 0 ? "+" : ""}${value(input, digits)} %`;
+  if (!finite(input)) return "–";
+  const prefix = input > 0 ? "+" : input < 0 ? "−" : "";
+  return `${prefix}${value(Math.abs(input), digits)} %`;
 }
 
 function dateLabel(input?: string | null) {
@@ -137,9 +140,89 @@ function ratingLabel(input?: string | null) {
   return input ?? "–";
 }
 
-function SourceLink({ url, children }: { url?: string | null; children: React.ReactNode }) {
+function tone(input: number | null | undefined) {
+  if (!finite(input) || input === 0) return "neutral";
+  return input > 0 ? "positive" : "negative";
+}
+
+function SourceLink({ url, children }: { url?: string | null; children: ReactNode }) {
   if (!url) return <span>{children}</span>;
   return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
+}
+
+function pctChange(start: number | null | undefined, end: number | null | undefined) {
+  if (!finite(start) || !finite(end) || start === 0) return null;
+  return (end / start - 1) * 100;
+}
+
+function metricPriority(label: string) {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("omset") || normalized.includes("revenue")) return 0;
+  if (normalized.includes("ebitda")) return 1;
+  if (normalized.includes("result") || normalized.includes("net income")) return 2;
+  return 3;
+}
+
+function beatSummary(periods: BeatMissPeriod[]): BeatSummary[] {
+  const grouped = new Map<string, { label: string; beats: number; total: number; sum: number; count: number }>();
+  for (const period of periods) {
+    for (const metric of period.metrics ?? []) {
+      const key = metric.metric || metric.label;
+      const current = grouped.get(key) ?? { label: metric.label, beats: 0, total: 0, sum: 0, count: 0 };
+      current.total += 1;
+      if (finite(metric.beat_miss_pct)) {
+        if (metric.beat_miss_pct > 0) current.beats += 1;
+        current.sum += metric.beat_miss_pct;
+        current.count += 1;
+      }
+      grouped.set(key, current);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([key, item]) => ({
+      key,
+      label: item.label,
+      beats: item.beats,
+      total: item.total,
+      averagePct: item.count > 0 ? item.sum / item.count : null,
+    }))
+    .sort((left, right) => metricPriority(left.label) - metricPriority(right.label) || left.label.localeCompare(right.label))
+    .slice(0, 4);
+}
+
+function findMetric(metrics: BeatMissMetric[], needle: string) {
+  return metrics.find((metric) => metric.metric.toLowerCase().includes(needle) || metric.label.toLowerCase().includes(needle));
+}
+
+function findEstimate(estimates: NextQuarterEstimate[], needle: string) {
+  return estimates.find((estimate) => estimate.metric.toLowerCase().includes(needle) || estimate.label.toLowerCase().includes(needle));
+}
+
+function actualForEstimate(estimate: NextQuarterEstimate, latest?: BeatMissPeriod) {
+  if (!latest) return null;
+  const exact = latest.metrics.find((metric) => metric.metric === estimate.metric);
+  if (exact) return exact.actual;
+  const label = estimate.label.toLowerCase();
+  const loose = latest.metrics.find((metric) => {
+    const candidate = metric.label.toLowerCase();
+    return candidate === label || candidate.includes(label) || label.includes(candidate);
+  });
+  return loose?.actual ?? null;
+}
+
+function forwardMetricValue(metric: string, year: BrokerYear) {
+  if (metric === "revenue") return finite(year.revenue_mbrl) ? `R$ ${value(year.revenue_mbrl, 0)}m` : "–";
+  if (metric === "ebitda") return finite(year.ebitda_mbrl) ? `R$ ${value(year.ebitda_mbrl, 1)}m` : "–";
+  if (metric === "margin") {
+    return finite(year.ebitda_mbrl) && finite(year.revenue_mbrl) && year.revenue_mbrl !== 0
+      ? `${value(year.ebitda_mbrl / year.revenue_mbrl * 100, 1)} %`
+      : "–";
+  }
+  if (metric === "net_income") return finite(year.net_income_mbrl) ? `R$ ${value(year.net_income_mbrl, 1)}m` : "–";
+  if (metric === "eps") return finite(year.eps_brl) ? `R$ ${value(year.eps_brl, 2)}` : "–";
+  if (metric === "pe") return finite(year.pe) ? `${value(year.pe, 1)}x` : "–";
+  if (metric === "ev_ebitda") return finite(year.ev_ebitda) ? `${value(year.ev_ebitda, 1)}x` : "–";
+  return "–";
 }
 
 export default function ConsensusPage() {
@@ -175,6 +258,8 @@ export default function ConsensusPage() {
     };
   }, []);
 
+  const summary = useMemo(() => beatSummary(data?.beat_miss ?? []), [data?.beat_miss]);
+
   if (data == null && !failed) return <ResourceNotice>Laster konsensus …</ResourceNotice>;
   if (failed && data == null) return <ResourceNotice kind="error">Kunne ikke hente konsensusdata.</ResourceNotice>;
   if (!data?.ready) return <div className="consensusNotice"><strong>Konsensus er ikke klar.</strong><span>{data?.reason}</span></div>;
@@ -183,51 +268,65 @@ export default function ConsensusPage() {
   const market = data.market;
   const broker = data.broker_estimates;
   const brokerYears = broker?.years ?? [];
-  const brokerRange = broker?.year_range ?? (
-    brokerYears.length === 0
-      ? "Forward"
-      : brokerYears.length === 1
-        ? `${brokerYears[0].year}E`
-        : `${brokerYears[0].year}E–${brokerYears[brokerYears.length - 1].year}E`
-  );
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
   const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && nextQuarterEstimates.length > 0;
   const previewSourceUrl = nextQuarterEstimates.find((estimate) => estimate.source_url)?.source_url;
   const previewPublishedDate = nextQuarterEstimates.find((estimate) => estimate.published_date)?.published_date;
+  const previewBroker = nextQuarterEstimates.find((estimate) => estimate.broker)?.broker ?? "Meglerhus";
   const analysts = data.analysts ?? [];
   const beatMiss = data.beat_miss ?? [];
+  const latestBeat = beatMiss.length > 0 ? beatMiss[beatMiss.length - 1] : undefined;
+  const revenueEstimate = findEstimate(nextQuarterEstimates, "revenue") ?? findEstimate(nextQuarterEstimates, "omset");
+  const ebitdaEstimate = findEstimate(nextQuarterEstimates, "ebitda");
+  const latestRevenue = latestBeat ? (findMetric(latestBeat.metrics, "revenue") ?? findMetric(latestBeat.metrics, "omset")) : undefined;
+  const latestEbitda = latestBeat ? findMetric(latestBeat.metrics, "ebitda") : undefined;
+  const previewMargin = revenueEstimate && ebitdaEstimate && revenueEstimate.value_mbrl !== 0
+    ? ebitdaEstimate.value_mbrl / revenueEstimate.value_mbrl * 100
+    : null;
+  const latestMargin = latestRevenue && latestEbitda && latestRevenue.actual !== 0
+    ? latestEbitda.actual / latestRevenue.actual * 100
+    : null;
+  const targetLow = coverage?.low_target_brl;
+  const targetHigh = coverage?.high_target_brl;
+  const targetAverage = coverage?.average_target_brl;
+  const marketPrice = market?.price_brl;
+  const targetRangeReady = finite(targetLow) && finite(targetHigh) && targetHigh > targetLow;
+  const rangePosition = (input?: number | null) => {
+    if (!targetRangeReady || !finite(input)) return null;
+    return Math.max(0, Math.min(100, (input - targetLow) / (targetHigh - targetLow) * 100));
+  };
+
+  const forwardRows = [
+    ["revenue", "Omsetning"],
+    ["ebitda", "EBITDA"],
+    ["margin", "EBITDA-margin"],
+    ["net_income", "Resultat"],
+    ["eps", "EPS"],
+    ["pe", "P/E"],
+    ["ev_ebitda", "EV/EBITDA"],
+  ] as const;
 
   return (
-    <div className="consensusPage">
-      <section className="card consensusHero">
+    <div className="consensusPage consensusPageV2">
+      <section className="card consensusHero consensusHeroV2">
         <div>
           <span className="label">BEMOBI / KONSENSUS</span>
-          <h2>Forventninger mot dagens pris</h2>
-          <p>
-            Offentlig analytikerdekning, kursmål, kildeverifiserte meglerestimater og historisk beat/miss.
-            Husspesifikke estimater vises bare når vi kan knytte dem til en offentlig meglerkilde.
-          </p>
+          <h2>Hva forventer markedet?</h2>
+          <p>Kursmål, neste kvartals forventninger, historisk beat/miss og hvordan meglerestimater endres etter resultat.</p>
         </div>
         <div className="consensusHeroPrice">
           <span>BMOB3</span>
-          <strong>R$ {value(market?.price_brl, 2)}</strong>
-          <small>{dateLabel(market?.price_date)}</small>
+          <strong>R$ {value(marketPrice, 2)}</strong>
+          <small>{dateLabel(market?.price_date)} · {market?.price_source ?? "marked"}</small>
         </div>
       </section>
 
-      <section className="consensusKpis">
+      <section className="consensusKpis consensusKpisV2">
         <article className="card">
-          <span className="label">Konsensus kursmål</span>
-          <strong>R$ {value(coverage?.average_target_brl, 2)}</strong>
-          <small className={(coverage?.upside_to_average_pct ?? 0) >= 0 ? "positive" : "negative"}>
-            {signedPct(coverage?.upside_to_average_pct)} mot dagens kurs
-          </small>
-        </article>
-        <article className="card">
-          <span className="label">Spenn</span>
-          <strong>R$ {value(coverage?.low_target_brl, 2)}–{value(coverage?.high_target_brl, 2)}</strong>
-          <small>{coverage?.analyst_count ?? "–"} analytikere</small>
+          <span className="label">Konsensusmål</span>
+          <strong>R$ {value(targetAverage, 2)}</strong>
+          <small className={tone(coverage?.upside_to_average_pct)}>{signedPct(coverage?.upside_to_average_pct)} mot dagens kurs</small>
         </article>
         <article className="card">
           <span className="label">Kjøpsandel</span>
@@ -235,155 +334,175 @@ export default function ConsensusPage() {
           <small>{coverage?.buy_count ?? 0} kjøp · {coverage?.hold_count ?? 0} hold · {coverage?.sell_count ?? 0} selg</small>
         </article>
         <article className="card">
-          <span className="label">Neste kvartal</span>
+          <span className="label">Neste rapport</span>
           <strong>{nextQuarter?.period ?? "–"}</strong>
-          <small>{hasPublicPreview ? `${nextQuarterEstimates.length} verifiserte XP-estimater` : "Venter på verifiserte estimater"}</small>
+          <small>{hasPublicPreview ? `${previewBroker}-preview tilgjengelig` : "Venter på offentlig preview"}</small>
         </article>
       </section>
 
-      <section className="card consensusCoverage">
+      <section className="card consensusNextReport">
         <div className="cardHeader">
-          <div><span className="label">Analytikerdekning</span><h2>Meglerhus og kursmål</h2></div>
-          <SourceLink url={coverage?.source_url}><span className="pill">Bemobi IR</span></SourceLink>
+          <div><span className="label">NESTE RAPPORT</span><h2>{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
+          <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
         </div>
-        <div className="consensusTableWrap">
-          <table className="consensusTable">
-            <thead><tr><th>Meglerhus</th><th>Analytiker</th><th>Anbefaling</th><th>Kursmål</th><th>Oppdatert</th></tr></thead>
+        {hasPublicPreview ? (
+          <>
+            <div className="consensusTableWrap consensusNextTableWrap">
+              <table className="consensusTable consensusNextTable">
+                <thead>
+                  <tr><th>Metric</th><th>Estimat</th><th>{latestBeat?.period ?? "Siste rapport"}</th><th>Vs. siste rapport</th><th>Beat-grense</th></tr>
+                </thead>
+                <tbody>
+                  {nextQuarterEstimates.map((estimate) => {
+                    const actual = actualForEstimate(estimate, latestBeat);
+                    const change = pctChange(actual, estimate.value_mbrl);
+                    return (
+                      <tr key={estimate.metric}>
+                        <td><strong>{estimate.label}</strong></td>
+                        <td>R$ {value(estimate.value_mbrl, 1)}m</td>
+                        <td>{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
+                        <td className={tone(change)}>{signedPct(change)}</td>
+                        <td>&gt; R$ {value(estimate.value_mbrl, 1)}m</td>
+                      </tr>
+                    );
+                  })}
+                  {finite(previewMargin) && (
+                    <tr>
+                      <td><strong>EBITDA-margin</strong></td>
+                      <td>{value(previewMargin, 1)} %</td>
+                      <td>{finite(latestMargin) ? `${value(latestMargin, 1)} %` : "–"}</td>
+                      <td className={tone(pctChange(latestMargin, previewMargin))}>{signedPct(pctChange(latestMargin, previewMargin))}</td>
+                      <td>&gt; {value(previewMargin, 1)} %</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="consensusPreviewMeta">
+              <span>Beat = faktisk resultat over offentlig preview-estimat.</span>
+              <SourceLink url={previewSourceUrl}>Kilde: {previewBroker}{previewPublishedDate ? ` · ${dateLabel(previewPublishedDate)}` : ""} →</SourceLink>
+            </div>
+            <p className="consensusNote">Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus.</p>
+          </>
+        ) : (
+          <div className="consensusWaitingPreview">
+            <strong>Ingen verifisert offentlig preview ennå.</strong>
+            <p>{nextQuarter?.note ?? "Estimatene fylles inn når de kan verifiseres mot en offentlig meglerkilde."}</p>
+            <div className="trackedMetrics">{(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}</div>
+          </div>
+        )}
+      </section>
+
+      <section className="card consensusBeatSummary">
+        <div className="cardHeader">
+          <div><span className="label">HISTORISK TREFF</span><h2>Har estimatene vært konservative?</h2></div>
+          <small>{beatMiss.length} rapportperioder med verifisert preview</small>
+        </div>
+        {summary.length > 0 ? (
+          <div className="consensusBeatSummaryGrid">
+            {summary.map((metric) => (
+              <div key={metric.key}>
+                <span>{metric.label}</span>
+                <strong>{metric.beats}/{metric.total} beat</strong>
+                <small className={tone(metric.averagePct)}>Snitt {signedPct(metric.averagePct)}</small>
+              </div>
+            ))}
+          </div>
+        ) : <div className="consensusEmptyInline">Ingen verifisert beat/miss-historikk ennå.</div>}
+      </section>
+
+      <section className="card consensusForward consensusForwardV2">
+        <div className="cardHeader">
+          <div><span className="label">FORWARD ESTIMATER</span><h2>{broker?.source ?? "Meglerestimat"}</h2></div>
+          <SourceLink url={broker?.source_url}><span className="pill">{broker?.published_date ? dateLabel(broker.published_date) : "KILDE"}</span></SourceLink>
+        </div>
+        <p className="consensusNote">Kildeverifisert modell fra ett meglerhus. Dette er ikke et anonymt aggregat.</p>
+        <div className="consensusTableWrap consensusForwardMatrixWrap">
+          <table className="consensusTable consensusForwardMatrix">
+            <thead><tr><th>Metric</th>{brokerYears.map((year) => <th key={year.year}>{year.year}E</th>)}</tr></thead>
             <tbody>
-              {analysts.map((analyst) => (
-                <tr key={analyst.institution}>
-                  <td><strong>{analyst.institution}</strong></td>
-                  <td>{analyst.analyst}</td>
-                  <td><span className={`rating ${analyst.rating.toLowerCase()}`}>{ratingLabel(analyst.rating)}</span></td>
-                  <td>R$ {value(analyst.target_price_brl, 2)}</td>
-                  <td>{dateLabel(analyst.last_update)}</td>
+              {forwardRows.map(([metric, label]) => (
+                <tr key={metric}>
+                  <td><strong>{label}</strong></td>
+                  {brokerYears.map((year) => <td key={`${metric}-${year.year}`}>{forwardMetricValue(metric, year)}</td>)}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </section>
-
-      <section className="card consensusForward">
-        <div className="cardHeader">
-          <div>
-            <span className="label">Meglerestimater</span>
-            <h2>{brokerRange}</h2>
-          </div>
-          <SourceLink url={broker?.source_url}><span className="pill">{broker?.source ?? "Meglerkilde"}</span></SourceLink>
-        </div>
-        <p className="consensusNote">
-          Kildeverifisert modell fra ett meglerhus. Dette er ikke et anonymt aggregat; når flere offentlige modeller er tilgjengelige,
-          beregner trackeren konsensus på tvers av husene.
-        </p>
-        <div className="consensusTableWrap">
-          <table className="consensusTable forwardTable">
-            <thead>
-              <tr>
-                <th>År</th><th>Omsetning</th><th>EBITDA</th><th>Resultat</th><th>EPS</th><th>Netto gjeld / (cash)</th>
-                <th>P/E</th><th>EV/EBITDA</th><th>Earnings yield</th>
-              </tr>
-            </thead>
-            <tbody>
-              {brokerYears.map((year) => (
-                <tr key={year.year}>
-                  <td><strong>{year.year}E</strong></td>
-                  <td>R$ {value(year.revenue_mbrl, 0)}m</td>
-                  <td>R$ {value(year.ebitda_mbrl, 1)}m</td>
-                  <td>R$ {value(year.net_income_mbrl, 1)}m</td>
-                  <td>R$ {value(year.eps_brl, 2)}</td>
-                  <td>R$ {value(year.net_debt_mbrl, 0)}m</td>
-                  <td>{value(year.pe, 1)}x</td>
-                  <td>{value(year.ev_ebitda, 1)}x</td>
-                  <td>{value(year.earnings_yield_pct, 1)} %</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="consensusNote">{broker?.note}</p>
-      </section>
-
-      <section className="consensusTwoColumn">
-        <article className="card nextQuarterCard">
-          <div className="cardHeader">
-            <div><span className="label">Neste rapport</span><h2>{nextQuarter?.period}</h2></div>
-            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? "XP-PREVIEW" : "VENTER"}</span>
-          </div>
-          <p>{nextQuarter?.note}</p>
-          {hasPublicPreview ? (
-            <>
-              <div className="referenceGrid">
-                {nextQuarterEstimates.map((estimate) => (
-                  <div key={estimate.metric}>
-                    <span>{estimate.label}</span>
-                    <strong>R$ {value(estimate.value_mbrl, 1)}m</strong>
-                  </div>
-                ))}
-              </div>
-              <SourceLink url={previewSourceUrl}>
-                <span className="consensusSourceAction">
-                  Offentlig XP-preview{previewPublishedDate ? ` · ${dateLabel(previewPublishedDate)}` : ""} →
-                </span>
-              </SourceLink>
-              <small>Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus.</small>
-            </>
-          ) : (
-            <>
-              <div className="trackedMetrics">
-                {(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}
-              </div>
-              <small>Estimatene fylles inn når de kan verifiseres fra en offentlig meglerkilde.</small>
-            </>
-          )}
-        </article>
-
-        <article className="card xpReference">
-          <div className="cardHeader">
-            <div><span className="label">Referansemodell</span><h2>{data.reference_model?.broker ?? "XP"}</h2></div>
-            <span className="pill">{ratingLabel(data.reference_model?.rating).toUpperCase()}</span>
-          </div>
-          <div className="referenceGrid">
-            <div><span>Kursmål</span><strong>R$ {value(data.reference_model?.target_price_brl, 2)}</strong></div>
-            <div><span>P/E 2026 ved rapportdato</span><strong>{value(data.reference_model?.pe_2026_reported, 1)}x</strong></div>
-            <div><span>EV/EBITDA 2026 ved rapportdato</span><strong>{value(data.reference_model?.ev_ebitda_2026_reported, 1)}x</strong></div>
-          </div>
-          <SourceLink url={data.reference_model?.source_url}><span className="consensusSourceAction">Åpne XP-modelloppdatering →</span></SourceLink>
-          <p className="consensusNote">{data.reference_model?.note}</p>
-        </article>
-      </section>
-
-      <section className="card beatMissCard">
-        <div className="cardHeader"><div><span className="label">Historikk</span><h2>Beat / miss mot offentlig XP-preview</h2></div></div>
-        <div className="beatMissGrid">
-          {beatMiss.map((period) => (
-            <article key={period.period}>
-              <div className="beatMissHeader">
-                <div><strong>{period.period}</strong><span>{period.broker}</span></div>
-                <SourceLink url={period.source_url}><span>Kilde →</span></SourceLink>
-              </div>
-              {period.metrics.map((metric) => (
-                <div className="beatMissRow" key={`${period.period}-${metric.metric}`}>
-                  <span>{metric.label}</span>
-                  <div><small>Est. R$ {value(metric.estimate, 1)}m</small><small>Faktisk R$ {value(metric.actual, 1)}m</small></div>
-                  <strong className={(metric.beat_miss_pct ?? 0) >= 0 ? "positive" : "negative"}>{signedPct(metric.beat_miss_pct)}</strong>
-                </div>
-              ))}
-            </article>
+        <div className="consensusNetCashRow">
+          {brokerYears.map((year) => (
+            <span key={year.year}>{year.year}E: {finite(year.net_debt_mbrl) ? (year.net_debt_mbrl <= 0 ? `netto cash R$ ${value(Math.abs(year.net_debt_mbrl), 0)}m` : `netto gjeld R$ ${value(year.net_debt_mbrl, 0)}m`) : "netto gjeld/cash –"}</span>
           ))}
         </div>
-        <p className="consensusNote">Dette er meglerhus-spesifikk beat/miss, ikke markedskonsensus, inntil vi har flere verifiserte kvartalsestimater per periode.</p>
+        {broker?.note && <p className="consensusNote">{broker.note}</p>}
       </section>
 
       <ConsensusHistoryPanel history={data.history_link} />
 
-      <section className="card consensusSources">
-        <div className="cardHeader"><div><span className="label">Kilder</span><h2>Datagrunnlag</h2></div></div>
-        <div className="sourceList">
-          {(data.sources ?? []).map((source) => (
-            <div key={source.label}><span>{source.label}</span><strong><SourceLink url={source.url}>{source.source}</SourceLink></strong></div>
-          ))}
+      <section className="card consensusTargetRange">
+        <div className="cardHeader">
+          <div><span className="label">KURSMÅL</span><h2>Analytikernes spenn</h2></div>
+          <SourceLink url={coverage?.source_url}><span className="pill">{coverage?.analyst_count ?? 0} ANALYTIKERE</span></SourceLink>
         </div>
+        {targetRangeReady ? (
+          <div className="targetRangeVisual">
+            <div className="targetRangeNumbers"><span>Lav R$ {value(targetLow, 2)}</span><span>Snitt R$ {value(targetAverage, 2)}</span><span>Høy R$ {value(targetHigh, 2)}</span></div>
+            <div className="targetRangeTrack">
+              <i className="targetRangeAverage" style={{ left: `${rangePosition(targetAverage) ?? 50}%` }} />
+              {rangePosition(marketPrice) != null && <i className="targetRangeMarket" style={{ left: `${rangePosition(marketPrice)}%` }} />}
+            </div>
+            <div className="targetRangeLegend"><span><i className="averageDot" />Konsensusmål</span><span><i className="marketDot" />BMOB3 R$ {value(marketPrice, 2)}</span></div>
+          </div>
+        ) : <div className="consensusEmptyInline">Kursmålsspenn mangler.</div>}
+      </section>
+
+      <section className="consensusDetailsStack">
+        <details className="card consensusDisclosure">
+          <summary><span><span className="label">DETALJER</span><strong>Analytikere og kursmål</strong></span><b>Vis</b></summary>
+          <div className="consensusTableWrap">
+            <table className="consensusTable analystTable">
+              <thead><tr><th>Meglerhus</th><th>Analytiker</th><th>Anbefaling</th><th>Kursmål</th><th>Oppdatert</th></tr></thead>
+              <tbody>
+                {analysts.map((analyst) => (
+                  <tr key={analyst.institution}>
+                    <td><strong>{analyst.institution}</strong></td>
+                    <td>{analyst.analyst}</td>
+                    <td><span className={`rating ${analyst.rating.toLowerCase()}`}>{ratingLabel(analyst.rating)}</span></td>
+                    <td>R$ {value(analyst.target_price_brl, 2)}</td>
+                    <td>{dateLabel(analyst.last_update)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details className="card consensusDisclosure">
+          <summary><span><span className="label">DETALJER</span><strong>Beat/miss per kvartal</strong></span><b>Vis</b></summary>
+          <div className="beatMissGrid beatMissGridDetails">
+            {beatMiss.map((period) => (
+              <article key={period.period}>
+                <div className="beatMissHeader"><div><strong>{period.period}</strong><span>{period.broker}</span></div><SourceLink url={period.source_url}><span>Kilde →</span></SourceLink></div>
+                {period.metrics.map((metric) => (
+                  <div className="beatMissRow" key={`${period.period}-${metric.metric}`}>
+                    <span>{metric.label}</span>
+                    <div><small>Est. R$ {value(metric.estimate, 1)}m</small><small>Faktisk R$ {value(metric.actual, 1)}m</small></div>
+                    <strong className={tone(metric.beat_miss_pct)}>{signedPct(metric.beat_miss_pct)}</strong>
+                  </div>
+                ))}
+              </article>
+            ))}
+          </div>
+        </details>
+
+        <details className="card consensusDisclosure">
+          <summary><span><span className="label">DETALJER</span><strong>Kilder og metode</strong></span><b>Vis</b></summary>
+          <div className="sourceList consensusSourceList">
+            {(data.sources ?? []).map((source) => <div key={source.label}><span>{source.label}</span><strong><SourceLink url={source.url}>{source.source}</SourceLink></strong></div>)}
+          </div>
+          <p className="consensusNote">Kursmål er offentlig analytikerdekning. Kvartalsestimater og beat/miss vises bare når de kan knyttes til en verifisert offentlig meglerkilde.</p>
+        </details>
       </section>
     </div>
   );
