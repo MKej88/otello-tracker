@@ -3,18 +3,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERVIEW = ROOT / "frontend" / "src" / "OverviewPage.tsx"
-BEMOBI = ROOT / "cloudflare" / "src" / "bemobi_dashboard_base.py"
+NEWS_EVENTS = ROOT / "cloudflare" / "src" / "news_events.py"
 BRAZIL = ROOT / "cloudflare" / "src" / "brazil_dashboard_v2.py"
 
 
-def test_overview_uses_existing_sourced_case_calendars() -> None:
+def test_overview_uses_central_company_events_and_sourced_macro_calendar() -> None:
     overview = OVERVIEW.read_text(encoding="utf-8")
-    bemobi = BEMOBI.read_text(encoding="utf-8")
+    news_events = NEWS_EVENTS.read_text(encoding="utf-8")
     brazil = BRAZIL.read_text(encoding="utf-8")
 
-    assert '"/api/bemobi/dashboard"' in overview
+    assert '"/api/news-events"' in overview
     assert '"/api/brazil/dashboard"' in overview
-    assert '"next_report": {' in bemobi
-    assert '"date": next_quarter.get("report_date")' in bemobi
+    assert '"/api/bemobi/dashboard"' not in overview
+    assert "bemobi_investor_facts" in news_events
+    assert 'fact_type=\'NEXT_QUARTER\'' in news_events
     assert 'result["calendar"] = _annotate_market_consensus(enriched)' in brazil
-    assert 'event.importance !== "Høy"' in overview
+    assert 'event.importance.startsWith("Høy")' in overview
