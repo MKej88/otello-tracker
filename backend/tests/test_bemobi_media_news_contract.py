@@ -174,12 +174,13 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert "and not is_media" in news_source
     assert 'metadata.get("publisher")' in news_source
     assert '"media_status": media_status' in news_source
+    assert '"nav_impact": nav_impact' in news_source
 
-    assert 'type ContentFilter = "Alle typer" | "Offisielt" | "Media"' in frontend_source
-    assert 'contentTypeBadge' in frontend_source
-    assert 'MEDIAINNHENTING' in frontend_source
+    assert 'type ContentFilter = "Alle" | "Viktige" | "Offisielt" | "Media"' in frontend_source
     assert 'media_status?: MediaStatus' in frontend_source
-    assert "mediaErrorSummary" in frontend_source
-    assert "mediaStatus.error_message &&" not in frontend_source
-    assert 'Automatically translated from Portuguese' in frontend_source
-    assert 'originalkilden er alltid tilgjengelig' in frontend_source
+    assert "mediaDegraded" in frontend_source
+    assert 'MEDIAINNHENTING' not in frontend_source
+    assert 'mediaRefreshMetrics' not in frontend_source
+    assert 'contentTypeBadge' not in frontend_source
+    assert 'Automatisk oversatt fra portugisisk · basert på RSS-metadata' in frontend_source
+    assert '<SourceLink source={item.source} url={item.url} />' in frontend_source
