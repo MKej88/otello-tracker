@@ -107,23 +107,22 @@ def test_invalid_current_values_return_missing_metrics(nav, price) -> None:
     )
 
 
-def test_frontend_renders_all_labels_and_safe_fallbacks() -> None:
+def test_frontend_renders_compact_nav_discount_context_and_safe_fallbacks() -> None:
     page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
     for label in (
-        "NAV / aksje",
-        "Aksjekurs",
-        "Oppside til NAV",
-        "1 mnd",
-        "1 år median",
-        "Dagens rabatt i ettårsintervallet",
+        "NAV",
+        "OTEC",
+        "Rabatt",
+        "1 års median",
+        "bredere enn 1-årsmedianen",
+        "smalere enn 1-årsmedianen",
     ):
         assert label in page
     assert 'return "—"' in page
-    assert "Number.isFinite(position)" in page
-    assert "Math.max(0, Math.min(100, position))" in page
     assert "history?.estimated?.statistics" in page
     assert "nav?.discount_pct" in page
-    assert "nav?.nav_per_share" in page
-    assert "-discount.month_change_pp" in page
+    assert "nav.nav_per_share" in page
+    assert "discountSpread" in page
+    assert "InsightRange" not in page
     assert '"NaN"' not in page
     assert '"Infinity"' not in page

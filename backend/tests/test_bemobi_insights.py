@@ -102,16 +102,16 @@ def test_bemobi_insights_handles_missing_and_flat_history(tmp_path) -> None:
     assert flat["range_1y"] == {"low": 22.0, "high": 22.0, "position_pct": None}
 
 
-def test_bemobi_card_has_labels_and_safe_fallbacks() -> None:
+def test_bemobi_overview_driver_keeps_core_investor_signal_and_safe_fallbacks() -> None:
     page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
     for text in (
-        "Siste kurs",
-        "NAV-effekt 1 mnd",
-        "Verdi / OTEC-aksje",
-        "Otello eier",
+        "BEMOBI",
+        "% siste måned",
+        "kr NAV/aksje",
+        "BMOB3",
     ):
         assert text in page
     assert "Sterkere BMOB3 = positivt for Otello NAV" not in page
     assert 'return "—"' in page and "Number.isFinite" in page
     assert "bemobi?.price_brl == null" in page
-    assert "!Number.isFinite(bemobi.price_brl)" in page
+    assert "bemobi?.nav_effect_1m_per_share_nok" in page

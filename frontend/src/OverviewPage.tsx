@@ -1,170 +1,27 @@
-import type { ReactNode } from "react";
-
-import {
-  MarketQuotePanelWithData,
-  type MarketQuotePayload,
-  type Quote,
-} from "./MarketQuotePanel";
-import {
-  freshnessStatus,
-  freshnessTimestamp,
-  type FreshnessCadence,
-} from "./dataFreshness";
+import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
+import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
-const EVENT_REFRESH_MS = 30 * 60 * 1000;
+const EVENT_REFRESH_MS = 5 * 60 * 1000;
 
 type Summary = {
   ready: boolean;
-  as_of_date?: string;
   otec_price?: number | null;
   brl_nok?: number | null;
   brl_nok_insights?: {
     daily_pct?: number | null;
     month_pct?: number | null;
-    quarter_pct?: number | null;
-    quarter_label?: string | null;
     nav_effect_1m_per_share_nok?: number | null;
-    range_1y?: {
-      low?: number | null;
-      high?: number | null;
-      position_pct?: number | null;
-    };
   };
   bemobi_insights?: {
     price_brl?: number | null;
-    price_date?: string | null;
     daily_pct?: number | null;
     month_pct?: number | null;
-    quarter_pct?: number | null;
-    quarter_label?: string | null;
     nav_effect_1m_per_share_nok?: number | null;
-    value_per_otec_share_nok?: number | null;
-    holding_shares?: number | null;
-    ownership_pct?: number | null;
-    range_1y?: { low?: number | null; high?: number | null; position_pct?: number | null };
   };
-  nav_discount_insights?: {
-    nav_per_share?: number | null;
-    share_price?: number | null;
-    discount_pct?: number | null;
-    upside_to_nav_pct?: number | null;
-    month_change_pp?: number | null;
-    median_1y_pct?: number | null;
-    range_1y?: { low?: number | null; high?: number | null; position_pct?: number | null };
-  };
-  bemobi_value_mnok?: number | null;
-  bemobi_ownership_pct?: number | null;
-  market_timestamps?: {
-    brl_nok?: { date?: string | null; observed_at?: string | null; source?: string | null };
-  };
-  latest_buyback?: { trade_date?: string; shares?: number } | null;
 };
-
-type FreshnessRow = {
-  label: string;
-  source: string;
-  timestamp?: string | null;
-  cadence: FreshnessCadence;
-};
-
-function readableSource(source?: string | null): string {
-  const labels: Record<string, string> = {
-    EURONEXT: "Euronext",
-    B3: "B3",
-    YAHOO_FINANCE: "Yahoo Finance",
-    NORGES_BANK: "Norges Bank",
-  };
-  return source ? labels[source] ?? "—" : "—";
-}
-
-function quoteRow(label: string, quote?: Quote): FreshnessRow {
-  return {
-    label,
-    source: readableSource(quote?.source),
-    timestamp: quote?.last_updated_at,
-    cadence: "intraday",
-  };
-}
-
-function FreshnessCard({ rows }: { rows: FreshnessRow[] }) {
-  return (
-    <div className="estimatedHeroSide freshnessCard">
-      <span className="label">Datakilder og ferskhet</span>
-      <div className="freshnessRows">
-        {rows.map((row) => {
-          const status = freshnessStatus(row.cadence, row.timestamp);
-          return (
-            <div className="freshnessRow" key={row.label}>
-              <i className={`freshnessDot ${status}`} aria-label={status} />
-              <strong>{row.label}</strong>
-              <span>{row.source}</span>
-              <time>{freshnessTimestamp(row.timestamp)}</time>
-            </div>
-          );
-        })}
-      </div>
-      <small>Grønn = fersk · Gul = forventet forsinket / marked stengt · Rød = uventet forsinket</small>
-    </div>
-  );
-}
-
-function signed(value: number | null | undefined, digits: number, suffix: string): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const prefix = value > 0 ? "+" : "";
-  return `${prefix}${formatNumber(value, digits)}${suffix}`;
-}
-
-function tone(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
-  return value > 0 ? "positive" : "negative";
-}
-
-type InsightMetric = {
-  label?: string;
-  value?: ReactNode;
-  valueClassName?: string;
-};
-
-function InsightMetricGroup({ metrics }: { metrics: InsightMetric[] }) {
-  return (
-    <div className="insightMetricGroup">
-      {metrics.map((metric, index) => metric.label ? (
-        <div className="insightMetricRow" key={metric.label}>
-          <span>{metric.label}</span>
-          <b className={metric.valueClassName}>{metric.value}</b>
-        </div>
-      ) : <div className="insightMetricRow insightMetricSlot" key={`empty-${index}`} aria-hidden="true" />)}
-    </div>
-  );
-}
-
-function InsightRange({
-  ariaLabel,
-  low,
-  high,
-  position,
-}: {
-  ariaLabel: string;
-  low: string;
-  high: string;
-  position?: number | null;
-}) {
-  return (
-    <div className="insightRange">
-      <span>1 år</span>
-      <span>{low}</span>
-      <div className="insightRangeTrack" aria-label={ariaLabel}>
-        {position != null && Number.isFinite(position) && (
-          <i style={{ left: `${Math.max(0, Math.min(100, position))}%` }} />
-        )}
-      </div>
-      <span>{high}</span>
-    </div>
-  );
-}
 
 type EstimatedNav = {
   ready: boolean;
@@ -175,49 +32,93 @@ type EstimatedNav = {
   economic_cash_mnok?: number | null;
   cash_bridge?: {
     report_date?: string | null;
-    reported_cash_mnok?: number | null;
-    estimated_cash_mnok?: number | null;
     cash_per_share_nok?: number | null;
     change_since_report_mnok?: number | null;
-    movements?: Array<{
-      key: string;
-      label: string;
-      amount_mnok?: number | null;
-    }>;
   };
-};
-
-function cashAmount(value: number | null | undefined, signedValue = false): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const prefix = signedValue && value > 0 ? "+" : "";
-  return `${prefix}${formatNumber(value, 1)} mill. kr`;
-}
-
-type Forecast = {
-  ready: boolean;
-  status?: string;
-  forecast_week?: { from?: string; to?: string };
-  estimate?: { base_case_shares?: number; low_shares?: number; high_shares?: number };
 };
 
 type BuybackProgramStatus = {
-  forecast?: Forecast;
   program?: {
     cumulative_shares?: number | null;
+    progress_pct?: number | null;
     vwap_nok?: string | number | null;
-    cash_spent_nok?: string | number | null;
-    share_count_nav_effect_per_share_nok?: number | null;
   };
   nav_effect?: {
     per_share_nok?: number | null;
-    pct?: number | null;
   };
+};
+
+type DiscountHistory = {
+  estimated?: {
+    ready: boolean;
+    statistics?: {
+      median_discount_pct?: number | null;
+    };
+  };
+};
+
+type NewsEvent = {
+  id: string | number;
+  date: string;
+  company: "Otello" | "Bemobi";
+  title: string;
+  importance: "HIGH" | "MEDIUM" | "LOW";
+  confirmed: boolean;
+  source?: string | null;
+};
+
+type NewsEventsPayload = {
+  ready: boolean;
+  events?: NewsEvent[];
+};
+
+type BrazilCalendarEvent = {
+  date: string;
+  name: string;
+  kind: string;
+  importance: string;
+};
+
+type BrazilCalendarPayload = {
+  calendar?: BrazilCalendarEvent[];
+};
+
+type OverviewEvent = {
+  id: string;
+  date: string;
+  title: string;
+  badge: string;
+  badgeClass: "bemobi" | "otello" | "macro";
+  confirmed: boolean;
+  source?: string | null;
+  importance: number;
 };
 
 function finiteNumber(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function signed(value: number | null | undefined, digits: number, suffix: string): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value > 0 ? "+" : ""}${formatNumber(value, digits)}${suffix}`;
+}
+
+function tone(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
+  return value > 0 ? "positive" : "negative";
+}
+
+function updatedTimeLabel(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleTimeString("nb-NO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Oslo",
+  });
 }
 
 function osloDateKey(now = new Date()) {
@@ -231,92 +132,6 @@ function osloDateKey(now = new Date()) {
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;
   return year && month && day ? `${year}-${month}-${day}` : null;
-}
-
-function weekStartKey(input?: string | null) {
-  if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) return null;
-  const date = new Date(`${input}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return null;
-  const weekday = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() - weekday + 1);
-  return date.toISOString().slice(0, 10);
-}
-
-function addDaysKey(input: string, days: number) {
-  const date = new Date(`${input}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function forecastPeriodLabel(week?: { from?: string; to?: string }) {
-  const currentWeek = weekStartKey(osloDateKey());
-  const forecastWeek = weekStartKey(week?.from);
-  if (!currentWeek || !forecastWeek) return "Kommende uke";
-  if (forecastWeek === currentWeek) return "Denne uken";
-  if (forecastWeek === addDaysKey(currentWeek, 7)) return "Neste uke";
-  return forecastWeek > currentWeek ? "Kommende uke" : "Siste prognose";
-}
-
-type DiscountHistory = {
-  estimated?: {
-    ready: boolean;
-    statistics?: {
-      median_discount_pct?: number | null;
-      minimum_discount_pct?: number | null;
-      maximum_discount_pct?: number | null;
-    };
-  };
-};
-
-type BemobiCalendarPayload = {
-  next_report?: {
-    period?: string | null;
-    date?: string | null;
-    date_quality?: string | null;
-    label?: string | null;
-  };
-};
-
-type BrazilCalendarEvent = {
-  date: string;
-  name: string;
-  kind: string;
-  importance: string;
-  bemobi_impact?: string | null;
-  expectation?: { release_at_utc?: string | null } | null;
-};
-
-type BrazilCalendarPayload = {
-  calendar?: BrazilCalendarEvent[];
-};
-
-type OverviewCaseEvent = {
-  key: string;
-  date: string;
-  title: string;
-  badge: string;
-  kind: "bemobi" | "macro";
-  note?: string | null;
-  releaseAtUtc?: string | null;
-};
-
-function eventTitle(event: BrazilCalendarEvent) {
-  const labels: Record<string, string> = {
-    copom: "Rentebeslutning fra sentralbanken",
-    services: "Aktivitet i tjenestenæringene",
-    retail: "Omsetning i detaljhandelen",
-    activity: "Samlet økonomisk aktivitet",
-    labor: "Arbeidsledighet",
-  };
-  if (event.kind === "inflation") return event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst";
-  if (event.kind === "gdp") return event.name.replace("BNP", "Økonomisk vekst (BNP)");
-  return labels[event.kind] ?? event.name;
-}
-
-function eventNote(event: BrazilCalendarEvent) {
-  if (event.kind === "copom") return "Styringsrenten påvirker BRL og verdsettelsen av brasilianske vekstaksjer.";
-  if (event.kind === "inflation") return "Prisvekst påvirker renteutsiktene og verdsettelsen av Bemobi.";
-  return event.bemobi_impact || "Makrotall med høy relevans for Bemobi-caset.";
 }
 
 function eventDateLabel(input: string) {
@@ -346,69 +161,80 @@ function countdownLabel(input: string) {
   return days > 1 ? `Om ${days} dager` : "";
 }
 
-function releaseTimeLabel(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat("nb-NO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Europe/Oslo",
-  }).format(parsed);
+function macroTitle(event: BrazilCalendarEvent) {
+  const labels: Record<string, string> = {
+    copom: "Rentebeslutning fra sentralbanken",
+    services: "Aktivitet i tjenestenæringene",
+    retail: "Omsetning i detaljhandelen",
+    activity: "Samlet økonomisk aktivitet",
+    labor: "Arbeidsledighet",
+  };
+  if (event.kind === "inflation") return event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst";
+  if (event.kind === "gdp") return event.name.replace("BNP", "Økonomisk vekst (BNP)");
+  return labels[event.kind] ?? event.name;
 }
 
-function updatedTimeLabel(value?: string | null) {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleTimeString("nb-NO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Oslo",
-  });
-}
-
-function buildUpcomingEvents(
-  bemobi?: BemobiCalendarPayload | null,
-  brazil?: BrazilCalendarPayload | null,
-): OverviewCaseEvent[] {
+function upcomingEvents(
+  companyPayload?: NewsEventsPayload | null,
+  brazilPayload?: BrazilCalendarPayload | null,
+): OverviewEvent[] {
   const today = osloDateKey();
   if (!today) return [];
-  const events: OverviewCaseEvent[] = [];
-  const report = bemobi?.next_report;
-  if (report?.date && report.date >= today) {
-    const confirmed = String(report.date_quality || "").toUpperCase() === "CONFIRMED";
+  const events: OverviewEvent[] = [];
+
+  for (const event of companyPayload?.events ?? []) {
+    if (!event.date || event.date < today) continue;
     events.push({
-      key: `bemobi-${report.date}-${report.period || "report"}`,
-      date: report.date,
-      title: `Bemobi ${report.period || "resultat"}`,
-      badge: "RESULTAT",
-      kind: "bemobi",
-      note: confirmed
-        ? report.label || "Kvartalsresultat og investoroppdatering."
-        : `${report.label || "Kommende rapport"} · dato ikke offisielt bekreftet`,
-    });
-  }
-  for (const event of brazil?.calendar ?? []) {
-    if (event.importance !== "Høy" || !event.date || event.date < today) continue;
-    events.push({
-      key: `macro-${event.date}-${event.kind}-${event.name}`,
+      id: `company-${event.id}`,
       date: event.date,
-      title: eventTitle(event),
-      badge: "HØY",
-      kind: "macro",
-      note: eventNote(event),
-      releaseAtUtc: event.expectation?.release_at_utc,
+      title: event.title,
+      badge: event.company,
+      badgeClass: event.company === "Bemobi" ? "bemobi" : "otello",
+      confirmed: event.confirmed,
+      source: event.source,
+      importance: event.importance === "HIGH" ? 0 : event.importance === "MEDIUM" ? 1 : 2,
     });
   }
+
+  for (const event of brazilPayload?.calendar ?? []) {
+    if (!event.date || event.date < today || !event.importance.startsWith("Høy")) continue;
+    events.push({
+      id: `macro-${event.date}-${event.kind}-${event.name}`,
+      date: event.date,
+      title: macroTitle(event),
+      badge: "Makro",
+      badgeClass: "macro",
+      confirmed: true,
+      source: "BCB / IBGE",
+      importance: 0,
+    });
+  }
+
   return events
-    .sort((left, right) => left.date.localeCompare(right.date) || left.title.localeCompare(right.title))
+    .sort((left, right) => left.date.localeCompare(right.date) || left.importance - right.importance || left.title.localeCompare(right.title))
     .slice(0, 4);
 }
 
+function quotePrice(quote?: Quote) {
+  if (quote?.last == null || !Number.isFinite(quote.last)) return "—";
+  if (quote.currency === "BRL") return `R$${formatNumber(quote.last, 2)}`;
+  if (quote.currency === "USD") return `$${formatNumber(quote.last, 2)}`;
+  if (quote.currency === "NOK") return `${formatNumber(quote.last, 2)} kr`;
+  return formatNumber(quote.last, 2);
+}
+
+function MarketTicker({ label, quote }: { label: string; quote?: Quote }) {
+  return (
+    <div className="overviewTickerItem">
+      <span>{label}</span>
+      <strong>{quotePrice(quote)}</strong>
+      <b className={tone(quote?.changes?.daily_pct)}>{signed(quote?.changes?.daily_pct, 1, " %")}</b>
+    </div>
+  );
+}
+
 export default function OverviewPage() {
-  const { data: summary, refreshFailed: summaryRefreshFailed } = usePollingResource<Summary>(
+  const { data: summary } = usePollingResource<Summary>(
     "/api/dashboard/summary",
     REFRESH_MS,
     true,
@@ -428,90 +254,60 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
-  const { data: quotes, refreshFailed: quotesRefreshFailed } =
-    usePollingResource<MarketQuotePayload>("/api/market/quotes", REFRESH_MS, true);
-  const { data: bemobiCalendar } = usePollingResource<BemobiCalendarPayload>(
-    "/api/bemobi/dashboard",
+  const { data: quotes, refreshFailed: quotesRefreshFailed } = usePollingResource<MarketQuotePayload>(
+    "/api/market/quotes",
+    REFRESH_MS,
+    true,
+  );
+  const { data: newsEvents } = usePollingResource<NewsEventsPayload>(
+    "/api/news-events",
     EVENT_REFRESH_MS,
+    true,
   );
   const { data: brazilCalendar } = usePollingResource<BrazilCalendarPayload>(
     "/api/brazil/dashboard",
     EVENT_REFRESH_MS,
+    true,
   );
-  const brlNokDate = summary?.market_timestamps?.brl_nok?.date;
-  const cashBridge = nav?.cash_bridge;
-  const forecast = buybackStatus?.forecast;
-  const buybackProgram = buybackStatus?.program;
-  const programVwap = finiteNumber(buybackProgram?.vwap_nok);
-  const programCash = finiteNumber(buybackProgram?.cash_spent_nok);
-  const buybackNavEffect = buybackStatus?.nav_effect?.per_share_nok;
+
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
-  const bemobiRange = bemobi?.range_1y;
-  const range = brl?.range_1y;
-  const discount = summary?.nav_discount_insights;
-  const historyStatistics = history?.estimated?.statistics;
-  const discountLow = historyStatistics?.minimum_discount_pct;
-  const discountHigh = historyStatistics?.maximum_discount_pct;
-  const hasDiscountRange = discountLow != null && discountHigh != null;
-  const discountPosition = hasDiscountRange && nav?.discount_pct != null
-    ? discountHigh === discountLow
-      ? 50
-      : ((nav.discount_pct - discountLow) / (discountHigh - discountLow)) * 100
+  const buybackProgram = buybackStatus?.program;
+  const buybackNavEffect = buybackStatus?.nav_effect?.per_share_nok;
+  const programVwap = finiteNumber(buybackProgram?.vwap_nok);
+  const cashBridge = nav?.cash_bridge;
+  const discountMedian = history?.estimated?.statistics?.median_discount_pct;
+  const discountSpread = nav?.discount_pct != null && discountMedian != null
+    ? nav.discount_pct - discountMedian
     : null;
-  const hasRange = range?.low != null && range?.high != null;
-  const hasBemobiRange = bemobiRange?.low != null && bemobiRange?.high != null;
-  const brlNokStatus = summaryRefreshFailed
-    ? summary
-      ? `Viser siste gode kurs ${formatDate(brlNokDate)}`
-      : "Kurs utilgjengelig"
-    : `Siste kurs ${formatDate(brlNokDate)}`;
-  const freshnessRows: FreshnessRow[] = [
-    quoteRow("OTEC", quotes?.symbols?.OTEC),
-    quoteRow("Bemobi", quotes?.symbols?.BMOB3),
-    quoteRow("Life360", quotes?.symbols?.LIF),
-    {
-      label: "BRL/NOK",
-      source: readableSource(summary?.market_timestamps?.brl_nok?.source),
-      timestamp: summary?.market_timestamps?.brl_nok?.observed_at
-        ?? summary?.market_timestamps?.brl_nok?.date,
-      cadence: "daily",
-    },
-    {
-      label: "NAV",
-      source: "Beregnet",
-      timestamp: nav?.calculated_at,
-      cadence: "intraday",
-    },
-  ];
-  const upcomingEvents = buildUpcomingEvents(bemobiCalendar, brazilCalendar);
-  const nextEvent = upcomingEvents[0];
+  const events = upcomingEvents(newsEvents, brazilCalendar);
+  const nextEvent = events[0];
+  const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
 
   return (
-    <div className="investorPage overviewV2">
+    <div className="investorPage overviewV3">
       <section className="overviewHeroGrid">
-        <article className="card overviewNavCard">
+        <article className="card overviewNavCard overviewNavCardV3">
           <span className="label">NAV</span>
-          <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share)} kr` : "Laster …"}</h2>
-          <p>Dagens beste estimat på verdien per Otello-aksje.</p>
-          <div className="overviewNavMeta">
-            <div>
-              <span>Rabatt</span>
-              <strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong>
-            </div>
-            <div>
-              <span>Oppdatert</span>
-              <strong>{updatedTimeLabel(nav?.calculated_at)}</strong>
-            </div>
+          <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : "Laster …"}</h2>
+          <div className="overviewNavSnapshot">
+            <div><span>OTEC</span><strong>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
+            <div><span>Rabatt</span><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
+            <div><span>1 års median</span><strong>{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
+          <div className="overviewDiscountContext">
+            {discountSpread == null
+              ? "Historisk rabatt sammenlignes når data er tilgjengelige."
+              : discountSpread >= 0
+                ? `Rabatten er ${formatNumber(discountSpread, 1)} pp bredere enn 1-årsmedianen.`
+                : `Rabatten er ${formatNumber(Math.abs(discountSpread), 1)} pp smalere enn 1-årsmedianen.`}
+          </div>
+          <small className="overviewUpdated">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
         </article>
 
-        <article className="card overviewUpcomingCard">
+        <article className="card overviewUpcomingCard overviewUpcomingCardV3">
           <div className="overviewUpcomingHeader">
-            <div>
-              <span className="label">NESTE VIKTIGE DATOER</span>
-              <h2>Hva bør følges nå?</h2>
-            </div>
+            <div><span className="label">NESTE VIKTIGE DATOER</span><h2>Hva bør følges nå?</h2></div>
           </div>
           {nextEvent ? (
             <>
@@ -523,153 +319,112 @@ export default function OverviewPage() {
                 <div className="overviewNextEventMain">
                   <div>
                     <strong>{nextEvent.title}</strong>
-                    <span className={`overviewEventBadge ${nextEvent.kind}`}>{nextEvent.badge}</span>
+                    <span className={`overviewEventBadge ${nextEvent.badgeClass}`}>{nextEvent.badge}</span>
                   </div>
-                  <small>
-                    {nextEvent.releaseAtUtc && releaseTimeLabel(nextEvent.releaseAtUtc)
-                      ? `Norsk tid kl. ${releaseTimeLabel(nextEvent.releaseAtUtc)} · `
-                      : ""}
-                    {nextEvent.note}
-                  </small>
+                  <small>{nextEvent.confirmed ? "Bekreftet dato" : "Forventet dato"}{nextEvent.source ? ` · ${nextEvent.source}` : ""}</small>
                 </div>
               </div>
-              {upcomingEvents.length > 1 && (
+              {events.length > 1 && (
                 <div className="overviewUpcomingRows">
-                  {upcomingEvents.slice(1).map((event) => (
-                    <div key={event.key}>
+                  {events.slice(1).map((event) => (
+                    <div key={event.id}>
                       <time>{eventDateLabel(event.date)}</time>
                       <strong>{event.title}</strong>
-                      <span className={`overviewEventBadge ${event.kind}`}>{event.badge}</span>
+                      <span className={`overviewEventBadge ${event.badgeClass}`}>{event.badge}</span>
                     </div>
                   ))}
                 </div>
               )}
             </>
           ) : (
-            <div className="overviewUpcomingEmpty">Venter på neste bekreftede Bemobi-dato eller makrohendelse med høy relevans.</div>
+            <div className="overviewUpcomingEmpty">Ingen kommende selskaps- eller makrohendelser med høy relevans er registrert.</div>
           )}
         </article>
       </section>
 
-      <section className="kpiGrid overviewKpiGrid">
-        <article className="card kpi insightCard">
-          <span className="label">BRL/NOK</span>
-          <div className="insightHeadline">
-            <strong>{formatNumber(summary?.brl_nok, 4)}</strong>
-            <strong className={tone(brl?.daily_pct)}>{signed(brl?.daily_pct, 2, " %")}</strong>
-          </div>
-          <small className="insightSubline">{brlNokStatus}</small>
-          <div className="insightDivider" />
-          <InsightMetricGroup metrics={[
-            { label: "1 mnd", value: signed(brl?.month_pct, 1, " %"), valueClassName: tone(brl?.month_pct) },
-            { label: brl?.quarter_label ? `Siden ${brl.quarter_label}` : "Siden kvartal", value: signed(brl?.quarter_pct, 1, " %"), valueClassName: tone(brl?.quarter_pct) },
-            { label: "NAV-effekt 1 mnd", value: signed(brl?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), valueClassName: tone(brl?.nav_effect_1m_per_share_nok) },
-          ]} />
-          <InsightMetricGroup metrics={[{}, {}]} />
-          <InsightRange ariaLabel="Posisjon i ettårsintervallet" low={hasRange ? formatNumber(range?.low, 2) : "—"} high={hasRange ? formatNumber(range?.high, 2) : "—"} position={range?.position_pct} />
-          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
-        </article>
-        <article className="card kpi insightCard">
-          <span className="label">NAV-rabatt</span>
-          <div className="insightHeadline"><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
-          <small className="insightSubline" aria-hidden="true">&nbsp;</small>
-          <div className="insightDivider" />
-          <InsightMetricGroup metrics={[
-            { label: "NAV / aksje", value: nav?.nav_per_share == null ? "—" : `${formatNumber(nav.nav_per_share, 2)} kr` },
-            { label: "Aksjekurs", value: summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr` },
-            { label: "Oppside til NAV", value: signed(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null, 1, " %"), valueClassName: tone(nav?.nav_per_share != null && summary?.otec_price != null ? (nav.nav_per_share / summary.otec_price - 1) * 100 : null) },
-          ]} />
-          <InsightMetricGroup metrics={[
-            { label: "1 mnd", value: signed(discount?.month_change_pp, 1, " pp"), valueClassName: tone(discount?.month_change_pp == null ? null : -discount.month_change_pp) },
-            { label: "1 år median", value: historyStatistics?.median_discount_pct == null ? "—" : `${formatNumber(historyStatistics.median_discount_pct, 1)} %` },
-          ]} />
-          <InsightRange ariaLabel="Dagens rabatt i ettårsintervallet" low={hasDiscountRange ? `${formatNumber(discountLow, 1)} %` : "—"} high={hasDiscountRange ? `${formatNumber(discountHigh, 1)} %` : "—"} position={discountPosition} />
-          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
-        </article>
-        <article className="card kpi insightCard">
-          <span className="label">Bemobi</span>
-          <div className="insightHeadline">
-            <strong>{bemobi?.price_brl == null || !Number.isFinite(bemobi.price_brl) ? "—" : `${formatNumber(bemobi.price_brl, 2)} BRL`}</strong>
-            <strong className={tone(bemobi?.daily_pct)}>{signed(bemobi?.daily_pct, 1, " %")}</strong>
-          </div>
-          <small className="insightSubline">Siste kurs {formatDate(bemobi?.price_date)}</small>
-          <div className="insightDivider" />
-          <InsightMetricGroup metrics={[
-            { label: "1 mnd", value: signed(bemobi?.month_pct, 1, " %"), valueClassName: tone(bemobi?.month_pct) },
-            { label: bemobi?.quarter_label ? `Siden ${bemobi.quarter_label}` : "Siden kvartal", value: signed(bemobi?.quarter_pct, 1, " %"), valueClassName: tone(bemobi?.quarter_pct) },
-            { label: "NAV-effekt 1 mnd", value: signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr/aksje"), valueClassName: tone(bemobi?.nav_effect_1m_per_share_nok) },
-          ]} />
-          <InsightMetricGroup metrics={[
-            { label: "Verdi / OTEC-aksje", value: bemobi?.value_per_otec_share_nok == null || !Number.isFinite(bemobi.value_per_otec_share_nok) ? "—" : `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr` },
-            { label: "Otello eier", value: bemobi?.holding_shares == null || !Number.isFinite(bemobi.holding_shares) || bemobi?.ownership_pct == null || !Number.isFinite(bemobi.ownership_pct) ? "—" : `${formatNumber(bemobi.holding_shares / 1_000_000, 1)}m / ${formatNumber(bemobi.ownership_pct, 1)} %` },
-          ]} />
-          <InsightRange ariaLabel="BMOB3-posisjon i ettårsintervallet" low={hasBemobiRange ? formatNumber(bemobiRange?.low, 2) : "—"} high={hasBemobiRange ? formatNumber(bemobiRange?.high, 2) : "—"} position={bemobiRange?.position_pct} />
-          <small className="insightFootnote" aria-hidden="true">&nbsp;</small>
-        </article>
+      <section className="overviewSection">
+        <div className="overviewSectionHeading">
+          <div><span className="label">HVA DRIVER NAV NÅ?</span><h2>De viktigste verdidriverne</h2></div>
+          <small>Siste måned for markedsdriverne · akkumulert effekt for tilbakekjøp.</small>
+        </div>
+        <div className="overviewDriverGrid">
+          <article className="card overviewDriverCard">
+            <span className="label">BEMOBI</span>
+            <strong>{signed(bemobi?.month_pct, 1, " % siste måned")}</strong>
+            <div className={`overviewDriverEffect ${tone(bemobi?.nav_effect_1m_per_share_nok)}`}>
+              {signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
+            </div>
+            <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
+          </article>
+
+          <article className="card overviewDriverCard">
+            <span className="label">BRL/NOK</span>
+            <strong>{signed(brl?.month_pct, 1, " % siste måned")}</strong>
+            <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)}`}>
+              {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
+            </div>
+            <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
+          </article>
+
+          <article className="card overviewDriverCard">
+            <span className="label">TILBAKEKJØP</span>
+            <strong>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</strong>
+            <div className={`overviewDriverEffect ${tone(buybackNavEffect)}`}>
+              {signed(buybackNavEffect, 2, " kr netto NAV/aksje")}
+            </div>
+            <small>{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % av programmet gjennomført`}</small>
+          </article>
+        </div>
       </section>
 
-      <section className="overviewGrid">
-        <article className="card">
-          <div className="cardHeader"><div><span className="label">Kapitalallokering</span><h2>Tilbakekjøpsprogram</h2></div></div>
-          <div className="placeholderRows overviewBuybackRows">
-            <div>
-              <span>Siste rapporterte kjøp</span>
-              <span className="overviewBuybackValue">
-                <strong>{formatInteger(summary?.latest_buyback?.shares)} aksjer</strong>
-                <small>{formatDate(summary?.latest_buyback?.trade_date)}</small>
-              </span>
-            </div>
-            <div>
-              <span>{forecastPeriodLabel(forecast?.forecast_week)} – baseestimat</span>
-              <span className="overviewBuybackValue">
-                <strong>{formatInteger(forecast?.estimate?.base_case_shares)} aksjer</strong>
-                <small>{formatDate(forecast?.forecast_week?.from)}–{formatDate(forecast?.forecast_week?.to)}</small>
-              </span>
-            </div>
-            <div><span>Estimatintervall</span><strong>{formatInteger(forecast?.estimate?.low_shares)}–{formatInteger(forecast?.estimate?.high_shares)}</strong></div>
-            <div><span>Kjøpt siden programstart</span><strong>{buybackProgram?.cumulative_shares == null || !Number.isFinite(buybackProgram.cumulative_shares) ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer`}</strong></div>
-            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
-            <div><span>Kontantbruk hittil</span><strong className="negative">{programCash == null ? "—" : `${formatNumber(programCash / 1_000_000, 1)} mill. kr`}</strong></div>
-            <div><span>Netto NAV-effekt fra tilbakekjøp</span><strong className={tone(buybackNavEffect)}>{signed(buybackNavEffect, 2, " kr/aksje")}</strong></div>
-          </div>
-        </article>
-
-        <article className="card estimatedCashCard">
-          <span className="label">Estimert kontantbeholdning</span>
-          <strong className="estimatedCashValue">{cashAmount(nav?.economic_cash_mnok)}</strong>
-          <strong className="estimatedCashPerShare">
-            {cashBridge?.cash_per_share_nok == null || !Number.isFinite(cashBridge.cash_per_share_nok)
-              ? "—"
-              : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}
-          </strong>
-          <small className="estimatedCashDate">Estimert per {formatDate(nav?.as_of_date)}</small>
-          <div className="cashBridgeRows">
-            <div>
-              <span>Rapportert kontantbeholdning</span>
-              <strong>{cashAmount(cashBridge?.reported_cash_mnok)}</strong>
-            </div>
-            {(cashBridge?.movements ?? []).map((movement) => (
-              <div key={movement.key}>
-                <span>{movement.label}</span>
-                <strong className={tone(movement.amount_mnok)}>
-                  {cashAmount(movement.amount_mnok, true)}
-                </strong>
-              </div>
-            ))}
-            <div className="cashBridgeChange">
+      <section className="overviewSection">
+        <div className="overviewSectionHeading">
+          <div><span className="label">KAPITAL</span><h2>Cash og tilbakekjøp</h2></div>
+        </div>
+        <div className="overviewCapitalGrid">
+          <article className="card overviewCapitalCard">
+            <span className="label">CASH</span>
+            <strong className="overviewCapitalValue">{nav?.economic_cash_mnok == null ? "—" : `${formatNumber(nav.economic_cash_mnok, 1)} mill. kr`}</strong>
+            <span>{cashBridge?.cash_per_share_nok == null ? "—" : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}</span>
+            <div className="overviewCapitalMeta">
               <span>Endring siden siste rapport</span>
-              <strong className={tone(cashBridge?.change_since_report_mnok)}>
-                {cashAmount(cashBridge?.change_since_report_mnok, true)}
-              </strong>
+              <strong className={tone(cashBridge?.change_since_report_mnok)}>{signed(cashBridge?.change_since_report_mnok, 1, " mill. kr")}</strong>
             </div>
-          </div>
-          <small className="estimatedCashFootnote">
-            Siste rapporterte kontantbeholdning: {formatDate(cashBridge?.report_date)}
-          </small>
-        </article>
+            <a className="overviewDeepLink" href="#cash">Se cash og kapitalallokering →</a>
+          </article>
+
+          <article className="card overviewCapitalCard">
+            <span className="label">TILBAKEKJØP</span>
+            <strong className="overviewCapitalValue">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % gjennomført`}</strong>
+            <span>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</span>
+            <div className="overviewCapitalMeta overviewCapitalMetaTwo">
+              <div><span>Snittpris</span><strong>{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
+              <div><span>Netto NAV-effekt</span><strong className={tone(buybackNavEffect)}>{signed(buybackNavEffect, 2, " kr/aksje")}</strong></div>
+            </div>
+            <a className="overviewDeepLink" href="#tilbakekjop">Se tilbakekjøpsprogram →</a>
+          </article>
+        </div>
       </section>
 
-      <MarketQuotePanelWithData data={quotes} failed={quotesRefreshFailed} />
+      <section className="card overviewMarketStrip">
+        <div className="overviewMarketStripHeader">
+          <span className="label">MARKED</span>
+          {quotesRefreshFailed ? <small>Viser siste gode markedsdata</small> : null}
+        </div>
+        <div className="overviewTickerGrid">
+          <MarketTicker label="OTEC" quote={quotes?.symbols?.OTEC} />
+          <MarketTicker label="BMOB3" quote={quotes?.symbols?.BMOB3} />
+          <div className="overviewTickerItem">
+            <span>BRL/NOK</span>
+            <strong>{summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</strong>
+            <b className={tone(brl?.daily_pct)}>{signed(brl?.daily_pct, 1, " %")}</b>
+          </div>
+          <MarketTicker label="LIF" quote={quotes?.symbols?.LIF} />
+        </div>
+        {otecVolumeRelative != null && Number.isFinite(otecVolumeRelative) && otecVolumeRelative >= 1.5 ? (
+          <small className="overviewVolumeAlert">OTEC-volum siste handelsdag: {formatNumber(otecVolumeRelative, 1)}× 3-månederssnitt.</small>
+        ) : null}
+      </section>
     </div>
   );
 }

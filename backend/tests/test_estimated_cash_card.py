@@ -85,17 +85,17 @@ def test_worker_cash_bridge_has_backend_parity() -> None:
     assert worker.build_cash_bridge(**arguments) == build_cash_bridge(**arguments)
 
 
-def test_overview_replaces_the_old_mixed_bemobi_card() -> None:
+def test_overview_cash_card_is_compact_and_links_to_cash_page() -> None:
     page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
-    cash_card = page.split('className="card estimatedCashCard"', maxsplit=1)[1]
-    cash_card = cash_card.split("</article>", maxsplit=1)[0]
-    assert "Estimert kontantbeholdning" in cash_card
-    assert "kr / OTEC-aksje" in cash_card
-    assert "Endring siden siste rapport" in cash_card
-    assert "Verdi for Otello" not in cash_card
-    assert "Otellos eierandel" not in cash_card
-    assert "Number.isFinite" in cash_card
+    assert 'className="card overviewCapitalCard"' in page
+    assert '<span className="label">CASH</span>' in page
+    assert "mill. kr" in page
+    assert "kr / OTEC-aksje" in page
+    assert "Endring siden siste rapport" in page
+    assert "Se cash og kapitalallokering" in page
+    assert 'href="#cash"' in page
+    assert "cashBridge?.movements" not in page
     assert 'return "—"' in page
 
 
