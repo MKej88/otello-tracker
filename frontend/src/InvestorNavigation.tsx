@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { menu, type View } from "./investorViews";
+import { navigationGroups, type View } from "./investorViews";
 
 const HOVER_PRELOAD_DELAY_MS = 120;
 
@@ -38,24 +38,31 @@ export default function InvestorNavigation({
         <span aria-hidden="true" className="brandMark">O</span>
         <div><strong>Otello</strong><small>Investorverktøy</small></div>
       </div>
-      <nav aria-label="Hovedmeny">
-        {menu.map((item) => (
-          <button
-            aria-current={item === activeView ? "page" : undefined}
-            className={item === activeView ? "navItem active" : "navItem"}
-            key={item}
-            onClick={() => {
-              cancelHoverPreload();
-              onSelect(item);
-            }}
-            onFocus={() => onPreload(item)}
-            onMouseEnter={() => scheduleHoverPreload(item)}
-            onMouseLeave={cancelHoverPreload}
-            type="button"
-          >
-            <span aria-hidden="true" className="navDot" />
-            {item}
-          </button>
+      <nav className="investorNav" aria-label="Hovedmeny">
+        {navigationGroups.map((group) => (
+          <div className="navGroup" key={group.label}>
+            <span className="navGroupLabel">{group.label}</span>
+            <div className="navGroupItems">
+              {group.items.map((item) => (
+                <button
+                  aria-current={item === activeView ? "page" : undefined}
+                  className={item === activeView ? "navItem active" : "navItem"}
+                  key={item}
+                  onClick={() => {
+                    cancelHoverPreload();
+                    onSelect(item);
+                  }}
+                  onFocus={() => onPreload(item)}
+                  onMouseEnter={() => scheduleHoverPreload(item)}
+                  onMouseLeave={cancelHoverPreload}
+                  type="button"
+                >
+                  <span aria-hidden="true" className="navDot" />
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
       <div className="sidebarFooter investorSidebarFooter">
