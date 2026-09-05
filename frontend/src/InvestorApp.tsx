@@ -5,6 +5,7 @@ import OverviewPage from "./OverviewPage";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
 import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 import "./investor-v2.css";
+import "./otello-theme.css";
 
 const loadNavPage = () => import("./NavPageV2");
 const loadNavSensitivityPage = () => import("./NavSensitivityPage");

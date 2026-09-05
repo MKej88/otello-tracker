@@ -1,0 +1,316 @@
+/*
+ * Otello visual identity
+ *
+ * A neutral, finance-first dark theme. Blue is reserved for brand/interaction,
+ * while green/red/amber are reserved for semantic market states.
+ * Keep layout rules in the existing page styles; this file owns the shared palette.
+ */
+:root {
+  color-scheme: dark;
+
+  --ot-bg: #0b0d10;
+  --ot-sidebar: #0d1014;
+  --ot-surface: #12161c;
+  --ot-surface-raised: #171c23;
+  --ot-surface-muted: #101419;
+
+  --ot-border: #272d36;
+  --ot-border-soft: #20262e;
+  --ot-border-strong: #343c47;
+
+  --ot-text: #f5f7fa;
+  --ot-text-secondary: #a2abb7;
+  --ot-text-muted: #76818f;
+
+  --ot-accent: #4f91d4;
+  --ot-accent-strong: #69a7e6;
+  --ot-accent-soft: rgba(79, 145, 212, 0.12);
+  --ot-accent-border: rgba(79, 145, 212, 0.38);
+
+  --ot-positive: #36c99a;
+  --ot-negative: #f06f7d;
+  --ot-warning: #d2a851;
+
+  color: var(--ot-text);
+  background: var(--ot-bg);
+}
+
+html,
+body {
+  background: var(--ot-bg);
+  color: var(--ot-text);
+}
+
+body {
+  /* Deliberately flat: avoids the generic AI/SaaS blue glow. */
+  background-image: none;
+}
+
+/* Navigation and brand --------------------------------------------------- */
+.sidebar {
+  background: var(--ot-sidebar);
+  border-right-color: var(--ot-border-soft);
+}
+
+.brandMark {
+  background: var(--ot-accent);
+  color: #fff;
+  box-shadow: none;
+}
+
+.brand small,
+.sidebarFooter {
+  color: var(--ot-text-muted);
+}
+
+.sidebarFooter {
+  border-top-color: var(--ot-border-soft);
+}
+
+.navItem {
+  color: #929ca9;
+}
+
+.navItem:not(:disabled):hover {
+  background: var(--ot-surface-raised);
+  color: var(--ot-text);
+}
+
+.navItem.active {
+  background: #18202a;
+  color: var(--ot-text);
+  box-shadow: inset 0 0 0 1px var(--ot-accent-border);
+}
+
+.navItem.active .navDot {
+  background: var(--ot-accent);
+  border-color: var(--ot-accent);
+}
+
+/* Typography ------------------------------------------------------------- */
+h1,
+h2,
+.card strong {
+  color: var(--ot-text);
+}
+
+.eyebrow,
+.label,
+.updated {
+  color: var(--ot-text-muted);
+}
+
+.pageIntro p,
+.insightMetricRow,
+.placeholderRows > div,
+.sourceList > div,
+.cashBridgeRows > div,
+.chartSummary {
+  color: var(--ot-text-secondary);
+}
+
+.insightRange,
+.insightFootnote,
+.overviewBuybackValue small,
+.estimatedCashDate,
+.estimatedCashFootnote,
+.sourceWait {
+  color: var(--ot-text-muted);
+}
+
+/* Surfaces --------------------------------------------------------------- */
+.card {
+  background: var(--ot-surface);
+  border-color: var(--ot-border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.insightDivider,
+.overviewBuybackRows .overviewBuybackDivider {
+  background: var(--ot-border-soft);
+}
+
+.insightMetricGroup + .insightMetricGroup,
+.placeholderRows > div,
+.sourceList > div,
+.cashBridgeRows > div:first-child,
+.cashBridgeRows .cashBridgeChange {
+  border-color: var(--ot-border-soft);
+}
+
+.insightRangeTrack {
+  background: #424a55;
+}
+
+.estimatedCashValue,
+.placeholderRows strong {
+  color: var(--ot-text);
+}
+
+.estimatedCashPerShare,
+.cashBridgeRows .cashBridgeChange {
+  color: var(--ot-text-secondary);
+}
+
+.donut::after {
+  background: var(--ot-surface);
+}
+
+/* Controls --------------------------------------------------------------- */
+.pill,
+.periodButtons button {
+  border-color: var(--ot-border-strong);
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
+}
+
+.pill.muted {
+  border-color: var(--ot-border);
+  background: var(--ot-surface-muted);
+  color: var(--ot-text-muted);
+}
+
+.periodButtons button:hover {
+  border-color: #4a5563;
+  background: #1b2129;
+}
+
+.periodButtons button.active {
+  background: var(--ot-accent-soft);
+  border-color: var(--ot-accent-border);
+  color: var(--ot-text);
+}
+
+:focus-visible {
+  outline-color: var(--ot-accent-strong);
+}
+
+.skipLink {
+  background: var(--ot-text);
+  color: var(--ot-bg);
+}
+
+/* Charts ----------------------------------------------------------------- */
+.realChart {
+  background: #0e1115;
+  border-color: var(--ot-border-soft);
+}
+
+.gridLine,
+.axisGrid {
+  stroke: var(--ot-border-soft);
+}
+
+.axisTick,
+.axisZero {
+  stroke: #505966;
+}
+
+.legend {
+  background: rgba(11, 13, 16, 0.86);
+}
+
+.chartDates,
+.chartEmpty {
+  color: var(--ot-text-muted);
+}
+
+.chartEmpty {
+  border-color: var(--ot-border-strong);
+}
+
+.navSeries,
+.navLegend {
+  stroke: var(--ot-accent);
+  color: var(--ot-accent);
+}
+
+/* Investor V2 shared borders -------------------------------------------- */
+.estimatedHeroSide,
+.freshnessRow,
+.compositionRow,
+.driverLabel small,
+.driverCell small,
+.changeSummary > div,
+.qualityOverall,
+.nightlyMetrics > div,
+.nightlySources > div,
+.qualityMethodSteps > div,
+.qualityMetricGrid > div,
+.qualityReportMeta > div,
+.qualityReportMeta a,
+.qualityStep {
+  border-color: var(--ot-border-soft);
+}
+
+.compositionTotal {
+  border-top-color: var(--ot-accent-border);
+}
+
+.nightlyControl {
+  background: var(--ot-surface-raised);
+}
+
+.driverBarTrack {
+  background: #262c34;
+}
+
+/* Semantic market colours ---------------------------------------------- */
+.positive,
+.sourceOk,
+.freshnessDot.fresh,
+.qualityDot.ok,
+.positiveBar {
+  color: var(--ot-positive);
+}
+
+.positive,
+.sourceOk {
+  color: var(--ot-positive);
+}
+
+.insightRangeTrack i,
+.freshnessDot.fresh,
+.qualityDot.ok {
+  background: var(--ot-positive);
+}
+
+.negative,
+.negativeBar {
+  color: var(--ot-negative);
+}
+
+.sourceWarn {
+  color: var(--ot-warning);
+}
+
+.freshnessDot.delayed {
+  background: var(--ot-warning);
+}
+
+.freshnessDot.stale {
+  background: var(--ot-negative);
+}
+
+.neutral {
+  color: var(--ot-text-muted);
+}
+
+/* Notices keep meaning, but use the neutral surface language. */
+.neutralWarning,
+.resourceNotice {
+  border-color: var(--ot-border-strong);
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
+}
+
+.neutralWarning strong,
+.resourceNotice strong {
+  color: var(--ot-text);
+}
+
+@media (max-width: 850px) {
+  .sidebar {
+    border-bottom-color: var(--ot-border-soft);
+  }
+}
