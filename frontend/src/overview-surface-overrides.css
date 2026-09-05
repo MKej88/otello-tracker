@@ -1,0 +1,9 @@
+/* Overview NAV snapshot: keep the three inset KPI boxes in the same navy family as the hero card instead of the generic near-black muted surface. */
+.overviewV3 {
+  --overview-inset-surface: #17283d;
+}
+
+.overviewV3 .overviewNavSnapshot > div {
+  background: var(--overview-inset-surface);
+  border-color: rgba(79, 145, 212, 0.24);
+}
