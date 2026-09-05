@@ -58,6 +58,22 @@ def _dimension_values(dimension: dict[str, Any]) -> list[str]:
     return [str(item.get("id") or "") for item in values if isinstance(item, dict)]
 
 
+def _missing_currencies_by_date(
+    dates_by_base: dict[str, set[str]],
+) -> dict[str, list[str]]:
+    all_dates = set().union(*dates_by_base.values())
+    missing_by_date: dict[str, list[str]] = {}
+    for trading_date in sorted(all_dates):
+        missing = [
+            currency
+            for currency in FX_BASE_CURRENCIES
+            if trading_date not in dates_by_base[currency]
+        ]
+        if missing:
+            missing_by_date[trading_date] = missing
+    return missing_by_date
+
+
 def _series_unit_multiplier(structure: dict[str, Any], series: dict[str, Any]) -> int:
     attributes = structure.get("attributes") or {}
     series_attributes = attributes.get("series") if isinstance(attributes, dict) else None
@@ -127,6 +143,9 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
 
     rows: list[tuple[str, str, Decimal]] = []
     found_bases: set[str] = set()
+    dates_by_base: dict[str, set[str]] = {
+        currency: set() for currency in FX_BASE_CURRENCIES
+    }
     for series_key, series in series_map.items():
         if not isinstance(series, dict):
             continue
@@ -162,12 +181,22 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
                 raise ValueError(f"Ugyldig {base}/NOK-kurs: {rate}")
             rows.append((trading_date, base, rate))
             found_bases.add(base)
+            dates_by_base[base].add(trading_date)
 
     if not rows:
         raise ValueError("Norges Bank-returneringen inneholdt ingen AUD/NOK, BRL/NOK eller USD/NOK-rader")
     missing = sorted(set(FX_BASE_CURRENCIES) - found_bases)
     if missing:
         raise ValueError(f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}")
+    incomplete_dates = _missing_currencies_by_date(dates_by_base)
+    if incomplete_dates:
+        details = "; ".join(
+            f"{trading_date} mangler {', '.join(currencies)}"
+            for trading_date, currencies in incomplete_dates.items()
+        )
+        raise ValueError(
+            f"Norges Bank-returneringen har ufullstendige valutadatoer: {details}"
+        )
     return sorted(rows)
 
 
