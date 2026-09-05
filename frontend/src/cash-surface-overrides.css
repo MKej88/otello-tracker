@@ -18,3 +18,15 @@
 .investorPage.cashPage .cashBuybackSecondaryFacts > div {
   border-color: rgba(79, 145, 212, 0.24);
 }
+
+/* The shared theme sets `.card strong` to the normal text color. That selector is
+ * more specific than the generic `.positive` / `.negative` helpers, so cash-bridge
+ * movements otherwise lose their semantic green/red colors inside this card.
+ */
+.investorPage.cashPage .cashBridgeRows strong.positive {
+  color: var(--ot-positive);
+}
+
+.investorPage.cashPage .cashBridgeRows strong.negative {
+  color: var(--ot-negative);
+}
