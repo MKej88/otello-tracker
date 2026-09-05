@@ -61,6 +61,23 @@ type BuybackDashboard = {
   };
 };
 
+type EconomicDashboard = {
+  ready: boolean;
+  as_of_date?: string | null;
+  cash_bridge?: {
+    report_date?: string | null;
+    reported_cash_mnok?: number | null;
+    estimated_cash_mnok?: number | null;
+    cash_per_share_nok?: number | null;
+    change_since_report_mnok?: number | null;
+    movements?: Array<{
+      key: string;
+      label: string;
+      amount_mnok?: number | null;
+    }>;
+  };
+};
+
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -107,6 +124,7 @@ function statusLabel(input?: string | null) {
 export default function CashPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [bemobi, setBemobi] = useState<BemobiDashboard | null>(null);
+  const [economic, setEconomic] = useState<EconomicDashboard | null>(null);
   const [buyback, setBuyback] = useState<BuybackDashboard | null>(null);
   const [coreFailed, setCoreFailed] = useState(false);
   const [partialFailed, setPartialFailed] = useState(false);
@@ -117,9 +135,10 @@ export default function CashPage() {
     let active = true;
 
     const load = async () => {
-      const [summaryResult, bemobiResult, buybackResult] = await Promise.allSettled([
+      const [summaryResult, bemobiResult, economicResult, buybackResult] = await Promise.allSettled([
         fetchJson<Summary>("/api/dashboard/summary"),
         fetchJson<BemobiDashboard>("/api/bemobi/dashboard"),
+        fetchJson<EconomicDashboard>("/api/dashboard/economic"),
         fetchJson<BuybackDashboard>("/api/buybacks/dashboard"),
       ]);
 
@@ -130,10 +149,13 @@ export default function CashPage() {
         setPriceAssumption((current) => current ?? summaryResult.value.otec_price ?? null);
       }
       if (bemobiResult.status === "fulfilled") setBemobi(bemobiResult.value);
+      if (economicResult.status === "fulfilled") setEconomic(economicResult.value);
       if (buybackResult.status === "fulfilled") setBuyback(buybackResult.value);
 
       setCoreFailed(
-        summaryResult.status === "rejected" || bemobiResult.status === "rejected",
+        summaryResult.status === "rejected" ||
+        bemobiResult.status === "rejected" ||
+        economicResult.status === "rejected",
       );
       setPartialFailed(buybackResult.status === "rejected");
     };
@@ -147,7 +169,8 @@ export default function CashPage() {
   }, []);
 
   const metrics = useMemo(() => {
-    const directCashM = summary?.estimated_cash_mnok ?? null;
+    const cashBridge = economic?.cash_bridge;
+    const directCashM = cashBridge?.estimated_cash_mnok ?? null;
     const ownershipPct = bemobi?.otello?.ownership_pct ?? null;
     const ownership = ownershipPct == null ? null : ownershipPct / 100;
     const bemobiCashMbrl = bemobi?.latest_result?.cash_mbrl ?? null;
@@ -163,10 +186,7 @@ export default function CashPage() {
         ? null
         : directCashM + bemobiLookthroughMnok;
     const shares = summary?.shares_outstanding ?? buyback?.shares?.outstanding_shares ?? null;
-    const directPerShare =
-      directCashM == null || shares == null || shares <= 0
-        ? null
-        : directCashM * 1_000_000 / shares;
+    const directPerShare = cashBridge?.cash_per_share_nok ?? null;
     const combinedPerShare =
       combinedM == null || shares == null || shares <= 0
         ? null
@@ -193,7 +213,7 @@ export default function CashPage() {
       combinedPctNav,
       brlNok,
     };
-  }, [summary, bemobi, buyback]);
+  }, [summary, bemobi, economic, buyback]);
 
   const buybackCalc = useMemo(() => {
     const directCashM = metrics.directCashM;
@@ -235,7 +255,7 @@ export default function CashPage() {
     };
   }, [metrics, summary, buyback, bufferM, priceAssumption]);
 
-  if (coreFailed && (!summary || !bemobi)) {
+  if (coreFailed && (!summary || !bemobi || !economic)) {
     return (
       <ResourceNotice kind="error">
         Kunne ikke hente cash- og kapitalallokeringsdata. Prøv å laste siden på nytt.
@@ -243,10 +263,11 @@ export default function CashPage() {
     );
   }
 
-  if (!summary || !bemobi) {
+  if (!summary || !bemobi || !economic) {
     return <ResourceNotice>Laster cash- og kapitalallokeringsdata …</ResourceNotice>;
   }
 
+  const cashAsOfDate = economic.as_of_date ?? summary.as_of_date;
   const directShare = metrics.combinedM && metrics.directCashM != null
     ? metrics.directCashM / metrics.combinedM * 100
     : null;
@@ -275,7 +296,7 @@ export default function CashPage() {
         </div>
         <div className="cashHeroMeta">
           <span className="pill">OTEC + BMOB3</span>
-          <span>OTEC-estimat {formatDate(summary.as_of_date)}</span>
+          <span>OTEC-estimat {formatDate(cashAsOfDate)}</span>
           <span>Bemobi-balanse {formatDate(bemobi.latest_result?.period_end)}</span>
         </div>
       </section>
@@ -356,7 +377,7 @@ export default function CashPage() {
           </div>
           <div className="cashModelValue">
             <strong>{moneyM(metrics.directCashM)}</strong>
-            <span>per {formatDate(summary.as_of_date)}</span>
+            <span>per {formatDate(cashAsOfDate)}</span>
           </div>
           <div className="placeholderRows cashModelRows">
             <div><span>Kontantkvalitet</span><strong>{statusLabel(summary.cash_quality)}</strong></div>
@@ -515,10 +536,10 @@ export default function CashPage() {
           <div><span className="label">METODE</span><h2>Hva tallene betyr</h2></div>
         </div>
         <div className="cashMethodGrid">
-          <div><strong>Direkte cash</strong><span>Otellos daglige cash-estimat fra siste rapporterte anker og kjente kontantbevegelser.</span></div>
+          <div><strong>Direkte cash</strong><span>Samme estimerte kontantbeholdning og cash per aksje som på Oversikt, hentet fra den økonomiske cash-bridgen.</span></div>
           <div><strong>Look-through cash</strong><span>Otellos eierandel av Bemobis siste rapporterte cash, omregnet med siste BRL/NOK i tracker.</span></div>
           <div><strong>Ikke dobbelttelling i NAV</strong><span>Look-through-cashen er en analyse av Bemobi-posten og skal ikke legges oppå NAV som en ny eiendel.</span></div>
-          <div><strong>Datadatoer</strong><span>OTEC-cash oppdateres mellom rapporter. Bemobi-cash står på siste rapporterte kvartalsdato.</span></div>
+          <div><strong>Datadatoer</strong><span>OTEC-cash oppdateres fra samme cash bridge som Oversikt. Bemobi-cash står på siste rapporterte kvartalsdato.</span></div>
         </div>
       </section>
     </div>
