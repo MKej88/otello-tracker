@@ -12,17 +12,23 @@ def test_buyback_page_prioritizes_shareholder_value_creation() -> None:
     for label in (
         "Verdiskaping fra tilbakekjøp",
         "Netto NAV-effekt",
-        "Brutto effekt av færre aksjer",
-        "Kapital brukt hittil",
+        "Kapital brukt",
         "Gjennomsnittlig kjøpskurs",
-        "Bemobi per 1 000 OTEC",
+        "Aksjer kjøpt tilbake",
+        "Effekt av færre aksjer",
+        "Netto verdi skapt",
+        "Programstatus",
         "Hvordan programmet faktisk gjennomføres",
     ):
         assert label in source
 
+    for removed_label in (
+        "Bemobi per 1 000 OTEC",
+        "Slik leses effekten",
+    ):
+        assert removed_label not in source
+
     assert "share_count_nav_effect_per_share_nok" in source
-    assert 'fetch("/api/bemobi/dashboard")' in source
-    assert "bemobiShares / shares.outstanding_shares * 1000" in source
 
 
 def test_bemobi_exposure_is_supplementary_and_does_not_block_buyback_page() -> None:
