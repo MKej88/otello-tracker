@@ -19,6 +19,9 @@
 .buybackHeroMetric strong { display: block; font-size: 44px; line-height: 1; margin-top: 10px; }
 .buybackHeroMetric small { color: #8798b1; margin-top: 5px; }
 .buybackHeroMetric em { color: #53a6ff; font-style: normal; font-size: 12px; font-weight: 700; margin-top: 12px; }
+.investorBuybackHero .positive, .buybackHeroMetric strong.positive { color: #4addb4; }
+.investorBuybackHero .negative, .buybackHeroMetric strong.negative { color: #f0748d; }
+.investorBuybackHero .neutral, .buybackHeroMetric strong.neutral { color: #edf4ff; }
 
 .buybackAlerts { display: grid; gap: 8px; }
 .buybackAlert { border: 1px solid #604a28; background: rgba(91, 65, 24, .22); color: #c7b17e; border-radius: 11px; padding: 11px 14px; display: flex; gap: 9px; flex-wrap: wrap; font-size: 12px; }
@@ -32,6 +35,14 @@
 .buybackKpi > small { display: block; color: #71839e; margin-top: 8px; font-size: 11px; line-height: 1.4; }
 .navEffectKpi { border-color: #286d62; background: linear-gradient(145deg, rgba(28, 116, 94, .22), #0c182a 72%); }
 .navEffectKpi > strong { color: #4addb4; }
+.bemobiExposureKpi { border-color: #2c5078; background: linear-gradient(145deg, rgba(34, 88, 143, .18), #0c182a 72%); }
+.bemobiExposureKpi > strong { color: #78b6ff; }
+
+.buybackInvestorNote { border: 1px solid #213652; border-radius: 11px; background: rgba(18, 39, 66, .34); padding: 12px 14px; display: flex; gap: 8px; align-items: baseline; color: #8598b3; font-size: 11px; line-height: 1.5; }
+.buybackInvestorNote strong { color: #c7d7ec; white-space: nowrap; }
+.buybackSectionIntro { margin: 8px 2px 0; }
+.buybackSectionIntro h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.02em; }
+.buybackSectionIntro p { color: #7486a1; margin: 6px 0 0; font-size: 11px; }
 
 .buybackTwoCol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .buybackDetail { min-width: 0; }
@@ -83,6 +94,7 @@
   .buybackHeroMetric strong { grid-row: 2 / span 2; font-size: 36px; }
   .buybackHeroMetric em { align-self: end; }
   .buybackTwoCol { grid-template-columns: 1fr; }
+  .buybackInvestorNote { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 600px) {
