@@ -15,10 +15,27 @@
 .sensitivityMatrixHeader { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:18px; }
 .sensitivityMatrixHeader h2,.sensitivitySectionHeader h2 { margin:5px 0 0; }
 .sensitivityMatrixHeader p { margin:6px 0 0; font-size:12px; opacity:.62; }
-.sensitivityModeButtons { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
-.sensitivityModeButtons button,.selectedHeader button { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); color:inherit; border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
-.sensitivityModeButtons button:hover,.selectedHeader button:hover { border-color:rgba(255,255,255,.25); }
-.sensitivityModeButtons button.active { background:rgba(79,139,255,.18); border-color:rgba(79,139,255,.55); }
+.sensitivityMatrixActions { display:grid; justify-items:end; gap:9px; }
+.sensitivityModeButtons,.targetSolveButtons { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+.sensitivityModeButtons button,.targetSolveButtons button,.selectedHeader button,.sensitivityRangeActions button,.rangeEditorButtons button,.rangeClose,.targetResult button { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); color:inherit; border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
+.sensitivityModeButtons button:hover,.targetSolveButtons button:hover,.selectedHeader button:hover,.sensitivityRangeActions button:hover,.rangeEditorButtons button:hover,.rangeClose:hover,.targetResult button:hover { border-color:rgba(255,255,255,.25); }
+.sensitivityModeButtons button.active,.targetSolveButtons button.active,.rangeEditorButtons .primary { background:rgba(79,139,255,.18); border-color:rgba(79,139,255,.55); }
+.sensitivityRangeActions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+.sensitivityRangeActions .secondary { opacity:.75; }
+
+.sensitivityRangeEditor { display:grid; gap:14px; margin:-2px 0 18px; padding:16px; border:1px solid rgba(79,139,255,.22); background:rgba(79,139,255,.045); border-radius:12px; }
+.rangeEditorLead { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }
+.rangeEditorLead > div { display:grid; gap:3px; }
+.rangeEditorLead small { font-size:11px; opacity:.62; }
+.rangeClose { padding:6px 9px; }
+.rangeEditorGroups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.rangeEditorGroups fieldset { margin:0; min-width:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; border:1px solid rgba(255,255,255,.075); border-radius:10px; padding:11px 12px 12px; }
+.rangeEditorGroups legend { padding:0 5px; font-size:11px; font-weight:750; opacity:.72; }
+.rangeEditorGroups label,.targetInputs label { display:grid; gap:6px; min-width:0; font-size:11px; opacity:.75; }
+.rangeEditorGroups input,.targetInputs input { min-width:0; width:100%; box-sizing:border-box; border:1px solid rgba(255,255,255,.12); background:rgba(5,16,29,.45); color:inherit; border-radius:8px; padding:9px 10px; font:inherit; font-size:14px; font-variant-numeric:tabular-nums; outline:none; }
+.rangeEditorGroups input:focus,.targetInputs input:focus { border-color:rgba(111,160,255,.65); box-shadow:0 0 0 2px rgba(79,139,255,.12); }
+.rangeError { margin:0; padding:9px 11px; border:1px solid rgba(225,107,107,.2); background:rgba(225,107,107,.06); border-radius:9px; font-size:11px; color:#ffc0c0; }
+.rangeEditorButtons { display:flex; flex-wrap:wrap; gap:8px; }
 
 .sensitivityTableWrap { width:100%; overflow-x:auto; padding-bottom:4px; }
 .sensitivityTable { width:100%; min-width:900px; border-collapse:separate; border-spacing:6px; table-layout:fixed; }
@@ -40,6 +57,24 @@
 .sensitivityCell.toneStrong,.sensitivityLegend .toneStrong { background:rgba(112,201,151,.22); }
 .sensitivityLegend { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
 .sensitivityLegend span { border:1px solid rgba(255,255,255,.06); border-radius:999px; padding:5px 8px; font-size:10px; opacity:.78; }
+
+.targetCalculator { padding:22px 24px; }
+.targetCalculatorHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:22px; }
+.targetCalculatorHeader h2 { margin:5px 0 7px; }
+.targetCalculatorHeader p { margin:0; font-size:12px; opacity:.64; }
+.targetCalculatorBody { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr); gap:18px; margin-top:18px; }
+.targetInputs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-content:start; }
+.targetInputs label > span { font-size:11px; font-weight:650; }
+.targetInputs label > small { font-size:10px; opacity:.62; }
+.inputWithSuffix { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; border:1px solid rgba(255,255,255,.075); border-radius:9px; overflow:hidden; background:rgba(255,255,255,.025); }
+.inputWithSuffix input { border:0; border-radius:0; background:transparent; }
+.inputWithSuffix input:focus { box-shadow:none; }
+.inputWithSuffix em { padding:0 10px; font-size:11px; font-style:normal; font-weight:750; opacity:.62; white-space:nowrap; }
+.targetResult { min-height:112px; display:grid; align-content:center; gap:5px; padding:16px 18px; border:1px solid rgba(255,255,255,.08); border-radius:12px; background:rgba(255,255,255,.025); }
+.targetResult > span { font-size:11px; opacity:.65; }
+.targetResult > strong { font-size:29px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.targetResult > small { font-size:11px; line-height:1.4; opacity:.66; }
+.targetResult button { justify-self:start; margin-top:5px; }
 
 .sensitivityDetailGrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
 .sensitivityBreakEven,.sensitivitySelected { padding:22px 24px; }
@@ -63,6 +98,13 @@
 @media (max-width:1200px) {
   .sensitivityKpis { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .sensitivityDetailGrid { grid-template-columns:1fr; }
+  .targetCalculatorBody { grid-template-columns:1fr; }
+}
+
+@media (max-width:900px) {
+  .rangeEditorGroups { grid-template-columns:1fr; }
+  .targetCalculatorHeader { flex-direction:column; }
+  .targetSolveButtons { justify-content:flex-start; }
 }
 
 @media (max-width:760px) {
@@ -71,7 +113,10 @@
   .sensitivityKpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .sensitivityMatrixCard { padding:18px; }
   .sensitivityMatrixHeader { align-items:flex-start; flex-direction:column; }
-  .sensitivityModeButtons { justify-content:flex-start; }
+  .sensitivityMatrixActions { justify-items:start; width:100%; }
+  .sensitivityModeButtons,.sensitivityRangeActions { justify-content:flex-start; }
+  .rangeEditorGroups fieldset { grid-template-columns:1fr; }
+  .targetInputs { grid-template-columns:1fr; }
   .breakEvenGrid { grid-template-columns:1fr; }
   .selectedHeader { flex-direction:column; }
 }
