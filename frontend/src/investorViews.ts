@@ -11,19 +11,31 @@ export type View =
   | "Nyheter"
   | "Datakvalitet";
 
-export const menu: View[] = [
-  "Oversikt",
-  "NAV",
-  "NAV-sensitivitet",
-  "Historikk",
-  "Tilbakekjøpsprogram",
-  "Cash",
-  "Bemobi",
-  "Brasil",
-  "Konsensus",
-  "Nyheter",
-  "Datakvalitet",
+export type NavigationGroup = {
+  label: "Verdi" | "Kapital" | "Bemobi" | "Informasjon";
+  items: View[];
+};
+
+export const navigationGroups: NavigationGroup[] = [
+  {
+    label: "Verdi",
+    items: ["Oversikt", "NAV", "NAV-sensitivitet", "Historikk"],
+  },
+  {
+    label: "Kapital",
+    items: ["Tilbakekjøpsprogram", "Cash"],
+  },
+  {
+    label: "Bemobi",
+    items: ["Bemobi", "Konsensus", "Brasil"],
+  },
+  {
+    label: "Informasjon",
+    items: ["Nyheter", "Datakvalitet"],
+  },
 ];
+
+export const menu: View[] = navigationGroups.flatMap((group) => group.items);
 
 export const viewSlugs: Record<View, string> = {
   Oversikt: "oversikt",

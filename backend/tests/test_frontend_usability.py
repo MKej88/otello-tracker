@@ -14,7 +14,8 @@ def test_investor_navigation_is_split_into_a_small_component() -> None:
     navigation = read_frontend("InvestorNavigation.tsx")
 
     assert 'import InvestorNavigation from "./InvestorNavigation"' in app
-    assert '<nav aria-label="Hovedmeny">' in navigation
+    assert 'aria-label="Hovedmeny"' in navigation
+    assert "navigationGroups.map((group)" in navigation
     assert 'aria-current={item === activeView ? "page" : undefined}' in navigation
 
 
