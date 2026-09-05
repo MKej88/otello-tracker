@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { usePollingResource } from "./usePollingResource";
 import "./brazil-page.css";
 
-type Signal = { tone: "positive" | "negative" | "neutral"; label: string };
+type Tone = "positive" | "negative" | "neutral";
+type Signal = { tone: Tone; label: string };
 type SeriesPoint = { date: string; value: number | null };
 type Metric = {
   key: string;
@@ -28,6 +29,42 @@ type FocusPoint = {
   survey_date?: string;
 };
 type FocusValues = Record<string, Record<string, FocusPoint>>;
+type FocusTrendPoint = {
+  year?: number;
+  current?: number | null;
+  previous?: number | null;
+  change?: number | null;
+  change_bp?: number | null;
+  current_survey_date?: string | null;
+  previous_survey_date?: string | null;
+};
+type FocusTrend = {
+  ready?: boolean;
+  comparison_year?: number;
+  comparisons?: Record<string, {
+    ready?: boolean;
+    target_date?: string;
+    points?: Record<string, FocusTrendPoint>;
+  }>;
+};
+type InvestorDriver = { tone: Tone; label: string; summary: string };
+type InvestorSummary = {
+  tone?: Tone;
+  headline?: string;
+  score?: number;
+  method?: string;
+  drivers?: {
+    valuation?: InvestorDriver;
+    operations?: InvestorDriver;
+    nav_fx?: InvestorDriver;
+  };
+  rate_path?: {
+    current?: number | null;
+    current_year_estimate?: number | null;
+    next_year_estimate?: number | null;
+    expected_change_to_next_year_bp?: number | null;
+  };
+};
 type CalendarExpectation = {
   label?: string;
   value?: number | null;
@@ -38,21 +75,6 @@ type CalendarExpectation = {
   provider?: string;
   previous?: string | null;
   release_at_utc?: string | null;
-  release_time_provider?: string | null;
-  release_time_source_url?: string | null;
-  fallback_cached?: boolean;
-};
-type MarketConsensus = {
-  available: boolean;
-  ingested: boolean;
-  coverage: string;
-  provider?: string | null;
-  note?: string;
-};
-type InvestingConsensusStatus = {
-  code: "AVAILABLE" | "NO_FORECAST_PUBLISHED" | "NO_MATCH" | "SOURCE_ERROR";
-  provider?: string;
-  source_url?: string | null;
 };
 type CalendarEvent = {
   date: string;
@@ -64,8 +86,6 @@ type CalendarEvent = {
   importance: string;
   bemobi_impact: string;
   expectation?: CalendarExpectation | null;
-  market_consensus?: MarketConsensus | null;
-  investing_consensus_status?: InvestingConsensusStatus | null;
 };
 type LatestHighMacroRelease = {
   date: string;
@@ -96,11 +116,22 @@ type BrazilPayload = {
     source_url?: string;
     note?: string;
   };
+  focus_trend?: FocusTrend;
+  investor_summary?: InvestorSummary;
   calendar?: CalendarEvent[];
   calendar_note?: string;
   latest_high_importance_release?: LatestHighMacroRelease | null;
-  source_status?: Record<string, { ready?: boolean; error?: string }>;
   sources?: Array<{ name: string; url: string }>;
+};
+type EconomicNavPayload = {
+  ready?: boolean;
+  nav_per_share?: number | null;
+  composition?: Array<{
+    key?: string;
+    label?: string;
+    per_share_nok?: number | null;
+    amount_mnok?: number | null;
+  }> | null;
 };
 
 const REFRESH_MS = 30 * 60 * 1000;
@@ -139,34 +170,15 @@ function latestMacroLabel(release: LatestHighMacroRelease) {
   return release.name || "Makropublisering";
 }
 
-function expectationLabel(value: string) {
-  return value
-    .replaceAll("Focus", "Markedsundersøkelse")
-    .replaceAll("Selic", "styringsrente")
-    .replaceAll("IPCA", "prisvekst")
-    .replaceAll("proxy", "anslag");
-}
-
-function expectationProviderLabel(expectation: CalendarExpectation) {
-  if (expectation.provider === "Investing.com") return "Investing.com";
-  if (expectation.provider === "BCB Focus") return "markedsundersøkelsen til Brasils sentralbank";
-  return expectation.provider || "markedskilde";
-}
-
 function financialText(value?: string | null) {
   if (!value) return "";
   return value
     .replaceAll("Lavere Selic", "Lavere styringsrente")
     .replaceAll("Selic", "styringsrenten")
-    .replaceAll("IBC-Br", "Målet for økonomisk aktivitet")
+    .replaceAll("IBC-Br", "målet for økonomisk aktivitet")
     .replaceAll("BCB Focus", "markedsundersøkelsen til Brasils sentralbank")
     .replaceAll("Focus-data", "data fra markedsundersøkelsen")
-    .replaceAll("Focus-respons", "svar fra markedsundersøkelsen")
-    .replaceAll("publisert Focus", "publiserte tall fra markedsundersøkelsen")
     .replaceAll("Focus", "markedsundersøkelsen")
-    .replaceAll("estimated", "anslått")
-    .replaceAll("nød-fallback", "nødløsning")
-    .replaceAll("fallback", "reserveløsning")
     .replaceAll("multippel-ekspansjon", "høyere verdsettelse")
     .replaceAll("multippel", "verdsettelse");
 }
@@ -182,6 +194,11 @@ function number(value?: number | null, digits = 2) {
 function signed(value?: number | null, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "–";
   return `${value > 0 ? "+" : ""}${number(value, digits)}`;
+}
+
+function signedBp(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return "–";
+  return `${value > 0 ? "+" : ""}${number(value, 0)} bp`;
 }
 
 function dateLabel(value?: string | null) {
@@ -202,25 +219,14 @@ function norwayReleaseTime(value?: string | null) {
   }).format(parsed);
 }
 
-function calendarExpectationNote(event: CalendarEvent) {
-  const code = event.investing_consensus_status?.code;
-  const hasAnnualProxy = event.market_consensus?.coverage === "BCB_FOCUS_ANNUAL_PROXY";
-  const annualSuffix = hasAnnualProxy
-    ? " Årsestimatet i tabellen over er kun bakgrunn og brukes ikke som konsensus for denne publiseringen."
-    : "";
-  if (code === "SOURCE_ERROR") {
-    return `Investing.com-hentingen feilet eller ble blokkert, så hendelseskonsensus kunne ikke oppdateres.${annualSuffix}`;
-  }
-  if (code === "NO_FORECAST_PUBLISHED") {
-    return `Investing.com-siden ble hentet, men Forecast-feltet er tomt for denne publiseringen.${annualSuffix}`;
-  }
-  if (code === "NO_MATCH") {
-    return `Investing.com-siden ble hentet, men ingen rad matcher den offisielle publiseringsdatoen ennå.${annualSuffix}`;
-  }
-  if (hasAnnualProxy) {
-    return "Årsestimatet finnes i tabellen over, men brukes ikke som konsensus for denne publiseringen.";
-  }
-  return financialText(event.market_consensus?.note) || "Markedsforventning nær hendelsen er ikke tilgjengelig nå";
+function toneLabel(tone?: Tone) {
+  if (tone === "positive") return "POSITIV";
+  if (tone === "negative") return "NEGATIV";
+  return "NØYTRAL";
+}
+
+function trendPoint(data: BrazilPayload, period: string, key: string): FocusTrendPoint | undefined {
+  return data.focus_trend?.comparisons?.[period]?.points?.[key];
 }
 
 function Sparkline({ points }: { points?: SeriesPoint[] }) {
@@ -232,12 +238,11 @@ function Sparkline({ points }: { points?: SeriesPoint[] }) {
     const min = Math.min(...values.map((item) => item.value));
     const max = Math.max(...values.map((item) => item.value));
     const span = Math.max(max - min, 0.000001);
-    const coordinates = values.map((item, index) => {
+    return values.map((item, index) => {
       const x = (index / (values.length - 1)) * 100;
       const y = 32 - ((item.value - min) / span) * 28;
       return `${x.toFixed(2)},${y.toFixed(2)}`;
-    });
-    return coordinates.join(" ");
+    }).join(" ");
   }, [points]);
 
   if (!path) return <div className="brazilSparkEmpty">Historikk mangler</div>;
@@ -249,71 +254,27 @@ function Sparkline({ points }: { points?: SeriesPoint[] }) {
 }
 
 function MetricCard({ metric }: { metric?: Metric }) {
-  if (!metric) {
-    return (
-      <article className="card brazilMetricCard mutedCard">
-        <span className="label">MAKRO</span>
-        <strong>Datagrunnlag mangler</strong>
-      </article>
-    );
-  }
+  if (!metric) return null;
   const digits = metric.key === "brl_nok" ? 4 : 2;
   const secondary = metric.key === "brl_nok"
-    ? `${signed(metric.change_1m_pct, 1)} % siste ~1 mnd.`
+    ? `${signed(metric.change_1m_pct, 1)} % siste måned`
     : metric.change != null
-      ? `${signed(metric.change, 2)} prosentpoeng siden forrige observasjon`
+      ? `${signed(metric.change, 2)} pp siden forrige observasjon`
       : metric.key.startsWith("ibc_")
         ? "Sesongjustert månedsendring"
         : "Siste observasjon";
-  const signal = metric.signal ?? { tone: "neutral", label: "Nøytral" };
-  const unit = metric.unit.replace("% p.a.", "% per år").replace("% m/m", "% fra måneden før");
   return (
-    <article className="card brazilMetricCard">
+    <article className="brazilDetailMetric">
       <div className="brazilMetricTop">
         <span className="label">{(METRIC_LABELS[metric.key] ?? metric.label).toUpperCase()}</span>
-        <span className={`brazilSignal ${signal.tone}`}>{financialText(signal.label)}</span>
+        <span className={`brazilSignal ${metric.signal?.tone ?? "neutral"}`}>{financialText(metric.signal?.label) || "Nøytral"}</span>
       </div>
-      <div className="brazilMetricValue">
-        {number(metric.value, digits)} <small>{unit}</small>
-      </div>
-      <div className="brazilMetricSecondary">{secondary}</div>
+      <strong>{number(metric.value, digits)} <small>{metric.unit.replace("% p.a.", "% per år").replace("% m/m", "% m/m")}</small></strong>
+      <span>{secondary}</span>
       <Sparkline points={metric.series} />
       <p>{financialText(metric.bemobi_impact)}</p>
-      <div className="brazilSourceLine">{metric.source} · {dateLabel(metric.date)}</div>
+      <small>{metric.source} · {dateLabel(metric.date)}</small>
     </article>
-  );
-}
-
-function LatestHighMacroCard({ release }: { release?: LatestHighMacroRelease | null }) {
-  if (!release) return null;
-  const releaseTime = norwayReleaseTime(release.release_at_utc);
-  const sourceName = release.source || "Investing.com";
-  return (
-    <section className="card brazilLatestMacroCard">
-      <div className="brazilLatestMacroHeader">
-        <div>
-          <span className="label">SISTE VIKTIGE MAKROTALL</span>
-          <h2>{latestMacroLabel(release)}</h2>
-          <div className="brazilLatestMacroMeta">
-            {dateLabel(release.date)}{releaseTime ? ` · norsk tid kl. ${releaseTime}` : ""}
-          </div>
-        </div>
-        <span className="brazilImportance high">Høy</span>
-      </div>
-      <div className="brazilLatestMacroGrid">
-        <div><span className="label">FAKTISK</span><strong>{release.actual || "–"}</strong></div>
-        <div><span className="label">FORVENTET</span><strong>{release.forecast || "–"}</strong></div>
-        <div><span className="label">AVVIK</span><strong>{release.surprise != null ? `${signed(release.surprise, 2)} pp` : "–"}</strong></div>
-      </div>
-      <div className="brazilLatestBemobiImpact">
-        <span className="label">BEMOBI-RELEVANS</span>
-        <p>{financialText(release.bemobi_impact) || "Ingen særskilt Bemobi-vurdering er knyttet til publiseringen."}</p>
-      </div>
-      <div className="brazilLatestMacroFooter">
-        <span>{release.previous ? `Forrige: ${release.previous}` : ""}</span>
-        {release.source_url ? <a href={release.source_url} rel="noreferrer" target="_blank">{sourceName}</a> : <span>{sourceName}</span>}
-      </div>
-    </section>
   );
 }
 
@@ -328,20 +289,17 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
   return (
     <div className="brazilTableWrap">
       <table className="brazilTable">
-        <thead>
-          <tr><th>Indikator</th><th>{year}</th><th>{year + 1}</th><th>Sist målt</th></tr>
-        </thead>
+        <thead><tr><th>Indikator</th><th>{year}</th><th>{year + 1}</th><th>Sist målt</th></tr></thead>
         <tbody>
           {rows.map((row) => {
             const current = focus?.[row.key]?.[String(year)];
             const next = focus?.[row.key]?.[String(year + 1)];
-            const survey = current?.survey_date ?? next?.survey_date;
             return (
               <tr key={row.key}>
                 <td><strong>{FOCUS_ROW_LABELS[row.key]}</strong></td>
-                <td>{number(current?.median, row.key === "usd_brl" ? 2 : 2)} {row.unit}</td>
-                <td>{number(next?.median, row.key === "usd_brl" ? 2 : 2)} {row.unit}</td>
-                <td>{dateLabel(survey)}</td>
+                <td>{number(current?.median, 2)} {row.unit}</td>
+                <td>{number(next?.median, 2)} {row.unit}</td>
+                <td>{dateLabel(current?.survey_date ?? next?.survey_date)}</td>
               </tr>
             );
           })}
@@ -351,40 +309,26 @@ function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: strin
   );
 }
 
-function CalendarRow({ event }: { event: CalendarEvent }) {
-  const expectation = event.expectation;
-  const hasIngestedEventConsensus = expectation?.event_consensus === true;
-  const releaseTime = norwayReleaseTime(expectation?.release_at_utc);
+function CompactEvent({ event }: { event: CalendarEvent }) {
+  const releaseTime = norwayReleaseTime(event.expectation?.release_at_utc);
+  const expectation = event.expectation?.event_consensus ? event.expectation : null;
   return (
-    <article className="brazilCalendarRow">
-      <div className="brazilCalendarDate">
+    <article className="brazilCompactEvent">
+      <div className="brazilCompactEventDate">
         <strong>{dateLabel(event.date).slice(0, 5)}</strong>
-        {releaseTime ? <small><b>Norsk tid kl. {releaseTime}</b></small> : null}
-        <small>{event.source}</small>
+        {releaseTime ? <small>kl. {releaseTime}</small> : null}
       </div>
-      <div className="brazilCalendarMain">
-        <div className="brazilCalendarTitle">
+      <div>
+        <div className="brazilCompactEventTitle">
           <strong>{eventLabel(event)}</strong>
           <span className={`brazilImportance ${event.importance.startsWith("Høy") ? "high" : "medium"}`}>{event.importance}</span>
         </div>
-        {event.reference && <div className="brazilCalendarReference">Referanse: {event.reference}</div>}
         <p>{financialText(event.bemobi_impact)}</p>
       </div>
-      <div className="brazilCalendarExpectation">
-        <span className="label">MARKEDETS FORVENTNING</span>
-        {expectation && hasIngestedEventConsensus ? (
-          <>
-            <strong>{number(expectation.value, 2)}{expectation.unit ? ` ${expectation.unit}` : ""}</strong>
-            <small>{expectationLabel(expectation.label || "Hendelseskonsensus")} · {expectationProviderLabel(expectation)}</small>
-            {expectation.previous ? <small>Forrige: {expectation.previous}</small> : null}
-            {expectation.respondents ? <small>{expectation.respondents} respondenter</small> : null}
-          </>
-        ) : (
-          <>
-            <strong>–</strong>
-            <small>{calendarExpectationNote(event)}</small>
-          </>
-        )}
+      <div className="brazilCompactConsensus">
+        <span className="label">KONSENSUS</span>
+        <strong>{expectation ? `${number(expectation.value, 2)}${expectation.unit ? ` ${expectation.unit}` : ""}` : "–"}</strong>
+        {expectation?.previous ? <small>Forrige: {expectation.previous}</small> : null}
       </div>
     </article>
   );
@@ -396,8 +340,11 @@ export default function BrazilPage() {
     REFRESH_MS,
     true,
   );
-  const metrics = data?.metrics ?? {};
-  const calendar = data?.calendar ?? [];
+  const { data: economicNav } = usePollingResource<EconomicNavPayload>(
+    "/api/dashboard/economic",
+    REFRESH_MS,
+    true,
+  );
 
   if (!data && !refreshFailed) {
     return <section className="card viewFallback"><span className="label">BRASIL</span><strong>Henter makrodata …</strong></section>;
@@ -406,64 +353,158 @@ export default function BrazilPage() {
     return <section className="card brazilError"><span className="label">BRASIL</span><strong>Kunne ikke hente Brasil-data</strong><p>API-et svarte ikke. Ingen NAV-data påvirkes av denne siden.</p></section>;
   }
 
+  const metrics = data.metrics ?? {};
+  const summary = data.investor_summary;
+  const ratePath = summary?.rate_path;
+  const calendar = data.calendar ?? [];
+  const nextEvents = calendar.slice(0, 3);
+  const nextYear = Number(data.as_of_date.slice(0, 4)) + 1;
+  const selic30d = trendPoint(data, "30d", "selic");
+  const ipca30d = trendPoint(data, "30d", "ipca");
+  const gdp30d = trendPoint(data, "30d", "gdp");
+  const bemobiNavComponent = economicNav?.composition?.find((item) => item.key === "bemobi");
+  const bemobiPerShare = bemobiNavComponent?.per_share_nok ?? null;
+  const brlNavImpact10 = bemobiPerShare != null && Number.isFinite(bemobiPerShare) ? bemobiPerShare * 0.10 : null;
+  const brlNavImpact1 = bemobiPerShare != null && Number.isFinite(bemobiPerShare) ? bemobiPerShare * 0.01 : null;
+  const bemobiNavShare = bemobiPerShare != null && economicNav?.nav_per_share != null && economicNav.nav_per_share > 0
+    ? bemobiPerShare / economicNav.nav_per_share * 100
+    : null;
+
   return (
     <div className="brazilPage">
-      <section className="card brazilIntro">
-        <div>
+      <section className="card brazilInvestorHero">
+        <div className="brazilHeroCopy">
           <span className="label">BRASIL / BEMOBI</span>
-          <h2>Økonomien som påvirker Bemobi og Otellos verdier</h2>
-          <p>Renter og prisvekst påvirker hva Bemobi verdsettes til. Aktiviteten påvirker markedet Bemobi selger i, mens valutakursen for brasilianske real slår direkte inn i Otellos verdier.</p>
+          <div className="brazilHeroTitleRow">
+            <h2>{summary?.headline || "Makrobildet i Brasil"}</h2>
+            <span className={`brazilRegime ${summary?.tone ?? "neutral"}`}>{toneLabel(summary?.tone)}</span>
+          </div>
+          <p>Tre kanaler betyr mest for Otello: rentebanen påvirker Bemobi-verdsettelsen, aktiviteten påvirker driften og BRL/NOK slår direkte inn i NAV.</p>
         </div>
         <div className="brazilFreshness">
           <span className="label">SIST HENTET</span>
           <strong>{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
-          {refreshFailed && <small>Forrige data beholdt</small>}
+          <small>{refreshFailed ? "Forrige data beholdt" : dateLabel(data.as_of_date)}</small>
         </div>
       </section>
 
-      <LatestHighMacroCard release={data.latest_high_importance_release} />
+      <section className="brazilDriverGrid">
+        <article className="card brazilDriverCard">
+          <div className="brazilDriverHeader">
+            <span className="label">RENTER</span>
+            <span className={`brazilSignal ${summary?.drivers?.valuation?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.valuation?.tone)}</span>
+          </div>
+          <div className="brazilRatePath">
+            <strong>{number(ratePath?.current, 2)} %</strong>
+            <span>→</span>
+            <strong>{number(ratePath?.next_year_estimate, 2)} %</strong>
+            <small>{nextYear}E</small>
+          </div>
+          <div className="brazilDriverMetric">{signedBp(ratePath?.expected_change_to_next_year_bp)} mot dagens rente</div>
+          <p>{summary?.drivers?.valuation?.summary || "Rentebanen beregnes fra Selic og BCB Focus."}</p>
+        </article>
 
-      <section>
-        <div className="sectionHeading">
-          <div><span className="label">NÅBILDE</span><h2>Viktigste makrodrivere</h2></div>
-        </div>
-        <div className="brazilMetricGrid">
-          <MetricCard metric={metrics.brl_nok} />
-          <MetricCard metric={metrics.selic} />
-          <MetricCard metric={metrics.ipca_12m} />
-          <MetricCard metric={metrics.ibc_br} />
-          <MetricCard metric={metrics.ibc_services} />
-        </div>
+        <article className="card brazilDriverCard">
+          <div className="brazilDriverHeader">
+            <span className="label">BRL / NOK</span>
+            <span className={`brazilSignal ${summary?.drivers?.nav_fx?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.nav_fx?.tone)}</span>
+          </div>
+          <div className="brazilDriverMainValue">{number(metrics.brl_nok?.value, 4)}</div>
+          <div className="brazilDriverMetric">{signed(metrics.brl_nok?.change_1m_pct, 1)} % siste måned</div>
+          <div className="brazilNavSensitivity">
+            <span>+10 % BRL</span>
+            <strong>{brlNavImpact10 == null ? "–" : `${signed(brlNavImpact10, 2)} kr NAV/OTEC`}</strong>
+          </div>
+          <p>{brlNavImpact1 == null ? summary?.drivers?.nav_fx?.summary : `+1 % BRL tilsvarer om lag ${signed(brlNavImpact1, 2)} kr NAV per OTEC-aksje, alt annet likt.`}</p>
+        </article>
+
+        <article className="card brazilDriverCard">
+          <div className="brazilDriverHeader">
+            <span className="label">AKTIVITET</span>
+            <span className={`brazilSignal ${summary?.drivers?.operations?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.operations?.tone)}</span>
+          </div>
+          <div className="brazilActivityPair">
+            <div><span>IBC-Br</span><strong>{signed(metrics.ibc_br?.value, 2)} %</strong></div>
+            <div><span>Tjenester</span><strong>{signed(metrics.ibc_services?.value, 2)} %</strong></div>
+          </div>
+          <p>{summary?.drivers?.operations?.summary || "Aktivitetssignalene viser etterspørselsbildet Bemobi opererer i."}</p>
+        </article>
       </section>
 
-      <section className="card brazilFocusCard">
+      <section className="card brazilChangeCard">
         <div className="sectionHeading compactHeading">
-          <div><span className="label">MARKEDSUNDERSØKELSE</span><h2>Hva markedet venter</h2></div>
+          <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
+          <small>Focus-endringer sammenlignes med samme offisielle BCB-serier rundt 30 dager tidligere.</small>
         </div>
-        <p className="brazilLead">Den midterste forventningen blant svarene fra banker, forvaltere og andre deltakere i undersøkelsen til Brasils sentralbank.</p>
-        <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
-        <div className="brazilNote">{financialText(data.focus?.note) || "Tall fra markedsundersøkelsen viser forventninger for hele året, ikke for én bestemt publisering."}</div>
+        <div className="brazilChangeGrid">
+          <div><span>Selic {nextYear}E</span><strong className={(selic30d?.change ?? 0) < 0 ? "positive" : (selic30d?.change ?? 0) > 0 ? "negative" : ""}>{signedBp(selic30d?.change_bp)}</strong></div>
+          <div><span>IPCA {nextYear}E</span><strong className={(ipca30d?.change ?? 0) < 0 ? "positive" : (ipca30d?.change ?? 0) > 0 ? "negative" : ""}>{signedBp(ipca30d?.change_bp)}</strong></div>
+          <div><span>BNP {nextYear}E</span><strong className={(gdp30d?.change ?? 0) > 0 ? "positive" : (gdp30d?.change ?? 0) < 0 ? "negative" : ""}>{gdp30d?.change == null ? "–" : `${signed(gdp30d.change, 2)} pp`}</strong></div>
+          <div><span>BRL/NOK</span><strong className={(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong></div>
+        </div>
       </section>
 
-      <section className="card brazilCalendarCard">
+      {data.latest_high_importance_release ? (
+        <section className="card brazilLatestCompact">
+          <div className="brazilLatestCompactTitle">
+            <div><span className="label">SISTE VIKTIGE MAKROTALL</span><h2>{latestMacroLabel(data.latest_high_importance_release)}</h2></div>
+            <span>{dateLabel(data.latest_high_importance_release.date)}</span>
+          </div>
+          <div className="brazilLatestCompactValues">
+            <div><span>Faktisk</span><strong>{data.latest_high_importance_release.actual || "–"}</strong></div>
+            <div><span>Forventet</span><strong>{data.latest_high_importance_release.forecast || "–"}</strong></div>
+            <div><span>Avvik</span><strong>{data.latest_high_importance_release.surprise == null ? "–" : `${signed(data.latest_high_importance_release.surprise, 2)} pp`}</strong></div>
+          </div>
+          <p>{financialText(data.latest_high_importance_release.bemobi_impact) || "Ingen særskilt Bemobi-vurdering er knyttet til publiseringen."}</p>
+        </section>
+      ) : null}
+
+      <section className="card brazilNextEventsCard">
         <div className="sectionHeading compactHeading">
-          <div><span className="label">MAKROKALENDER</span><h2>Neste hendelser</h2></div>
-          <span className="brazilCalendarCount">{calendar.length} hendelser</span>
+          <div><span className="label">NESTE VIKTIGE HENDELSER</span><h2>Makrokalender</h2></div>
+          <span className="brazilCalendarCount">3 nærmeste</span>
         </div>
-        <div className="brazilCalendarList">
-          {calendar.length ? calendar.map((event) => <CalendarRow event={event} key={`${event.date}-${event.name}`} />) : <p>Ingen hendelser i perioden.</p>}
+        <div className="brazilCompactEventList">
+          {nextEvents.length ? nextEvents.map((event) => <CompactEvent event={event} key={`${event.date}-${event.name}`} />) : <p>Ingen kommende hendelser i perioden.</p>}
         </div>
-        <div className="brazilNote">{financialText(data.calendar_note) || "Bekreftede datoer kommer fra brasilianske myndigheter. Framtidige anslåtte datoer må bekreftes i den offisielle kalenderen."}</div>
       </section>
 
-      <section className="card brazilMethodCard">
-        <span className="label">KILDER OG METODE</span>
-        <h2>Datakilder</h2>
-        <p>Økonomiske nøkkeltall og publiseringsdatoer hentes fra Brasils sentralbank og IBGE, valutakursen fra Norges Bank, mens hendelseskonsensus og publiseringstid hentes fra Investing.com når tilgjengelig.</p>
-        <div className="brazilSources">
-          {(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}
-        </div>
-        <p className="brazilDisclaimer">Investing.com sitt Forecast-felt brukes som hendelseskonsensus når det finnes. Tidspunkt fra kilden behandles som UTC og konverteres automatisk til Europe/Oslo, slik at både norsk sommer- og vintertid håndteres riktig. BCB Focus brukes som sekundær hendelsesforventning der en passende serie finnes. Et årlig Focus-estimat vises aldri som konsensus for en konkret makropublisering.</p>
+      <section className="brazilDetailsStack">
+        <details className="card brazilDetailBlock">
+          <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>BCB Focus</strong></span><span>Vis detaljer</span></summary>
+          <div className="brazilDetailBody">
+            <p>Medianforventningen blant banker, forvaltere og andre deltakere i markedsundersøkelsen til Brasils sentralbank.</p>
+            <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
+          </div>
+        </details>
+
+        <details className="card brazilDetailBlock">
+          <summary><span><span className="label">ALLE INDIKATORER</span><strong>Makrodetaljer og historikk</strong></span><span>Vis detaljer</span></summary>
+          <div className="brazilDetailMetricGrid">
+            <MetricCard metric={metrics.brl_nok} />
+            <MetricCard metric={metrics.selic} />
+            <MetricCard metric={metrics.ipca_12m} />
+            <MetricCard metric={metrics.ibc_br} />
+            <MetricCard metric={metrics.ibc_services} />
+          </div>
+        </details>
+
+        <details className="card brazilDetailBlock">
+          <summary><span><span className="label">FULL MAKROKALENDER</span><strong>{calendar.length} kommende hendelser</strong></span><span>Vis detaljer</span></summary>
+          <div className="brazilCompactEventList brazilFullCalendar">
+            {calendar.map((event) => <CompactEvent event={event} key={`${event.date}-${event.name}`} />)}
+          </div>
+        </details>
+
+        <details className="card brazilDetailBlock">
+          <summary><span><span className="label">KILDER OG METODE</span><strong>Datagrunnlag</strong></span><span>Vis detaljer</span></summary>
+          <div className="brazilDetailBody">
+            <p>Selic, inflasjon og aktivitetsserier hentes fra Brasils sentralbank, Focus-forventninger fra BCB Olinda, publiseringsdatoer fra BCB/IBGE og BRL/NOK fra Norges Bank. Investing.com brukes bare som sekundær kilde for hendelseskonsensus og publiseringstid når dette finnes.</p>
+            <p>Brasil-statusen er regelbasert og bruker tre transparente kanaler: rentebane, aktivitet og BRL/NOK. Den er ikke en AI-score. BRL-sensitiviteten bruker den samme Bemobi-komponenten som investor-NAV og viser isolert valutaeffekt, alt annet likt.</p>
+            {bemobiNavShare != null ? <p>Bemobi utgjør nå omtrent <strong>{number(bemobiNavShare, 1)} %</strong> av investor-NAV før andre samtidige markedsbevegelser.</p> : null}
+            <div className="brazilSources">{(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}</div>
+          </div>
+        </details>
       </section>
     </div>
   );
