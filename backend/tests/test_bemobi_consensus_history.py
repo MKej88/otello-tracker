@@ -159,7 +159,9 @@ def test_history_is_built_and_rendered_on_consensus_page() -> None:
     assert '"history_link": await build_consensus_history(' in worker
     assert "MISSING_PRICE_HISTORY" in worker_history
     assert "ConsensusHistoryPanel" in page
-    assert "return null;" not in panel
+    old_stub = "export default function ConsensusHistoryPanel(_: { history?: ConsensusHistoryLink | null }) {\n  return null;\n}"
+    assert old_stub not in panel
+    assert "if (visibleEvents.length === 0 && latestChanges.length === 0) return null;" in panel
     assert "Forventning → faktisk → revisjon → kursreaksjon" in panel
     assert "Venter på offentlig modell" in panel
     assert "Siste meglermodell-revisjon" in panel
