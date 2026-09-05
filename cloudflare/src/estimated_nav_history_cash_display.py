@@ -15,6 +15,20 @@ _MILLION = Decimal("1000000")
 _PATENT_TOLERANCE_NOK = Decimal("1000")
 
 
+def _restore_daily_chart_points(result: dict[str, Any]) -> dict[str, Any]:
+    """Expose every validated trading-day observation to the investor history chart."""
+    if not result.get("ready"):
+        return result
+    statistics_points = result.get("_statistics_points")
+    if not isinstance(statistics_points, list) or not statistics_points:
+        return result
+
+    result["points"] = statistics_points
+    result["chart_point_count"] = len(statistics_points)
+    result["point_count"] = len(statistics_points)
+    return result
+
+
 async def _period_patent_proceeds(
     repository,
     *,
@@ -131,6 +145,7 @@ async def estimated_nav_history(
         days=days,
         year_to_date=year_to_date,
     )
+    result = _restore_daily_chart_points(result)
     change = result.get("change") or {}
     if not result.get("ready") or not change.get("ready"):
         return result

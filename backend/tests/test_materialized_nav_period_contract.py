@@ -20,7 +20,7 @@ def test_nightly_history_completion_materializes_nav_period_cache() -> None:
     assert '"reason": "history_scan_continues"' in source
     assert 'PERIOD_KEYS = ("1m", "3m", "6m", "ytd", "1y", "3y")' in cache_source
     assert 'PERIOD_CACHE_KEY_PREFIX = "materialized_discount_period"' in cache_source
-    assert "NAV_PERIODS_V3" in cache_source
+    assert "NAV_PERIODS_V4" in cache_source
     assert "estimated_period_not_current" in cache_source
     assert "payload = await discount_history(" in cache_source
     assert "return await _enrich_life360_period(repository, payload)" in cache_source
