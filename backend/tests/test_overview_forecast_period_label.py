@@ -15,4 +15,4 @@ def test_overview_keeps_buyback_summary_compact_and_links_to_detail() -> None:
     assert "forecast?.forecast_week" not in overview
     assert 'href="#tilbakekjop"' in overview
     assert "Se tilbakekjøpsprogram" in overview
-    assert "Prognosenøyaktighet" in buyback
+    assert "Hvor godt treffer prognosen?" in buyback
