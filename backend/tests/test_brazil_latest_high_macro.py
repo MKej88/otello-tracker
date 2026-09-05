@@ -162,15 +162,18 @@ def test_latest_high_macro_persists_until_a_newer_high_release_arrives() -> None
     assert repository.writes == 2
 
 
-def test_brazil_frontend_shows_latest_release_and_specific_consensus_reasons() -> None:
+def test_brazil_frontend_shows_latest_release_in_compact_investor_view() -> None:
     frontend = (
         Path(__file__).resolve().parents[2] / "frontend" / "src" / "BrazilPage.tsx"
     ).read_text(encoding="utf-8")
 
     assert "SISTE VIKTIGE MAKROTALL" in frontend
-    assert "FAKTISK" in frontend
-    assert "FORVENTET" in frontend
-    assert "BEMOBI-RELEVANS" in frontend
-    assert "Forecast-feltet er tomt" in frontend
-    assert "hentingen feilet eller ble blokkert" in frontend
-    assert "ingen rad matcher den offisielle publiseringsdatoen" in frontend
+    assert ">Faktisk<" in frontend
+    assert ">Forventet<" in frontend
+    assert ">Avvik<" in frontend
+    assert "latest_high_importance_release.bemobi_impact" in frontend
+
+    # Source-diagnostic text belongs on Datakvalitet, not in the primary investor view.
+    assert "Forecast-feltet er tomt" not in frontend
+    assert "hentingen feilet eller ble blokkert" not in frontend
+    assert "ingen rad matcher den offisielle publiseringsdatoen" not in frontend
