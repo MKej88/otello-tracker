@@ -65,8 +65,9 @@ async def build_focus_trend(
     """Compare current Focus medians with snapshots around 7 and 30 days earlier.
 
     The historical comparison reuses the same official BCB Olinda endpoint and the
-    same parser as the live Focus card. Each comparison is independent so a missing
-    historical response never blanks the current dashboard.
+    same parser as the live Focus card. Both the current and next calendar year are
+    compared. Each comparison is independent so a missing historical response never
+    blanks the current dashboard.
     """
     current_values = (
         current_focus.get("values")
@@ -92,7 +93,9 @@ async def build_focus_trend(
     loaded = await asyncio.gather(
         *(load(label, target_date) for label, target_date in comparison_dates.items())
     )
-    year = target.year + 1
+    current_year = target.year
+    next_year = current_year + 1
+    comparison_years = (current_year, next_year)
     comparisons: dict[str, Any] = {}
     errors: dict[str, str] = {}
     for label, target_date, values, error in loaded:
@@ -102,19 +105,27 @@ async def build_focus_trend(
                 "ready": False,
                 "target_date": target_date,
                 "points": {},
+                "points_by_year": {},
             }
             continue
+        points_by_year = {
+            str(year): _comparison_points(current_values, values, year=year)
+            for year in comparison_years
+        }
         comparisons[label] = {
             "ready": True,
             "target_date": target_date,
-            "points": _comparison_points(current_values, values, year=year),
+            # Keep the legacy next-year shape for callers that have not migrated yet.
+            "points": points_by_year[str(next_year)],
+            "points_by_year": points_by_year,
         }
 
     ready = any(bool(item.get("ready")) for item in comparisons.values())
     return (
         {
             "ready": ready,
-            "comparison_year": year,
+            "comparison_year": next_year,
+            "comparison_years": list(comparison_years),
             "comparisons": comparisons,
             "source": "Banco Central do Brasil / Focus",
         },
@@ -147,7 +158,13 @@ def _metric_value(metrics: Any, key: str, field: str = "value") -> float | None:
     return _finite(metrics[key].get(field))
 
 
-def _trend_change(focus_trend: Any, period: str, key: str) -> float | None:
+def _trend_change(
+    focus_trend: Any,
+    period: str,
+    key: str,
+    *,
+    year: int | None = None,
+) -> float | None:
     if not isinstance(focus_trend, dict):
         return None
     comparisons = focus_trend.get("comparisons")
@@ -156,7 +173,17 @@ def _trend_change(focus_trend: Any, period: str, key: str) -> float | None:
     comparison = comparisons.get(period)
     if not isinstance(comparison, dict):
         return None
-    points = comparison.get("points")
+
+    points: Any = None
+    if year is not None:
+        points_by_year = comparison.get("points_by_year")
+        if isinstance(points_by_year, dict):
+            points = points_by_year.get(str(year))
+        if points is None and focus_trend.get("comparison_year") == year:
+            points = comparison.get("points")
+    else:
+        points = comparison.get("points")
+
     if not isinstance(points, dict) or not isinstance(points.get(key), dict):
         return None
     return _finite(points[key].get("change"))
@@ -173,14 +200,26 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
     selic_now = _metric_value(metrics, "selic")
     selic_current_year = _finite((_focus_point(values, "selic", year) or {}).get("median"))
     selic_next_year = _finite((_focus_point(values, "selic", year + 1) or {}).get("median"))
+    expected_easing_current_year_bp = (
+        (selic_current_year - selic_now) * 100
+        if selic_now is not None and selic_current_year is not None
+        else None
+    )
     expected_easing_bp = (
         (selic_next_year - selic_now) * 100
         if selic_now is not None and selic_next_year is not None
         else None
     )
+    expected_current_to_next_year_bp = (
+        (selic_next_year - selic_current_year) * 100
+        if selic_current_year is not None and selic_next_year is not None
+        else None
+    )
 
-    selic_30d = _trend_change(focus_trend, "30d", "selic")
-    ipca_30d = _trend_change(focus_trend, "30d", "ipca")
+    # Preserve the existing regime logic: the next-year expectation remains the
+    # long-duration valuation signal, while the UI now also exposes current-year moves.
+    selic_30d = _trend_change(focus_trend, "30d", "selic", year=year + 1)
+    ipca_30d = _trend_change(focus_trend, "30d", "ipca", year=year + 1)
     rate_tone = _tone_from_change(selic_30d, positive_when_lower=True, threshold=0.10)
     if rate_tone == "neutral" and expected_easing_bp is not None:
         if expected_easing_bp <= -50:
@@ -266,6 +305,8 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
             "current": selic_now,
             "current_year_estimate": selic_current_year,
             "next_year_estimate": selic_next_year,
+            "expected_change_to_current_year_bp": expected_easing_current_year_bp,
             "expected_change_to_next_year_bp": expected_easing_bp,
+            "expected_change_current_to_next_year_bp": expected_current_to_next_year_bp,
         },
     }
