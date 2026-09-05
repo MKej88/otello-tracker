@@ -1,118 +1,685 @@
-.consensusPage { display: grid; gap: 14px; }
+.consensusPageV2 {
+  display: grid;
+  gap: 16px;
+}
 
 .consensusNotice {
   min-height: 180px;
-  border: 1px solid #1c2b43;
-  border-radius: 14px;
-  background: rgba(13, 24, 42, .82);
-  color: #8393ad;
   display: grid;
   align-content: center;
   justify-items: center;
   gap: 8px;
   padding: 24px;
+  border: 1px solid var(--ot-border);
+  border-radius: 14px;
+  background: var(--ot-surface);
+  color: var(--ot-text-secondary);
   text-align: center;
 }
 
-.consensusNotice strong { color: #e9f1ff; }
+.consensusNotice strong {
+  color: var(--ot-text);
+}
 
-.consensusHero {
+.consensusHeroV2 {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  min-height: 142px;
+  padding: 22px 24px;
+  background: linear-gradient(180deg, rgba(23, 40, 61, 0.94), rgba(18, 28, 43, 0.94));
+}
+
+.consensusHeroV2 h2 {
+  margin: 7px 0 0;
+  font-size: clamp(25px, 2.8vw, 34px);
+  letter-spacing: -0.035em;
+}
+
+.consensusHeroV2 p {
+  max-width: 780px;
+  margin: 10px 0 0;
+  color: var(--ot-text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.consensusHeroPrice {
+  display: grid;
+  justify-items: end;
+  min-width: 170px;
+}
+
+.consensusHeroPrice span,
+.consensusHeroPrice small {
+  color: var(--ot-text-muted);
+  font-size: 0.72rem;
+}
+
+.consensusHeroPrice strong {
+  margin: 5px 0;
+  color: var(--ot-text);
+  font-size: 2rem;
+  letter-spacing: -0.035em;
+}
+
+.consensusKpisV2 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.consensusKpisV2 article {
+  min-height: 112px;
+  padding: 18px;
+}
+
+.consensusKpisV2 strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--ot-text);
+  font-size: 1.45rem;
+  letter-spacing: -0.025em;
+}
+
+.consensusKpisV2 small {
+  display: block;
+  margin-top: 7px;
+  color: var(--ot-text-muted);
+  font-size: 0.74rem;
+}
+
+.consensusNextReport,
+.consensusBeatSummary,
+.consensusForwardV2,
+.consensusRevisionSection,
+.consensusTargetRange {
+  padding: 20px 22px;
+}
+
+.consensusNextReport .cardHeader,
+.consensusBeatSummary .cardHeader,
+.consensusForwardV2 .cardHeader,
+.consensusRevisionSection .cardHeader,
+.consensusTargetRange .cardHeader {
+  align-items: flex-start;
+}
+
+.consensusNextReport .cardHeader h2,
+.consensusBeatSummary .cardHeader h2,
+.consensusForwardV2 .cardHeader h2,
+.consensusRevisionSection .cardHeader h2,
+.consensusTargetRange .cardHeader h2 {
+  margin-top: 5px;
+}
+
+.consensusBeatSummary .cardHeader > small,
+.consensusRevisionSection .cardHeader > small {
+  color: var(--ot-text-muted);
+  font-size: 0.72rem;
+}
+
+.consensusTableWrap {
+  margin-top: 14px;
+  overflow-x: auto;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+}
+
+.consensusTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  background: #132033;
+}
+
+.consensusTable th,
+.consensusTable td {
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--ot-border-soft);
+  text-align: right;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.consensusTable th:first-child,
+.consensusTable td:first-child {
+  text-align: left;
+}
+
+.consensusTable th {
+  color: var(--ot-text-muted);
+  background: #17283d;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.consensusTable td {
+  color: var(--ot-text-secondary);
+}
+
+.consensusTable td strong {
+  color: var(--ot-text);
+}
+
+.consensusTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.consensusNextTable {
+  min-width: 780px;
+}
+
+.consensusPreviewMeta {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  min-height: 154px;
-  background:
-    radial-gradient(circle at 84% 12%, rgba(92, 121, 255, .11), transparent 31%),
-    linear-gradient(180deg, rgba(16, 30, 51, .98), rgba(10, 20, 36, .98));
+  gap: 16px;
+  margin-top: 10px;
+  color: var(--ot-text-muted);
+  font-size: 0.72rem;
 }
 
-.consensusHero h2 { margin: 8px 0 0; font-size: 25px; letter-spacing: -.03em; }
-.consensusHero p { max-width: 760px; margin: 12px 0 0; color: #8394ae; font-size: 13px; line-height: 1.6; }
-.consensusHeroPrice { display: grid; justify-items: end; min-width: 150px; }
-.consensusHeroPrice span, .consensusHeroPrice small { color: #71829d; font-size: 10px; }
-.consensusHeroPrice strong { margin: 5px 0; color: #f1f6ff; font-size: 28px; }
-
-.consensusKpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.consensusKpis article { min-height: 118px; }
-.consensusKpis strong { display: block; margin-top: 12px; color: #edf4ff; font-size: 23px; letter-spacing: -.025em; }
-.consensusKpis small { display: block; margin-top: 8px; color: #73849f; font-size: 10px; }
-.positive { color: #2bcda5 !important; }
-.negative { color: #ff6c88 !important; }
-
-.consensusCoverage .cardHeader a,
-.consensusForward .cardHeader a,
-.consensusSources a,
-.beatMissCard a,
-.xpReference a { color: inherit; text-decoration: none; }
-
-.consensusTableWrap { margin-top: 16px; overflow-x: auto; border: 1px solid #1b2a40; border-radius: 11px; }
-.consensusTable { width: 100%; border-collapse: collapse; min-width: 720px; background: #0b182a; }
-.consensusTable th,
-.consensusTable td { padding: 13px 14px; border-bottom: 1px solid #17263b; text-align: right; white-space: nowrap; font-size: 11px; }
-.consensusTable th:first-child,
-.consensusTable td:first-child,
-.consensusTable th:nth-child(2),
-.consensusTable td:nth-child(2) { text-align: left; }
-.consensusTable th { color: #6f819b; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; background: #0d1c30; }
-.consensusTable td { color: #9dadc3; }
-.consensusTable td strong { color: #e8f0fc; }
-.consensusTable tr:last-child td { border-bottom: 0; }
-
-.rating { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
-.rating.buy { color: #35d4ac; background: rgba(43, 205, 165, .1); border: 1px solid rgba(43, 205, 165, .22); }
-.rating.hold { color: #f2c667; background: rgba(242, 198, 103, .08); border: 1px solid rgba(242, 198, 103, .2); }
-.rating.sell { color: #ff738d; background: rgba(255, 108, 136, .08); border: 1px solid rgba(255, 108, 136, .2); }
-
-.consensusForward {
-  background:
-    radial-gradient(circle at 88% 8%, rgba(31, 208, 178, .08), transparent 25%),
-    linear-gradient(180deg, rgba(15, 29, 49, .98), rgba(10, 20, 36, .98));
+.consensusPreviewMeta a {
+  color: var(--ot-accent-strong);
+  text-decoration: none;
+  font-weight: 700;
 }
-.forwardTable { min-width: 980px; }
-.forwardTable th:nth-child(n+3), .forwardTable td:nth-child(n+3) { text-align: right; }
-.consensusNote { margin: 13px 0 0; color: #657792; font-size: 10px; line-height: 1.55; }
 
-.consensusTwoColumn { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-.nextQuarterCard p { margin: 18px 0 12px; color: #8393aa; font-size: 12px; line-height: 1.55; }
-.nextQuarterCard > small { display: block; margin-top: 14px; color: #63758f; font-size: 10px; line-height: 1.45; }
-.trackedMetrics { display: flex; flex-wrap: wrap; gap: 7px; }
-.trackedMetrics span { padding: 7px 9px; border: 1px solid #20334f; border-radius: 8px; background: #0c192b; color: #9aabc1; font-size: 10px; }
+.consensusWaitingPreview {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid rgba(79, 145, 212, 0.24);
+  border-radius: 10px;
+  background: #17283d;
+}
 
-.referenceGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 18px; }
-.referenceGrid > div { padding: 13px; border: 1px solid #1c2d46; border-radius: 10px; background: rgba(9, 22, 39, .72); }
-.referenceGrid span { display: block; color: #6f8099; font-size: 9px; }
-.referenceGrid strong { display: block; margin-top: 7px; color: #e9f2ff; font-size: 18px; }
-.consensusSourceAction { display: inline-block; margin-top: 15px; color: #82b5ff; font-size: 11px; font-weight: 700; }
+.consensusWaitingPreview > strong {
+  font-size: 1rem;
+}
 
-.beatMissGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
-.beatMissGrid > article { border: 1px solid #1c2d46; border-radius: 11px; padding: 14px; background: #0b182a; }
-.beatMissHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 11px; border-bottom: 1px solid #1b2a40; }
-.beatMissHeader div { display: flex; gap: 8px; align-items: baseline; }
-.beatMissHeader strong { color: #eef4ff; font-size: 17px; }
-.beatMissHeader span { color: #70819b; font-size: 9px; }
-.beatMissHeader a span { color: #82b5ff; }
-.beatMissRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 11px; align-items: center; padding: 12px 0; border-bottom: 1px solid #17263a; }
-.beatMissRow:last-child { border-bottom: 0; }
-.beatMissRow > span { color: #9aabc1; font-size: 10px; }
-.beatMissRow > div small { display: block; color: #687a94; font-size: 9px; text-align: right; }
-.beatMissRow > strong { min-width: 58px; text-align: right; font-size: 13px; }
+.consensusWaitingPreview p {
+  margin: 0;
+  color: var(--ot-text-secondary);
+  line-height: 1.5;
+}
 
-.consensusSources { margin-bottom: 12px; }
-.consensusSources .sourceList strong { color: #9fc4ff; font-size: 12px; }
+.trackedMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.trackedMetrics span {
+  padding: 6px 8px;
+  border: 1px solid var(--ot-border-strong);
+  border-radius: 7px;
+  background: rgba(11, 13, 16, 0.18);
+  color: var(--ot-text-secondary);
+  font-size: 0.7rem;
+}
+
+.consensusBeatSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: var(--ot-border-soft);
+}
+
+.consensusBeatSummaryGrid > div {
+  display: grid;
+  gap: 7px;
+  min-height: 105px;
+  padding: 15px;
+  background: #17283d;
+}
+
+.consensusBeatSummaryGrid span,
+.consensusBeatSummaryGrid small {
+  color: var(--ot-text-muted);
+  font-size: 0.72rem;
+}
+
+.consensusBeatSummaryGrid strong {
+  margin-top: auto;
+  font-size: 1.18rem;
+}
+
+.consensusForwardMatrixWrap {
+  margin-top: 14px;
+}
+
+.consensusForwardMatrix {
+  min-width: 620px;
+}
+
+.consensusForwardMatrix th:not(:first-child),
+.consensusForwardMatrix td:not(:first-child) {
+  text-align: right;
+}
+
+.consensusNetCashRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 11px;
+  color: var(--ot-text-muted);
+  font-size: 0.72rem;
+}
+
+.consensusNote {
+  margin: 11px 0 0;
+  color: var(--ot-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.consensusForwardV2 .cardHeader a,
+.consensusTargetRange .cardHeader a,
+.beatMissHeader a,
+.consensusSourceList a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.consensusRevisionSection {
+  display: grid;
+  gap: 14px;
+}
+
+.consensusForwardRevision {
+  padding: 16px;
+  border: 1px solid rgba(79, 145, 212, 0.24);
+  border-radius: 10px;
+  background: #17283d;
+}
+
+.consensusForwardRevisionHeader,
+.consensusRevisionEventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.consensusForwardRevisionHeader > div,
+.consensusRevisionEventHeader > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.consensusForwardRevisionHeader span,
+.consensusForwardRevisionHeader small,
+.consensusRevisionEventHeader span {
+  color: var(--ot-text-muted);
+  font-size: 0.7rem;
+}
+
+.consensusForwardRevisionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.consensusForwardRevisionGrid > div {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 8px;
+  background: rgba(11, 13, 16, 0.18);
+}
+
+.consensusForwardRevisionGrid span,
+.consensusForwardRevisionGrid small {
+  color: var(--ot-text-muted);
+  font-size: 0.68rem;
+}
+
+.consensusRevisionEvents {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.consensusRevisionEvent {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: #142237;
+}
+
+.consensusRevisionEventHeader > div > strong {
+  font-size: 1.05rem;
+}
+
+.consensusRevisionEventGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.consensusRevisionEventGrid > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 8px;
+  background: rgba(11, 13, 16, 0.16);
+}
+
+.consensusRevisionEventGrid span,
+.consensusRevisionEventGrid small,
+.consensusEstimateRevisionRows span,
+.consensusEstimateRevisionRows small {
+  color: var(--ot-text-muted);
+  font-size: 0.67rem;
+  line-height: 1.4;
+}
+
+.consensusRevisionEventGrid strong {
+  font-size: 0.86rem;
+}
+
+.consensusEstimateRevisionRows {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--ot-border-soft);
+}
+
+.consensusEstimateRevisionRows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.consensusEstimateRevisionRows > div:last-child {
+  border-bottom: 0;
+}
+
+.targetRangeVisual {
+  margin-top: 20px;
+}
+
+.targetRangeNumbers {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--ot-text-secondary);
+  font-size: 0.76rem;
+}
+
+.targetRangeTrack {
+  position: relative;
+  height: 8px;
+  margin: 17px 6px 12px;
+  border-radius: 999px;
+  background: var(--ot-border-strong);
+}
+
+.targetRangeTrack i {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.targetRangeAverage {
+  background: var(--ot-accent-strong);
+  box-shadow: 0 0 0 3px rgba(79, 145, 212, 0.18);
+}
+
+.targetRangeMarket {
+  background: var(--ot-positive);
+  box-shadow: 0 0 0 3px rgba(54, 201, 154, 0.16);
+}
+
+.targetRangeLegend {
+  display: flex;
+  gap: 18px;
+  color: var(--ot-text-muted);
+  font-size: 0.7rem;
+}
+
+.targetRangeLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.targetRangeLegend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.averageDot { background: var(--ot-accent-strong); }
+.marketDot { background: var(--ot-positive); }
+
+.consensusDetailsStack {
+  display: grid;
+  gap: 8px;
+}
+
+.consensusDisclosure {
+  padding: 0;
+  overflow: hidden;
+}
+
+.consensusDisclosure summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.consensusDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.consensusDisclosure summary > span {
+  display: grid;
+  gap: 4px;
+}
+
+.consensusDisclosure summary > span > strong {
+  font-size: 0.92rem;
+}
+
+.consensusDisclosure summary > b {
+  color: var(--ot-accent-strong);
+  font-size: 0.72rem;
+}
+
+.consensusDisclosure[open] summary {
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.consensusDisclosure[open] summary > b::after {
+  content: " skjul";
+}
+
+.consensusDisclosure > .consensusTableWrap,
+.consensusDisclosure > .beatMissGrid,
+.consensusDisclosure > .sourceList,
+.consensusDisclosure > .consensusNote {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.consensusDisclosure > :last-child {
+  margin-bottom: 16px;
+}
+
+.rating {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.rating.buy {
+  color: var(--ot-positive);
+  border: 1px solid rgba(54, 201, 154, 0.26);
+  background: rgba(54, 201, 154, 0.1);
+}
+
+.rating.hold {
+  color: var(--ot-warning);
+  border: 1px solid rgba(210, 168, 81, 0.28);
+  background: rgba(210, 168, 81, 0.08);
+}
+
+.rating.sell {
+  color: var(--ot-negative);
+  border: 1px solid rgba(240, 111, 125, 0.28);
+  background: rgba(240, 111, 125, 0.08);
+}
+
+.analystTable {
+  min-width: 760px;
+}
+
+.beatMissGridDetails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.beatMissGridDetails > article {
+  padding: 13px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 9px;
+  background: #142237;
+}
+
+.beatMissHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.beatMissHeader div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.beatMissHeader span,
+.beatMissHeader a span {
+  color: var(--ot-text-muted);
+  font-size: 0.67rem;
+}
+
+.beatMissHeader a span {
+  color: var(--ot-accent-strong);
+}
+
+.beatMissRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.beatMissRow:last-child {
+  border-bottom: 0;
+}
+
+.beatMissRow > span,
+.beatMissRow > div small {
+  color: var(--ot-text-muted);
+  font-size: 0.66rem;
+}
+
+.beatMissRow > div small {
+  display: block;
+  text-align: right;
+}
+
+.beatMissRow > strong {
+  min-width: 54px;
+  text-align: right;
+  font-size: 0.78rem;
+}
+
+.consensusSourceList {
+  margin-top: 14px;
+}
+
+.consensusSourceList strong {
+  color: var(--ot-accent-strong);
+}
+
+.consensusEmptyInline {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 9px;
+  color: var(--ot-text-muted);
+  text-align: center;
+}
 
 @media (max-width: 1180px) {
-  .consensusKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .beatMissGrid { grid-template-columns: 1fr; }
+  .consensusBeatSummaryGrid,
+  .consensusRevisionEvents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .consensusForwardRevisionGrid,
+  .beatMissGridDetails {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 820px) {
-  .consensusHero { flex-direction: column; align-items: flex-start; }
-  .consensusHeroPrice { justify-items: start; }
-  .consensusTwoColumn { grid-template-columns: 1fr; }
-  .referenceGrid { grid-template-columns: 1fr; }
-}
+  .consensusHeroV2 {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 
-@media (max-width: 520px) {
-  .consensusKpis { grid-template-columns: 1fr; }
+  .consensusHeroPrice {
+    justify-items: start;
+  }
+
+  .consensusKpisV2,
+  .consensusBeatSummaryGrid,
+  .consensusRevisionEvents,
+  .consensusForwardRevisionGrid,
+  .beatMissGridDetails {
+    grid-template-columns: 1fr;
+  }
+
+  .consensusPreviewMeta,
+  .targetRangeNumbers,
+  .targetRangeLegend {
+    flex-direction: column;
+  }
 }

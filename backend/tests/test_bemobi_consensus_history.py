@@ -144,7 +144,7 @@ def test_worker_propagates_price_query_failure() -> None:
         asyncio.run(module._market_reaction(_FailingRepository(), "2026-08-11"))
 
 
-def test_history_is_still_built_but_not_rendered_on_consensus_page() -> None:
+def test_history_is_built_and_rendered_on_consensus_page() -> None:
     backend = (ROOT / "backend/app/bemobi/consensus.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
     worker_history = (ROOT / "cloudflare/src/bemobi_consensus_history.py").read_text(
@@ -159,6 +159,9 @@ def test_history_is_still_built_but_not_rendered_on_consensus_page() -> None:
     assert '"history_link": await build_consensus_history(' in worker
     assert "MISSING_PRICE_HISTORY" in worker_history
     assert "ConsensusHistoryPanel" in page
-    assert "return null;" in panel
-    assert "Forventning → faktisk → revisjon → kursreaksjon" not in panel
-    assert "Venter på offentlig modell" not in panel
+    old_stub = "export default function ConsensusHistoryPanel(_: { history?: ConsensusHistoryLink | null }) {\n  return null;\n}"
+    assert old_stub not in panel
+    assert "if (visibleEvents.length === 0 && latestChanges.length === 0) return null;" in panel
+    assert "Forventning → faktisk → revisjon → kursreaksjon" in panel
+    assert "Venter på offentlig modell" in panel
+    assert "Siste meglermodell-revisjon" in panel
