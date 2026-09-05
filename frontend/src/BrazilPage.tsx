@@ -41,10 +41,12 @@ type FocusTrendPoint = {
 type FocusTrend = {
   ready?: boolean;
   comparison_year?: number;
+  comparison_years?: number[];
   comparisons?: Record<string, {
     ready?: boolean;
     target_date?: string;
     points?: Record<string, FocusTrendPoint>;
+    points_by_year?: Record<string, Record<string, FocusTrendPoint>>;
   }>;
 };
 type InvestorDriver = { tone: Tone; label: string; summary: string };
@@ -62,7 +64,9 @@ type InvestorSummary = {
     current?: number | null;
     current_year_estimate?: number | null;
     next_year_estimate?: number | null;
+    expected_change_to_current_year_bp?: number | null;
     expected_change_to_next_year_bp?: number | null;
+    expected_change_current_to_next_year_bp?: number | null;
   };
 };
 type CalendarExpectation = {
@@ -225,8 +229,20 @@ function toneLabel(tone?: Tone) {
   return "NØYTRAL";
 }
 
-function trendPoint(data: BrazilPayload, period: string, key: string): FocusTrendPoint | undefined {
-  return data.focus_trend?.comparisons?.[period]?.points?.[key];
+function trendPoint(data: BrazilPayload, period: string, key: string, year?: number): FocusTrendPoint | undefined {
+  const comparison = data.focus_trend?.comparisons?.[period];
+  if (year != null) {
+    return comparison?.points_by_year?.[String(year)]?.[key]
+      ?? (data.focus_trend?.comparison_year === year ? comparison?.points?.[key] : undefined);
+  }
+  return comparison?.points?.[key];
+}
+
+function trendTone(point: FocusTrendPoint | undefined, positiveWhenLower: boolean) {
+  const change = point?.change;
+  if (change == null || !Number.isFinite(change) || change === 0) return "";
+  const positive = positiveWhenLower ? change < 0 : change > 0;
+  return positive ? "positive" : "negative";
 }
 
 function Sparkline({ points }: { points?: SeriesPoint[] }) {
@@ -358,10 +374,14 @@ export default function BrazilPage() {
   const ratePath = summary?.rate_path;
   const calendar = data.calendar ?? [];
   const nextEvents = calendar.slice(0, 3);
-  const nextYear = Number(data.as_of_date.slice(0, 4)) + 1;
-  const selic30d = trendPoint(data, "30d", "selic");
-  const ipca30d = trendPoint(data, "30d", "ipca");
-  const gdp30d = trendPoint(data, "30d", "gdp");
+  const currentYear = Number(data.as_of_date.slice(0, 4));
+  const nextYear = currentYear + 1;
+  const selicCurrent30d = trendPoint(data, "30d", "selic", currentYear);
+  const selicNext30d = trendPoint(data, "30d", "selic", nextYear);
+  const ipcaCurrent30d = trendPoint(data, "30d", "ipca", currentYear);
+  const ipcaNext30d = trendPoint(data, "30d", "ipca", nextYear);
+  const gdpCurrent30d = trendPoint(data, "30d", "gdp", currentYear);
+  const gdpNext30d = trendPoint(data, "30d", "gdp", nextYear);
   const bemobiNavComponent = economicNav?.composition?.find((item) => item.key === "bemobi");
   const bemobiPerShare = bemobiNavComponent?.per_share_nok ?? null;
   const brlNavImpact10 = bemobiPerShare != null && Number.isFinite(bemobiPerShare) ? bemobiPerShare * 0.10 : null;
@@ -394,13 +414,17 @@ export default function BrazilPage() {
             <span className="label">RENTER</span>
             <span className={`brazilSignal ${summary?.drivers?.valuation?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.valuation?.tone)}</span>
           </div>
-          <div className="brazilRatePath">
-            <strong>{number(ratePath?.current, 2)} %</strong>
+          <div className="brazilRatePath brazilRatePathThree">
+            <div><strong>{number(ratePath?.current, 2)} %</strong><small>I dag</small></div>
             <span>→</span>
-            <strong>{number(ratePath?.next_year_estimate, 2)} %</strong>
-            <small>{nextYear}E</small>
+            <div><strong>{number(ratePath?.current_year_estimate, 2)} %</strong><small>{currentYear}E</small></div>
+            <span>→</span>
+            <div><strong>{number(ratePath?.next_year_estimate, 2)} %</strong><small>{nextYear}E</small></div>
           </div>
-          <div className="brazilDriverMetric">{signedBp(ratePath?.expected_change_to_next_year_bp)} mot dagens rente</div>
+          <div className="brazilRateMilestones">
+            <span><strong>{signedBp(ratePath?.expected_change_to_current_year_bp)}</strong> innen årsslutt</span>
+            <span><strong>{signedBp(ratePath?.expected_change_to_next_year_bp)}</strong> til utgangen av {nextYear}</span>
+          </div>
           <p>{summary?.drivers?.valuation?.summary || "Rentebanen beregnes fra Selic og BCB Focus."}</p>
         </article>
 
@@ -436,11 +460,33 @@ export default function BrazilPage() {
           <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
           <small>Focus-endringer sammenlignes med samme offisielle BCB-serier rundt 30 dager tidligere.</small>
         </div>
-        <div className="brazilChangeGrid">
-          <div><span>Selic {nextYear}E</span><strong className={(selic30d?.change ?? 0) < 0 ? "positive" : (selic30d?.change ?? 0) > 0 ? "negative" : ""}>{signedBp(selic30d?.change_bp)}</strong></div>
-          <div><span>IPCA {nextYear}E</span><strong className={(ipca30d?.change ?? 0) < 0 ? "positive" : (ipca30d?.change ?? 0) > 0 ? "negative" : ""}>{signedBp(ipca30d?.change_bp)}</strong></div>
-          <div><span>BNP {nextYear}E</span><strong className={(gdp30d?.change ?? 0) > 0 ? "positive" : (gdp30d?.change ?? 0) < 0 ? "negative" : ""}>{gdp30d?.change == null ? "–" : `${signed(gdp30d.change, 2)} pp`}</strong></div>
-          <div><span>BRL/NOK</span><strong className={(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong></div>
+        <div className="brazilChangeLayout">
+          <div className="brazilChangeTableWrap">
+            <table className="brazilChangeTable">
+              <thead><tr><th>Indikator</th><th>{currentYear}E</th><th>{nextYear}E</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Selic</td>
+                  <td><strong className={trendTone(selicCurrent30d, true)}>{signedBp(selicCurrent30d?.change_bp)}</strong></td>
+                  <td><strong className={trendTone(selicNext30d, true)}>{signedBp(selicNext30d?.change_bp)}</strong></td>
+                </tr>
+                <tr>
+                  <td>IPCA</td>
+                  <td><strong className={trendTone(ipcaCurrent30d, true)}>{signedBp(ipcaCurrent30d?.change_bp)}</strong></td>
+                  <td><strong className={trendTone(ipcaNext30d, true)}>{signedBp(ipcaNext30d?.change_bp)}</strong></td>
+                </tr>
+                <tr>
+                  <td>BNP</td>
+                  <td><strong className={trendTone(gdpCurrent30d, false)}>{gdpCurrent30d?.change == null ? "–" : `${signed(gdpCurrent30d.change, 2)} pp`}</strong></td>
+                  <td><strong className={trendTone(gdpNext30d, false)}>{gdpNext30d?.change == null ? "–" : `${signed(gdpNext30d.change, 2)} pp`}</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="brazilChangeFx">
+            <span>BRL/NOK · siste måned</span>
+            <strong className={(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong>
+          </div>
         </div>
       </section>
 
