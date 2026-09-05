@@ -43,7 +43,7 @@ def test_issue_168_has_all_requested_periods_and_nav_views() -> None:
     assert 'NAV: "NAV"' in views
     assert "BRL/NOK" in overview
     assert "summary?.brl_nok" in overview
-    assert "Siste kurs" in overview
+    assert "HVA DRIVER NAV NÅ?" in overview
     assert '<span className="label">Estimert NAV</span>' not in overview
 
 
