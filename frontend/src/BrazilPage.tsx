@@ -269,7 +269,7 @@ function MetricCard({ metric }: { metric?: Metric }) {
         <span className="label">{(METRIC_LABELS[metric.key] ?? metric.label).toUpperCase()}</span>
         <span className={`brazilSignal ${metric.signal?.tone ?? "neutral"}`}>{financialText(metric.signal?.label) || "Nøytral"}</span>
       </div>
-      <strong>{number(metric.value, digits)} <small>{metric.unit.replace("% p.a.", "% per år").replace("% m/m", "% m/m")}</small></strong>
+      <strong>{number(metric.value, digits)} <small>{metric.unit.replace("% p.a.", "% per år")}</small></strong>
       <span>{secondary}</span>
       <Sparkline points={metric.series} />
       <p>{financialText(metric.bemobi_impact)}</p>
