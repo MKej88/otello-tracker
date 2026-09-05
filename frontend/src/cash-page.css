@@ -1,5 +1,5 @@
 .cashPage {
-  --cash-inset-surface: var(--ot-surface-raised);
+  --cash-inset-surface: var(--ot-surface-inset);
   display: grid;
   gap: 18px;
 }
@@ -210,7 +210,7 @@
   gap: 1px;
   margin-top: 16px;
   background: var(--ot-border-soft);
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
 }
 
 .cashInterestStrip > div {
@@ -229,7 +229,7 @@
   gap: 7px;
   margin: 22px 0 12px;
   padding: 20px;
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
   background: var(--cash-inset-surface);
 }
 
@@ -394,7 +394,7 @@
   display: grid;
   gap: 14px;
   padding: 18px;
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
   background: var(--cash-inset-surface);
 }
 
@@ -438,8 +438,8 @@
   display: grid;
   gap: 5px;
   padding: 12px;
-  border: 1px solid var(--ot-border-soft);
-  background: var(--ot-surface);
+  border: 1px solid var(--ot-border-inset);
+  background: var(--ot-surface-inset-nested);
 }
 
 .cashBuybackSecondaryFacts span,
@@ -458,7 +458,7 @@
   gap: 1px;
   margin-top: 16px;
   background: var(--ot-border-soft);
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
 }
 
 .cashMethodGrid > div {
