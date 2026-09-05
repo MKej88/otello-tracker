@@ -343,7 +343,7 @@ export default function CashPage() {
     const netOtecMnok = netOtecMbrl == null || distributionBrlNok == null
       ? null
       : netOtecMbrl * distributionBrlNok;
-    return { grossOtecMbrl, netOtecMbrl, netOtecMnok };
+    return { netOtecMnok };
   };
 
   const jcp3Q = jcpEstimate(JCP_3Q26_ESTIMATE_MBRL);
@@ -628,7 +628,7 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            1Q26 og 2Q26 er annonserte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP behandles som timing/form på Bemobis samlede 100 % payout og dobbelttelles derfor ikke mot utbyttemodellen over.
+            1Q26 og 2Q26 er annonserte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP behandles som timing/form på deler av Bemobis samlede 100 % payout og dobbelttelles derfor ikke mot utbyttemodellen over.
           </p>
         </article>
 
