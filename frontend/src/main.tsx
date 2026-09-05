@@ -4,10 +4,7 @@ import InvestorApp from "./InvestorApp";
 import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
 import "./styles.css";
 import "./prelive.css";
-import "./cash-surface-overrides.css";
 import "./history-context.css";
-import "./overview-driver-colors.css";
-import "./overview-surface-overrides.css";
 
 installDashboardBootstrapFetch();
 
