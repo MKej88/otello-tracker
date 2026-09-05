@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "frontend" / "src" / "CashPage.tsx"
-CASH_OVERRIDES = ROOT / "frontend" / "src" / "cash-surface-overrides.css"
+THEME = ROOT / "frontend" / "src" / "otello-theme.css"
 
 
 def test_cash_page_shows_how_estimated_cash_is_derived() -> None:
@@ -30,9 +30,10 @@ def test_cash_page_shows_how_estimated_cash_is_derived() -> None:
 
 
 def test_cash_bridge_preserves_positive_and_negative_colors_inside_cards() -> None:
-    styles = CASH_OVERRIDES.read_text(encoding="utf-8")
+    theme = THEME.read_text(encoding="utf-8")
 
-    assert ".investorPage.cashPage .cashBridgeRows strong.positive" in styles
-    assert "color: var(--ot-positive);" in styles
-    assert ".investorPage.cashPage .cashBridgeRows strong.negative" in styles
-    assert "color: var(--ot-negative);" in styles
+    assert ":where(h1, h2, .card strong)" in theme
+    assert ".positive," in theme
+    assert "color: var(--ot-positive);" in theme
+    assert ".negative," in theme
+    assert "color: var(--ot-negative);" in theme
