@@ -12,7 +12,7 @@ def test_buyback_page_prioritizes_shareholder_value_creation() -> None:
     for label in (
         "Verdiskaping fra tilbakekjøp",
         "Netto NAV-effekt",
-        "Kapital brukt hittil",
+        "Kapital brukt",
         "Gjennomsnittlig kjøpskurs",
         "Aksjer kjøpt tilbake",
         "Effekt av færre aksjer",
