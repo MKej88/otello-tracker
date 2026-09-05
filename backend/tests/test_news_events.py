@@ -41,6 +41,25 @@ def test_existing_and_future_bemobi_news_are_rendered_in_english() -> None:
         "Filing type: Material fact | Subject: Share buyback program | "
         "See the official CVM filing for full details."
     )
+    assert item["nav_impact"] == "POTENTIAL"
+
+
+def test_jcp_uses_precise_label_and_exposes_nav_impact() -> None:
+    item = _news_item(
+        {
+            "id": 2,
+            "symbol": "BMOB3",
+            "headline": "Juros sobre capital próprio",
+            "summary": None,
+            "category": "JCP",
+            "nav_impact": "DIRECT",
+            "metadata_json": "{}",
+        }
+    )
+
+    assert item["category_label"] == "JCP"
+    assert item["nav_impact"] == "DIRECT"
+    assert item["importance"] == "HIGH"
 
 
 def test_news_events_dashboard_is_safe_on_empty_database(tmp_path) -> None:
