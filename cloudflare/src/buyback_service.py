@@ -235,21 +235,7 @@ async def buyback_forecast(
     period_start = _next_monday(latest_end)
     period_end = period_start + timedelta(days=4)
     trading_days = oslo_bors_trading_days(period_start, period_end)
-
-    if as_of > period_end:
-        return {
-            "ready": False,
-            "status": "PROGRAM_STATUS_STALE",
-            "methodology_version": METHOD_VERSION,
-            "as_of_date": as_of.isoformat(),
-            "latest_period_end": latest_end.isoformat(),
-            "forecast_week": {
-                "from": period_start.isoformat(),
-                "to": period_end.isoformat(),
-                "expected_trading_days": len(trading_days),
-                "trading_dates": [item.isoformat() for item in trading_days],
-            },
-        }
+    awaiting_program_update = as_of > period_end
 
     activity = await _activity_history(repository, period_start)
     lookback = _activity_before(activity, period_start)
@@ -359,6 +345,7 @@ async def buyback_forecast(
     return {
         "ready": True,
         "status": "OK" if price_state != "ABOVE_CAP" else "PRICE_CAP_BLOCKED",
+        "awaiting_program_update": awaiting_program_update,
         "methodology_version": METHOD_VERSION,
         "as_of_date": as_of.isoformat(),
         "program": {
