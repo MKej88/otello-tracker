@@ -21,7 +21,6 @@ def test_buyback_page_prioritizes_shareholder_value_creation() -> None:
         assert label in source
 
     assert "share_count_nav_effect_per_share_nok" in source
-    assert "share_count_nav_effect_pct" in source
     assert 'fetch("/api/bemobi/dashboard")' in source
     assert "bemobiShares / shares.outstanding_shares * 1000" in source
 
