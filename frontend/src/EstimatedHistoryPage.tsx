@@ -131,9 +131,9 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
           <rect
             className="historyPercentileBand"
             x={left}
-            y={Math.min(y(stats.p10_discount_pct), y(stats.p90_discount_pct))}
+            y={Math.min(y(stats.p10_discount_pct!), y(stats.p90_discount_pct!))}
             width={right - left}
-            height={Math.abs(y(stats.p10_discount_pct) - y(stats.p90_discount_pct))}
+            height={Math.abs(y(stats.p10_discount_pct!) - y(stats.p90_discount_pct!))}
           />
         )}
         {yTicks.map((tick) => {
