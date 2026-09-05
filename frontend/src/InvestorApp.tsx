@@ -11,6 +11,7 @@ const loadNavPage = () => import("./NavPageV2");
 const loadNavSensitivityPage = () => import("./NavSensitivityPage");
 const loadHistoryPage = () => import("./EstimatedHistoryPage");
 const loadBuybackPage = () => import("./BuybackPage");
+const loadCashPage = () => import("./CashPage");
 const loadBemobiPage = () => import("./BemobiPage");
 const loadBrazilPage = () => import("./BrazilPage");
 const loadConsensusPage = () => import("./ConsensusPage");
@@ -21,6 +22,7 @@ const NavPageV2 = lazy(loadNavPage);
 const NavSensitivityPage = lazy(loadNavSensitivityPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
 const BuybackPage = lazy(loadBuybackPage);
+const CashPage = lazy(loadCashPage);
 const BemobiPage = lazy(loadBemobiPage);
 const BrazilPage = lazy(loadBrazilPage);
 const ConsensusPage = lazy(loadConsensusPage);
@@ -54,6 +56,13 @@ function preload(view: View) {
     void loadBuybackPage();
     preloadJson("/api/buybacks/dashboard");
   }
+  if (view === "Cash") {
+    void loadCashPage();
+    preloadJson("/api/dashboard/summary");
+    preloadJson("/api/bemobi/dashboard");
+    preloadJson("/api/buybacks/dashboard");
+    preloadJson("/api/nav/daily-cash");
+  }
   if (view === "Bemobi") {
     void loadBemobiPage();
     preloadJson("/api/bemobi/dashboard");
@@ -84,6 +93,7 @@ function ActiveView({ view }: { view: View }) {
   if (view === "NAV-sensitivitet") return <NavSensitivityPage />;
   if (view === "Historikk") return <EstimatedHistoryPage />;
   if (view === "Tilbakekjøpsprogram") return <BuybackPage />;
+  if (view === "Cash") return <CashPage />;
   if (view === "Bemobi") {
     return <div className="normalBemobiView"><BemobiPage /></div>;
   }
