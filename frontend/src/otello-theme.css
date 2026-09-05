@@ -1,833 +1,316 @@
 /*
- * Otello visual identity — institutional dark
+ * Otello visual identity
  *
- * Design-only layer. It intentionally does not change page content, data,
- * component structure, grids or API behaviour. The !important declarations
- * are deliberate: several lazy-loaded page styles are appended after this
- * shared theme in production, so the shared visual system must win the cascade.
+ * A neutral, finance-first dark theme. Blue is reserved for brand/interaction,
+ * while green/red/amber are reserved for semantic market states.
+ * Keep layout rules in the existing page styles; this file owns the shared palette.
  */
-
 :root {
   color-scheme: dark;
 
-  --ot-bg: #090a0c;
-  --ot-sidebar: #0b0c0f;
-  --ot-surface: #101216;
-  --ot-surface-raised: #15181d;
-  --ot-surface-muted: #0d0f12;
-  --ot-surface-inset: #0b0d10;
+  --ot-bg: #0b0d10;
+  --ot-sidebar: #0d1014;
+  --ot-surface: #12161c;
+  --ot-surface-raised: #171c23;
+  --ot-surface-muted: #101419;
 
-  --ot-border: #252a31;
-  --ot-border-soft: #1d2127;
-  --ot-border-strong: #353c45;
+  --ot-border: #272d36;
+  --ot-border-soft: #20262e;
+  --ot-border-strong: #343c47;
 
-  --ot-text: #f1f3f5;
-  --ot-text-secondary: #a5adb7;
-  --ot-text-muted: #747e89;
+  --ot-text: #f5f7fa;
+  --ot-text-secondary: #a2abb7;
+  --ot-text-muted: #76818f;
 
-  --ot-accent: #7aa2c7;
-  --ot-accent-strong: #91b6d8;
-  --ot-accent-soft: rgba(122, 162, 199, 0.10);
-  --ot-accent-border: rgba(122, 162, 199, 0.38);
+  --ot-accent: #4f91d4;
+  --ot-accent-strong: #69a7e6;
+  --ot-accent-soft: rgba(79, 145, 212, 0.12);
+  --ot-accent-border: rgba(79, 145, 212, 0.38);
 
-  --ot-positive: #55b99a;
-  --ot-positive-soft: rgba(85, 185, 154, 0.10);
-  --ot-negative: #d66f7c;
-  --ot-negative-soft: rgba(214, 111, 124, 0.10);
-  --ot-warning: #c5a159;
-  --ot-warning-soft: rgba(197, 161, 89, 0.10);
-
-  /* Compatibility tokens used by page-specific styles. */
-  --text: var(--ot-text);
-  --muted: var(--ot-text-muted);
-  --line: var(--ot-border);
-  --border: var(--ot-border);
-  --accent: var(--ot-accent);
-  --warning: var(--ot-warning);
+  --ot-positive: #36c99a;
+  --ot-negative: #f06f7d;
+  --ot-warning: #d2a851;
 
   color: var(--ot-text);
   background: var(--ot-bg);
 }
 
-/* App canvas ------------------------------------------------------------- */
 html,
-body,
-#root {
-  background: var(--ot-bg) !important;
-  color: var(--ot-text) !important;
+body {
+  background: var(--ot-bg);
+  color: var(--ot-text);
 }
 
 body {
-  background-image: none !important;
-  text-rendering: optimizeLegibility;
+  /* Deliberately flat: avoids the generic AI/SaaS blue glow. */
+  background-image: none;
 }
 
-.main {
-  background: var(--ot-bg) !important;
-}
-
-.investorTopbar {
-  border-bottom: 1px solid var(--ot-border-soft);
-  padding-bottom: 16px;
-  margin-bottom: 22px !important;
-}
-
-.investorTopbar h1,
-h1 {
-  color: var(--ot-text) !important;
-  font-weight: 690 !important;
-  letter-spacing: -0.035em !important;
-}
-
-h2,
-h3 {
-  color: var(--ot-text) !important;
-  letter-spacing: -0.02em;
-}
-
-/* Navigation ------------------------------------------------------------- */
+/* Navigation and brand --------------------------------------------------- */
 .sidebar {
-  background: var(--ot-sidebar) !important;
-  border-right-color: var(--ot-border-soft) !important;
+  background: var(--ot-sidebar);
+  border-right-color: var(--ot-border-soft);
 }
 
 .brandMark {
-  background: var(--ot-accent) !important;
-  background-image: none !important;
-  border-radius: 5px !important;
-  box-shadow: none !important;
-  color: #0b0d10 !important;
-}
-
-.brand strong {
-  color: var(--ot-text) !important;
-  font-weight: 680;
+  background: var(--ot-accent);
+  color: #fff;
+  box-shadow: none;
 }
 
 .brand small,
 .sidebarFooter {
-  color: var(--ot-text-muted) !important;
+  color: var(--ot-text-muted);
 }
 
 .sidebarFooter {
-  border-top-color: var(--ot-border-soft) !important;
+  border-top-color: var(--ot-border-soft);
 }
 
 .navItem {
-  color: #929aa4 !important;
-  border-radius: 4px !important;
-  transition: background-color .12s ease, color .12s ease, box-shadow .12s ease !important;
+  color: #929ca9;
 }
 
 .navItem:not(:disabled):hover {
-  background: #12151a !important;
-  color: var(--ot-text) !important;
+  background: var(--ot-surface-raised);
+  color: var(--ot-text);
 }
 
 .navItem.active {
-  background: #14171b !important;
-  color: var(--ot-text) !important;
-  box-shadow: inset 3px 0 0 var(--ot-accent) !important;
+  background: #18202a;
+  color: var(--ot-text);
+  box-shadow: inset 0 0 0 1px var(--ot-accent-border);
 }
 
 .navItem.active .navDot {
-  background: var(--ot-accent) !important;
-  border-color: var(--ot-accent) !important;
+  background: var(--ot-accent);
+  border-color: var(--ot-accent);
 }
 
-.navDot {
-  border-color: #59626c !important;
+/* Typography ------------------------------------------------------------- */
+h1,
+h2,
+.card strong {
+  color: var(--ot-text);
 }
 
-/* Typography and secondary copy ----------------------------------------- */
 .eyebrow,
 .label,
-.updated,
+.updated {
+  color: var(--ot-text-muted);
+}
+
 .pageIntro p,
-.chartSummary,
 .insightMetricRow,
-.insightRange,
-.insightFootnote,
 .placeholderRows > div,
 .sourceList > div,
 .cashBridgeRows > div,
-.bemobiHero p,
-.bemobiHeroMeta,
-.bemobiSectionTitle small,
-.bemobiValuationMetrics span,
-.bemobiValuationMetrics small,
-.bemobiScenarioGrid span,
-.bemobiScenarioGrid small,
-.bemobiTtmSummary span,
-.bemobiTtmSummary small,
-.bemobiTtmSectionHeader small,
-.bemobiTtmRows > div,
-.bemobiQuarterSources,
-.bemobiValuationNote,
-.bemobiResultGrid span,
-.bemobiResultGrid em,
-.bemobiGrowthStrip span,
-.bemobiGrowthStrip small,
-.bemobiStakeValue span,
-.bemobiCalendarDate span,
-.bemobiNextReport p,
-.bemobiEmpty,
-.bemobiFootnote,
-.consensusHero p,
-.consensusHeroPrice span,
-.consensusHeroPrice small,
-.consensusKpis small,
-.consensusNote,
-.nextQuarterCard p,
-.nextQuarterCard > small,
-.referenceGrid span,
-.beatMissHeader span,
-.beatMissRow > span,
-.beatMissRow > div small,
-.buybackHeroCopy p,
-.buybackProgressLabels,
-.buybackHeroMetric span,
-.buybackHeroMetric small,
-.buybackKpi > small,
-.buybackInvestorNote,
-.buybackSectionIntro p,
-.buybackRows > div,
-.forecastPrimary span,
-.forecastPrimary small,
-.forecastRange,
-.accuracyGrid span,
-.accuracyNote,
-.buybackTable th,
-.buybackTable td,
-.buybackEmpty,
-.buybackMethodNote,
-.economicMetrics span,
-.economicMetrics small,
-.economicAdjustments span,
-.economicAdjustments small,
-.cashCurrencyCard > span,
-.cashCurrencyCard small,
-.cashCurrencyNote,
-.fxBacktestCard dt,
-.fxBacktestCard > small,
-.fxBacktestSummary,
-.economicFootnote,
-.economicNavUnavailable,
-.newsFilterLabel,
-.mediaRefreshLead p,
-.mediaRefreshMetrics span,
-.newsCard p,
-.calendarEvent p,
-.newsMeta,
-.translationNote,
-.newsCardFooter,
-.newsSource,
-.calendarNote,
-.emptyCalendar,
-.emptyNewsCard,
-.brazilIntro p,
-.brazilMethodCard p,
-.brazilLead,
-.brazilLatestMacroMeta,
-.brazilLatestBemobiImpact p,
-.brazilLatestMacroFooter,
-.brazilMetricValue small,
-.brazilMetricSecondary,
-.brazilMetricCard p,
-.brazilSourceLine,
-.brazilTable th,
-.brazilNote,
-.brazilCalendarCount,
-.brazilCalendarDate small,
-.brazilCalendarReference,
-.brazilCalendarMain p,
-.brazilCalendarExpectation small,
-.brazilSources span {
-  color: var(--ot-text-muted) !important;
+.chartSummary {
+  color: var(--ot-text-secondary);
 }
 
-.card strong,
-.placeholderRows strong,
-.cashBridgeRows strong,
-.bemobiNotice strong,
-.bemobiKpi > strong,
-.bemobiValuationMetrics strong,
-.bemobiScenarioGrid strong,
-.bemobiTtmSummary strong,
-.bemobiTtmRows strong,
-.bemobiStakeValue strong,
-.bemobiCalendarDate strong,
-.consensusNotice strong,
-.consensusHeroPrice strong,
-.consensusKpis strong,
-.consensusTable td strong,
-.referenceGrid strong,
-.beatMissHeader strong,
-.buybackNotice strong,
-.buybackProgressLabels strong,
-.buybackHeroMetric strong,
-.buybackRows strong,
-.forecastPrimary strong,
-.forecastRange strong,
-.accuracyGrid strong,
-.economicMetrics strong,
-.cashCurrencyHeader h3,
-.cashCurrencyCard strong,
-.fxBacktestYear > strong,
-.fxBacktestCard dd,
-.economicAdjustments strong,
-.economicNavUnavailable strong,
-.newsHeroStats strong,
-.mediaRefreshMetrics strong,
-.brazilLatestMacroGrid strong,
-.brazilMetricValue,
-.brazilCalendarDate strong,
-.brazilCalendarExpectation strong {
-  color: var(--ot-text) !important;
+.insightRange,
+.insightFootnote,
+.overviewBuybackValue small,
+.estimatedCashDate,
+.estimatedCashFootnote,
+.sourceWait {
+  color: var(--ot-text-muted);
 }
 
-/* Core surfaces ---------------------------------------------------------- */
-.card,
-.economicNavPanel,
-.bemobiNotice,
-.consensusNotice,
-.buybackLoading,
-.buybackNotice,
-.resourceNotice {
-  background: var(--ot-surface) !important;
-  background-image: none !important;
-  border-color: var(--ot-border) !important;
-  border-radius: 5px !important;
-  box-shadow: none !important;
-}
-
-/* Remove decorative hero glows/gradients while keeping their content. */
-.bemobiHero,
-.bemobiValuation,
-.consensusHero,
-.consensusForward,
-.newsHero,
-.economicNavPanel,
-.navEffectKpi,
-.bemobiExposureKpi {
-  background: var(--ot-surface) !important;
-  background-image: none !important;
-  border-color: var(--ot-border) !important;
-  box-shadow: none !important;
-}
-
-.bemobiHero,
-.consensusHero,
-.newsHero,
-.sensitivityIntro {
-  border-left: 2px solid var(--ot-accent) !important;
-}
-
-.forecastCard::before {
-  display: none !important;
-}
-
-/* Nested financial surfaces --------------------------------------------- */
-.bemobiValuationMetrics,
-.bemobiTtmSummary,
-.bemobiResultGrid {
-  background: var(--ot-border-soft) !important;
-  border-color: var(--ot-border) !important;
-  border-radius: 4px !important;
-}
-
-.bemobiValuationMetrics > div,
-.bemobiScenarioGrid > div,
-.bemobiTtmSummary > div,
-.bemobiTtmSection,
-.bemobiSensitivity,
-.bemobiValuationBase,
-.bemobiResultGrid > div,
-.bemobiGrowthStrip > div,
-.referenceGrid > div,
-.beatMissGrid > article,
-.trackedMetrics span,
-.accuracyGrid > div,
-.breakEvenGrid > div,
-.targetResult,
-.rangeEditorGroups fieldset,
-.cashCurrencyCard,
-.fxBacktestCard,
-.economicMetrics > div,
-.changeSummary > div,
-.nightlyMetrics > div,
-.qualityMethodSteps > div,
-.qualityMetricGrid > div,
-.qualityReportMeta > div,
-.qualityStep,
-.newsHeroStats div,
-.mediaRefreshMetrics span,
-.brazilLatestMacroGrid > div,
-.brazilSources span {
-  background: var(--ot-surface-inset) !important;
-  background-image: none !important;
-  border-color: var(--ot-border-soft) !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
-}
-
-.bemobiTtmSectionHeader,
-.bemobiStakeValue,
-.bemobiCalendarDate,
-.bemobiFootnote,
-.beatMissHeader,
-.beatMissRow,
-.buybackHeroMetric,
-.buybackRows > div,
-.cashCurrencyNote,
-.fxBacktestCard dl > div,
-.fxBacktestSummary,
-.economicAdjustments,
-.economicAdjustments > div,
-.newsCardFooter,
-.calendarEvent,
-.brazilLatestBemobiImpact,
-.brazilTable th,
-.brazilTable td,
-.brazilNote,
-.brazilCalendarRow,
-.freshnessRow,
-.compositionRow,
-.driverLabel small,
-.driverCell small,
-.scenarioRows > div {
-  border-color: var(--ot-border-soft) !important;
+/* Surfaces --------------------------------------------------------------- */
+.card {
+  background: var(--ot-surface);
+  border-color: var(--ot-border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 
 .insightDivider,
-.overviewBuybackRows .overviewBuybackDivider,
-.driverBarTrack {
-  background: var(--ot-border-soft) !important;
+.overviewBuybackRows .overviewBuybackDivider {
+  background: var(--ot-border-soft);
 }
 
-/* Tables ----------------------------------------------------------------- */
-.consensusTableWrap,
-.buybackTableWrap {
-  border-color: var(--ot-border) !important;
-  border-radius: 4px !important;
-  background: var(--ot-surface-inset) !important;
+.insightMetricGroup + .insightMetricGroup,
+.placeholderRows > div,
+.sourceList > div,
+.cashBridgeRows > div:first-child,
+.cashBridgeRows .cashBridgeChange {
+  border-color: var(--ot-border-soft);
 }
 
-.consensusTable,
-.buybackTable {
-  background: var(--ot-surface) !important;
+.insightRangeTrack {
+  background: #424a55;
 }
 
-.consensusTable th,
-.buybackTable th {
-  background: #0b0d10 !important;
-  color: #737d88 !important;
-  border-color: var(--ot-border-soft) !important;
+.estimatedCashValue,
+.placeholderRows strong {
+  color: var(--ot-text);
 }
 
-.consensusTable td,
-.buybackTable td {
-  background: var(--ot-surface) !important;
-  color: var(--ot-text-secondary) !important;
-  border-color: var(--ot-border-soft) !important;
+.estimatedCashPerShare,
+.cashBridgeRows .cashBridgeChange {
+  color: var(--ot-text-secondary);
 }
 
-.consensusTable tbody tr:hover td,
-.buybackTable tbody tr:hover td {
-  background: #14171b !important;
-}
-
-.brazilTable th,
-.brazilTable td {
-  border-color: var(--ot-border-soft) !important;
+.donut::after {
+  background: var(--ot-surface);
 }
 
 /* Controls --------------------------------------------------------------- */
 .pill,
-.periodButtons button,
-.sensitivityModeButtons button,
-.targetSolveButtons button,
-.selectedHeader button,
-.sensitivityRangeActions button,
-.rangeEditorButtons button,
-.rangeClose,
-.targetResult button,
-.newsFilterButtons button {
-  background: var(--ot-surface-raised) !important;
-  color: var(--ot-text-secondary) !important;
-  border-color: var(--ot-border-strong) !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
+.periodButtons button {
+  border-color: var(--ot-border-strong);
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
 }
 
 .pill.muted {
-  background: var(--ot-surface-muted) !important;
-  color: var(--ot-text-muted) !important;
-  border-color: var(--ot-border) !important;
+  border-color: var(--ot-border);
+  background: var(--ot-surface-muted);
+  color: var(--ot-text-muted);
 }
 
-.periodButtons button:hover,
-.sensitivityModeButtons button:hover,
-.targetSolveButtons button:hover,
-.selectedHeader button:hover,
-.sensitivityRangeActions button:hover,
-.rangeEditorButtons button:hover,
-.rangeClose:hover,
-.targetResult button:hover,
-.newsFilterButtons button:hover {
-  background: #191d22 !important;
-  color: var(--ot-text) !important;
-  border-color: #49515b !important;
+.periodButtons button:hover {
+  border-color: #4a5563;
+  background: #1b2129;
 }
 
-.periodButtons button.active,
-.sensitivityModeButtons button.active,
-.targetSolveButtons button.active,
-.rangeEditorButtons .primary {
-  background: var(--ot-accent-soft) !important;
-  color: var(--ot-text) !important;
-  border-color: var(--ot-accent-border) !important;
+.periodButtons button.active {
+  background: var(--ot-accent-soft);
+  border-color: var(--ot-accent-border);
+  color: var(--ot-text);
 }
 
-.rangeEditorGroups input,
-.targetInputs input,
-.inputWithSuffix {
-  background: var(--ot-surface-inset) !important;
-  color: var(--ot-text) !important;
-  border-color: var(--ot-border-strong) !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
+:focus-visible {
+  outline-color: var(--ot-accent-strong);
 }
 
-.rangeEditorGroups input:focus,
-.targetInputs input:focus {
-  border-color: var(--ot-accent) !important;
-  box-shadow: 0 0 0 1px var(--ot-accent) !important;
-}
-
-.sensitivityRangeEditor {
-  background: var(--ot-surface) !important;
-  border-color: var(--ot-accent-border) !important;
-  border-radius: 5px !important;
+.skipLink {
+  background: var(--ot-text);
+  color: var(--ot-bg);
 }
 
 /* Charts ----------------------------------------------------------------- */
-.realChart,
-.chartEmpty {
-  background: var(--ot-surface-inset) !important;
-  border-color: var(--ot-border-soft) !important;
-  border-radius: 4px !important;
+.realChart {
+  background: #0e1115;
+  border-color: var(--ot-border-soft);
 }
 
 .gridLine,
 .axisGrid {
-  stroke: var(--ot-border-soft) !important;
+  stroke: var(--ot-border-soft);
 }
 
 .axisTick,
 .axisZero {
-  stroke: #4a535d !important;
+  stroke: #505966;
 }
 
 .legend {
-  background: rgba(9, 10, 12, .92) !important;
-  border: 1px solid var(--ot-border-soft);
-  border-radius: 3px !important;
+  background: rgba(11, 13, 16, 0.86);
 }
 
 .chartDates,
-.axisLabel,
-.axisTitle,
 .chartEmpty {
-  color: var(--ot-text-muted) !important;
-  fill: var(--ot-text-muted) !important;
+  color: var(--ot-text-muted);
+}
+
+.chartEmpty {
+  border-color: var(--ot-border-strong);
 }
 
 .navSeries,
-.navLegend,
-.estimatedPriceLine,
-.axisPriceLabel,
-.axisPriceTitle {
-  stroke: var(--ot-accent) !important;
-  color: var(--ot-accent) !important;
-  fill: var(--ot-accent) !important;
+.navLegend {
+  stroke: var(--ot-accent);
+  color: var(--ot-accent);
 }
 
-.discountSeries {
-  stroke: #9b91b5 !important;
+/* Investor V2 shared borders -------------------------------------------- */
+.estimatedHeroSide,
+.freshnessRow,
+.compositionRow,
+.driverLabel small,
+.driverCell small,
+.changeSummary > div,
+.qualityOverall,
+.nightlyMetrics > div,
+.nightlySources > div,
+.qualityMethodSteps > div,
+.qualityMetricGrid > div,
+.qualityReportMeta > div,
+.qualityReportMeta a,
+.qualityStep {
+  border-color: var(--ot-border-soft);
 }
 
-.averageSeries {
-  stroke: #78958d !important;
+.compositionTotal {
+  border-top-color: var(--ot-accent-border);
 }
 
-/* Sensitivity matrix ----------------------------------------------------- */
-.sensitivityCell {
-  border-color: var(--ot-border-soft) !important;
-  border-radius: 3px !important;
-  box-shadow: none !important;
-}
-
-.sensitivityCell:hover {
-  border-color: var(--ot-border-strong) !important;
-  transform: none !important;
-}
-
-.sensitivityCell.selected {
-  border-color: var(--ot-accent) !important;
-  box-shadow: inset 0 0 0 1px var(--ot-accent) !important;
-}
-
-.sensitivityCell.toneNegative,
-.sensitivityLegend .toneNegative {
-  background: var(--ot-negative-soft) !important;
-}
-
-.sensitivityCell.toneFlat,
-.sensitivityLegend .toneFlat {
-  background: rgba(255,255,255,.025) !important;
-}
-
-.sensitivityCell.toneMild,
-.sensitivityLegend .toneMild {
-  background: rgba(85,185,154,.055) !important;
-}
-
-.sensitivityCell.toneGood,
-.sensitivityLegend .toneGood {
-  background: rgba(85,185,154,.09) !important;
-}
-
-.sensitivityCell.toneStrong,
-.sensitivityLegend .toneStrong {
-  background: rgba(85,185,154,.14) !important;
-}
-
-.sensitivityLegend span {
-  border-color: var(--ot-border-soft) !important;
-  border-radius: 3px !important;
-}
-
-/* Buyback --------------------------------------------------------------- */
-.buybackProgressTrack,
-.rangeLine {
-  background: #23282f !important;
-}
-
-.buybackProgressTrack span,
-.rangeLine .rangeEstimate {
-  background: var(--ot-accent) !important;
-  background-image: none !important;
-}
-
-.rangeLine .rangeBase {
-  background: var(--ot-text) !important;
-  box-shadow: 0 0 0 2px rgba(85,185,154,.24) !important;
-}
-
-.buybackInvestorNote,
-.neutralWarning,
-.resourceNotice,
 .nightlyControl {
-  background: var(--ot-surface-raised) !important;
-  border-color: var(--ot-border-strong) !important;
-  color: var(--ot-text-secondary) !important;
-  border-radius: 4px !important;
+  background: var(--ot-surface-raised);
 }
 
-/* News ------------------------------------------------------------------- */
-.newsHero {
-  color: var(--ot-text) !important;
+.driverBarTrack {
+  background: #262c34;
 }
 
-.newsHero p,
-.newsHeroStats span,
-.newsHeroStats small {
-  color: var(--ot-text-muted) !important;
-}
-
-.companyTag,
-.importanceBadge,
-.contentTypeBadge,
-.rating,
-.brazilSignal,
-.brazilImportance,
-.buybackStatus,
-.buybackConfidence,
-.economicBadge,
-.cashConfidence,
-.fxBacktestHit,
-.fxBacktestMiss {
-  border-radius: 3px !important;
-}
-
-.companyOtello,
-.companyBemobi,
-.contentOFFICIAL,
-.contentMEDIA,
-.importanceLOW {
-  color: var(--ot-text-secondary) !important;
-  background: #171a1f !important;
-  border: 1px solid var(--ot-border-soft) !important;
-}
-
-.importanceHIGH {
-  color: var(--ot-negative) !important;
-  background: var(--ot-negative-soft) !important;
-  border: 1px solid rgba(214,111,124,.24) !important;
-}
-
-.importanceMEDIUM,
-.rating.hold,
-.brazilImportance.high {
-  color: var(--ot-warning) !important;
-  background: var(--ot-warning-soft) !important;
-  border-color: rgba(197,161,89,.26) !important;
-}
-
-.rating.buy {
-  color: var(--ot-positive) !important;
-  background: var(--ot-positive-soft) !important;
-  border-color: rgba(85,185,154,.26) !important;
-}
-
-.rating.sell {
-  color: var(--ot-negative) !important;
-  background: var(--ot-negative-soft) !important;
-  border-color: rgba(214,111,124,.26) !important;
-}
-
-.calendarEvent > time {
-  background: #15181c !important;
-  color: var(--ot-text) !important;
-  border: 1px solid var(--ot-border) !important;
-  border-radius: 4px !important;
-}
-
-.mediaRefreshStatus {
-  border-left-color: var(--ot-border-strong) !important;
-}
-
-.mediaStatusSuccess { border-left-color: var(--ot-positive) !important; }
-.mediaStatusPartial { border-left-color: var(--ot-warning) !important; }
-.mediaStatusFailed { border-left-color: var(--ot-negative) !important; }
-
-/* Brazil ----------------------------------------------------------------- */
-.brazilSignal,
-.brazilImportance,
-.brazilSources span {
-  background: #171a1f !important;
-  color: var(--ot-text-muted) !important;
-  border-color: var(--ot-border-soft) !important;
-}
-
-.brazilSignal.positive {
-  color: var(--ot-positive) !important;
-  background: var(--ot-positive-soft) !important;
-}
-
-.brazilSignal.negative {
-  color: var(--ot-negative) !important;
-  background: var(--ot-negative-soft) !important;
-}
-
-.brazilSpark {
-  color: var(--ot-accent) !important;
-}
-
-/* Semantic colours ------------------------------------------------------- */
-.investorMainV2 .positive,
+/* Semantic market colours ---------------------------------------------- */
+.positive,
 .sourceOk,
-.positiveBar,
-.tableGood,
-.bemobiResultGrid em,
-.investorBuybackHero .positive,
-.buybackHeroMetric strong.positive,
-.navEffectKpi > strong,
-.economicMetrics .economicPrimary strong,
-.fxBacktestHit {
-  color: var(--ot-positive) !important;
+.freshnessDot.fresh,
+.qualityDot.ok,
+.positiveBar {
+  color: var(--ot-positive);
 }
 
-.investorMainV2 .negative,
-.negativeBar,
-.tableBad,
-.investorBuybackHero .negative,
-.buybackHeroMetric strong.negative,
-.fxBacktestMiss,
-.mediaRefreshError {
-  color: var(--ot-negative) !important;
+.positive,
+.sourceOk {
+  color: var(--ot-positive);
 }
 
-.sourceWarn,
-.tableMid,
-.buybackStatus.warn,
-.brazilFreshness small {
-  color: var(--ot-warning) !important;
-}
-
-.neutral,
-.sourceWait,
-.investorBuybackHero .neutral,
-.buybackHeroMetric strong.neutral {
-  color: var(--ot-text-muted) !important;
-}
-
-.statusDot.ok,
 .insightRangeTrack i,
 .freshnessDot.fresh,
 .qualityDot.ok {
-  background: var(--ot-positive) !important;
+  background: var(--ot-positive);
+}
+
+.negative,
+.negativeBar {
+  color: var(--ot-negative);
+}
+
+.sourceWarn {
+  color: var(--ot-warning);
 }
 
 .freshnessDot.delayed {
-  background: var(--ot-warning) !important;
+  background: var(--ot-warning);
 }
 
 .freshnessDot.stale {
-  background: var(--ot-negative) !important;
+  background: var(--ot-negative);
 }
 
-.economicMetrics .economicPrimary {
-  background: var(--ot-positive-soft) !important;
-  border-color: rgba(85,185,154,.30) !important;
+.neutral {
+  color: var(--ot-text-muted);
 }
 
-/* Links and focus -------------------------------------------------------- */
-a,
-.bemobiQuarterSources a,
-.bemobiSourceAction,
-.consensusSourceAction,
-.newsSourceLink {
-  color: var(--ot-accent) !important;
+/* Notices keep meaning, but use the neutral surface language. */
+.neutralWarning,
+.resourceNotice {
+  border-color: var(--ot-border-strong);
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
 }
 
-a:hover,
-.bemobiQuarterSources a:hover,
-.bemobiSourceAction:hover,
-.consensusSourceAction:hover,
-.newsSourceLink:hover {
-  color: var(--ot-accent-strong) !important;
+.neutralWarning strong,
+.resourceNotice strong {
+  color: var(--ot-text);
 }
 
-:focus-visible {
-  outline: 2px solid var(--ot-accent) !important;
-  outline-offset: 2px !important;
-}
-
-.skipLink {
-  background: var(--ot-text) !important;
-  color: var(--ot-bg) !important;
-  border-radius: 3px !important;
-}
-
-/* Keep mobile behaviour from existing styles; only harmonise the chrome. */
 @media (max-width: 850px) {
   .sidebar {
-    border-bottom-color: var(--ot-border-soft) !important;
-  }
-
-  .investorTopbar {
-    border-bottom-color: var(--ot-border-soft) !important;
+    border-bottom-color: var(--ot-border-soft);
   }
 }
