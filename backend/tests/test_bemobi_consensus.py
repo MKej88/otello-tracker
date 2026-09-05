@@ -111,7 +111,7 @@ def test_bemobi_consensus_does_not_mix_models_from_different_brokers(tmp_path, m
     assert [item["year"] for item in broker["years"]] == [2028]
 
 
-def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
+def test_consensus_is_database_backed_and_frontend_prioritizes_investor_questions() -> None:
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
@@ -132,15 +132,21 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
-    assert "Meglerestimater" in page
+    assert "Hva forventer markedet?" in page
+    assert "NESTE RAPPORT" in page
+    assert "HISTORISK TREFF" in page
+    assert "FORWARD ESTIMATER" in page
+    assert "Beat/miss per kvartal" in page
+    assert "Analytikere og kursmål" in page
+    assert "Kilder og metode" in page
+    assert "Earnings yield" not in page
+    assert "Referansemodell" not in page
     assert "Forward konsensus" not in page
     assert "MarketScreener" not in page
     assert "MarketScreener" not in history_panel
-    assert "Siste meglermodell-revisjon" not in history_panel
-    assert "Forventning → faktisk → revisjon → kursreaksjon" not in history_panel
-    assert "return null;" in history_panel
-    assert "Beat / miss" in page
+    assert "Siste meglermodell-revisjon" in history_panel
+    assert "Forventning → faktisk → revisjon → kursreaksjon" in history_panel
+    assert "return null;" not in history_panel
     assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
     assert "nextQuarterEstimates.map" in page
-    assert "ratingLabel(data.reference_model?.rating)" in page
     assert '<span className="pill">KJØP</span>' not in page
