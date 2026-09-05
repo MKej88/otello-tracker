@@ -9,7 +9,6 @@ type Summary = {
   as_of_date?: string | null;
   nav_per_share?: number | null;
   otec_price?: number | null;
-  estimated_cash_mnok?: number | null;
   shares_outstanding?: number | null;
   cash_quality?: string | null;
   cash_calibration_quality?: string | null;
@@ -38,12 +37,23 @@ type BemobiDashboard = {
   distribution_estimate?: {
     ready?: boolean;
     period?: string | null;
+    ttm_end_period?: string | null;
+    reported_net_income_ttm_mbrl?: number | null;
     payout_policy_pct?: number | null;
     policy_year?: number | null;
+    policy_is_current?: boolean | null;
     estimated_total_distribution_mbrl?: number | null;
+    otello_distribution_share_pct?: number | null;
     otello_gross_mbrl?: number | null;
     otello_gross_mnok?: number | null;
     otello_gross_per_otec_share_nok?: number | null;
+    brl_nok?: number | null;
+    ordinary_dividend_withholding_rate_pct?: number | null;
+    jcp_withholding_rate_pct?: number | null;
+    otello_net_dividend_mnok?: number | null;
+    otello_net_jcp_mnok?: number | null;
+    otello_net_dividend_per_otec_share_nok?: number | null;
+    otello_net_jcp_per_otec_share_nok?: number | null;
     methodology_note?: string | null;
   };
 };
@@ -79,6 +89,12 @@ type EconomicDashboard = {
 };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
+const INTEREST_SENSITIVITY_RATE_PCT = 14.25;
+const JCP_WITHHOLDING_RATE_PCT = 15;
+const JCP_1Q26_ACTUAL_MBRL = 16.0;
+const JCP_2Q26_ACTUAL_MBRL = 16.0;
+const JCP_3Q26_ESTIMATE_MBRL = 16.19;
+const JCP_4Q26_ESTIMATE_MBRL = 16.0;
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { Accept: "application/json" } });
@@ -258,7 +274,6 @@ export default function CashPage() {
 
     return {
       buffer,
-      deployableM,
       financialCapacityShares,
       remainingMandate,
       sharesBought,
@@ -270,7 +285,6 @@ export default function CashPage() {
       accretionPct,
       discountToNavPct,
       limitingFactor,
-      priceAllowed,
       price,
     };
   }, [metrics, summary, buyback, bufferM, priceAssumption]);
@@ -293,7 +307,9 @@ export default function CashPage() {
     : null;
   const indirectShare = directShare == null ? null : 100 - directShare;
   const interestProxyMbrl =
-    metrics.bemobiCashMbrl == null ? null : metrics.bemobiCashMbrl * 0.1425;
+    metrics.bemobiCashMbrl == null
+      ? null
+      : metrics.bemobiCashMbrl * INTEREST_SENSITIVITY_RATE_PCT / 100;
   const interestProxyOtecMnok =
     interestProxyMbrl == null || metrics.ownershipPct == null || metrics.brlNok == null
       ? null
@@ -312,6 +328,36 @@ export default function CashPage() {
     : buybackCalc?.limitingFactor === "PRICE"
       ? "Valgt kjøpskurs er over programmets makspris"
       : "Tilgjengelig cash begrenser tilbakekjøpet";
+
+  const distribution = bemobi.distribution_estimate;
+  const distributionSharePct = distribution?.otello_distribution_share_pct ?? metrics.ownershipPct;
+  const distributionBrlNok = distribution?.brl_nok ?? metrics.brlNok;
+
+  const jcpEstimate = (bemobiGrossMbrl: number) => {
+    const grossOtecMbrl = distributionSharePct == null
+      ? null
+      : bemobiGrossMbrl * distributionSharePct / 100;
+    const netOtecMbrl = grossOtecMbrl == null
+      ? null
+      : grossOtecMbrl * (1 - JCP_WITHHOLDING_RATE_PCT / 100);
+    const netOtecMnok = netOtecMbrl == null || distributionBrlNok == null
+      ? null
+      : netOtecMbrl * distributionBrlNok;
+    return { netOtecMnok };
+  };
+
+  const jcp3Q = jcpEstimate(JCP_3Q26_ESTIMATE_MBRL);
+  const jcp4Q = jcpEstimate(JCP_4Q26_ESTIMATE_MBRL);
+  const jcp2H26GrossMbrl = JCP_3Q26_ESTIMATE_MBRL + JCP_4Q26_ESTIMATE_MBRL;
+  const jcp2H26NetOtecMnok =
+    jcp3Q.netOtecMnok == null || jcp4Q.netOtecMnok == null
+      ? null
+      : jcp3Q.netOtecMnok + jcp4Q.netOtecMnok;
+  const jcpFullYearGrossMbrl =
+    JCP_1Q26_ACTUAL_MBRL +
+    JCP_2Q26_ACTUAL_MBRL +
+    JCP_3Q26_ESTIMATE_MBRL +
+    JCP_4Q26_ESTIMATE_MBRL;
 
   return (
     <div className="investorPage cashPage">
@@ -422,16 +468,21 @@ export default function CashPage() {
         <article className="card cashEngineCard">
           <div className="cardHeader">
             <div>
-              <span className="label">BEMOBI CASH ENGINE</span>
-              <h2>Cash som kan fylle på Otello</h2>
+              <span className="label">BEMOBI I DAG</span>
+              <h2>Rapportert cash og kontantgenerering</h2>
             </div>
-            <span className="pill">{bemobi.latest_result?.period ?? "SISTE KVARTAL"}</span>
+            <span className="pill">RAPPORTERT {bemobi.latest_result?.period ?? "SISTE KVARTAL"}</span>
           </div>
           <div className="cashMetricGrid">
             <div>
-              <span>Bemobi cash</span>
+              <span>Cash</span>
               <strong>R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
               <small>{formatDate(bemobi.latest_result?.period_end)}</small>
+            </div>
+            <div>
+              <span>Netto cash</span>
+              <strong>R$ {formatNumber(bemobi.valuation?.net_cash_mbrl, 1)}m</strong>
+              <small>verdsettelsesanker</small>
             </div>
             <div>
               <span>EBITDA − capex</span>
@@ -443,47 +494,176 @@ export default function CashPage() {
               <strong>{pct(bemobi.latest_result?.cash_conversion_pct)}</strong>
               <small>rapportert av Bemobi</small>
             </div>
-            <div>
-              <span>Netto cash</span>
-              <strong>R$ {formatNumber(bemobi.valuation?.net_cash_mbrl, 1)}m</strong>
-              <small>verdsettelsesanker</small>
-            </div>
-          </div>
-          <div className="cashInterestStrip">
-            <div>
-              <span>Illustrativ renteinntekt ved 14,25 %</span>
-              <strong>R$ {formatNumber(interestProxyMbrl, 1)}m</strong>
-            </div>
-            <div>
-              <span>Otellos look-through-andel</span>
-              <strong>{moneyM(interestProxyOtecMnok)}</strong>
-            </div>
           </div>
           <p className="cashNote">
-            Renteinntekten er kun en sensitivitetsillustrasjon på siste rapporterte cashbalanse, ikke et resultatestimat. Faktisk avkastning avhenger av gjennomsnittlig cash, CDI/Selic og plasseringstype.
+            Denne boksen viser rapporterte balanse- og kontantgenereringstall. Den inneholder ikke et estimat på fremtidige utdelinger.
           </p>
         </article>
 
         <article className="card cashDistributionCard">
           <div className="cardHeader">
             <div>
-              <span className="label">CASH TIL OTEC</span>
-              <h2>Forventet Bemobi-distribusjon</h2>
+              <span className="label">FRA BEMOBI TIL OTEC</span>
+              <h2>Utbyttemodell til Otello</h2>
             </div>
-            <span className="pill">{formatNumber(bemobi.distribution_estimate?.payout_policy_pct, 0)} % PAYOUT</span>
+            <span className="pill">10 % KILDESKATT</span>
           </div>
-          <div className="cashDistributionHeadline">
-            <span>Otellos brutto run-rate</span>
-            <strong>{moneyM(bemobi.distribution_estimate?.otello_gross_mnok)}</strong>
-            <small>{formatNumber(bemobi.distribution_estimate?.otello_gross_per_otec_share_nok, 2)} kr per OTEC-aksje</small>
-          </div>
+
           <div className="placeholderRows">
-            <div><span>Bemobi distribuert run-rate</span><strong>R$ {formatNumber(bemobi.distribution_estimate?.estimated_total_distribution_mbrl, 1)}m</strong></div>
-            <div><span>Otellos bruttoandel</span><strong>R$ {formatNumber(bemobi.distribution_estimate?.otello_gross_mbrl, 1)}m</strong></div>
-            <div><span>Policy-år</span><strong>{bemobi.distribution_estimate?.policy_year ?? "–"}</strong></div>
+            <div>
+              <span>Rapportert nettoresultat TTM</span>
+              <strong>R$ {formatNumber(distribution?.reported_net_income_ttm_mbrl, 1)}m</strong>
+            </div>
+            <div>
+              <span>× Payout-policy {distribution?.policy_year ?? "–"}</span>
+              <strong>{pct(distribution?.payout_policy_pct, 0)}</strong>
+            </div>
+            <div>
+              <span>= Modellert Bemobi-distribusjon</span>
+              <strong>R$ {formatNumber(distribution?.estimated_total_distribution_mbrl, 1)}m</strong>
+            </div>
+            <div>
+              <span>× Otellos distribusjonsandel</span>
+              <strong>{pct(distribution?.otello_distribution_share_pct, 2)}</strong>
+            </div>
+            <div>
+              <span>= Brutto til Otello</span>
+              <strong>
+                R$ {formatNumber(distribution?.otello_gross_mbrl, 1)}m · {moneyM(distribution?.otello_gross_mnok)}
+              </strong>
+            </div>
+            <div>
+              <span>− Brasiliansk kildeskatt på ordinært utbytte</span>
+              <strong>{pct(distribution?.ordinary_dividend_withholding_rate_pct ?? 10, 0)}</strong>
+            </div>
+          </div>
+
+          <div className="cashDistributionHeadline">
+            <span>Netto cash til Otello – utbytteforutsetning</span>
+            <strong>{moneyM(distribution?.otello_net_dividend_mnok)}</strong>
+            <small>{formatNumber(distribution?.otello_net_dividend_per_otec_share_nok, 2)} kr per OTEC-aksje</small>
+          </div>
+
+          <div className="cashInterestStrip">
+            <div>
+              <span>BRL/NOK i modellen</span>
+              <strong>{formatNumber(distributionBrlNok, 3)}</strong>
+            </div>
+            <div>
+              <span>Skatteforutsetning</span>
+              <strong>10 %</strong>
+              <small>ordinært utbytte</small>
+            </div>
+          </div>
+
+          <p className="cashNote">
+            Hovedmodellen antar for enkelhets skyld at hele den modellerte 2026-distribusjonen utbetales som ordinært utbytte og ilegges 10 % brasiliansk kildeskatt. JCP-seksjonen nedenfor viser hvordan deler av denne payouten kan komme tidligere gjennom kvartalsvis JCP; beløpene skal ikke legges oppå hovedestimatet.
+          </p>
+        </article>
+      </section>
+
+      <section className="cashMainGrid">
+        <article className="card cashDistributionCard">
+          <div className="cardHeader">
+            <div>
+              <span className="label">KVARTALSVIS JCP</span>
+              <h2>Faktisk 1H26 og estimat for 2H26</h2>
+            </div>
+            <span className="pill">15 % KILDESKATT</span>
+          </div>
+
+          <div className="cashMetricGrid">
+            <div>
+              <span>1Q26</span>
+              <strong>R$ {formatNumber(JCP_1Q26_ACTUAL_MBRL, 1)}m</strong>
+              <small>annonsert</small>
+            </div>
+            <div>
+              <span>2Q26</span>
+              <strong>R$ {formatNumber(JCP_2Q26_ACTUAL_MBRL, 1)}m</strong>
+              <small>annonsert</small>
+            </div>
+            <div>
+              <span>3Q26E</span>
+              <strong>R$ {formatNumber(JCP_3Q26_ESTIMATE_MBRL, 1)}m</strong>
+              <small>tracker-estimat · middels sikkerhet</small>
+            </div>
+            <div>
+              <span>4Q26E</span>
+              <strong>R$ {formatNumber(JCP_4Q26_ESTIMATE_MBRL, 1)}m</strong>
+              <small>tracker-estimat · lavere sikkerhet</small>
+            </div>
+          </div>
+
+          <div className="cashInterestStrip">
+            <div>
+              <span>Estimert JCP 3Q + 4Q</span>
+              <strong>R$ {formatNumber(jcp2H26GrossMbrl, 1)}m</strong>
+              <small>Bemobi brutto</small>
+            </div>
+            <div>
+              <span>Estimert netto til Otello 3Q + 4Q</span>
+              <strong>{moneyM(jcp2H26NetOtecMnok)}</strong>
+              <small>etter 15 % kildeskatt · dagens BRL/NOK</small>
+            </div>
+          </div>
+
+          <div className="placeholderRows">
+            <div>
+              <span>3Q26E netto til Otello</span>
+              <strong>{moneyM(jcp3Q.netOtecMnok)}</strong>
+            </div>
+            <div>
+              <span>4Q26E netto til Otello</span>
+              <strong>{moneyM(jcp4Q.netOtecMnok)}</strong>
+            </div>
+            <div>
+              <span>Helårs JCP 2026E</span>
+              <strong>R$ {formatNumber(jcpFullYearGrossMbrl, 1)}m</strong>
+            </div>
+            <div>
+              <span>Otellos distribusjonsandel brukt i modellen</span>
+              <strong>{pct(distributionSharePct, 2)}</strong>
+            </div>
+          </div>
+
+          <p className="cashNote">
+            1Q26 og 2Q26 er annonserte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP behandles som timing/form på deler av Bemobis samlede 100 % payout og dobbelttelles derfor ikke mot utbyttemodellen over.
+          </p>
+        </article>
+
+        <article className="card cashEngineCard">
+          <div className="cardHeader">
+            <div>
+              <span className="label">RENTEINNTEKTER</span>
+              <h2>Hva kan Bemobis cash tjene i renter?</h2>
+            </div>
+            <span className="pill">SENSITIVITET</span>
+          </div>
+          <div className="cashMetricGrid">
+            <div>
+              <span>Siste rapporterte cash</span>
+              <strong>R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
+              <small>{formatDate(bemobi.latest_result?.period_end)}</small>
+            </div>
+            <div>
+              <span>Modellrente</span>
+              <strong>{formatNumber(INTEREST_SENSITIVITY_RATE_PCT, 2)} %</strong>
+              <small>sensitivitetsforutsetning</small>
+            </div>
+            <div>
+              <span>Illustrativ årlig renteinntekt</span>
+              <strong>R$ {formatNumber(interestProxyMbrl, 1)}m</strong>
+              <small>cash × modellrente</small>
+            </div>
+            <div>
+              <span>Otellos økonomiske look-through-andel</span>
+              <strong>{moneyM(interestProxyOtecMnok)}</strong>
+              <small>basert på eierandel, ikke utdelingsandel</small>
+            </div>
           </div>
           <p className="cashNote">
-            Dette er run-rate fra Bemobi-modellen. Faktisk kontantinnbetaling til Otello avhenger av vedtak, tidspunkt, JCP/utbytte-miks og kildeskatt.
+            Renteinntekten er kun en sensitivitet på siste rapporterte cashbalanse. Faktisk renteinntekt avhenger av gjennomsnittlig cash gjennom perioden, CDI/Selic og plasseringstype.
           </p>
         </article>
       </section>
@@ -602,7 +782,7 @@ export default function CashPage() {
                 <small>
                   {buybackCalc == null
                     ? "–"
-                    : `${buybackCalc.discountToNavPct >= 0 ? formatNumber(buybackCalc.discountToNavPct, 1) : formatNumber(Math.abs(buybackCalc.discountToNavPct), 1)} % ${buybackCalc.discountToNavPct >= 0 ? "under NAV" : "over NAV"}`}
+                    : `${formatNumber(Math.abs(buybackCalc.discountToNavPct), 1)} % ${buybackCalc.discountToNavPct >= 0 ? "under NAV" : "over NAV"}`}
                 </small>
               </div>
             </div>
@@ -621,8 +801,8 @@ export default function CashPage() {
         <div className="cashMethodGrid">
           <div><strong>Direkte cash</strong><span>Samme estimerte kontantbeholdning og cash per aksje som på Oversikt, hentet fra den økonomiske cash-bridgen.</span></div>
           <div><strong>Look-through cash</strong><span>Otellos eierandel av Bemobis siste rapporterte cash, omregnet med siste BRL/NOK i tracker.</span></div>
-          <div><strong>Ikke dobbelttelling i NAV</strong><span>Look-through-cashen er en analyse av Bemobi-posten og skal ikke legges oppå NAV som en ny eiendel.</span></div>
-          <div><strong>Datadatoer</strong><span>OTEC-cash oppdateres fra samme cash bridge som Oversikt. Bemobi-cash står på siste rapporterte kvartalsdato.</span></div>
+          <div><strong>Utbyttemodell</strong><span>TTM-resultat × gjeldende payout-policy × Otellos distribusjonsandel, der hovedscenarioet antar ordinært utbytte og 10 % brasiliansk kildeskatt.</span></div>
+          <div><strong>JCP-estimat</strong><span>JCP vises separat med 15 % kildeskatt som timing/form på deler av samme payout, og skal ikke dobbelttelles mot utbyttemodellen.</span></div>
         </div>
       </section>
     </div>
