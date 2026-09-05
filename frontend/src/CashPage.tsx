@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import "./cash-page.css";
@@ -62,23 +61,13 @@ type BuybackDashboard = {
   };
 };
 
-type DailyCashStatus = {
-  status?: string;
-  from?: string | null;
-  to?: string | null;
-  reported_days?: number | null;
-  forecast_days?: number | null;
-  periods?: number | null;
-  high_residual_periods?: number | null;
-  latest?: {
-    estimate_date?: string | null;
-    cash_nok?: number | string | null;
-    quality?: string | null;
-    notes?: string | null;
-  } | null;
-};
-
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(`API-feil ${response.status} for ${url}`);
+  return response.json() as Promise<T>;
+}
 
 function finite(input: number | string | null | undefined) {
   if (input == null || input === "") return null;
@@ -87,7 +76,15 @@ function finite(input: number | string | null | undefined) {
 }
 
 function moneyM(input: number | null | undefined, digits = 1) {
-  return input == null || !Number.isFinite(input) ? "–" : `${formatNumber(input, digits)} mill. kr`;
+  return input == null || !Number.isFinite(input)
+    ? "–"
+    : `${formatNumber(input, digits)} mill. kr`;
+}
+
+function pct(input: number | null | undefined, digits = 1) {
+  return input == null || !Number.isFinite(input)
+    ? "–"
+    : `${formatNumber(input, digits)} %`;
 }
 
 function statusLabel(input?: string | null) {
@@ -107,52 +104,42 @@ function statusLabel(input?: string | null) {
   return labels[input.toUpperCase()] ?? input;
 }
 
-function pct(input: number | null | undefined, digits = 1) {
-  return input == null || !Number.isFinite(input) ? "–" : `${formatNumber(input, digits)} %`;
-}
-
 export default function CashPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [bemobi, setBemobi] = useState<BemobiDashboard | null>(null);
   const [buyback, setBuyback] = useState<BuybackDashboard | null>(null);
-  const [dailyCash, setDailyCash] = useState<DailyCashStatus | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [coreFailed, setCoreFailed] = useState(false);
+  const [partialFailed, setPartialFailed] = useState(false);
   const [bufferM, setBufferM] = useState(30);
   const [priceAssumption, setPriceAssumption] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    const load = async (initial = false) => {
-      try {
-        const getter = <T,>(url: string) => initial
-          ? fetchPreloadedJson<T>(url)
-          : fetch(url).then((response) => {
-              if (!response.ok) throw new Error(`API-feil for ${url}`);
-              return response.json() as Promise<T>;
-            });
+    const load = async () => {
+      const [summaryResult, bemobiResult, buybackResult] = await Promise.allSettled([
+        fetchJson<Summary>("/api/dashboard/summary"),
+        fetchJson<BemobiDashboard>("/api/bemobi/dashboard"),
+        fetchJson<BuybackDashboard>("/api/buybacks/dashboard"),
+      ]);
 
-        const [summaryResult, bemobiResult, buybackResult, cashResult] = await Promise.all([
-          getter<Summary>("/api/dashboard/summary"),
-          getter<BemobiDashboard>("/api/bemobi/dashboard"),
-          getter<BuybackDashboard>("/api/buybacks/dashboard"),
-          getter<DailyCashStatus>("/api/nav/daily-cash"),
-        ]);
-        if (!active) return;
-        setSummary(summaryResult);
-        setBemobi(bemobiResult);
-        setBuyback(buybackResult);
-        setDailyCash(cashResult);
-        setPriceAssumption((current) => current ?? summaryResult.otec_price ?? null);
-        setFailed(false);
-      } catch {
-        if (!active) return;
-        setFailed(true);
+      if (!active) return;
+
+      if (summaryResult.status === "fulfilled") {
+        setSummary(summaryResult.value);
+        setPriceAssumption((current) => current ?? summaryResult.value.otec_price ?? null);
       }
+      if (bemobiResult.status === "fulfilled") setBemobi(bemobiResult.value);
+      if (buybackResult.status === "fulfilled") setBuyback(buybackResult.value);
+
+      setCoreFailed(
+        summaryResult.status === "rejected" || bemobiResult.status === "rejected",
+      );
+      setPartialFailed(buybackResult.status === "rejected");
     };
 
-    void load(true);
-    const timer = window.setInterval(() => { void load(false); }, AUTO_REFRESH_MS);
+    void load();
+    const timer = window.setInterval(() => { void load(); }, AUTO_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -168,18 +155,30 @@ export default function CashPage() {
     const bemobiLookthroughMbrl =
       bemobiCashMbrl == null || ownership == null ? null : bemobiCashMbrl * ownership;
     const bemobiLookthroughMnok =
-      bemobiLookthroughMbrl == null || brlNok == null ? null : bemobiLookthroughMbrl * brlNok;
+      bemobiLookthroughMbrl == null || brlNok == null
+        ? null
+        : bemobiLookthroughMbrl * brlNok;
     const combinedM =
-      directCashM == null || bemobiLookthroughMnok == null ? null : directCashM + bemobiLookthroughMnok;
+      directCashM == null || bemobiLookthroughMnok == null
+        ? null
+        : directCashM + bemobiLookthroughMnok;
     const shares = summary?.shares_outstanding ?? buyback?.shares?.outstanding_shares ?? null;
     const directPerShare =
-      directCashM == null || shares == null || shares <= 0 ? null : directCashM * 1_000_000 / shares;
+      directCashM == null || shares == null || shares <= 0
+        ? null
+        : directCashM * 1_000_000 / shares;
     const combinedPerShare =
-      combinedM == null || shares == null || shares <= 0 ? null : combinedM * 1_000_000 / shares;
+      combinedM == null || shares == null || shares <= 0
+        ? null
+        : combinedM * 1_000_000 / shares;
     const navTotalM =
-      summary?.nav_per_share == null || shares == null ? null : summary.nav_per_share * shares / 1_000_000;
+      summary?.nav_per_share == null || shares == null
+        ? null
+        : summary.nav_per_share * shares / 1_000_000;
     const combinedPctNav =
-      combinedM == null || navTotalM == null || navTotalM <= 0 ? null : combinedM / navTotalM * 100;
+      combinedM == null || navTotalM == null || navTotalM <= 0
+        ? null
+        : combinedM / navTotalM * 100;
 
     return {
       directCashM,
@@ -191,7 +190,6 @@ export default function CashPage() {
       shares,
       directPerShare,
       combinedPerShare,
-      navTotalM,
       combinedPctNav,
       brlNok,
     };
@@ -203,8 +201,13 @@ export default function CashPage() {
     const navPerShare = summary?.nav_per_share ?? null;
     const price = priceAssumption ?? summary?.otec_price ?? null;
     if (
-      directCashM == null || shares == null || shares <= 0 || navPerShare == null ||
-      navPerShare <= 0 || price == null || price <= 0
+      directCashM == null ||
+      shares == null ||
+      shares <= 0 ||
+      navPerShare == null ||
+      navPerShare <= 0 ||
+      price == null ||
+      price <= 0
     ) {
       return null;
     }
@@ -224,24 +227,23 @@ export default function CashPage() {
     const accretionPct = (navAfterPerShare / navPerShare - 1) * 100;
 
     return {
-      buffer,
-      deployableM,
       financialCapacityShares,
-      remainingMandate,
       sharesBought,
       spendM,
-      outstandingAfter,
       navAfterPerShare,
       accretionPct,
-      price,
     };
   }, [metrics, summary, buyback, bufferM, priceAssumption]);
 
-  if (failed && !summary && !bemobi) {
-    return <ResourceNotice kind="error">Kunne ikke hente cash- og kapitalallokeringsdata.</ResourceNotice>;
+  if (coreFailed && (!summary || !bemobi)) {
+    return (
+      <ResourceNotice kind="error">
+        Kunne ikke hente cash- og kapitalallokeringsdata. Prøv å laste siden på nytt.
+      </ResourceNotice>
+    );
   }
 
-  if (!summary || !bemobi || !buyback || !dailyCash) {
+  if (!summary || !bemobi) {
     return <ResourceNotice>Laster cash- og kapitalallokeringsdata …</ResourceNotice>;
   }
 
@@ -249,15 +251,16 @@ export default function CashPage() {
     ? metrics.directCashM / metrics.combinedM * 100
     : null;
   const indirectShare = directShare == null ? null : 100 - directShare;
-  const interestProxyMbrl = metrics.bemobiCashMbrl == null ? null : metrics.bemobiCashMbrl * 0.1425;
+  const interestProxyMbrl =
+    metrics.bemobiCashMbrl == null ? null : metrics.bemobiCashMbrl * 0.1425;
   const interestProxyOtecMnok =
     interestProxyMbrl == null || metrics.ownershipPct == null || metrics.brlNok == null
       ? null
       : interestProxyMbrl * metrics.ownershipPct / 100 * metrics.brlNok;
   const maxBuffer = Math.max(50, Math.ceil(metrics.directCashM ?? 50));
   const maxPrice = Math.max(30, Math.ceil((summary.otec_price ?? 15) * 1.8));
-  const programSpentM = finite(buyback.program?.cash_spent_nok);
-  const programSpentMnok = programSpentM == null ? null : programSpentM / 1_000_000;
+  const programSpent = finite(buyback?.program?.cash_spent_nok);
+  const programSpentMnok = programSpent == null ? null : programSpent / 1_000_000;
 
   return (
     <div className="investorPage cashPage">
@@ -277,9 +280,14 @@ export default function CashPage() {
         </div>
       </section>
 
-      {failed && (
+      {coreFailed && (
         <ResourceNotice kind="error">
-          Ny oppdatering feilet. Siden viser sist vellykket hentede data.
+          Ny oppdatering av hoveddata feilet. Siden viser sist vellykket hentede data.
+        </ResourceNotice>
+      )}
+      {partialFailed && (
+        <ResourceNotice>
+          Tilbakekjøpsdata er midlertidig utilgjengelige. Cash- og Bemobi-tall vises fortsatt.
         </ResourceNotice>
       )}
 
@@ -292,7 +300,9 @@ export default function CashPage() {
         <article className="card cashKpi">
           <span className="label">Bemobi look-through cash</span>
           <strong>{moneyM(metrics.bemobiLookthroughMnok)}</strong>
-          <small>R$ {formatNumber(metrics.bemobiLookthroughMbrl, 1)}m · {formatNumber(metrics.ownershipPct, 2)} % eierandel</small>
+          <small>
+            R$ {formatNumber(metrics.bemobiLookthroughMbrl, 1)}m · {formatNumber(metrics.ownershipPct, 2)} % eierandel
+          </small>
         </article>
         <article className="card cashKpi cashKpiEmphasis">
           <span className="label">Samlet look-through cash</span>
@@ -309,7 +319,10 @@ export default function CashPage() {
       <section className="cashMainGrid">
         <article className="card cashCompositionCard">
           <div className="cardHeader">
-            <div><span className="label">KONTANTSTRUKTUR</span><h2>Direkte versus indirekte cash</h2></div>
+            <div>
+              <span className="label">KONTANTSTRUKTUR</span>
+              <h2>Direkte versus indirekte cash</h2>
+            </div>
             <span className="pill">LOOK-THROUGH</span>
           </div>
           <div className="cashSplitBar" aria-label="Fordeling direkte og indirekte cash">
@@ -335,27 +348,32 @@ export default function CashPage() {
 
         <article className="card cashModelCard">
           <div className="cardHeader">
-            <div><span className="label">OTELLO CASH-MODELL</span><h2>Estimert cash i dag</h2></div>
-            <span className="pill">{statusLabel(dailyCash.latest?.quality ?? summary.cash_quality)}</span>
+            <div>
+              <span className="label">OTELLO CASH-MODELL</span>
+              <h2>Estimert cash i dag</h2>
+            </div>
+            <span className="pill">{statusLabel(summary.cash_quality)}</span>
           </div>
           <div className="cashModelValue">
             <strong>{moneyM(metrics.directCashM)}</strong>
-            <span>per {formatDate(dailyCash.latest?.estimate_date ?? summary.as_of_date)}</span>
+            <span>per {formatDate(summary.as_of_date)}</span>
           </div>
           <div className="placeholderRows cashModelRows">
             <div><span>Kontantkvalitet</span><strong>{statusLabel(summary.cash_quality)}</strong></div>
             <div><span>Kalibrering</span><strong>{statusLabel(summary.cash_calibration_quality)}</strong></div>
-            <div><span>Historiske ankerperioder</span><strong>{formatInteger(dailyCash.periods ?? null)}</strong></div>
-            <div><span>Perioder med høyt restledd</span><strong>{formatInteger(dailyCash.high_residual_periods ?? null)}</strong></div>
+            <div><span>Cash per aksje</span><strong>{formatNumber(metrics.directPerShare, 2)} kr</strong></div>
+            <div><span>Datastatus</span><strong>{statusLabel(summary.data_status)}</strong></div>
           </div>
-          {dailyCash.latest?.notes && <p className="cashNote">{dailyCash.latest.notes}</p>}
         </article>
       </section>
 
       <section className="cashMainGrid">
         <article className="card cashEngineCard">
           <div className="cardHeader">
-            <div><span className="label">BEMOBI CASH ENGINE</span><h2>Cash som kan fylle på Otello</h2></div>
+            <div>
+              <span className="label">BEMOBI CASH ENGINE</span>
+              <h2>Cash som kan fylle på Otello</h2>
+            </div>
             <span className="pill">{bemobi.latest_result?.period ?? "SISTE KVARTAL"}</span>
           </div>
           <div className="cashMetricGrid">
@@ -391,13 +409,16 @@ export default function CashPage() {
             </div>
           </div>
           <p className="cashNote">
-            Renteinntekten er kun en enkel sensitivitetsillustrasjon på siste rapporterte cashbalanse, ikke et resultatestimat. Faktisk avkastning avhenger av gjennomsnittlig cash, CDI/Selic og plasseringstype.
+            Renteinntekten er kun en sensitivitetsillustrasjon på siste rapporterte cashbalanse, ikke et resultatestimat. Faktisk avkastning avhenger av gjennomsnittlig cash, CDI/Selic og plasseringstype.
           </p>
         </article>
 
         <article className="card cashDistributionCard">
           <div className="cardHeader">
-            <div><span className="label">CASH TIL OTEC</span><h2>Forventet Bemobi-distribusjon</h2></div>
+            <div>
+              <span className="label">CASH TIL OTEC</span>
+              <h2>Forventet Bemobi-distribusjon</h2>
+            </div>
             <span className="pill">{formatNumber(bemobi.distribution_estimate?.payout_policy_pct, 0)} % PAYOUT</span>
           </div>
           <div className="cashDistributionHeadline">
@@ -418,7 +439,10 @@ export default function CashPage() {
 
       <section className="card cashBuybackCard">
         <div className="cardHeader">
-          <div><span className="label">BUYBACK-KAPASITET</span><h2>Hva skjer med NAV hvis cash brukes på egne aksjer?</h2></div>
+          <div>
+            <span className="label">BUYBACK-KAPASITET</span>
+            <h2>Hva skjer med NAV hvis cash brukes på egne aksjer?</h2>
+          </div>
           <span className="pill">INTERAKTIV</span>
         </div>
 
@@ -448,9 +472,9 @@ export default function CashPage() {
             </label>
             <div className="cashAssumptionRows">
               <div><span>Dagens OTEC-kurs</span><strong>{formatNumber(summary.otec_price, 2)} kr</strong></div>
-              <div><span>Programmets makspris</span><strong>{buyback.program?.max_price_nok == null ? "–" : `${formatNumber(buyback.program.max_price_nok, 2)} kr`}</strong></div>
+              <div><span>Programmets makspris</span><strong>{buyback?.program?.max_price_nok == null ? "–" : `${formatNumber(buyback.program.max_price_nok, 2)} kr`}</strong></div>
               <div><span>Brukt i programmet</span><strong>{moneyM(programSpentMnok)}</strong></div>
-              <div><span>Gjenstående programaksjer</span><strong>{formatInteger(buyback.program?.remaining_shares ?? null)}</strong></div>
+              <div><span>Gjenstående programaksjer</span><strong>{formatInteger(buyback?.program?.remaining_shares ?? null)}</strong></div>
             </div>
           </div>
 
@@ -472,13 +496,17 @@ export default function CashPage() {
             </div>
             <div className={buybackCalc != null && buybackCalc.accretionPct >= 0 ? "cashAccretion positive" : "cashAccretion negative"}>
               <span>NAV-accretion</span>
-              <strong>{buybackCalc == null ? "–" : `${buybackCalc.accretionPct >= 0 ? "+" : ""}${formatNumber(buybackCalc.accretionPct, 2)} %`}</strong>
+              <strong>
+                {buybackCalc == null
+                  ? "–"
+                  : `${buybackCalc.accretionPct >= 0 ? "+" : ""}${formatNumber(buybackCalc.accretionPct, 2)} %`}
+              </strong>
               <small>ny NAV/aksje {buybackCalc == null ? "–" : `${formatNumber(buybackCalc.navAfterPerShare, 2)} kr`}</small>
             </div>
           </div>
         </div>
         <p className="cashNote">
-          Kalkulatoren reduserer NAV med kontantbeløpet som brukes og aksjetallet med tilbakekjøpte aksjer. Den begrenser kjøpet til gjenstående aksjer i dagens program når dette er kjent. Den er en matematisk sensitivitetsanalyse, ikke en prognose for faktisk tilbakekjøp.
+          Kalkulatoren reduserer NAV med kontantbeløpet som brukes og aksjetallet med tilbakekjøpte aksjer. Når programdata er tilgjengelige begrenses kjøpet til gjenstående aksjer i dagens program. Dette er en matematisk sensitivitetsanalyse, ikke en prognose for faktisk tilbakekjøp.
         </p>
       </section>
 
