@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +16,8 @@ from runtime_status import (  # noqa: E402
     FAST_RUNNING_MAX_AGE,
     FULL_MAX_AGE,
     FULL_RUNNING_MAX_AGE,
+    _current_dashboard_quality,
+    _dashboard_quality_reasons,
     _guard_orphaned_full_job,
     _job_freshness,
     _job_payload,
@@ -165,6 +169,117 @@ def test_public_job_payload_explains_known_quality_warnings() -> None:
     ]
     assert "PRIVATE_UPSTREAM_STATUS" not in str(payload["preflight"])
     assert "secret" not in str(payload["preflight"])
+
+
+def test_dashboard_quality_warning_explains_known_degraded_note() -> None:
+    now = datetime(2026, 9, 5, 4, 0, tzinfo=UTC)
+    notes = (
+        "FULL NAV = stored CORE NAV + option-aware other net assets/liabilities. "
+        "Base ONA excluding the option obligation is carried forward after the latest report "
+        "and is therefore partial forecast data."
+    )
+    row = {
+        "status": "SUCCESS",
+        "started_at": "2026-09-05T03:30:00Z",
+        "finished_at": "2026-09-05T03:34:00Z",
+        "records_written": 100,
+        "error_message": None,
+        "metadata_json": json.dumps(
+            {
+                "target_date": "2026-09-04",
+                "preflight": {
+                    "ready": True,
+                    "blockers": [],
+                    "warnings": [
+                        {
+                            "name": "dashboard_quality",
+                            "status": "WARN",
+                            "details": {"data_status": "DEGRADED", "quality_notes": notes},
+                        }
+                    ],
+                },
+            }
+        ),
+    }
+
+    payload = _job_payload(
+        row,
+        now=now,
+        completed_max_age=FULL_MAX_AGE,
+        running_max_age=FULL_RUNNING_MAX_AGE,
+    )
+
+    assert payload["preflight"]["warnings"] == [
+        {
+            "code": "dashboard_quality",
+            "message": (
+                "Dashboardkvalitet: Andre nettoeiendeler/-forpliktelser er videreført "
+                "fra siste rapport og er derfor delvis estimert."
+            ),
+        }
+    ]
+
+
+def test_dashboard_quality_reasons_use_structured_causes() -> None:
+    reasons = _dashboard_quality_reasons(
+        {
+            "data_status": "DEGRADED",
+            "cash_quality": "FORECAST_PARTIAL",
+            "share_count_quality": "POTENTIALLY_STALE",
+            "ona_quality": "FORECAST_PARTIAL",
+        }
+    )
+
+    assert reasons == [
+        "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser.",
+        "Antall utestående Otello-aksjer kan være utdatert mens tilbakekjøpsprogrammet pågår.",
+        "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert.",
+    ]
+
+
+class _QualityRepository:
+    async def first(self, query: str, params=()):
+        if "nav_scope='FULL'" in query:
+            return {
+                "as_of_at": "2026-09-04T23:59:59Z",
+                "status": "DEGRADED",
+                "quality_notes": "safe stored note",
+                "components_json": json.dumps(
+                    {
+                        "other_net_assets": {
+                            "quality": "FORECAST_PARTIAL",
+                            "receivable_quality": "NONE",
+                            "option_liability": {"quality": "FORECAST_MARK_TO_MARKET"},
+                        }
+                    }
+                ),
+            }
+        if "nav_scope='CORE'" in query:
+            return {
+                "status": "DEGRADED",
+                "components_json": json.dumps(
+                    {
+                        "cash": {"quality": "FORECAST_PARTIAL", "calibration_quality": None},
+                        "otec": {"share_count_quality": "CURRENT_KNOWN"},
+                    }
+                ),
+            }
+        raise AssertionError(f"unexpected query: {query} {params}")
+
+
+def test_current_dashboard_quality_reports_live_status_and_reasons() -> None:
+    quality = asyncio.run(_current_dashboard_quality(_QualityRepository()))
+
+    assert quality == {
+        "available": True,
+        "status": "DEGRADED",
+        "data_status": "DEGRADED",
+        "as_of_date": "2026-09-04",
+        "reasons": [
+            "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser.",
+            "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert.",
+        ],
+    }
 
 
 def _running_full_payload(now: datetime) -> tuple[dict, dict]:
