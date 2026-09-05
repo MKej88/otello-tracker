@@ -136,7 +136,9 @@ def test_consensus_is_database_backed_in_backend_worker_and_frontend() -> None:
     assert "Forward konsensus" not in page
     assert "MarketScreener" not in page
     assert "MarketScreener" not in history_panel
-    assert "Siste meglermodell-revisjon" in history_panel
+    assert "Siste meglermodell-revisjon" not in history_panel
+    assert "Forventning → faktisk → revisjon → kursreaksjon" not in history_panel
+    assert "return null;" in history_panel
     assert "Beat / miss" in page
     assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
     assert "nextQuarterEstimates.map" in page
