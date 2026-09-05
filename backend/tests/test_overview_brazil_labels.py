@@ -27,4 +27,4 @@ def test_overview_uses_the_same_norwegian_macro_terms_as_brazil_page() -> None:
     assert 'return "BCB – rentebeslutning"' not in overview
     assert '"Brasil – IPCA-15"' not in overview
     assert '"Brasil – IPCA"' not in overview
-    assert '"Prisvekst påvirker renteutsiktene' in overview
+    assert 'event.importance.startsWith("Høy")' in overview
