@@ -1,6 +1,7 @@
-import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
+import { useMemo } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
+import "./data-quality.css";
 
 const REFRESH_MS = 60_000;
 
@@ -21,6 +22,7 @@ type Job = {
     warnings?: Array<{ code: string; message: string }>;
   } | null;
 };
+
 type DashboardQuality = {
   available?: boolean;
   status?: string;
@@ -28,13 +30,20 @@ type DashboardQuality = {
   as_of_date?: string | null;
   reasons?: string[];
 };
+
 type Runtime = {
   ready: boolean;
   status: string;
   checked_at?: string | null;
   full_refresh?: Job;
   fast_refresh?: Job;
-  hot_snapshot?: { cache_status?: string; valid?: boolean; age_seconds?: number | null; stored_version?: number | null; reason?: string | null };
+  hot_snapshot?: {
+    cache_status?: string;
+    valid?: boolean;
+    age_seconds?: number | null;
+    stored_version?: number | null;
+    reason?: string | null;
+  };
   dashboard_quality?: DashboardQuality;
   norges_bank?: { status?: string; checked_at?: string | null; has_error?: boolean };
   fx?: { current?: boolean; expected_date?: string | null; latest_common_date?: string | null };
@@ -49,40 +58,114 @@ type Report = {
   source_url?: string | null;
   message?: string | null;
   validation?: { valid?: boolean; issue_count?: number };
-  pipeline?: { newsweb_processed?: boolean; pdf_downloaded?: boolean; r2_archived?: boolean; parsed?: boolean; anchors_applied?: boolean; nav_rebuilt?: boolean };
+  pipeline?: {
+    newsweb_processed?: boolean;
+    pdf_downloaded?: boolean;
+    r2_archived?: boolean;
+    parsed?: boolean;
+    anchors_applied?: boolean;
+    nav_rebuilt?: boolean;
+  };
   automation?: Record<string, boolean>;
 };
 
+type SourceStatusItem = {
+  key: string;
+  label: string;
+  source: string;
+  status: string;
+  checked_at?: string | null;
+  last_good_at?: string | null;
+  data_date?: string | null;
+  quality?: string | null;
+  url?: string | null;
+  uses_last_good?: boolean;
+  detail?: string | null;
+};
+
+type SourceStatus = {
+  overall_status: string;
+  checked_at?: string | null;
+  workflow_status?: string | null;
+  items: SourceStatusItem[];
+  policy?: string;
+};
+
+type QualityState = "OK" | "DEGRADED" | "ERROR" | "WAITING" | "UNKNOWN";
+type PipelineState = "OK" | "KJØRER" | "FEIL" | "VENTER" | "IKKE AKTUELL";
+
+type Issue = {
+  id: string;
+  title: string;
+  state: QualityState;
+  detail: string;
+  lastGood?: string | null;
+  checkedAt?: string | null;
+  affects?: string | null;
+};
+
+const AFFECTED_AREAS: Record<string, string> = {
+  norges_bank: "NAV, Oversikt og Brasil",
+  b3: "NAV og Bemobi",
+  euronext: "NAV, Historikk og Tilbakekjøp",
+  yahoo_finance: "NAV og Oversikt",
+  newsweb: "Nyheter, rapporter og Tilbakekjøp",
+  otello_ir: "NAV og rapportdata",
+  life360_ir: "NAV som reservekilde",
+  ir: "Bemobi-eierandel og NAV",
+  result_release: "Bemobi og NAV",
+  consensus: "Konsensus",
+  xp_preview: "Konsensus",
+};
+
+const CRITICAL_INPUTS = [
+  { key: "b3", label: "Bemobi-kurs", source: "B3" },
+  { key: "norges_bank", label: "BRL/NOK", source: "Norges Bank" },
+  { key: "euronext", label: "OTEC-kurs", source: "Euronext" },
+  { key: "yahoo_finance", label: "Life360-kurs", source: "Yahoo Finance" },
+  { key: "ir", label: "Bemobi-eierandel", source: "Bemobi IR" },
+  { key: "otello_ir", label: "Otello rapportdata", source: "Otello IR" },
+] as const;
+
+function normalizeStatus(input?: string | null): QualityState {
+  const value = String(input ?? "").toUpperCase();
+  if (["OK", "SUCCESS", "APPLIED"].includes(value)) return "OK";
+  if (["PARTIAL", "DEGRADED", "ESTIMATED", "REVIEW_REQUIRED"].includes(value)) return "DEGRADED";
+  if (["FAILED", "ERROR", "DOWN"].includes(value)) return "ERROR";
+  if (["RUNNING", "WAITING"].includes(value)) return "WAITING";
+  return "UNKNOWN";
+}
+
 function statusLabel(input?: string | null) {
-  const value = (input ?? "").toUpperCase();
-  const labels: Record<string, string> = { SUCCESS: "OK", OK: "OK", PARTIAL: "DELVIS", FAILED: "FEIL", ERROR: "FEIL", RUNNING: "KJØRER", DEGRADED: "AVVIK", ESTIMATED: "ESTIMERT", MISSING: "MANGLER", APPLIED: "INNLEST", REVIEW_REQUIRED: "KREVER KONTROLL", WAITING: "VENTER" };
-  return labels[value] ?? input ?? "UKJENT";
+  const state = normalizeStatus(input);
+  const labels: Record<QualityState, string> = {
+    OK: "OK",
+    DEGRADED: "AVVIK",
+    ERROR: "FEIL",
+    WAITING: "VENTER",
+    UNKNOWN: "UKJENT",
+  };
+  return labels[state];
+}
+
+function statusClass(input?: string | null) {
+  return `qualityState qualityState${normalizeStatus(input)}`;
+}
+
+function statusRank(state: QualityState) {
+  return { OK: 0, WAITING: 1, UNKNOWN: 2, DEGRADED: 3, ERROR: 4 }[state];
+}
+
+function worstStatus(values: Array<string | null | undefined>): QualityState {
+  return values
+    .map(normalizeStatus)
+    .reduce<QualityState>((worst, current) => (
+      statusRank(current) > statusRank(worst) ? current : worst
+    ), "OK");
 }
 
 function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function Step({ label, done }: { label: string; done?: boolean }) {
-  return <div className="qualityStep"><span className={done ? "qualityDot ok" : "qualityDot"} /><span>{label}</span><strong>{done ? "OK" : "VENTER"}</strong></div>;
-}
-
-const SOURCE_LABELS: Record<string, string> = {
-  NORGES_BANK: "Norges Bank",
-  YAHOO_FINANCE: "Life360 / Yahoo Finance",
-  B3: "B3",
-  CVM: "CVM",
-  BEMOBI_IR: "Bemobi IR",
-  NEWSWEB: "NewsWeb",
-  EURONEXT: "Euronext / OTEC",
-};
-
-function sourceWarningLabel(code: string, sourceStatus: string) {
-  const label = SOURCE_LABELS[code] ?? code;
-  if (code === "BEMOBI_IR" && sourceStatus !== "OK") {
-    return `${label}: ${statusLabel(sourceStatus)} – kilden ble ikke fullt oppdatert, og siste gode data er beholdt.`;
-  }
-  return `${label}: ${statusLabel(sourceStatus)}`;
 }
 
 function durationLabel(startedAt?: string | null, finishedAt?: string | null) {
@@ -97,6 +180,29 @@ function durationLabel(startedAt?: string | null, finishedAt?: string | null) {
   return minutes ? `${minutes} min ${remainder} sek` : `${remainder} sek`;
 }
 
+function sourceDate(item?: SourceStatusItem | null) {
+  if (!item) return "–";
+  return item.data_date ? formatDate(item.data_date) : "–";
+}
+
+function sourceStatusForKey(
+  sourceMap: Map<string, SourceStatusItem>,
+  key: string,
+) {
+  return sourceMap.get(key)?.status ?? "UNKNOWN";
+}
+
+function PipelineStep({ label, state }: { label: string; state: PipelineState }) {
+  const className = `qualityPipelineState pipeline${state.replaceAll(" ", "")}`;
+  return (
+    <div className="qualityPipelineStep">
+      <span className={className} aria-hidden="true" />
+      <span>{label}</span>
+      <strong>{state}</strong>
+    </div>
+  );
+}
+
 export default function DataQualityPage() {
   const { data: runtime, refreshFailed: runtimeFailed } = usePollingResource<Runtime>(
     "/api/dashboard/runtime-status",
@@ -108,132 +214,383 @@ export default function DataQualityPage() {
     2 * REFRESH_MS,
     true,
   );
+  const { data: sources, refreshFailed: sourcesFailed } = usePollingResource<SourceStatus>(
+    "/api/bemobi/source-status",
+    2 * REFRESH_MS,
+    true,
+  );
+
   const snapshot = runtime?.hot_snapshot;
   const currentQuality = runtime?.dashboard_quality;
   const pipeline = report?.pipeline ?? {};
   const nightly = runtime?.full_refresh;
   const nightlySources = Object.entries(nightly?.source_health ?? {});
-  const healthySourceCount = nightlySources.filter(([, status]) => status === "OK").length;
-  const nightlyDashboardWarning = (nightly?.preflight?.warnings ?? []).find(
-    (warning) => warning.code === "dashboard_quality",
+  const healthySourceCount = nightlySources.filter(([, status]) => normalizeStatus(status) === "OK").length;
+  const sourceItems = sources?.items ?? [];
+
+  const sourceMap = useMemo(
+    () => new Map(sourceItems.map((item) => [item.key, item])),
+    [sourceItems],
   );
-  const nightlyWarnings = [
-    ...nightlySources
-      .filter(([, sourceStatus]) => sourceStatus !== "OK")
-      .map(([code, sourceStatus]) => sourceWarningLabel(code, sourceStatus)),
-    ...(nightly?.preflight?.warnings ?? []).map((warning) => warning.message).filter(Boolean),
+
+  const navState = currentQuality?.available
+    ? normalizeStatus(currentQuality.status)
+    : normalizeStatus(runtime?.status);
+  const marketState = worstStatus([
+    sourceStatusForKey(sourceMap, "b3"),
+    sourceStatusForKey(sourceMap, "euronext"),
+    sourceStatusForKey(sourceMap, "yahoo_finance"),
+  ]);
+  const fxState = runtime?.fx?.current === false
+    ? "DEGRADED"
+    : normalizeStatus(sourceStatusForKey(sourceMap, "norges_bank"));
+  const companyState = worstStatus([
+    sourceStatusForKey(sourceMap, "ir"),
+    sourceStatusForKey(sourceMap, "result_release"),
+    sourceStatusForKey(sourceMap, "otello_ir"),
+    sourceStatusForKey(sourceMap, "newsweb"),
+  ]);
+  const overallState = worstStatus([navState, marketState, fxState, companyState]);
+
+  const issues = useMemo<Issue[]>(() => {
+    const next: Issue[] = [];
+
+    sourceItems.forEach((item) => {
+      const state = normalizeStatus(item.status);
+      if (state !== "ERROR" && state !== "DEGRADED") return;
+      next.push({
+        id: `source-${item.key}`,
+        title: `${item.source} — ${item.label}`,
+        state,
+        detail: item.uses_last_good
+          ? `${item.detail ?? "Kilden har et avvik."} Siste gode data er beholdt.`
+          : item.detail ?? "Kilden har et registrert avvik.",
+        lastGood: item.last_good_at,
+        checkedAt: item.checked_at,
+        affects: AFFECTED_AREAS[item.key] ?? null,
+      });
+    });
+
+    if (currentQuality?.available && normalizeStatus(currentQuality.status) !== "OK") {
+      const reasons = currentQuality.reasons ?? [];
+      next.push({
+        id: "dashboard-quality",
+        title: "NAV-data har et aktivt kvalitetsavvik",
+        state: normalizeStatus(currentQuality.status),
+        detail: reasons.join(" ") || "Dashboardkvaliteten er ikke godkjent som OK.",
+        checkedAt: runtime?.checked_at,
+        affects: "NAV og Oversikt",
+      });
+    }
+
+    if (runtime?.fast_refresh?.stale) {
+      next.push({
+        id: "fast-refresh-stale",
+        title: "Løpende oppdatering er eldre enn forventet",
+        state: "DEGRADED",
+        detail: "30-minutterskjøringen er eldre enn forventet. Siste gode data vises inntil en ny kjøring lykkes.",
+        lastGood: runtime.fast_refresh.finished_at,
+        checkedAt: runtime.checked_at,
+        affects: "Markedsdata, valuta og førstesiden",
+      });
+    } else if (runtime?.fast_refresh?.has_error) {
+      next.push({
+        id: "fast-refresh-error",
+        title: "Siste løpende oppdatering registrerte en feil",
+        state: "DEGRADED",
+        detail: "Siste 30-minutterskjøring registrerte en feil. Siste gode data beholdes der nye data ikke ble godkjent.",
+        lastGood: runtime.fast_refresh.finished_at,
+        checkedAt: runtime.checked_at,
+        affects: "Markedsdata, valuta og førstesiden",
+      });
+    }
+
+    if (runtime?.fx?.current === false) {
+      next.push({
+        id: "fx-stale",
+        title: "Valutadata er eldre enn forventet",
+        state: "DEGRADED",
+        detail: `Siste felles valutadato er ${formatDate(runtime.fx.latest_common_date)}. Forventet minst ${formatDate(runtime.fx.expected_date)}.`,
+        checkedAt: runtime.checked_at,
+        affects: "NAV, Oversikt og Brasil",
+      });
+    }
+
+    if (runtimeFailed) {
+      next.push({
+        id: "runtime-api",
+        title: "Kunne ikke oppdatere driftsstatus",
+        state: "DEGRADED",
+        detail: "Viser siste gode driftsstatus fordi siste API-oppdatering feilet.",
+        checkedAt: runtime?.checked_at,
+        affects: "Datakvalitet",
+      });
+    }
+    if (sourcesFailed) {
+      next.push({
+        id: "source-api",
+        title: "Kunne ikke oppdatere kildestatus",
+        state: "DEGRADED",
+        detail: "Viser siste gode kildestatus fordi siste API-oppdatering feilet.",
+        checkedAt: sources?.checked_at,
+        affects: "Datakvalitet",
+      });
+    }
+
+    return next;
+  }, [currentQuality, runtime, runtimeFailed, sourceItems, sources?.checked_at, sourcesFailed]);
+
+  const heroTitle = overallState === "OK"
+    ? "Alle kritiske data er oppdatert"
+    : overallState === "ERROR"
+      ? "Kritiske data har en feil"
+      : "Data brukes med ett eller flere avvik";
+  const heroSubtitle = issues.length === 0
+    ? "Ingen aktive avvik i dataene som brukes i investorvisningen."
+    : `${countLabel(issues.length, "aktivt avvik", "aktive avvik")} krever oppmerksomhet.`;
+
+  const reportState = normalizeStatus(report?.status);
+  const reportNeedsAttention = reportFailed || reportState === "ERROR" || reportState === "DEGRADED" || report?.validation?.valid === false;
+  const validationFailed = report?.validation?.valid === false;
+  const reportSteps: Array<{ label: string; state: PipelineState }> = [
+    { label: "NewsWeb", state: pipeline.newsweb_processed ? "OK" : "VENTER" },
+    { label: "PDF hentet", state: pipeline.pdf_downloaded ? "OK" : "VENTER" },
+    { label: "R2 arkivert", state: pipeline.r2_archived ? "OK" : "VENTER" },
+    {
+      label: "Validering",
+      state: validationFailed ? "FEIL" : pipeline.parsed ? "OK" : reportState === "WAITING" ? "KJØRER" : "VENTER",
+    },
+    {
+      label: "Rapportankre",
+      state: validationFailed ? "IKKE AKTUELL" : pipeline.anchors_applied ? "OK" : "VENTER",
+    },
+    {
+      label: "NAV-data bygget",
+      state: validationFailed ? "IKKE AKTUELL" : pipeline.nav_rebuilt ? "OK" : "VENTER",
+    },
   ];
-  const currentQualityReasons = currentQuality?.reasons ?? [];
-  const nightlyQualityResolved = Boolean(
-    nightlyDashboardWarning && currentQuality?.available && currentQuality.status === "OK",
-  );
-  const operationalWarnings = [
-    runtime?.fast_refresh?.stale ? "30-minutterskjøringen er eldre enn forventet." : null,
-    runtime?.fast_refresh?.has_error ? "Siste 30-minutterskjøring registrerte en feil." : null,
-    runtime?.fx?.current === false ? "Valutakursene er eldre enn forventet dato." : null,
-  ].filter((warning): warning is string => warning !== null);
+
+  const preflightWarnings = nightly?.preflight?.warnings ?? [];
 
   return (
     <div className="investorPage dataQualityPage">
-      <section className="card qualityIntro">
-        <div><span className="label">DATAKVALITET</span><h2>Drift, ferskhet og kildekontroll</h2><p>Er dataene oppdatert? Her får du en enkel oversikt over hver datakilde, om den virker, og når vi sist hentet data. Tekniske detaljer ligger lenger ned på siden.</p></div>
-        <span className={`qualityOverall ${runtime?.status === "OK" || runtime?.status === "SUCCESS" ? "ok" : ""}`}>{statusLabel(runtime?.status)}</span>
+      <section className="card qualityTrustHero">
+        <div className="qualityTrustLead">
+          <span className="label">DATAKVALITET NÅ</span>
+          <h2>{heroTitle}</h2>
+          <p>{heroSubtitle}</p>
+          <small>
+            Sist kontrollert {formatDateTime(runtime?.checked_at ?? sources?.checked_at)}
+            {(runtimeFailed || sourcesFailed) ? " · viser siste gode status der ny kontroll feilet" : ""}
+          </small>
+        </div>
+        <span className={statusClass(overallState)}>{statusLabel(overallState)}</span>
+        <div className="qualityTrustDimensions" aria-label="Status for kritiske dataområder">
+          {[
+            ["NAV-data", navState],
+            ["Markedsdata", marketState],
+            ["Valuta", fxState],
+            ["Selskapsdata", companyState],
+          ].map(([label, state]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong className={statusClass(state)}>{statusLabel(state)}</strong>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <section className="card nightlySummary">
+      {issues.length > 0 && (
+        <section className="card qualityIssuesCard">
+          <div className="cardHeader">
+            <div>
+              <span className="label">AKTIVE AVVIK</span>
+              <h2>Dette bør du vite før du bruker tallene</h2>
+            </div>
+            <span className="pill">{issues.length}</span>
+          </div>
+          <div className="qualityIssueList">
+            {issues.map((issue) => (
+              <article className="qualityIssue" key={issue.id}>
+                <span className={statusClass(issue.state)}>{statusLabel(issue.state)}</span>
+                <div>
+                  <strong>{issue.title}</strong>
+                  <p>{issue.detail}</p>
+                  <div className="qualityIssueMeta">
+                    {issue.lastGood && <span>Siste gode: {formatDateTime(issue.lastGood)}</span>}
+                    {issue.checkedAt && <span>Kontrollert: {formatDateTime(issue.checkedAt)}</span>}
+                    {issue.affects && <span>Påvirker: {issue.affects}</span>}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="card qualityCriticalCard">
         <div className="cardHeader">
           <div>
-            <span className="label">SISTE NATTKJØRING</span>
-            <h2>Nattkjøring {formatDate(nightly?.target_date)}</h2>
+            <span className="label">KRITISKE NAV-INPUTS</span>
+            <h2>Dataene som faktisk driver verdsettelsen</h2>
           </div>
-          <span className={`pill nightlyStatus ${nightly?.status === "SUCCESS" ? "ok" : ""}`}>
-            {runtimeFailed ? "SISTE GODE" : statusLabel(nightly?.status)}
-          </span>
         </div>
-        <div className="nightlyMetrics">
-          <div><span>Datadato</span><strong>{formatDate(nightly?.target_date)}</strong></div>
-          <div><span>Kjøretid</span><strong>{durationLabel(nightly?.started_at, nightly?.finished_at)}</strong></div>
-          <div><span>Oppdaterte datapunkter</span><strong>{nightly?.records_written ?? "–"}</strong></div>
-          <div><span>Datakilder</span><strong>{nightlySources.length ? `${healthySourceCount}/${nightlySources.length} OK` : "–"}</strong></div>
-        </div>
-        {nightlySources.length > 0 && (
-          <div className="nightlySources">
-            {nightlySources.map(([code, sourceStatus]) => (
-              <div key={code}>
-                <span className={`qualityDot ${sourceStatus === "OK" ? "ok" : ""}`} />
-                <span>{SOURCE_LABELS[code] ?? code}</span>
-                <strong>{statusLabel(sourceStatus)}</strong>
+        <div className="qualityCriticalTable">
+          <div className="qualityCriticalHead" aria-hidden="true">
+            <span>Input</span><span>Kilde</span><span>Datadato</span><span>Status</span>
+          </div>
+          {CRITICAL_INPUTS.map((definition) => {
+            const item = sourceMap.get(definition.key);
+            const state = item ? normalizeStatus(item.status) : "UNKNOWN";
+            const effectiveState = definition.key === "norges_bank" && runtime?.fx?.current === false
+              ? "DEGRADED"
+              : state;
+            return (
+              <div className="qualityCriticalRow" key={definition.key}>
+                <strong>{definition.label}</strong>
+                <span>{item?.source ?? definition.source}</span>
+                <span>{sourceDate(item)}</span>
+                <span className={statusClass(effectiveState)}>{statusLabel(effectiveState)}</span>
               </div>
+            );
+          })}
+        </div>
+        <p className="qualityFootnote">Datadato viser datoen på siste godkjente verdi når kilden oppgir den. Ved avvik beholdes siste validerte data fremfor å nullstille NAV.</p>
+      </section>
+
+      <section className="card qualitySourcesCard">
+        <div className="cardHeader">
+          <div>
+            <span className="label">DATAKILDER</span>
+            <h2>Kompakt kildeoversikt</h2>
+          </div>
+          <span className={statusClass(sources?.overall_status)}>{statusLabel(sources?.overall_status)}</span>
+        </div>
+        {!sources && !sourcesFailed && <p className="dataNotice">Kontrollerer automatiske kilder …</p>}
+        {!sources && sourcesFailed && <p className="qualityAlert">Kunne ikke hente kildestatus.</p>}
+        {sources && (
+          <div className="qualitySourceTable">
+            <div className="qualitySourceHead" aria-hidden="true">
+              <span>Kilde</span><span>Data</span><span>Status</span><span>Datadato</span><span>Sist kontrollert</span>
+            </div>
+            {sourceItems.map((item) => (
+              <details className="qualitySourceRow" key={item.key}>
+                <summary>
+                  <span className="qualitySourceName">{item.source}</span>
+                  <span>{item.label}</span>
+                  <span className={statusClass(item.status)}>{statusLabel(item.status)}</span>
+                  <span>{sourceDate(item)}</span>
+                  <span>{formatDateTime(item.checked_at)}</span>
+                </summary>
+                <div className="qualitySourceDetail">
+                  <span><b>Brukes av</b>{AFFECTED_AREAS[item.key] ?? "Supplerende investorinformasjon"}</span>
+                  <span><b>Siste gode hent</b>{formatDateTime(item.last_good_at)}</span>
+                  <span><b>Detalj</b>{item.detail ?? "Ingen ekstra merknad."}</span>
+                  {item.uses_last_good && <span><b>Fallback</b>Siste gode data er beholdt.</span>}
+                  {item.url && <a href={item.url} target="_blank" rel="noreferrer">Åpne kilde ↗</a>}
+                </div>
+              </details>
             ))}
           </div>
         )}
-        {nightly?.preflight && (nightly.preflight.warning_count || nightly.preflight.blocker_count) ? (
-          <div className="qualityAlert" role="status">
-            <strong>Dette krever oppmerksomhet</strong>
-            <p>
-              Nattkontrollen fant {countLabel(nightly.preflight.blocker_count ?? 0, "blokkering", "blokkeringer")} og {countLabel(nightly.preflight.warning_count ?? 0, "advarsel", "advarsler")}.
-              {nightly.preflight.ready
-                ? " Advarslene stoppet ikke oppdateringen."
-                : " Oppdateringen er ikke godkjent, og siste gode data beholdes."}
-            </p>
-            {nightlyDashboardWarning && currentQuality?.available && (
-              <p>
-                <strong>Siste nattkontroll:</strong> {statusLabel("DEGRADED")} · <strong>Status nå:</strong> {statusLabel(currentQuality.status)}
-                {currentQuality.as_of_date ? ` (datadato ${formatDate(currentQuality.as_of_date)})` : ""}.
-              </p>
-            )}
-            {nightlyQualityResolved && (
-              <p>Avviket som ble registrert i nattkontrollen er ikke lenger aktivt i siste NAV-data.</p>
-            )}
-            {!nightlyQualityResolved && nightlyDashboardWarning && currentQualityReasons.length > 0 && (
-              <p><strong>Aktivt nå:</strong> {currentQualityReasons.join(" ")}</p>
-            )}
-            {nightly?.status === "PARTIAL" && nightly.preflight.ready && (
-              <p>
-                «Delvis» betyr at kjøringen ble fullført, men at minst én datakilde
-                hadde et avvik. «Advarsel» er en ekstra kvalitetskontroll og stopper
-                ikke oppdateringen når antall blokkeringer er 0.
-              </p>
-            )}
-            {nightlyWarnings.length > 0 && <ul>{nightlyWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
-            {nightlyWarnings.length === 0 && <p>Detaljene gjelder nattens datakontroll og finnes i den lagrede nattdiagnosen.</p>}
+      </section>
+
+      <section className={`card qualityReportCard ${reportNeedsAttention ? "qualityReportAttention" : ""}`}>
+        <div className="cardHeader">
+          <div>
+            <span className="label">RAPPORTDATA</span>
+            <h2>Automatisk rapportinnlesing</h2>
           </div>
-        ) : null}
-      </section>
-
-      <BemobiSourceStatusPanel />
-
-      <section className="card">
-        <div className="cardHeader"><div><span className="label">HVER 30. MINUTT</span><h2>Løpende oppdatering</h2></div><span className="pill">{runtimeFailed ? "SISTE GODE" : statusLabel(runtime?.fast_refresh?.status)}</span></div>
-        <p className="qualitySectionLead">Oppdaterer markedsdata, valuta og førstesiden gjennom dagen.</p>
-        <div className="qualityMetricGrid fastRefreshGrid">
-          <div><span>Siste kjøring</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
-          <div><span>Førsteside</span><strong>{snapshot?.cache_status ?? "UKJENT"}</strong><small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `${Math.round(snapshot.age_seconds / 60)} min gammel`}</small></div>
-          <div><span>Valuta</span><strong>{formatDate(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {formatDate(runtime?.fx?.expected_date)}</small></div>
-          <div><span>Dashboardkvalitet</span><strong>{statusLabel(currentQuality?.status)}</strong><small>{currentQualityReasons[0] ?? (currentQuality?.as_of_date ? `Datadato ${formatDate(currentQuality.as_of_date)}` : "–")}</small></div>
+          <span className={statusClass(reportFailed ? "DEGRADED" : report?.status)}>
+            {reportFailed ? "SISTE GODE" : statusLabel(report?.status)}
+          </span>
         </div>
-        {operationalWarnings.length > 0 && <div className="qualityAlert" role="status"><strong>Dette gjelder advarselen</strong><ul>{operationalWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
-      </section>
-
-      <section className="card">
-        <div className="cardHeader"><div><span className="label">RAPPORTDATA</span><h2>Automatisk rapportinnlesing</h2></div><span className="pill">{reportFailed ? "SISTE GODE" : statusLabel(report?.status)}</span></div>
         {!report?.ready ? (
           <p className="dataNotice">{report?.message ?? "Venter på neste Otello-finansrapport."}</p>
         ) : (
           <>
-            <div className="qualityReportMeta"><div><span>Periode</span><strong>{report.source_period ?? "–"}</strong></div><div><span>Rapportdato</span><strong>{formatDate(report.report_date)}</strong></div><div><span>Parser</span><strong>{report.parser_version ?? "–"}</strong></div>{report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Åpne kilde-PDF</a>}</div>
-            <div className="qualitySteps">
-              <Step label="NewsWeb" done={pipeline.newsweb_processed} />
-              <Step label="PDF hentet" done={pipeline.pdf_downloaded} />
-              <Step label="R2 arkivert" done={pipeline.r2_archived} />
-              <Step label="Validering" done={pipeline.parsed && report.validation?.valid !== false} />
-              <Step label="Rapportankre" done={pipeline.anchors_applied} />
-              <Step label="NAV-data bygget" done={pipeline.nav_rebuilt} />
+            <div className="qualityReportSummary">
+              <span><b>Periode</b>{report.source_period ?? "–"}</span>
+              <span><b>Rapportdato</b>{formatDate(report.report_date)}</span>
+              <span><b>Parser</b>{report.parser_version ?? "–"}</span>
+              {report.source_url && <a href={report.source_url} target="_blank" rel="noreferrer">Kilde-PDF ↗</a>}
             </div>
-            {report.validation?.valid === false && <p className="qualityAlert">Rapporten er stoppet av fail-closed-kontrollen. {report.validation.issue_count ?? 0} valideringsavvik er registrert.</p>}
+            <details className="qualityReportDetails" open={reportNeedsAttention}>
+              <summary>{reportNeedsAttention ? "Rapportinnlesingen krever oppmerksomhet" : "Vis rapportpipeline"}</summary>
+              <div className="qualityPipeline">
+                {reportSteps.map((step) => <PipelineStep key={step.label} {...step} />)}
+              </div>
+              {validationFailed && (
+                <p className="qualityAlert">Rapporten er stoppet av fail-closed-kontrollen. {report.validation?.issue_count ?? 0} valideringsavvik er registrert.</p>
+              )}
+            </details>
           </>
         )}
       </section>
+
+      <details className="card qualityDiagnostics">
+        <summary>
+          <span>
+            <span className="label">TEKNISK DIAGNOSTIKK</span>
+            <strong>Oppdateringsjobber, cache og preflight</strong>
+          </span>
+          <span className="qualityDiagnosticsSummary">
+            Full refresh {statusLabel(nightly?.status)} · Fast refresh {statusLabel(runtime?.fast_refresh?.status)} · Cache {snapshot?.cache_status ?? "UKJENT"}
+          </span>
+        </summary>
+        <div className="qualityDiagnosticsBody">
+          <div className="qualityDiagnosticGrid">
+            <div>
+              <span>Nattoppdatering</span>
+              <strong>{statusLabel(nightly?.status)}</strong>
+              <small>{formatDate(nightly?.target_date)} · {nightlySources.length ? `${healthySourceCount}/${nightlySources.length} kilder OK` : "kilder ukjent"}</small>
+            </div>
+            <div>
+              <span>Kjøretid natt</span>
+              <strong>{durationLabel(nightly?.started_at, nightly?.finished_at)}</strong>
+              <small>{nightly?.records_written ?? "–"} oppdaterte datapunkter</small>
+            </div>
+            <div>
+              <span>30-minutterskjøring</span>
+              <strong>{statusLabel(runtime?.fast_refresh?.status)}</strong>
+              <small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small>
+            </div>
+            <div>
+              <span>Førsteside-cache</span>
+              <strong>{snapshot?.cache_status ?? "UKJENT"}</strong>
+              <small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `${Math.round(snapshot.age_seconds / 60)} min gammel`}</small>
+            </div>
+            <div>
+              <span>Valuta</span>
+              <strong>{runtime?.fx?.current === false ? "AVVIK" : "OK"}</strong>
+              <small>Siste felles dato {formatDate(runtime?.fx?.latest_common_date)}</small>
+            </div>
+            <div>
+              <span>Dashboardkvalitet</span>
+              <strong>{statusLabel(currentQuality?.status)}</strong>
+              <small>{currentQuality?.as_of_date ? `Datadato ${formatDate(currentQuality.as_of_date)}` : "–"}</small>
+            </div>
+          </div>
+
+          {nightly?.preflight && (
+            <div className="qualityPreflight">
+              <strong>Preflight</strong>
+              <p>
+                {countLabel(nightly.preflight.blocker_count ?? 0, "blokkering", "blokkeringer")} · {countLabel(nightly.preflight.warning_count ?? 0, "advarsel", "advarsler")}.
+                {nightly.preflight.ready
+                  ? " Advarsler stopper ikke oppdateringen når antall blokkeringer er 0."
+                  : " Oppdateringen er ikke godkjent; siste gode data beholdes."}
+              </p>
+              {nightly?.status === "PARTIAL" && nightly.preflight.ready && (
+                <p>«Delvis» betyr at kjøringen ble fullført, men at minst én datakilde hadde et avvik.</p>
+              )}
+              {preflightWarnings.length > 0 && (
+                <ul>{preflightWarnings.map((warning) => <li key={`${warning.code}-${warning.message}`}>{warning.message}</li>)}</ul>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
