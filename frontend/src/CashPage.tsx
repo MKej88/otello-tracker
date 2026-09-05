@@ -236,22 +236,42 @@ export default function CashPage() {
     const deployableM = Math.max(0, directCashM - buffer);
     const financialCapacityShares = deployableM * 1_000_000 / price;
     const remainingMandate = buyback?.program?.remaining_shares ?? null;
-    const sharesBought = remainingMandate == null
-      ? financialCapacityShares
-      : Math.min(financialCapacityShares, Math.max(0, remainingMandate));
+    const programMaxPrice = buyback?.program?.max_price_nok ?? null;
+    const priceAllowed = programMaxPrice == null || price <= programMaxPrice;
+    const mandateLimited =
+      remainingMandate != null && Math.max(0, remainingMandate) < financialCapacityShares;
+    const sharesBought = !priceAllowed
+      ? 0
+      : remainingMandate == null
+        ? financialCapacityShares
+        : Math.min(financialCapacityShares, Math.max(0, remainingMandate));
     const spendM = sharesBought * price / 1_000_000;
+    const cashAfterM = Math.max(0, directCashM - spendM);
+    const cashAboveBufferM = cashAfterM - buffer;
     const outstandingAfter = Math.max(1, shares - sharesBought);
     const navTotalM = navPerShare * shares / 1_000_000;
     const navAfterM = navTotalM - spendM;
     const navAfterPerShare = navAfterM * 1_000_000 / outstandingAfter;
     const accretionPct = (navAfterPerShare / navPerShare - 1) * 100;
+    const discountToNavPct = (1 - price / navPerShare) * 100;
+    const limitingFactor = !priceAllowed ? "PRICE" : mandateLimited ? "MANDATE" : "CASH";
 
     return {
+      buffer,
+      deployableM,
       financialCapacityShares,
+      remainingMandate,
       sharesBought,
       spendM,
+      cashAfterM,
+      cashAboveBufferM,
+      navBeforePerShare: navPerShare,
       navAfterPerShare,
       accretionPct,
+      discountToNavPct,
+      limitingFactor,
+      priceAllowed,
+      price,
     };
   }, [metrics, summary, buyback, bufferM, priceAssumption]);
 
@@ -281,7 +301,17 @@ export default function CashPage() {
   const maxBuffer = Math.max(50, Math.ceil(metrics.directCashM ?? 50));
   const maxPrice = Math.max(30, Math.ceil((summary.otec_price ?? 15) * 1.8));
   const programSpent = finite(buyback?.program?.cash_spent_nok);
-  const programSpentMnok = programSpent == null ? null : programSpent / 1_000_000;
+  const programSpentMnok = programSpent == null ? null : Math.abs(programSpent) / 1_000_000;
+  const buybackConstraintLabel = buybackCalc?.limitingFactor === "MANDATE"
+    ? "MANDAT"
+    : buybackCalc?.limitingFactor === "PRICE"
+      ? "KURS"
+      : "CASH";
+  const buybackConstraintTitle = buybackCalc?.limitingFactor === "MANDATE"
+    ? "Dagens mandat begrenser tilbakekjøpet"
+    : buybackCalc?.limitingFactor === "PRICE"
+      ? "Valgt kjøpskurs er over programmets makspris"
+      : "Tilgjengelig cash begrenser tilbakekjøpet";
 
   return (
     <div className="investorPage cashPage">
@@ -461,16 +491,67 @@ export default function CashPage() {
       <section className="card cashBuybackCard">
         <div className="cardHeader">
           <div>
-            <span className="label">BUYBACK-KAPASITET</span>
-            <h2>Hva skjer med NAV hvis cash brukes på egne aksjer?</h2>
+            <span className="label">TILBAKEKJØPSKAPASITET</span>
+            <h2>Hva kan Otello kjøpe tilbake – og hva gjør det med NAV?</h2>
           </div>
           <span className="pill">INTERAKTIV</span>
         </div>
 
-        <div className="cashBuybackLayout">
+        <div className={`cashBuybackConclusion ${buybackCalc?.limitingFactor === "PRICE" ? "warning" : ""}`}>
+          <div>
+            <span className="label">BEGRENSNING</span>
+            <strong>{buybackConstraintTitle}</strong>
+            <p>
+              {buybackCalc?.limitingFactor === "MANDATE"
+                ? `Med valgt cashnivå har Otello kapasitet til ${formatInteger(buybackCalc.financialCapacityShares)} aksjer, men dagens mandat har bare ${formatInteger(buybackCalc.remainingMandate)} aksjer igjen.`
+                : buybackCalc?.limitingFactor === "PRICE"
+                  ? `Valgt kjøpskurs på ${formatNumber(buybackCalc.price, 2)} kr er høyere enn programmets makspris på ${formatNumber(buyback?.program?.max_price_nok, 2)} kr. Kalkulatoren legger derfor til grunn null kjøp.`
+                  : `Etter valgt minimumsnivå for cash kan Otello kjøpe inntil ${formatInteger(buybackCalc?.financialCapacityShares ?? null)} aksjer før kontantbufferen nås.`}
+            </p>
+          </div>
+          <span className="pill cashConstraintPill">{buybackConstraintLabel}</span>
+        </div>
+
+        <div className="cashBuybackResults cashBuybackResultsPrimary">
+          <div>
+            <span>Gjenstående mandat</span>
+            <strong>{formatInteger(buybackCalc?.remainingMandate ?? null)}</strong>
+            <small>aksjer i dagens program</small>
+          </div>
+          <div>
+            <span>Cash nødvendig</span>
+            <strong>{moneyM(buybackCalc?.spendM)}</strong>
+            <small>
+              {buybackCalc == null
+                ? "–"
+                : `for ${formatInteger(buybackCalc.sharesBought)} aksjer ved ${formatNumber(buybackCalc.price, 2)} kr`}
+            </small>
+          </div>
+          <div>
+            <span>Cash etter kjøp</span>
+            <strong>{moneyM(buybackCalc?.cashAfterM)}</strong>
+            <small>valgt minimum {formatNumber(buybackCalc?.buffer ?? bufferM, 0)} mill. kr</small>
+          </div>
+          <div className={buybackCalc != null && buybackCalc.accretionPct >= 0 ? "cashAccretion positive" : "cashAccretion negative"}>
+            <span>Økning i NAV per aksje</span>
+            <strong>
+              {buybackCalc == null
+                ? "–"
+                : `${buybackCalc.accretionPct >= 0 ? "+" : ""}${formatNumber(buybackCalc.accretionPct, 2)} %`}
+            </strong>
+            <small>
+              {buybackCalc == null
+                ? "–"
+                : `${formatNumber(buybackCalc.navBeforePerShare, 2)} → ${formatNumber(buybackCalc.navAfterPerShare, 2)} kr`}
+            </small>
+          </div>
+        </div>
+
+        <div className="cashBuybackLayout cashBuybackLayoutSimplified">
           <div className="cashControls">
+            <div className="cashBuybackSectionTitle">Forutsetninger</div>
             <label>
-              <span><strong>Minimum cash-buffer</strong><em>{formatNumber(bufferM, 0)} mill. kr</em></span>
+              <span><strong>Minimum cash Otello skal sitte igjen med</strong><em>{formatNumber(bufferM, 0)} mill. kr</em></span>
               <input
                 type="range"
                 min="0"
@@ -494,40 +575,42 @@ export default function CashPage() {
             <div className="cashAssumptionRows">
               <div><span>Dagens OTEC-kurs</span><strong>{formatNumber(summary.otec_price, 2)} kr</strong></div>
               <div><span>Programmets makspris</span><strong>{buyback?.program?.max_price_nok == null ? "–" : `${formatNumber(buyback.program.max_price_nok, 2)} kr`}</strong></div>
-              <div><span>Brukt i programmet</span><strong>{moneyM(programSpentMnok)}</strong></div>
-              <div><span>Gjenstående programaksjer</span><strong>{formatInteger(buyback?.program?.remaining_shares ?? null)}</strong></div>
+              <div><span>Allerede brukt på tilbakekjøp</span><strong>{moneyM(programSpentMnok)}</strong></div>
+              <div><span>Teoretisk cashkapasitet</span><strong>{formatInteger(buybackCalc?.financialCapacityShares ?? null)} aksjer</strong></div>
             </div>
           </div>
 
-          <div className="cashBuybackResults">
-            <div>
-              <span>Finansiell kapasitet</span>
-              <strong>{formatInteger(buybackCalc?.financialCapacityShares ?? null)}</strong>
-              <small>aksjer før mandatbegrensning</small>
+          <div className="cashBuybackFlowCard">
+            <div className="cashBuybackSectionTitle">Cashregnestykke</div>
+            <div className="cashBuybackFlow">
+              <div><span>Estimert OTEC-cash</span><strong>{moneyM(metrics.directCashM)}</strong></div>
+              <div className="cashBuybackFlowMinus"><span>− Cash brukt på kjøpet</span><strong>{moneyM(buybackCalc?.spendM)}</strong></div>
+              <div className="cashBuybackFlowTotal"><span>= Cash etter kjøp</span><strong>{moneyM(buybackCalc?.cashAfterM)}</strong></div>
             </div>
-            <div>
-              <span>Innen dagens program</span>
-              <strong>{formatInteger(buybackCalc?.sharesBought ?? null)}</strong>
-              <small>aksjer</small>
-            </div>
-            <div>
-              <span>Cash brukt</span>
-              <strong>{moneyM(buybackCalc?.spendM)}</strong>
-              <small>etter valgt buffer</small>
-            </div>
-            <div className={buybackCalc != null && buybackCalc.accretionPct >= 0 ? "cashAccretion positive" : "cashAccretion negative"}>
-              <span>NAV-accretion</span>
-              <strong>
-                {buybackCalc == null
-                  ? "–"
-                  : `${buybackCalc.accretionPct >= 0 ? "+" : ""}${formatNumber(buybackCalc.accretionPct, 2)} %`}
-              </strong>
-              <small>ny NAV/aksje {buybackCalc == null ? "–" : `${formatNumber(buybackCalc.navAfterPerShare, 2)} kr`}</small>
+            <div className="cashBuybackSecondaryFacts">
+              <div>
+                <span>Over valgt minimum</span>
+                <strong>{moneyM(buybackCalc?.cashAboveBufferM)}</strong>
+              </div>
+              <div>
+                <span>Kjøpskurs mot NAV</span>
+                <strong>
+                  {buybackCalc == null
+                    ? "–"
+                    : `${formatNumber(buybackCalc.price, 2)} vs. ${formatNumber(buybackCalc.navBeforePerShare, 2)} kr`}
+                </strong>
+                <small>
+                  {buybackCalc == null
+                    ? "–"
+                    : `${buybackCalc.discountToNavPct >= 0 ? formatNumber(buybackCalc.discountToNavPct, 1) : formatNumber(Math.abs(buybackCalc.discountToNavPct), 1)} % ${buybackCalc.discountToNavPct >= 0 ? "under NAV" : "over NAV"}`}
+                </small>
+              </div>
             </div>
           </div>
         </div>
+
         <p className="cashNote">
-          Kalkulatoren reduserer NAV med kontantbeløpet som brukes og aksjetallet med tilbakekjøpte aksjer. Når programdata er tilgjengelige begrenses kjøpet til gjenstående aksjer i dagens program. Dette er en matematisk sensitivitetsanalyse, ikke en prognose for faktisk tilbakekjøp.
+          Kalkulatoren viser hva som faktisk kan kjøpes innen både tilgjengelig cash, valgt minimumsnivå, programmets makspris og gjenstående mandat. NAV-effekten er en matematisk sensitivitetsanalyse, ikke en prognose for faktiske tilbakekjøp.
         </p>
       </section>
 
