@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
@@ -67,7 +69,7 @@ def test_focus_trend_compares_same_official_series_7d_and_30d_back() -> None:
     assert trend["comparison_year"] == 2027
     assert trend["comparisons"]["7d"]["points"]["selic"]["change_bp"] == -25.0
     assert trend["comparisons"]["30d"]["points"]["selic"]["change_bp"] == -50.0
-    assert trend["comparisons"]["30d"]["points"]["gdp"]["change"] == 0.2
+    assert trend["comparisons"]["30d"]["points"]["gdp"]["change"] == pytest.approx(0.2)
 
 
 def test_investor_summary_is_rule_based_and_separates_three_channels() -> None:
