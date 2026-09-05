@@ -16,7 +16,7 @@ except ImportError:
     from historical_investment_attribution import apply_historical_life360_change_split
     from life360_nav import life360_market_value
 
-PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V2"
+PERIOD_CACHE_VERSION = f"{ESTIMATED_NAV_CALCULATION_VERSION}:NAV_PERIODS_V3"
 PERIOD_CACHE_KEY_PREFIX = "materialized_discount_period"
 PERIOD_MAX_POINTS = 72
 _FIXED_PERIOD_DAYS = {
