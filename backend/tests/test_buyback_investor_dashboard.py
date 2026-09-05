@@ -164,8 +164,6 @@ def test_buyback_dashboard_is_shareholder_focused_and_volume_backed(
     assert result["program"]["vwap_nok"] == "17"
     assert result["latest_week"]["shares"] == 59_512
     assert result["latest_week"]["market_volume_shares"] > 59_512
-    # Weekly market share is a descriptive ratio, not the Safe Harbour legal test.
-    # The 25% limit is assessed per purchase day against prior-20-day ADV.
     assert 0 < result["latest_week"]["volume_share_pct"] < 100
     assert result["latest_week"]["safe_harbour_capacity_shares"] > 0
     assert result["latest_week"]["safe_harbour_utilization_pct"] > 0
@@ -297,20 +295,21 @@ def test_program_status_excludes_older_program_and_uses_weighted_price(
     assert result["program"]["cash_spent_nok"] == -10_807_074
 
 
-def test_overview_buyback_card_has_program_status_and_null_guards() -> None:
+def test_overview_buyback_card_is_compact_and_keeps_value_creation_fields() -> None:
     page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
     for label in (
-        "Siste rapporterte kjøp",
-        "Estimatintervall",
-        "Kjøpt siden programstart",
-        "Gjennomsnittlig kjøpskurs",
-        "Kontantbruk hittil",
-        "Netto NAV-effekt fra tilbakekjøp",
+        "TILBAKEKJØP",
+        "% gjennomført",
+        "aksjer kjøpt",
+        "Snittpris",
+        "Netto NAV-effekt",
+        "Se tilbakekjøpsprogram",
     ):
         assert label in page
-    assert "<span>{forecastPeriodLabel(forecast?.forecast_week)} – baseestimat</span>" in page
-    assert 'className="overviewBuybackDivider"' not in page
+    assert "Siste rapporterte kjøp" not in page
+    assert "Estimatintervall" not in page
+    assert "Kontantbruk hittil" not in page
     assert "formatInteger(buybackProgram.cumulative_shares)" in page
     assert "buybackStatus?.nav_effect?.per_share_nok" in page
     assert "finiteNumber" in page
