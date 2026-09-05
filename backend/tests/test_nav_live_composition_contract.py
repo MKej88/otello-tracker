@@ -6,6 +6,7 @@ NAV_PAGE = ROOT / "frontend" / "src" / "NavPageV2.tsx"
 WORKER_ECONOMIC = ROOT / "cloudflare" / "src" / "economic_nav_investor.py"
 REFERENCE_ECONOMIC = ROOT / "backend" / "app" / "economic_nav_investor.py"
 WORKER_COMPOSITION = ROOT / "cloudflare" / "src" / "live_nav_composition.py"
+REFERENCE_COMPOSITION = ROOT / "backend" / "app" / "live_nav_composition.py"
 HOT_SNAPSHOT = ROOT / "cloudflare" / "src" / "dashboard_hot_snapshot.py"
 
 
@@ -50,6 +51,17 @@ def test_live_composition_reuses_one_day_history_math_not_period_attribution() -
     assert "_split_current_composition(repository, point, life360_state)" in source
     assert "discount_history" not in source
     assert "_change(" not in source
+
+
+def test_live_composition_preserves_explicit_bemobi_cash_display() -> None:
+    for path in (WORKER_COMPOSITION, REFERENCE_COMPOSITION):
+        source = path.read_text(encoding="utf-8")
+        assert "_cash_breakdown" in source
+        assert "_apply_bemobi_paid_split" in source
+        assert "_apply_bemobi_receivable_split" in source
+        assert "_receivable_state" in source
+        assert "other_net_assets_daily_estimates" in source
+        assert "_apply_current_bemobi_cash_display" in source
 
 
 def test_hot_snapshot_version_is_bumped_for_new_economic_response_shape() -> None:

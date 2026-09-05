@@ -3,9 +3,57 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.connection import get_connection
-from app.estimated_nav_history import _estimated_point
+from app.estimated_nav_history import _cash_breakdown, _estimated_point
+from app.estimated_nav_history_cash_display import (
+    _apply_bemobi_paid_split,
+    _apply_bemobi_receivable_split,
+    _receivable_state,
+)
 from app.estimated_nav_history_display import _split_current_composition
 from app.life360_nav import life360_nav_adjustment
+
+
+def _apply_current_bemobi_cash_display(
+    database_path: str | None,
+    point: dict[str, Any],
+) -> dict[str, Any]:
+    """Reuse the history display's explicit Bemobi cash rows for live composition."""
+    composition = point.get("composition") or []
+    if not isinstance(composition, list):
+        return point
+    reported_cash = next(
+        (item for item in composition if str(item.get("key")) == "reported_cash"),
+        None,
+    )
+    report_date = str((reported_cash or {}).get("details", {}).get("report_date") or "")
+    current_date = str(point.get("date") or "")
+    if not report_date or not current_date:
+        return point
+
+    with get_connection(database_path) as connection:
+        breakdown = _cash_breakdown(
+            connection,
+            start_date=report_date,
+            current_date=current_date,
+        )
+        raw_receivable = connection.execute(
+            """
+            SELECT associated_receivable_nok, receivable_quality, receivable_components_json
+            FROM other_net_assets_daily_estimates
+            WHERE estimate_date=?
+            LIMIT 1
+            """,
+            (current_date,),
+        ).fetchone()
+    receivable = _receivable_state(
+        dict(raw_receivable) if raw_receivable is not None else None,
+        current_date,
+    )
+
+    wrapper = {"current": point}
+    wrapper = _apply_bemobi_paid_split(wrapper, breakdown)
+    wrapper = _apply_bemobi_receivable_split(wrapper, receivable)
+    return wrapper.get("current") or point
 
 
 def live_nav_composition(
@@ -24,6 +72,8 @@ def live_nav_composition(
 
     life360_state = life360_nav_adjustment(as_of_date=day, database_path=database_path)
     split_ready = _split_current_composition(database_path, point, life360_state)
+    if split_ready:
+        point = _apply_current_bemobi_cash_display(database_path, point)
     return {
         "ready": True,
         "date": str(point.get("date") or day),
