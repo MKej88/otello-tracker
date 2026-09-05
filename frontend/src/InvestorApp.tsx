@@ -7,6 +7,7 @@ import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 import "./investor-v2.css";
 
 const loadNavPage = () => import("./NavPageV2");
+const loadNavSensitivityPage = () => import("./NavSensitivityPage");
 const loadHistoryPage = () => import("./EstimatedHistoryPage");
 const loadBuybackPage = () => import("./BuybackPage");
 const loadBemobiPage = () => import("./BemobiPage");
@@ -16,6 +17,7 @@ const loadDataQualityPage = () => import("./DataQualityPage");
 const loadNewsEventsPage = () => import("./NewsEventsPage");
 
 const NavPageV2 = lazy(loadNavPage);
+const NavSensitivityPage = lazy(loadNavSensitivityPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
 const BuybackPage = lazy(loadBuybackPage);
 const BemobiPage = lazy(loadBemobiPage);
@@ -37,6 +39,11 @@ function preload(view: View) {
     // Keep the first-period preload explicit; it reuses the bundle promise and also
     // preserves a direct fallback if the nightly materialization has not run yet.
     preloadJson(discountHistoryUrl(investorPeriods()[0]));
+  }
+  if (view === "NAV-sensitivitet") {
+    void loadNavSensitivityPage();
+    preloadJson("/api/dashboard/summary");
+    preloadJson("/api/dashboard/economic");
   }
   if (view === "Historikk") {
     void loadHistoryPage();
@@ -73,6 +80,7 @@ function preload(view: View) {
 function ActiveView({ view }: { view: View }) {
   if (view === "Oversikt") return <OverviewPage />;
   if (view === "NAV") return <NavPageV2 />;
+  if (view === "NAV-sensitivitet") return <NavSensitivityPage />;
   if (view === "Historikk") return <EstimatedHistoryPage />;
   if (view === "Tilbakekjøpsprogram") return <BuybackPage />;
   if (view === "Bemobi") {
