@@ -15,6 +15,7 @@
   --ot-surface-muted: #101419;
   --ot-surface-inset: #17283d;
   --ot-surface-inset-nested: #142237;
+  --ot-surface-hero: linear-gradient(180deg, #17283d, #121c2b);
 
   --ot-border: #272d36;
   --ot-border-soft: #20262e;
@@ -134,6 +135,77 @@ body {
   background: var(--ot-surface);
   border-color: var(--ot-border);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+/*
+ * Shared investor surface hierarchy:
+ * neutral outer cards -> navy hero/emphasis -> navy inset data panels -> nested inset.
+ * Page CSS owns layout; this contract owns the visual depth across pages.
+ */
+.investorMainV2 :is(
+  .bemobiCleanHero,
+  .consensusHeroV2
+) {
+  background: var(--ot-surface-hero);
+  border-color: var(--ot-border-inset);
+}
+
+.investorMainV2 :is(
+  .bemobiCleanSection,
+  .bemobiCleanValuation,
+  .bemobiCleanHistory,
+  .bemobiCleanWatch
+) {
+  background: var(--ot-surface);
+  border-color: var(--ot-border);
+}
+
+.investorMainV2 :is(
+  .overviewNavSnapshot > div,
+  .cashInterestStrip > div,
+  .cashDistributionHeadline,
+  .cashBuybackFlowCard,
+  .cashMethodGrid > div,
+  .cashBuybackSecondaryFacts > div,
+  .accuracyGrid > div,
+  .bemobiDriverGrid > div,
+  .bemobiCashMetricGrid > div,
+  .bemobiCleanValuationGrid > div,
+  .bemobiWatchGrid > div,
+  .bemobiCleanScenarioGrid > div,
+  .consensusWaitingPreview,
+  .consensusBeatSummaryGrid > div,
+  .consensusForwardRevision,
+  .consensusRevisionEvent,
+  .beatMissGridDetails > article
+) {
+  background: var(--ot-surface-inset);
+  border-color: var(--ot-border-inset);
+}
+
+.investorMainV2 :is(
+  .bemobiCleanScenarioBlock,
+  .consensusForwardRevisionGrid > div,
+  .consensusRevisionEventGrid > div
+) {
+  background: var(--ot-surface-inset-nested);
+  border-color: var(--ot-border-soft);
+}
+
+.investorMainV2 :is(
+  .buybackTable th,
+  .bemobiQuarterTable th,
+  .consensusTable th
+) {
+  background: var(--ot-surface-inset);
+}
+
+.investorMainV2 :is(
+  .buybackTableWrap,
+  .bemobiQuarterTableWrap,
+  .consensusTableWrap
+) {
+  border-color: var(--ot-border-inset);
 }
 
 .insightDivider,
