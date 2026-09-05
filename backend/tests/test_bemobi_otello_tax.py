@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.bemobi import dashboard
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_jcp_uses_otello_treaty_rate_not_generic_published_net() -> None:
@@ -74,12 +79,7 @@ def test_distribution_estimate_exposes_dividend_and_jcp_net_scenarios() -> None:
 
 
 def test_cloudflare_overlay_keeps_same_tax_model() -> None:
-    source = (
-        __import__("pathlib").Path(__file__).resolve().parents[2]
-        / "cloudflare"
-        / "src"
-        / "bemobi_dashboard.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "cloudflare/src/bemobi_dashboard.py").read_text(encoding="utf-8")
     assert "OTELLO_BRAZIL_DIVIDEND_WITHHOLDING_PCT = 10.0" in source
     assert "OTELLO_BRAZIL_JCP_WITHHOLDING_PCT = 15.0" in source
     assert '"otello_treaty_net_mbrl"' in source
@@ -87,15 +87,21 @@ def test_cloudflare_overlay_keeps_same_tax_model() -> None:
     assert '"otello_net_jcp_mnok"' in source
 
 
-def test_frontend_renders_net_tax_scenarios() -> None:
-    source = (
-        __import__("pathlib").Path(__file__).resolve().parents[2]
-        / "frontend"
-        / "src"
-        / "BemobiPage.tsx"
-    ).read_text(encoding="utf-8")
-    assert "Netto · ordinært utbytte" in source
-    assert "Netto · JCP" in source
-    assert "Otello-spesifikk sats" in source
-    assert "otello_treaty_net_mbrl" in source
-    assert "Publisert netto per Bemobi-aksje · generell sats" in source
+def test_cash_page_owns_dividend_jcp_and_tax_ui() -> None:
+    cash_page = (ROOT / "frontend/src/CashPage.tsx").read_text(encoding="utf-8")
+    bemobi_page = (ROOT / "frontend/src/BemobiPage.tsx").read_text(encoding="utf-8")
+    bemobi_base = (ROOT / "frontend/src/BemobiPageBase.tsx").read_text(encoding="utf-8")
+
+    assert "10 % KILDESKATT" in cash_page
+    assert "KVARTALSVIS JCP" in cash_page
+    assert "15 % KILDESKATT" in cash_page
+    assert "Netto cash til Otello – utbytteforutsetning" in cash_page
+
+    for removed_label in (
+        "Kapitalretur · skatt",
+        "Netto · ordinært utbytte",
+        "Netto · JCP",
+        "Estimert utbytte til Otello",
+    ):
+        assert removed_label not in bemobi_page
+        assert removed_label not in bemobi_base
