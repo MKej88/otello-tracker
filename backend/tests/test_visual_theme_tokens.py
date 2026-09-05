@@ -15,6 +15,7 @@ def test_theme_owns_shared_inset_and_chart_tokens() -> None:
     for token in (
         "--ot-surface-inset: #17283d",
         "--ot-surface-inset-nested: #142237",
+        "--ot-surface-hero: linear-gradient(180deg, #17283d, #121c2b)",
         "--ot-border-inset: rgba(79, 145, 212, 0.24)",
         "--ot-chart-secondary: #55c9b5",
         "--ot-chart-reference: rgba(159, 193, 255, 0.9)",
@@ -41,6 +42,30 @@ def test_cash_and_overview_use_shared_surface_contract() -> None:
     assert "border:1px solid var(--ot-border-inset)" in overview
     assert "color:var(--ot-positive)" in overview
     assert "color:var(--ot-negative)" in overview
+
+
+def test_investor_pages_share_one_surface_hierarchy() -> None:
+    theme = read_frontend("otello-theme.css")
+
+    for selector in (
+        ".bemobiCleanHero",
+        ".consensusHeroV2",
+        ".bemobiCleanSection",
+        ".accuracyGrid > div",
+        ".bemobiDriverGrid > div",
+        ".consensusWaitingPreview",
+        ".buybackTable th",
+        ".bemobiQuarterTable th",
+        ".consensusTable th",
+    ):
+        assert selector in theme
+
+    assert "background: var(--ot-surface-hero);" in theme
+    assert "background: var(--ot-surface);" in theme
+    assert "background: var(--ot-surface-inset);" in theme
+    assert "background: var(--ot-surface-inset-nested);" in theme
+    assert "border-color: var(--ot-border-inset);" in theme
+    assert "!important" not in theme
 
 
 def test_history_context_uses_shared_chart_contract() -> None:
