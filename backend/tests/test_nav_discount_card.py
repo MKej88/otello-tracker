@@ -121,7 +121,7 @@ def test_frontend_renders_compact_nav_discount_context_and_safe_fallbacks() -> N
     assert 'return "—"' in page
     assert "history?.estimated?.statistics" in page
     assert "nav?.discount_pct" in page
-    assert "nav?.nav_per_share" in page
+    assert "nav.nav_per_share" in page
     assert "discountSpread" in page
     assert "InsightRange" not in page
     assert '"NaN"' not in page
