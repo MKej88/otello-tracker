@@ -171,14 +171,15 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
     assert '{ label: "Bemobi", enabled: true }' in frontend
     assert '<BemobiPage />' in frontend
+    assert 'return <BemobiPageBase />' in page
     assert 'fetch("/api/bemobi/dashboard")' in page_base
-    assert "Verdsettelse nå" in page
-    assert "EV / EBIT TTM" in page
-    assert "FCF yield (just.)" in page
-    assert "Multipelsensitivitet" in page
-    assert "ikke kursmål" in page.lower()
-    assert "Rapportert resultat TTM" in page
-    assert "Estimert utbytte til Otello" in page
-    assert "TTM run-rate" in page
-    assert "distribution_estimate" in page
-    assert "Ikke bekreftet" in page
+    assert "Hvordan går Bemobi operasjonelt?" in page_base
+    assert "Hva betaler markedet?" in page_base
+    assert "EV / EBIT" in page_base
+    assert "FCF yield" in page_base
+    assert "Multipelsensitivitet" in page_base
+    assert "ikke kursmål" in page_base.lower()
+    assert "Siste fire rapporterte kvartaler" in page_base
+    assert "Ikke bekreftet" in page_base
+    assert "distribution_estimate" not in page_base
+    assert "Estimert utbytte til Otello" not in page_base

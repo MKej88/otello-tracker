@@ -80,12 +80,15 @@ def test_harmonized_revenue_seed_reproduces_current_836m_ttm() -> None:
     assert sum(values) == 836.0
 
 
-def test_bemobi_page_prefers_harmonized_revenue_and_keeps_cvm_301_as_control() -> None:
-    page = (ROOT / "frontend/src/BemobiPage.tsx").read_text(encoding="utf-8")
+def test_clean_bemobi_page_keeps_harmonized_revenue_as_primary_investor_metric() -> None:
+    page = (ROOT / "frontend/src/BemobiPageBase.tsx").read_text(encoding="utf-8")
 
-    assert 'completeTtm(cvmQuarters, "harmonized_net_revenue_mbrl")' in page
-    assert "Harmonisert nettoomsetning TTM · Bemobi/CVM release" in page
-    assert "Regnskapsført omsetning TTM · CVM 3.01 · kontroll" in page
-    assert "Harmonisert nettoomsetning" in page
-    assert "Regnskapsført omsetning" in page
-    assert "M4U-bruttoføringen" in page
+    assert "adjusted_net_revenue_mbrl" in page
+    assert "quarter.harmonized_net_revenue_mbrl ?? quarter.reported_revenue_mbrl ?? null" in page
+    assert "Siste fire rapporterte kvartaler" in page
+
+    # The statutory CVM revenue remains available in the payload as a fallback/control,
+    # but the clean investor page no longer renders a separate reconciliation panel.
+    assert "reported_revenue_mbrl" in page
+    assert "Regnskapsført omsetning TTM · CVM 3.01 · kontroll" not in page
+    assert "M4U-bruttoføringen" not in page
