@@ -114,6 +114,17 @@ function moneyM(input: number | null | undefined, digits = 1) {
     : `${formatNumber(input, digits)} mill. kr`;
 }
 
+function signedMoneyM(input: number | null | undefined, digits = 1) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  const sign = input > 0 ? "+" : input < 0 ? "−" : "";
+  return `${sign}${formatNumber(Math.abs(input), digits)} mill. kr`;
+}
+
+function movementTone(input: number | null | undefined) {
+  if (input == null || !Number.isFinite(input) || input === 0) return "";
+  return input > 0 ? "positive" : "negative";
+}
+
 function pct(input: number | null | undefined, digits = 1) {
   return input == null || !Number.isFinite(input)
     ? "–"
@@ -302,6 +313,7 @@ export default function CashPage() {
   }
 
   const cashAsOfDate = economic.as_of_date ?? summary.as_of_date;
+  const cashBridge = economic.cash_bridge;
   const directShare = metrics.combinedM && metrics.directCashM != null
     ? metrics.directCashM / metrics.combinedM * 100
     : null;
@@ -455,12 +467,34 @@ export default function CashPage() {
             <strong>{moneyM(metrics.directCashM)}</strong>
             <span>per {formatDate(cashAsOfDate)}</span>
           </div>
-          <div className="placeholderRows cashModelRows">
-            <div><span>Kontantkvalitet</span><strong>{statusLabel(summary.cash_quality)}</strong></div>
-            <div><span>Kalibrering</span><strong>{statusLabel(summary.cash_calibration_quality)}</strong></div>
-            <div><span>Cash per aksje</span><strong>{formatNumber(metrics.directPerShare, 2)} kr</strong></div>
-            <div><span>Datastatus</span><strong>{statusLabel(summary.data_status)}</strong></div>
+          <strong className="estimatedCashPerShare">
+            {metrics.directPerShare == null || !Number.isFinite(metrics.directPerShare)
+              ? "–"
+              : `${formatNumber(metrics.directPerShare, 2)} kr / OTEC-aksje`}
+          </strong>
+          <div className="cashBridgeRows">
+            <div>
+              <span>Rapportert kontantbeholdning</span>
+              <strong>{moneyM(cashBridge?.reported_cash_mnok)}</strong>
+            </div>
+            {(cashBridge?.movements ?? []).map((movement) => (
+              <div key={movement.key}>
+                <span>{movement.label}</span>
+                <strong className={movementTone(movement.amount_mnok)}>
+                  {signedMoneyM(movement.amount_mnok)}
+                </strong>
+              </div>
+            ))}
+            <div className="cashBridgeChange">
+              <span>Endring siden siste rapport</span>
+              <strong className={movementTone(cashBridge?.change_since_report_mnok)}>
+                {signedMoneyM(cashBridge?.change_since_report_mnok)}
+              </strong>
+            </div>
           </div>
+          <small className="estimatedCashFootnote">
+            Siste rapporterte kontantbeholdning: {formatDate(cashBridge?.report_date)}
+          </small>
         </article>
       </section>
 
