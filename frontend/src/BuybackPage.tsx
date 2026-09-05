@@ -336,6 +336,9 @@ export default function BuybackPage() {
   const navEffect = data?.nav_effect?.per_share_nok;
   const navEffectPct = data?.nav_effect?.pct;
   const grossShareEffect = program?.share_count_nav_effect_per_share_nok;
+  const cashEffectPerShare = navEffect != null && grossShareEffect != null
+    ? navEffect - grossShareEffect
+    : null;
 
   if (data == null && !failed) {
     return <ResourceNotice>Laster tilbakekjøpsdata …</ResourceNotice>;
@@ -361,35 +364,26 @@ export default function BuybackPage() {
 
   return (
     <div className="buybackPage">
-      <section className="buybackHero card investorBuybackHero">
+      <section className="buybackHero card investorBuybackHero simplifiedBuybackHero">
         <div className="buybackHeroCopy">
           <span className="label">Verdiskaping fra tilbakekjøp</span>
-          <div className="buybackHeroTitle">
-            <h2 className={effectTone(navEffect)}>
-              {navEffect == null ? "Netto NAV-effekt beregnes" : `${signedKr(navEffect, 2)} NAV / aksje`}
-            </h2>
-            <span className={`buybackStatus ${data.status === "OK" ? "ok" : "warn"}`}>
-              {statusLabel(data.status)}
-            </span>
-          </div>
+          <h2 className={effectTone(navEffect)}>
+            {navEffect == null ? "Netto NAV-effekt beregnes" : `${signedKr(navEffect, 2)} NAV per aksje`}
+          </h2>
+          <strong className={`buybackHeroSubEffect ${effectTone(navEffectPct)}`}>
+            {signedPercentage(navEffectPct, 2)} siden programstart
+          </strong>
           <p>
-            Nettoeffekten måler hvor mye dagens program har endret NAV per gjenværende OTEC-aksje etter
-            at kontantene brukt på tilbakekjøp er trukket fra. Bruttoeffekten fra færre aksjer alene er
-            {grossShareEffect == null ? " ikke tilgjengelig ennå" : ` ${signedKr(grossShareEffect, 2)} per aksje`}.
+            Nettoeffekten viser hvor mye dagens tilbakekjøpsprogram har økt NAV per gjenværende OTEC-aksje
+            etter at kapitalen brukt på kjøpene er trukket fra.
           </p>
           <div className="buybackProgressTrack" aria-label={`Programmet er ${value(progress, 1)} prosent fullført`}>
             <span style={{ width: `${progress}%` }} />
           </div>
           <div className="buybackProgressLabels">
-            <strong>{value(progress, 1)} % av programmet gjennomført</strong>
+            <strong>{value(progress, 1)} % gjennomført</strong>
             <span>{count(program?.cumulative_shares)} kjøpt · {count(program?.remaining_shares)} gjenstår</span>
           </div>
-        </div>
-        <div className="buybackHeroMetric">
-          <span>Netto NAV-effekt</span>
-          <strong className={effectTone(navEffectPct)}>{signedPercentage(navEffectPct, 2)}</strong>
-          <small>siden {dateLabel(program?.start_date)}</small>
-          <em>{completionText(data.completion)}</em>
         </div>
       </section>
 
@@ -414,45 +408,51 @@ export default function BuybackPage() {
         </div>
       )}
 
-      <section className="buybackKpis investorBuybackKpis">
-        <article className="card buybackKpi navEffectKpi">
-          <span className="label">Brutto effekt av færre aksjer</span>
-          <strong>{signedKr(grossShareEffect, 2)}</strong>
-          <small>ren aksjeantallseffekt før kontantbruken i programmet</small>
-        </article>
+      <section className="buybackKpis investorBuybackKpis simplifiedBuybackKpis">
         <article className="card buybackKpi">
-          <span className="label">Kapital brukt hittil</span>
+          <span className="label">Kapital brukt</span>
           <strong>{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong>
-          <small>{count(program?.cumulative_shares)} OTEC-aksjer kjøpt tilbake</small>
+          <small>kapital brukt i dagens program</small>
         </article>
         <article className="card buybackKpi">
           <span className="label">Gjennomsnittlig kjøpskurs</span>
           <strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong>
-          <small>volumvektet pris for dagens program</small>
-        </article>
-        <article className="card buybackKpi bemobiExposureKpi">
-          <span className="label">Bemobi per 1 000 OTEC</span>
-          <strong>{bemobiPerThousandOtec == null ? "–" : value(bemobiPerThousandOtec, 1)}</strong>
-          <small>
-            indirekte BMOB3-aksjer per 1 000 utestående OTEC
-            {bemobi?.otello?.ownership_pct == null ? "" : ` · Otello eier ${value(bemobi.otello.ownership_pct, 2)} %`}
-          </small>
+          <small>volumvektet kjøpskurs</small>
         </article>
         <article className="card buybackKpi">
-          <span className="label">Utestående OTEC-aksjer</span>
-          <strong>{count(shares?.outstanding_shares)}</strong>
-          <small>{count(shares?.treasury_shares)} egne aksjer holdes av selskapet</small>
+          <span className="label">Aksjer kjøpt tilbake</span>
+          <strong>{count(program?.cumulative_shares)}</strong>
+          <small>{count(shares?.outstanding_shares)} utestående aksjer</small>
         </article>
       </section>
 
-      <div className="buybackInvestorNote">
-        <strong>Slik leses effekten:</strong>
-        <span>
-          Brutto aksjeantallseffekt viser verdien av at samme egenkapital fordeles på færre aksjer før
-          kontantbruken. Netto NAV-effekt inkluderer også kontantene som faktisk er brukt på kjøpene.
-          Bemobi-eksponeringen viser dagens indirekte beholdning per 1 000 OTEC og er kun et supplement.
-        </span>
-      </div>
+      <section className="buybackEffectGrid">
+        <article className="card buybackDetail buybackEffectBridgeCard">
+          <div className="cardHeader">
+            <div><span className="label">Slik oppstår effekten</span><h2>Fra tilbakekjøp til NAV-effekt</h2></div>
+          </div>
+          <div className="buybackRows buybackEffectRows">
+            <div><span>Effekt av færre aksjer</span><strong>{signedKr(grossShareEffect, 2)}</strong></div>
+            <div><span>Cash brukt i programmet</span><strong>{signedKr(cashEffectPerShare, 2)}</strong></div>
+            <div className="buybackEffectTotal"><span>Netto verdi skapt</span><strong>{signedKr(navEffect, 2)} per aksje</strong></div>
+            <div><span>Netto NAV-effekt</span><strong className={effectTone(navEffectPct)}>{signedPercentage(navEffectPct, 2)}</strong></div>
+          </div>
+        </article>
+
+        <article className="card buybackDetail buybackProgramStatusCard">
+          <div className="cardHeader">
+            <div><span className="label">Programstatus</span><h2>Status i dagens program</h2></div>
+          </div>
+          <div className="buybackRows">
+            <div><span>Kjøpt</span><strong>{count(program?.cumulative_shares)}</strong></div>
+            <div><span>Gjenstår</span><strong>{count(program?.remaining_shares)}</strong></div>
+            <div><span>Gjennomført</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
+            <div><span>Makspris</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
+            <div><span>Snittpris</span><strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
+            <div><span>Programslutt</span><strong>{dateLabel(program?.end_date)}</strong></div>
+          </div>
+        </article>
+      </section>
 
       <div className="buybackSectionIntro">
         <span className="label">Gjennomføring</span>
@@ -508,32 +508,16 @@ export default function BuybackPage() {
         </article>
       </section>
 
-      <section className="buybackTwoCol programAndAccuracy">
-        <article className="card buybackDetail">
-          <div className="cardHeader"><div><span className="label">Programstatus</span><h2>Kapitalallokering</h2></div></div>
-          <div className="buybackRows">
-            <div><span>Kjøpt hittil</span><strong>{count(program?.cumulative_shares)}</strong></div>
-            <div><span>Brukt hittil</span><strong>{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong></div>
-            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
-            <div><span>Gjenstående kapasitet</span><strong>{count(program?.remaining_shares)}</strong></div>
-            <div><span>Program fremdrift</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
-            <div><span>Prisgrense</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
-            <div><span>Estimert ukentlig tempo</span><strong>{count(data.completion?.pace_shares_per_week)}</strong></div>
-            <div><span>Estimert ferdigstillelse</span><strong>{dateLabel(data.completion?.estimated_completion_date)}</strong></div>
-          </div>
-        </article>
-
-        <article className="card buybackDetail accuracyCard">
-          <div className="cardHeader"><div><h2>Hvor godt treffer prognosen?</h2></div></div>
-          <div className="accuracyGrid">
-            <div><span>Uker testet</span><strong>{metrics?.weeks ?? 0}</strong></div>
-            <div><span>Medianfeil</span><strong>{value(metrics?.median_ape_pct, 1)} %</strong></div>
-            <div><span>Vektet feil</span><strong>{value(metrics?.wmape_pct, 1)} %</strong></div>
-            <div><span>Innen ±10 %</span><strong>{value(metrics?.within_10_pct, 0)} %</strong></div>
-            <div><span>Innen ±20 %</span><strong>{value(metrics?.within_20_pct, 0)} %</strong></div>
-          </div>
-          <p className="accuracyNote">Hver historisk uke beregnes med kun informasjon som var tilgjengelig før uken startet.</p>
-        </article>
+      <section className="card buybackDetail accuracyCard buybackAccuracyFullWidth">
+        <div className="cardHeader"><div><h2>Hvor godt treffer prognosen?</h2></div></div>
+        <div className="accuracyGrid">
+          <div><span>Uker testet</span><strong>{metrics?.weeks ?? 0}</strong></div>
+          <div><span>Medianfeil</span><strong>{value(metrics?.median_ape_pct, 1)} %</strong></div>
+          <div><span>Vektet feil</span><strong>{value(metrics?.wmape_pct, 1)} %</strong></div>
+          <div><span>Innen ±10 %</span><strong>{value(metrics?.within_10_pct, 0)} %</strong></div>
+          <div><span>Innen ±20 %</span><strong>{value(metrics?.within_20_pct, 0)} %</strong></div>
+        </div>
+        <p className="accuracyNote">Hver historisk uke beregnes med kun informasjon som var tilgjengelig før uken startet.</p>
       </section>
 
       <section className="card buybackHistory">
