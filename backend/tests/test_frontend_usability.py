@@ -98,3 +98,23 @@ def test_cash_movement_explanations_are_permanently_visible_in_calculation_colum
     assert "white-space:pre-line" in styles
     assert "accordion" not in nav_page.lower()
     assert 'title={displayFormula(item)}' not in nav_page
+
+
+def test_news_page_prioritizes_investor_relevance_over_ingestion_diagnostics() -> None:
+    news = read_frontend("NewsEventsPage.tsx")
+
+    for label in (
+        "Siste relevante hendelser for Otello og Bemobi",
+        "NESTE VIKTIGE DATO",
+        "VIKTIGST NÅ",
+        "Det som kan flytte caset",
+        "Viktige",
+        "Vis flere",
+        "Automatisk oversatt fra portugisisk · basert på RSS-metadata",
+    ):
+        assert label in news
+
+    assert "MEDIAINNHENTING" not in news
+    assert "mediaRefreshMetrics" not in news
+    assert "feeds</span>" not in news
+    assert 'item.category === "JCP" ? "JCP"' in news

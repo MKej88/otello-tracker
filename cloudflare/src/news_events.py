@@ -10,7 +10,7 @@ from bemobi_news_translation import translate_bemobi_news
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
     "DIVIDEND": "Utbytte",
-    "JCP": "Renter",
+    "JCP": "JCP",
     "BUYBACK": "Tilbakekjøp",
     "M_AND_A": "Oppkjøp og transaksjoner",
     "CAPITAL": "Kapital",
@@ -141,6 +141,7 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "category": category,
         "category_label": category_label,
         "importance": _importance(category, nav_impact),
+        "nav_impact": nav_impact,
         "summary": summary,
         "source": source,
         "url": _safe_url(url),
@@ -279,7 +280,7 @@ async def news_and_events(
         company = _company_name(row.get("symbol"))
         if company is None:
             continue
-        label = "renter" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
+        label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
             ("payment_date", "Betalingsdato"),

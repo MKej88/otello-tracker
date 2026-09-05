@@ -11,7 +11,7 @@ from app.db.connection import get_connection
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
     "DIVIDEND": "Utbytte",
-    "JCP": "Renter",
+    "JCP": "JCP",
     "BUYBACK": "Tilbakekjøp",
     "M_AND_A": "Oppkjøp og transaksjoner",
     "CAPITAL": "Kapital",
@@ -128,6 +128,7 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "category": category,
         "category_label": category_label,
         "importance": _importance(category, nav_impact),
+        "nav_impact": nav_impact,
         "summary": summary,
         "source": source,
         "url": _safe_url(url),
@@ -257,7 +258,7 @@ async def news_and_events(
     )
     for row in actions:
         company = "Bemobi" if row.get("symbol") == "BMOB3" else "Otello"
-        label = "renter" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
+        label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
             ("payment_date", "Betalingsdato"),
