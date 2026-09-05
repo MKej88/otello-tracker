@@ -14,6 +14,8 @@ except ImportError:
 FULL_JOB = "cloudflare_full_refresh"
 FAST_JOB = "cloudflare_fast_refresh"
 WRITER_LOCK_KEY = "cloudflare_refresh_writer_lock"
+FULL_NAV_CALCULATION_VERSION = "full-market-nav-daily-v2"
+CORE_NAV_CALCULATION_VERSION = "core-market-nav-daily-v1"
 FAST_MAX_AGE = timedelta(minutes=90)
 FULL_MAX_AGE = timedelta(hours=36)
 FAST_RUNNING_MAX_AGE = timedelta(minutes=90)
@@ -33,6 +35,16 @@ def _metadata(row: dict[str, Any] | None) -> dict[str, Any]:
     if not row:
         return {}
     raw = row.get("metadata_json")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_object(raw: Any) -> dict[str, Any]:
     if not raw:
         return {}
     try:
@@ -105,6 +117,62 @@ def _job_freshness(
     }
 
 
+def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
+    """Translate known NAV quality states to safe investor-facing explanations."""
+    data_status = str(details.get("data_status") or "").upper()
+    cash_quality = str(details.get("cash_quality") or "").upper()
+    cash_calibration_quality = str(details.get("cash_calibration_quality") or "").upper()
+    share_count_quality = str(details.get("share_count_quality") or "").upper()
+    ona_quality = str(details.get("ona_quality") or "").upper()
+    receivable_quality = str(details.get("receivable_quality") or "").upper()
+    option_quality = str(details.get("option_quality") or "").upper()
+    notes = str(details.get("quality_notes") or "").lower()
+
+    reasons: list[str] = []
+
+    if data_status == "DEGRADED":
+        if cash_quality == "FORECAST_PARTIAL":
+            reasons.append(
+                "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser."
+            )
+        if cash_calibration_quality == "HIGH_RESIDUAL":
+            reasons.append(
+                "Kontantestimatet ligger i en periode med høy avstemmingsrest og har lavere kvalitet."
+            )
+        if share_count_quality == "POTENTIALLY_STALE":
+            reasons.append(
+                "Antall utestående Otello-aksjer kan være utdatert mens tilbakekjøpsprogrammet pågår."
+            )
+        if ona_quality == "FORECAST_PARTIAL" or "partial forecast data" in notes:
+            reasons.append(
+                "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert."
+            )
+        if receivable_quality == "ESTIMATED_GROSS" or "gross-estimated" in notes:
+            reasons.append(
+                "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden."
+            )
+    elif data_status == "ESTIMATED":
+        if cash_quality == "ANCHORED_ESTIMATE":
+            reasons.append(
+                "Kontantbeholdningen er et forankret estimat mellom rapportdatoer."
+            )
+        if ona_quality == "INTERPOLATED" or "interpolated between reported anchors" in notes:
+            reasons.append(
+                "Andre nettoeiendeler/-forpliktelser er interpolert mellom rapporterte verdier."
+            )
+        if option_quality == "INTERPOLATED_TO_REPORTED":
+            reasons.append(
+                "Opsjonsforpliktelsen er interpolert mot neste rapporterte verdi."
+            )
+        if option_quality == "FORECAST_MARK_TO_MARKET" or "latest reported risk-free-rate/volatility" in notes:
+            reasons.append(
+                "Opsjonsforpliktelsen bruker sist rapporterte verdsettelsesforutsetninger frem til neste rapport."
+            )
+
+    # Preserve order while avoiding duplicates when both structured state and notes identify the same cause.
+    return list(dict.fromkeys(reasons))
+
+
 def _public_preflight_warnings(
     preflight: dict[str, Any],
     *,
@@ -133,13 +201,16 @@ def _public_preflight_warnings(
             message = f"Bemobi / CVM: Ingen CVM-dokumenter funnet{period}."
         elif code == "dashboard_quality":
             data_status = str(safe_details.get("data_status") or "").upper()
-            if data_status == "ESTIMATED":
+            reasons = _dashboard_quality_reasons(safe_details)
+            if reasons:
+                message = "Dashboardkvalitet: " + " ".join(reasons)
+            elif data_status == "ESTIMATED":
                 message = (
                     "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer."
                 )
             elif data_status == "DEGRADED":
                 message = (
-                    "Dashboardkvalitet: Datakvaliteten er redusert og bør kontrolleres."
+                    "Dashboardkvalitet: Datakvaliteten var redusert da nattkontrollen ble kjørt."
                 )
             else:
                 message = "Dashboardkvalitet: Nattkontrollen registrerte en kvalitetsadvarsel."
@@ -272,6 +343,67 @@ async def _writer_lock(repository) -> dict[str, Any] | None:
     )
 
 
+async def _current_dashboard_quality(repository) -> dict[str, Any]:
+    """Read the latest NAV quality cheaply, without rebuilding the full dashboard summary."""
+    full = await repository.first(
+        """
+        SELECT as_of_at, status, components_json, quality_notes
+        FROM nav_snapshots
+        WHERE calculation_version=? AND nav_scope='FULL'
+        ORDER BY as_of_at DESC, id DESC
+        LIMIT 1
+        """,
+        (FULL_NAV_CALCULATION_VERSION,),
+    )
+    if full is None:
+        return {
+            "available": False,
+            "status": "MISSING",
+            "data_status": "MISSING",
+            "as_of_date": None,
+            "reasons": [],
+        }
+
+    core = await repository.first(
+        """
+        SELECT status, components_json
+        FROM nav_snapshots
+        WHERE as_of_at=? AND calculation_version=? AND nav_scope='CORE'
+        ORDER BY id DESC LIMIT 1
+        """,
+        (full.get("as_of_at"), CORE_NAV_CALCULATION_VERSION),
+    )
+    full_components = _json_object(full.get("components_json"))
+    core_components = _json_object((core or {}).get("components_json"))
+    cash = core_components.get("cash") if isinstance(core_components.get("cash"), dict) else {}
+    otec = core_components.get("otec") if isinstance(core_components.get("otec"), dict) else {}
+    ona = (
+        full_components.get("other_net_assets")
+        if isinstance(full_components.get("other_net_assets"), dict)
+        else {}
+    )
+    option = ona.get("option_liability") if isinstance(ona.get("option_liability"), dict) else {}
+    data_status = str(full.get("status") or "UNKNOWN").upper()
+    details = {
+        "data_status": data_status,
+        "cash_quality": cash.get("quality"),
+        "cash_calibration_quality": cash.get("calibration_quality"),
+        "share_count_quality": otec.get("share_count_quality"),
+        "ona_quality": ona.get("quality"),
+        "receivable_quality": ona.get("receivable_quality"),
+        "option_quality": option.get("quality"),
+        "quality_notes": full.get("quality_notes"),
+    }
+    public_status = data_status if data_status in {"DEGRADED", "ESTIMATED"} else "OK"
+    return {
+        "available": True,
+        "status": public_status,
+        "data_status": data_status,
+        "as_of_date": str(full.get("as_of_at") or "")[:10] or None,
+        "reasons": _dashboard_quality_reasons(details),
+    }
+
+
 async def runtime_status_summary(
     repository,
     *,
@@ -284,6 +416,7 @@ async def runtime_status_summary(
     norges_bank_health = await _latest_norges_bank_health(repository)
     fx = await norges_bank_fx_coverage(repository)
     hot_snapshot = await dashboard_hot_snapshot_status(repository, now=current)
+    dashboard_quality = await _current_dashboard_quality(repository)
 
     full = _job_payload(
         full_row,
@@ -331,6 +464,7 @@ async def runtime_status_summary(
         "full_refresh": full,
         "fast_refresh": fast,
         "hot_snapshot": hot_snapshot,
+        "dashboard_quality": dashboard_quality,
         "norges_bank": {
             "status": health_status,
             "checked_at": (norges_bank_health or {}).get("checked_at"),
