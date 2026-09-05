@@ -146,7 +146,9 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     assert "MarketScreener" not in history_panel
     assert "Siste meglermodell-revisjon" in history_panel
     assert "Forventning → faktisk → revisjon → kursreaksjon" in history_panel
-    assert "return null;" not in history_panel
+    old_stub = "export default function ConsensusHistoryPanel(_: { history?: ConsensusHistoryLink | null }) {\n  return null;\n}"
+    assert old_stub not in history_panel
+    assert "if (visibleEvents.length === 0 && latestChanges.length === 0) return null;" in history_panel
     assert 'nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE"' in page
     assert "nextQuarterEstimates.map" in page
     assert '<span className="pill">KJØP</span>' not in page
