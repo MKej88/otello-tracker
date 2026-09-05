@@ -1,6 +1,7 @@
 export type View =
   | "Oversikt"
   | "NAV"
+  | "NAV-sensitivitet"
   | "Historikk"
   | "Tilbakekjøpsprogram"
   | "Bemobi"
@@ -12,6 +13,7 @@ export type View =
 export const menu: View[] = [
   "Oversikt",
   "NAV",
+  "NAV-sensitivitet",
   "Historikk",
   "Tilbakekjøpsprogram",
   "Bemobi",
@@ -24,6 +26,7 @@ export const menu: View[] = [
 export const viewSlugs: Record<View, string> = {
   Oversikt: "oversikt",
   NAV: "nav",
+  "NAV-sensitivitet": "nav-sensitivitet",
   Historikk: "historikk",
   Tilbakekjøpsprogram: "tilbakekjop",
   Bemobi: "bemobi",
@@ -36,6 +39,7 @@ export const viewSlugs: Record<View, string> = {
 export const viewTitles: Record<View, string> = {
   Oversikt: "Otello investoroversikt",
   NAV: "NAV",
+  "NAV-sensitivitet": "NAV-sensitivitet",
   Historikk: "Historisk NAV-rabatt",
   Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
   Bemobi: "Bemobi",
