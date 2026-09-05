@@ -1,0 +1,98 @@
+.historyPercentileBand {
+  fill: rgba(79, 139, 255, 0.08);
+  pointer-events: none;
+}
+
+.historyMedianLine {
+  stroke: rgba(159, 193, 255, 0.9);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 6;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.historyHoverGuide {
+  stroke: rgba(255, 255, 255, 0.36);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.historyHoverPoint {
+  fill: var(--ot-surface);
+  stroke: #e6efff;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.historyHoverPricePoint {
+  fill: var(--ot-surface);
+  stroke: #55c9b5;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.historyChartTooltip {
+  position: absolute;
+  top: 18px;
+  z-index: 2;
+  min-width: 190px;
+  padding: 11px 13px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 7px;
+  background: var(--ot-surface-raised);
+  border: 1px solid var(--ot-border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.historyChartTooltip > strong {
+  font-size: 12px;
+}
+
+.historyChartTooltip span {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--ot-text-secondary);
+  font-size: 12px;
+}
+
+.historyChartTooltip em {
+  font-style: normal;
+}
+
+.historyChartTooltip b {
+  color: var(--ot-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.axisChartLegend .percentileBandLegendItem::before {
+  height: 8px;
+  margin-bottom: 0;
+  border: 1px solid rgba(79, 139, 255, 0.35);
+  background: rgba(79, 139, 255, 0.12);
+}
+
+.axisChartLegend .medianLegendItem::before {
+  height: 0;
+  border-top: 2px dashed rgba(159, 193, 255, 0.9);
+  background: transparent;
+}
+
+@media (max-width: 760px) {
+  .historyChartTooltip {
+    min-width: 165px;
+    padding: 9px 10px;
+  }
+
+  .axisChartLegend {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
