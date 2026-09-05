@@ -1,4 +1,5 @@
 .cashPage {
+  --cash-inset-surface: var(--ot-surface-raised);
   display: grid;
   gap: 18px;
 }
@@ -84,7 +85,7 @@
   overflow: hidden;
   margin: 24px 0 18px;
   border: 1px solid var(--ot-border-strong);
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashSplitDirect {
@@ -216,7 +217,7 @@
   display: grid;
   gap: 5px;
   padding: 14px;
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashInterestStrip strong {
@@ -229,7 +230,7 @@
   margin: 22px 0 12px;
   padding: 20px;
   border: 1px solid var(--ot-border-soft);
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashDistributionHeadline strong {
@@ -317,7 +318,7 @@
 }
 
 .cashBuybackResults .cashAccretion {
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashBuybackResults .cashAccretion.positive strong {
@@ -341,7 +342,7 @@
 
 .cashBuybackConclusion.warning {
   border-color: var(--ot-negative);
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashBuybackConclusion > div {
@@ -394,7 +395,7 @@
   gap: 14px;
   padding: 18px;
   border: 1px solid var(--ot-border-soft);
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashBuybackFlow {
@@ -466,7 +467,7 @@
   gap: 7px;
   min-height: 128px;
   padding: 16px;
-  background: var(--ot-surface-muted);
+  background: var(--cash-inset-surface);
 }
 
 .cashMethodGrid span {
