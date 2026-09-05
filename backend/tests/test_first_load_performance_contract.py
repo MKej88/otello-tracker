@@ -106,8 +106,10 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
     assert "getCachedDashboardComponentForUrl<T>(url)" in polling
     assert "useState<T | null>(() =>" in polling
     assert "usePreloadedInitial ? getCachedDashboardComponentForUrl" in polling
-    assert overview.count("    true,\n  );") == 4
+    assert overview.count("    true,\n  );") == 7
     assert '"/api/dashboard/discount-history?days=365&max_points=72"' in overview
+    assert '"/api/news-events"' in overview
+    assert '"/api/brazil/dashboard"' in overview
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
 
 
@@ -204,8 +206,6 @@ def test_bemobi_clean_page_has_one_dashboard_polling_owner() -> None:
         encoding="utf-8"
     )
 
-    # BemobiPage is now only a thin wrapper. The base view owns the single refresh
-    # timer for /api/bemobi/dashboard, so no duplicate tax/source polling is added.
     assert 'fetch("/api/bemobi/dashboard")' not in page_source
     assert "<BemobiPageBase />" in page_source
     assert "BemobiTaxPanel" not in page_source
