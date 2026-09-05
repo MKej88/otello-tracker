@@ -1,0 +1,93 @@
+/* Cross-page surface roles.
+ * Large sections stay neutral; navy is reserved for nested data/emphasis panels.
+ * Keep selectors intentionally more specific than lazy-loaded page CSS so these
+ * hierarchy decisions stay consistent after route chunks mount.
+ */
+
+/* Outer / section cards -------------------------------------------------- */
+.investorMainV2 .bemobiPageClean :is(
+  .bemobiCleanHero,
+  .bemobiCleanSection,
+  .bemobiCleanValuation,
+  .bemobiCleanHistory,
+  .bemobiCleanWatch
+),
+.investorMainV2 .consensusPageV2 :is(
+  .consensusHeroV2,
+  .consensusNextReport,
+  .consensusBeatSummary,
+  .consensusForwardV2,
+  .consensusRevisionSection,
+  .consensusTargetRange
+) {
+  background: var(--ot-surface);
+  border-color: var(--ot-border);
+}
+
+/* Nested information panels -------------------------------------------- */
+.investorMainV2 .bemobiPageClean :is(
+  .bemobiDriverGrid > div,
+  .bemobiCashMetricGrid > div,
+  .bemobiCleanValuationGrid > div,
+  .bemobiWatchGrid > div,
+  .bemobiCleanScenarioGrid > div
+),
+.investorMainV2 .consensusPageV2 :is(
+  .consensusWaitingPreview,
+  .consensusBeatSummaryGrid > div,
+  .consensusForwardRevision,
+  .consensusRevisionEvent,
+  .beatMissGridDetails > article
+),
+.investorMainV2 .buybackPage .accuracyGrid > div {
+  background: var(--ot-surface-inset);
+  border-color: var(--ot-border-inset);
+}
+
+.investorMainV2 .bemobiPageClean .bemobiCleanScenarioBlock,
+.investorMainV2 .consensusPageV2 :is(
+  .consensusForwardRevisionGrid > div,
+  .consensusRevisionEventGrid > div
+) {
+  background: var(--ot-surface-inset-nested);
+  border-color: var(--ot-border-soft);
+}
+
+/* Tables: blue is a header cue, not the body surface -------------------- */
+.investorMainV2 .bemobiPageClean .bemobiQuarterTable,
+.investorMainV2 .consensusPageV2 .consensusTable,
+.investorMainV2 .buybackPage .buybackTable {
+  background: var(--ot-surface);
+}
+
+.investorMainV2 .bemobiPageClean .bemobiQuarterTable th,
+.investorMainV2 .consensusPageV2 .consensusTable th,
+.investorMainV2 .buybackPage .buybackTable th {
+  background: var(--ot-surface-inset);
+  border-color: var(--ot-border-inset);
+}
+
+.investorMainV2 .bemobiPageClean .bemobiQuarterTable td,
+.investorMainV2 .consensusPageV2 .consensusTable td,
+.investorMainV2 .buybackPage .buybackTable td {
+  background: var(--ot-surface);
+  border-color: var(--ot-border-soft);
+}
+
+.investorMainV2 .bemobiPageClean .bemobiQuarterTable tbody tr:last-child td {
+  background: var(--ot-accent-soft);
+}
+
+/* Consensus summary: never leave unused grey columns when only 2 metrics exist. */
+.investorMainV2 .consensusPageV2 .consensusBeatSummaryGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+/* Remove page-specific decorative blue glow where the same role is neutral elsewhere. */
+.investorMainV2 .buybackPage .forecastCard::before {
+  display: none;
+}
