@@ -13,6 +13,10 @@ type Program = {
   average_purchase_price_nok?: string | number | null;
   max_price_nok?: number | null;
   progress_pct?: number | null;
+  cash_spent_nok?: string | number | null;
+  vwap_nok?: string | number | null;
+  share_count_nav_effect_per_share_nok?: number | null;
+  share_count_nav_effect_pct?: number | null;
 };
 
 type LatestWeek = {
@@ -116,7 +120,16 @@ type Dashboard = {
   };
 };
 
+type BemobiDashboard = {
+  ready?: boolean;
+  otello?: {
+    shares?: number | null;
+    ownership_pct?: number | null;
+  };
+};
+
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
+const BEMOBI_REFRESH_MS = 30 * 60 * 1000;
 const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
 
 function value(input: number | string | null | undefined, digits = 1) {
@@ -127,6 +140,27 @@ function value(input: number | string | null | undefined, digits = 1) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+}
+
+function finiteNumber(input: number | string | null | undefined) {
+  if (input == null || input === "") return null;
+  const numeric = Number(input);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function signedKr(input: number | null | undefined, digits = 2) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return `${input > 0 ? "+" : ""}${value(input, digits)} kr`;
+}
+
+function signedPercentage(input: number | null | undefined, digits = 2) {
+  if (input == null || !Number.isFinite(input)) return "–";
+  return `${input > 0 ? "+" : ""}${value(input, digits)} %`;
+}
+
+function effectTone(input: number | null | undefined) {
+  if (input == null || !Number.isFinite(input) || input === 0) return "neutral";
+  return input > 0 ? "positive" : "negative";
 }
 
 function count(input: number | null | undefined) {
@@ -221,6 +255,7 @@ function forecastPeriodLabel(week?: ForecastWeek) {
 export default function BuybackPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [failed, setFailed] = useState(false);
+  const [bemobi, setBemobi] = useState<BemobiDashboard | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -238,6 +273,29 @@ export default function BuybackPage() {
     };
     load();
     const timer = window.setInterval(load, AUTO_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      fetch("/api/bemobi/dashboard")
+        .then((response) => {
+          if (!response.ok) throw new Error("Bemobi dashboard API-feil");
+          return response.json() as Promise<BemobiDashboard>;
+        })
+        .then((result) => {
+          if (active) setBemobi(result);
+        })
+        .catch(() => {
+          // Bemobi-eksponering er et supplement og skal aldri blokkere buyback-siden.
+        });
+    };
+    load();
+    const timer = window.setInterval(load, BEMOBI_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -265,6 +323,21 @@ export default function BuybackPage() {
   const basePosition = rangeSpan > 0
     ? Math.max(0, Math.min(100, ((estimate?.base_case_shares ?? 0) - (estimate?.low_shares ?? 0)) / rangeSpan * 100))
     : 50;
+  const programCashSpent = finiteNumber(program?.cash_spent_nok)
+    ?? finiteNumber(latest?.cumulative_program_amount_nok);
+  const programVwap = finiteNumber(program?.vwap_nok)
+    ?? finiteNumber(program?.average_purchase_price_nok);
+  const bemobiShares = bemobi?.ready === false ? null : bemobi?.otello?.shares;
+  const bemobiPerThousandOtec = bemobiShares != null
+    && Number.isFinite(bemobiShares)
+    && shares?.outstanding_shares != null
+    && shares.outstanding_shares > 0
+      ? bemobiShares / shares.outstanding_shares * 1000
+      : null;
+  const navEffect = data?.nav_effect?.per_share_nok;
+  const navEffectPct = data?.nav_effect?.pct;
+  const grossShareEffect = program?.share_count_nav_effect_per_share_nok;
+  const grossShareEffectPct = program?.share_count_nav_effect_pct;
 
   if (data == null && !failed) {
     return <ResourceNotice>Laster tilbakekjøpsdata …</ResourceNotice>;
@@ -290,32 +363,35 @@ export default function BuybackPage() {
 
   return (
     <div className="buybackPage">
-      <section className="buybackHero card">
+      <section className="buybackHero card investorBuybackHero">
         <div className="buybackHeroCopy">
-          <span className="label">Aktivt tilbakekjøpsprogram</span>
+          <span className="label">Verdiskaping fra tilbakekjøp</span>
           <div className="buybackHeroTitle">
-            <h2>{count(program?.cumulative_shares)} aksjer kjøpt</h2>
+            <h2 className={effectTone(navEffect)}>
+              {navEffect == null ? "Netto NAV-effekt beregnes" : `${signedKr(navEffect, 2)} NAV / aksje`}
+            </h2>
             <span className={`buybackStatus ${data.status === "OK" ? "ok" : "warn"}`}>
               {statusLabel(data.status)}
             </span>
           </div>
           <p>
-            {count(program?.remaining_shares)} aksjer gjenstår av en maksimal ramme på {count(program?.max_shares)}.
-            Basert på nåværende tempo er estimert ferdigstillelse {completionText(data.completion).toLowerCase()}.
+            Nettoeffekten måler hvor mye dagens program har endret NAV per gjenværende OTEC-aksje etter
+            at kontantene brukt på tilbakekjøp er trukket fra. Bruttoeffekten fra færre aksjer alene er
+            {grossShareEffect == null ? " ikke tilgjengelig ennå" : ` ${signedKr(grossShareEffect, 2)} per aksje`}.
           </p>
           <div className="buybackProgressTrack" aria-label={`Programmet er ${value(progress, 1)} prosent fullført`}>
             <span style={{ width: `${progress}%` }} />
           </div>
           <div className="buybackProgressLabels">
-            <strong>{value(progress, 1)} % fullført</strong>
-            <span>Start {dateLabel(program?.start_date)}{program?.end_date ? ` · mandat til ${dateLabel(program.end_date)}` : ""}</span>
+            <strong>{value(progress, 1)} % av programmet gjennomført</strong>
+            <span>{count(program?.cumulative_shares)} kjøpt · {count(program?.remaining_shares)} gjenstår</span>
           </div>
         </div>
         <div className="buybackHeroMetric">
-          <span>Estimert ferdig</span>
-          <strong>{data.completion?.estimated_weeks_remaining ?? "–"}</strong>
-          <small>uker igjen</small>
-          <em>{dateLabel(data.completion?.estimated_completion_date)}</em>
+          <span>Netto NAV-effekt</span>
+          <strong className={effectTone(navEffectPct)}>{signedPercentage(navEffectPct, 2)}</strong>
+          <small>siden {dateLabel(program?.start_date)}</small>
+          <em>{completionText(data.completion)}</em>
         </div>
       </section>
 
@@ -340,33 +416,51 @@ export default function BuybackPage() {
         </div>
       )}
 
-      <section className="buybackKpis">
+      <section className="buybackKpis investorBuybackKpis">
         <article className="card buybackKpi navEffectKpi">
-          <span className="label">Netto NAV-økning fra programmet</span>
-          <strong>{data.nav_effect?.per_share_nok == null ? "–" : `${value(data.nav_effect.per_share_nok, 2)} kr`}</strong>
-          <small>{percentage(data.nav_effect?.pct, 2)} per aksje siden {dateLabel(program?.start_date)}</small>
+          <span className="label">Brutto effekt av færre aksjer</span>
+          <strong>{signedKr(grossShareEffect, 2)}</strong>
+          <small>{signedPercentage(grossShareEffectPct, 2)} før kontantbruken i programmet</small>
         </article>
         <article className="card buybackKpi">
-          <span className="label">Kjøpt siste uke</span>
-          <strong>{count(latest?.shares)}</strong>
-          <small>{dateLabel(latest?.period_start)}–{dateLabel(latest?.trade_date)}</small>
+          <span className="label">Kapital brukt hittil</span>
+          <strong>{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong>
+          <small>{count(program?.cumulative_shares)} OTEC-aksjer kjøpt tilbake</small>
         </article>
         <article className="card buybackKpi">
-          <span className="label">Volumandel siste uke</span>
-          <strong>{value(latest?.volume_share_pct, 1)} %</strong>
-          <small>av faktisk OTEC-handelsvolum</small>
+          <span className="label">Gjennomsnittlig kjøpskurs</span>
+          <strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong>
+          <small>volumvektet pris for dagens program</small>
+        </article>
+        <article className="card buybackKpi bemobiExposureKpi">
+          <span className="label">Bemobi per 1 000 OTEC</span>
+          <strong>{bemobiPerThousandOtec == null ? "–" : value(bemobiPerThousandOtec, 1)}</strong>
+          <small>
+            indirekte BMOB3-aksjer per 1 000 utestående OTEC
+            {bemobi?.otello?.ownership_pct == null ? "" : ` · Otello eier ${value(bemobi.otello.ownership_pct, 2)} %`}
+          </small>
         </article>
         <article className="card buybackKpi">
-          <span className="label">Egne aksjer</span>
-          <strong>{count(shares?.treasury_shares)}</strong>
-          <small>{sourceLabel(shares?.treasury_source)} · {dateLabel(shares?.effective_from)}</small>
-        </article>
-        <article className="card buybackKpi">
-          <span className="label">Utestående aksjer</span>
+          <span className="label">Utestående OTEC-aksjer</span>
           <strong>{count(shares?.outstanding_shares)}</strong>
-          <small>totalt {count(shares?.total_shares)}</small>
+          <small>{count(shares?.treasury_shares)} egne aksjer holdes av selskapet</small>
         </article>
       </section>
+
+      <div className="buybackInvestorNote">
+        <strong>Slik leses effekten:</strong>
+        <span>
+          Brutto aksjeantallseffekt viser verdien av at samme egenkapital fordeles på færre aksjer før
+          kontantbruken. Netto NAV-effekt inkluderer også kontantene som faktisk er brukt på kjøpene.
+          Bemobi-eksponeringen viser dagens indirekte beholdning per 1 000 OTEC og er kun et supplement.
+        </span>
+      </div>
+
+      <div className="buybackSectionIntro">
+        <span className="label">Gjennomføring</span>
+        <h2>Hvordan programmet faktisk gjennomføres</h2>
+        <p>Handelsdata, tempo og prognose ligger under verdiskapingen slik at investorperspektivet kommer først.</p>
+      </div>
 
       <section className="buybackTwoCol">
         <article className="card buybackDetail">
@@ -421,8 +515,8 @@ export default function BuybackPage() {
           <div className="cardHeader"><div><span className="label">Programstatus</span><h2>Kapitalallokering</h2></div></div>
           <div className="buybackRows">
             <div><span>Kjøpt hittil</span><strong>{count(program?.cumulative_shares)}</strong></div>
-            <div><span>Brukt hittil</span><strong>{value(Number(latest?.cumulative_program_amount_nok ?? 0) / 1_000_000, 1)} mill. kr</strong></div>
-            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{value(program?.average_purchase_price_nok, 2)} kr</strong></div>
+            <div><span>Brukt hittil</span><strong>{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong></div>
+            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
             <div><span>Gjenstående kapasitet</span><strong>{count(program?.remaining_shares)}</strong></div>
             <div><span>Program fremdrift</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
             <div><span>Prisgrense</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
