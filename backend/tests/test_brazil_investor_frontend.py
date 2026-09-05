@@ -8,7 +8,6 @@ def test_brazil_page_prioritizes_investor_impact_over_macro_terminal_detail() ->
     source = PAGE.read_text(encoding="utf-8")
 
     for text in (
-        "Makrobildet er i bedring",
         "Tre kanaler betyr mest for Otello",
         "RENTER",
         "BRL / NOK",
@@ -23,6 +22,8 @@ def test_brazil_page_prioritizes_investor_impact_over_macro_terminal_detail() ->
     ):
         assert text in source
 
+    assert "summary?.headline" in source
+    assert "summary?.tone" in source
     assert '"/api/brazil/dashboard"' in source
     assert '"/api/dashboard/economic"' in source
     assert "brlNavImpact10" in source
