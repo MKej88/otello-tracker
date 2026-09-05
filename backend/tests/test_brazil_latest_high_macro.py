@@ -5,134 +5,141 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
+import brazil_investing_consensus as investing  # noqa: E402
 from brazil_dashboard_v2 import _resolve_latest_high_macro  # noqa: E402
-from brazil_investing_consensus import _latest_high_importance_release  # noqa: E402
 
 
-def test_latest_high_release_uses_actual_and_forecast_from_matching_event_page() -> None:
+def test_latest_high_macro_uses_exact_high_importance_only() -> None:
     events = [
+        {
+            "date": "2026-12-02",
+            "name": "BNP Q3",
+            "kind": "gdp",
+            "importance": "Middels–høy",
+            "bemobi_impact": "BNP-relevans",
+        },
         {
             "date": "2026-09-11",
             "name": "IPCA",
             "kind": "inflation",
             "importance": "Høy",
-            "bemobi_impact": "Lavere inflasjon er normalt positivt for verdsettelsen.",
-        }
+            "bemobi_impact": "Inflasjonsrelevans",
+        },
     ]
     pages = {
-        "ipca": (
-            "https://www.investing.com/economic-calendar/brazil-consumer-price-index-%28cpi%29-mom-1165",
+        "gdp": (
+            investing._EVENT_URLS["gdp"],
             [
                 {
-                    "date": "2026-09-11",
+                    "date": "2026-09-03",
                     "time_utc": "12:00",
-                    "actual": "0.24%",
-                    "forecast": "0.31%",
-                    "previous": "0.26%",
+                    "actual": "1.2%",
+                    "forecast": "1.0%",
+                    "previous": "0.8%",
                 }
             ],
-        )
-    }
-
-    result = _latest_high_importance_release(events, pages, as_of_date="2026-09-11")
-
-    assert result is not None
-    assert result["date"] == "2026-09-11"
-    assert result["actual"] == "0.24%"
-    assert result["forecast"] == "0.31%"
-    assert result["previous"] == "0.26%"
-    assert result["surprise"] == -0.07
-    assert result["importance"] == "Høy"
-
-
-def test_latest_high_release_ignores_unreleased_rows() -> None:
-    events = [
-        {
-            "date": "2026-09-11",
-            "name": "IPCA",
-            "kind": "inflation",
-            "importance": "Høy",
-            "bemobi_impact": "impact",
-        }
-    ]
-    pages = {
+        ),
         "ipca": (
-            "https://example.com/ipca",
+            investing._EVENT_URLS["ipca"],
             [
                 {
-                    "date": "2026-09-11",
+                    "date": "2026-09-01",
                     "time_utc": "12:00",
-                    "actual": "",
-                    "forecast": "0.31%",
-                    "previous": "0.26%",
+                    "actual": "0.30%",
+                    "forecast": "0.35%",
+                    "previous": "0.25%",
                 }
             ],
-        )
+        ),
     }
 
-    assert _latest_high_importance_release(events, pages, as_of_date="2026-09-11") is None
+    latest = investing._latest_high_importance_release(
+        events,
+        pages,
+        as_of_date="2026-09-04",
+    )
+
+    assert latest is not None
+    assert latest["name"] == "IPCA"
+    assert latest["importance"] == "Høy"
+    assert latest["actual"] == "0.30%"
+    assert latest["forecast"] == "0.35%"
+    assert latest["surprise"] == pytest.approx(-0.05)
 
 
-def test_latest_high_release_keeps_only_exact_high_importance() -> None:
+def test_investing_explains_missing_forecast_and_source_error(monkeypatch) -> None:
+    async def no_forecast(url: str, *, fetcher=None) -> str:
+        del fetcher
+        assert "services-sector-growth" in url
+        return (
+            "<table><tr><td>Sep 10, 2026</td><td>12:00</td><td></td>"
+            "<td></td><td>0.5%</td></tr></table>"
+        )
+
+    monkeypatch.setattr(investing, "_fetch_html", no_forecast)
     events = [
         {
             "date": "2026-09-10",
-            "name": "Tjenester",
+            "name": "Tjenesteaktivitet (PMS)",
             "kind": "services",
             "importance": "Middels–høy",
-            "bemobi_impact": "impact",
         }
     ]
-    pages = {
-        "services": (
-            "https://example.com/services",
-            [
-                {
-                    "date": "2026-09-10",
-                    "time_utc": "12:00",
-                    "actual": "0.5%",
-                    "forecast": "0.3%",
-                    "previous": "0.2%",
-                }
-            ],
-        )
-    }
+    enriched, _ = asyncio.run(
+        investing.enrich_calendar_from_investing(events, as_of_date="2026-09-04")
+    )
+    assert (
+        enriched[0]["investing_consensus_status"]["code"]
+        == "NO_FORECAST_PUBLISHED"
+    )
 
-    assert _latest_high_importance_release(events, pages, as_of_date="2026-09-10") is None
+    async def blocked(url: str, *, fetcher=None) -> str:
+        del url, fetcher
+        return "<html><body>Access denied</body></html>"
+
+    monkeypatch.setattr(investing, "_fetch_html", blocked)
+    enriched, _ = asyncio.run(
+        investing.enrich_calendar_from_investing(events, as_of_date="2026-09-04")
+    )
+    assert enriched[0]["investing_consensus_status"]["code"] == "SOURCE_ERROR"
 
 
-class _Repository:
+class _StateRepository:
     def __init__(self) -> None:
         self.value: str | None = None
         self.writes = 0
 
-    async def first(self, _sql: str, _params: tuple[str, ...]):
-        return None if self.value is None else {"value": self.value}
+    async def first(self, sql: str, params: tuple[str, ...]):
+        assert "runtime_state" in sql
+        assert params == ("brazil.latest_high_macro.v1",)
+        return {"value": self.value} if self.value is not None else None
 
-    async def run(self, _sql: str, params: tuple[str, ...]):
+    async def run(self, sql: str, params: tuple[str, ...]):
+        assert "runtime_state" in sql
+        assert params[0] == "brazil.latest_high_macro.v1"
         self.value = params[1]
         self.writes += 1
 
 
-def test_latest_high_macro_persists_until_newer_release_is_seen() -> None:
-    repository = _Repository()
+def test_latest_high_macro_persists_until_a_newer_high_release_arrives() -> None:
+    repository = _StateRepository()
     first = {
-        "date": "2026-09-04",
+        "date": "2026-09-01",
         "name": "IPCA",
-        "kind": "inflation",
         "importance": "Høy",
-        "actual": "0.20%",
+        "actual": "0.30%",
     }
     newer = {
         "date": "2026-09-11",
         "name": "IPCA",
-        "kind": "inflation",
         "importance": "Høy",
-        "actual": "0.24%",
+        "actual": "0.25%",
     }
 
     resolved = asyncio.run(
