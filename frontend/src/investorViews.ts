@@ -4,6 +4,7 @@ export type View =
   | "NAV-sensitivitet"
   | "Historikk"
   | "Tilbakekjøpsprogram"
+  | "Cash"
   | "Bemobi"
   | "Brasil"
   | "Konsensus"
@@ -16,6 +17,7 @@ export const menu: View[] = [
   "NAV-sensitivitet",
   "Historikk",
   "Tilbakekjøpsprogram",
+  "Cash",
   "Bemobi",
   "Brasil",
   "Konsensus",
@@ -29,6 +31,7 @@ export const viewSlugs: Record<View, string> = {
   "NAV-sensitivitet": "nav-sensitivitet",
   Historikk: "historikk",
   Tilbakekjøpsprogram: "tilbakekjop",
+  Cash: "cash",
   Bemobi: "bemobi",
   Brasil: "brasil",
   Konsensus: "konsensus",
@@ -42,6 +45,7 @@ export const viewTitles: Record<View, string> = {
   "NAV-sensitivitet": "NAV-sensitivitet",
   Historikk: "Historisk NAV-rabatt",
   Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
+  Cash: "Cash & kapitalallokering",
   Bemobi: "Bemobi",
   Brasil: "Brasil",
   Konsensus: "Konsensus",
