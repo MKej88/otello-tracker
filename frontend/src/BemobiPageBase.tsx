@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
-import BemobiSourceStatusPanel from "./BemobiSourceStatusPanel";
 import "./bemobi-page.css";
-
-type Source = {
-  label: string;
-  source: string;
-  url?: string | null;
-};
 
 type ValuationScenario = {
   multiple: number;
@@ -18,81 +11,42 @@ type ValuationScenario = {
 
 type ValuationSourceQuarter = {
   period: string;
-  adjusted_net_income_mbrl: number;
-  adjusted_ebitda_mbrl: number;
+  adjusted_net_income_mbrl?: number | null;
+  adjusted_ebitda_mbrl?: number | null;
   adjusted_cash_generation_mbrl?: number | null;
   harmonized_net_revenue_mbrl?: number | null;
-  harmonized_net_revenue_source_url?: string | null;
   reported_revenue_mbrl?: number | null;
   reported_ebit_mbrl?: number | null;
   reported_net_income_parent_mbrl?: number | null;
   reported_operating_cash_flow_mbrl?: number | null;
   reported_capex_cash_outflow_mbrl?: number | null;
-  reported_capex_cash_outflow_account?: string | null;
-  reported_cash_mbrl?: number | null;
-  reported_borrowings_mbrl?: number | null;
   reported_net_debt_mbrl?: number | null;
-  reported_net_income_parent_source_url?: string | null;
-  reported_revenue_source_url?: string | null;
-  source: string;
   source_url?: string | null;
+  harmonized_net_revenue_source_url?: string | null;
 };
 
 type BemobiDashboard = {
   ready: boolean;
   reason?: string;
-  as_of_date?: string | null;
   market?: {
     price_brl?: number | null;
     price_date?: string | null;
     price_source?: string | null;
-    price_quality?: string | null;
-    brl_nok?: number | null;
-    brl_nok_date?: string | null;
-  };
-  otello?: {
-    shares?: number | null;
-    ownership_pct?: number | null;
-    value_brl_m?: number | null;
-    value_nok_m?: number | null;
-    value_per_otello_share_nok?: number | null;
   };
   valuation?: {
     period?: string | null;
-    ttm_end_period?: string | null;
     market_cap_mbrl?: number | null;
-    enterprise_value_mbrl?: number | null;
-    net_debt_mbrl?: number | null;
     net_cash_mbrl?: number | null;
-    ev_anchor_period?: string | null;
-    ev_anchor_status?: string | null;
-    ev_anchor_is_current?: boolean;
-    ev_metrics_ready?: boolean;
-    ev_anchor_quality?: string | null;
-    ev_anchor_source?: string | null;
-    ev_anchor_source_url?: string | null;
-    adjusted_net_income_ttm_mbrl?: number | null;
-    reported_net_income_ttm_mbrl?: number | null;
-    reported_net_income_ttm_complete?: boolean;
-    reported_net_income_source?: string | null;
-    reported_net_income_source_url?: string | null;
-    adjusted_ebitda_ttm_mbrl?: number | null;
-    adjusted_fcf_ttm_mbrl?: number | null;
-    ebit_ttm_mbrl?: number | null;
-    adjusted_eps_ttm_brl?: number | null;
     pe_ttm?: number | null;
-    price_to_ebitda_ttm?: number | null;
-    earnings_yield_pct?: number | null;
     adjusted_fcf_yield_pct?: number | null;
     ev_ebit_ttm?: number | null;
     scenarios?: ValuationScenario[];
     source_quarters?: ValuationSourceQuarter[];
-    methodology_note?: string | null;
   };
   latest_result?: {
-    period?: string;
-    period_end?: string;
-    published_date?: string;
+    period?: string | null;
+    period_end?: string | null;
+    published_date?: string | null;
     adjusted_net_revenue_mbrl?: number | null;
     adjusted_net_revenue_yoy_pct?: number | null;
     adjusted_ebitda_mbrl?: number | null;
@@ -102,52 +56,11 @@ type BemobiDashboard = {
     adjusted_net_income_yoy_pct?: number | null;
     ebitda_less_capex_mbrl?: number | null;
     cash_conversion_pct?: number | null;
-    cash_mbrl?: number | null;
     payments_yoy_pct?: number | null;
     saas_yoy_pct?: number | null;
     source_code?: string | null;
     source_url?: string | null;
-    source_title?: string | null;
   };
-  distribution_estimate?: {
-    ready: boolean;
-    reason?: string | null;
-    period?: string | null;
-    ttm_end_period?: string | null;
-    reported_net_income_ttm_mbrl?: number | null;
-    payout_policy_pct?: number | null;
-    policy_year?: number | null;
-    policy_is_current?: boolean;
-    estimated_total_distribution_mbrl?: number | null;
-    otello_distribution_share_pct?: number | null;
-    distribution_eligible_shares?: number | null;
-    ownership_method?: string | null;
-    otello_gross_mbrl?: number | null;
-    otello_gross_mnok?: number | null;
-    otello_gross_per_otec_share_nok?: number | null;
-    brl_nok?: number | null;
-    source_code?: string | null;
-    source_url?: string | null;
-    methodology_note?: string | null;
-  };
-  latest_distribution?: {
-    type?: string | null;
-    announcement_date?: string | null;
-    record_date?: string | null;
-    ex_date?: string | null;
-    payment_date?: string | null;
-    gross_per_share_brl?: number | null;
-    net_per_share_brl?: number | null;
-    gross_total_mbrl?: number | null;
-    net_total_mbrl?: number | null;
-    withholding_rate_pct?: number | null;
-    tax_treatment?: string | null;
-    otello_gross_mbrl?: number | null;
-    otello_net_mbrl?: number | null;
-    source_code?: string | null;
-    source_url?: string | null;
-    source_title?: string | null;
-  } | null;
   next_report?: {
     period?: string | null;
     date?: string | null;
@@ -155,51 +68,27 @@ type BemobiDashboard = {
     label?: string | null;
     source_url?: string | null;
   };
-  sources?: Source[];
-  note?: string;
 };
 
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
-const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
 
 function value(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
   return input.toLocaleString("nb-NO", {
     minimumFractionDigits: digits,
-    maximumFractionDigits: digits
+    maximumFractionDigits: digits,
   });
 }
 
-function signedValue(input: number | null | undefined, digits = 1) {
+function signedPct(input: number | null | undefined, digits = 1) {
   if (input == null || !Number.isFinite(input)) return "–";
-  const prefix = input > 0 ? "+" : "";
-  return `${prefix}${value(input, digits)} %`;
-}
-
-function growthValue(input: number | null | undefined, digits = 1) {
-  return input == null || !Number.isFinite(input) ? "–" : signedValue(input, digits);
+  return `${input > 0 ? "+" : ""}${value(input, digits)} %`;
 }
 
 function dateLabel(input?: string | null) {
   if (!input) return "–";
   const [year, month, day] = input.split("-");
   return year && month && day ? `${day}.${month}.${year}` : input;
-}
-
-function distributionLabel(input?: string | null) {
-  if (input === "JCP") return "Renter";
-  if (input === "DIVIDEND") return "Utbytte";
-  return input || "Utbetaling";
-}
-
-function sourceName(input?: string | null) {
-  const names: Record<string, string> = {
-    CVM: "CVM",
-    B3: "B3",
-    BRAPI: "brapi.dev",
-    BEMOBI_IR: "Bemobi IR"
-  };
-  return input ? names[input] ?? input : "Kilde ikke oppgitt";
 }
 
 function quarterIndex(period: string) {
@@ -210,7 +99,7 @@ function quarterIndex(period: string) {
 
 function completeTtm(
   quarters: ValuationSourceQuarter[],
-  field: keyof ValuationSourceQuarter
+  field: keyof ValuationSourceQuarter,
 ) {
   if (quarters.length !== 4) return null;
   const indexes = quarters.map((quarter) => quarterIndex(quarter.period));
@@ -222,16 +111,12 @@ function completeTtm(
   return values.reduce<number>((sum, item) => sum + Number(item), 0);
 }
 
-function SourceLink({ url, children }: { url?: string | null; children: React.ReactNode }) {
-  if (!url) return <span>{children}</span>;
-  return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
+function metricTone(input: number | null | undefined) {
+  if (input == null || !Number.isFinite(input) || input === 0) return "";
+  return input > 0 ? "positive" : "negative";
 }
 
-export default function BemobiPage({
-  onData,
-}: {
-  onData?: (data: BemobiDashboard) => void;
-}) {
+export default function BemobiPageBase() {
   const [data, setData] = useState<BemobiDashboard | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -248,7 +133,6 @@ export default function BemobiPage({
         .then((result) => {
           if (!active) return;
           setData(result);
-          onData?.(result);
           setFailed(false);
         })
         .catch(() => {
@@ -263,7 +147,7 @@ export default function BemobiPage({
       active = false;
       window.clearInterval(timer);
     };
-  }, [onData]);
+  }, []);
 
   if (data == null && !failed) {
     return <ResourceNotice>Laster Bemobi-data …</ResourceNotice>;
@@ -282,553 +166,269 @@ export default function BemobiPage({
     return (
       <div className="bemobiNotice">
         <strong>Bemobi-siden mangler et aktivt datagrunnlag.</strong>
-        <span>{data?.reason ?? "Venter på markeds- og NAV-data."}</span>
+        <span>{data?.reason ?? "Venter på markeds- og resultatdata."}</span>
       </div>
     );
   }
 
   const market = data.market;
-  const otello = data.otello;
-  const valuation = data.valuation;
   const result = data.latest_result;
-  const distributionEstimate = data.distribution_estimate;
-  const distribution = data.latest_distribution;
+  const valuation = data.valuation;
   const nextReport = data.next_report;
-  const ttmRange = valuation?.period?.replace(/^TTM\s+/, "") ?? "TTM";
-  const evAnchorPeriod = valuation?.ev_anchor_period ?? "ukjent periode";
-  const cvmQuarters = valuation?.source_quarters ?? [];
-  const latestCvm = cvmQuarters.at(-1);
-  const harmonizedRevenueTtm = completeTtm(cvmQuarters, "harmonized_net_revenue_mbrl");
-  const reportedEbitTtm = completeTtm(cvmQuarters, "reported_ebit_mbrl");
-  const reportedNetIncomeTtm = completeTtm(cvmQuarters, "reported_net_income_parent_mbrl");
-  const reportedOperatingCashFlowTtm = completeTtm(cvmQuarters, "reported_operating_cash_flow_mbrl");
-  const reportedCapexCashOutflowTtm = completeTtm(cvmQuarters, "reported_capex_cash_outflow_mbrl");
-  const reportedCapexTtm = reportedCapexCashOutflowTtm == null ? null : Math.abs(reportedCapexCashOutflowTtm);
-  const reportedFcfTtm =
-    reportedOperatingCashFlowTtm == null || reportedCapexTtm == null
-      ? null
-      : reportedOperatingCashFlowTtm - reportedCapexTtm;
-  const cvmNetDebt = latestCvm?.reported_net_debt_mbrl;
-  const cvmNetCash = typeof cvmNetDebt === "number" ? -cvmNetDebt : null;
-  const cvmEnterpriseValue =
-    valuation?.market_cap_mbrl == null || cvmNetDebt == null
-      ? null
-      : valuation.market_cap_mbrl + cvmNetDebt;
-  const cvmPe =
-    valuation?.market_cap_mbrl == null || reportedNetIncomeTtm == null || reportedNetIncomeTtm <= 0
-      ? null
-      : valuation.market_cap_mbrl / reportedNetIncomeTtm;
-  const cvmEvEbit =
-    cvmEnterpriseValue == null || reportedEbitTtm == null || reportedEbitTtm <= 0
-      ? null
-      : cvmEnterpriseValue / reportedEbitTtm;
-  const cvmEarningsYield =
-    valuation?.market_cap_mbrl == null || reportedNetIncomeTtm == null
-      ? null
-      : reportedNetIncomeTtm / valuation.market_cap_mbrl * 100;
-  const cvmFcfYield =
-    valuation?.market_cap_mbrl == null || reportedFcfTtm == null
-      ? null
-      : reportedFcfTtm / valuation.market_cap_mbrl * 100;
-  const adjustedCapexTtm =
-    valuation?.adjusted_ebitda_ttm_mbrl == null || valuation?.adjusted_fcf_ttm_mbrl == null
-      ? null
-      : valuation.adjusted_ebitda_ttm_mbrl - valuation.adjusted_fcf_ttm_mbrl;
-  const capexTtmDelta =
-    reportedCapexTtm == null || adjustedCapexTtm == null
-      ? null
-      : reportedCapexTtm - adjustedCapexTtm;
-  const adjustedCapexQuarter =
-    result?.adjusted_ebitda_mbrl == null || result?.ebitda_less_capex_mbrl == null
-      ? null
-      : result.adjusted_ebitda_mbrl - result.ebitda_less_capex_mbrl;
-  const cvmCapexQuarter =
-    latestCvm?.reported_capex_cash_outflow_mbrl == null
-      ? null
-      : Math.abs(latestCvm.reported_capex_cash_outflow_mbrl);
-  const capexQuarterDelta =
-    cvmCapexQuarter == null || adjustedCapexQuarter == null
-      ? null
-      : cvmCapexQuarter - adjustedCapexQuarter;
-  const cvmCapexAccount = latestCvm?.reported_capex_cash_outflow_account;
-  const cvmEvReady = cvmEvEbit != null;
-  const evAnchorStale = !cvmEvReady && valuation?.ev_anchor_is_current === false;
-  const pePrimary = cvmPe ?? valuation?.pe_ttm;
-  const evEbitPrimary = cvmEvEbit ?? valuation?.ev_ebit_ttm;
-  const fcfYieldPrimary = cvmFcfYield ?? valuation?.adjusted_fcf_yield_pct;
-  const earningsYieldPrimary = cvmEarningsYield ?? valuation?.earnings_yield_pct;
+  const quarters = valuation?.source_quarters ?? [];
+  const latestQuarter = quarters.at(-1);
 
-  const topCards = [
-    {
-      label: "BMOB3-kurs",
-      main: market?.price_brl == null ? "–" : `R$ ${value(market.price_brl, 2)}`,
-      sub: `${sourceName(market?.price_source)} · ${dateLabel(market?.price_date)}`
-    },
-    {
-      label: "Otellos eierandel",
-      main: otello?.ownership_pct == null ? "–" : `${value(otello.ownership_pct, 2)} %`,
-      sub: otello?.shares == null ? "–" : `${integer.format(otello.shares)} Bemobi-aksjer`
-    },
-    {
-      label: "Verdi for Otello",
-      main: otello?.value_nok_m == null ? "–" : `${value(otello.value_nok_m, 1)} mill. kr`,
-      sub: otello?.value_brl_m == null ? "–" : `R$ ${value(otello.value_brl_m, 1)} mill.`
-    },
-    {
-      label: "Verdi per OTEC-aksje",
-      main: otello?.value_per_otello_share_nok == null ? "–" : `${value(otello.value_per_otello_share_nok, 2)} kr`,
-      sub: market?.brl_nok == null ? "–" : `BRL/NOK ${value(market.brl_nok, 4)}`
-    }
-  ];
+  const reportedNetIncomeTtm = completeTtm(quarters, "reported_net_income_parent_mbrl");
+  const reportedEbitTtm = completeTtm(quarters, "reported_ebit_mbrl");
+  const reportedOperatingCashFlowTtm = completeTtm(quarters, "reported_operating_cash_flow_mbrl");
+  const reportedCapexCashOutflowTtm = completeTtm(quarters, "reported_capex_cash_outflow_mbrl");
+  const reportedCapexTtm = reportedCapexCashOutflowTtm == null
+    ? null
+    : Math.abs(reportedCapexCashOutflowTtm);
+  const reportedFcfTtm = reportedOperatingCashFlowTtm == null || reportedCapexTtm == null
+    ? null
+    : reportedOperatingCashFlowTtm - reportedCapexTtm;
+  const latestNetDebt = latestQuarter?.reported_net_debt_mbrl;
+  const netCashMbrl = typeof latestNetDebt === "number"
+    ? -latestNetDebt
+    : valuation?.net_cash_mbrl ?? null;
+  const enterpriseValueMbrl = valuation?.market_cap_mbrl == null || latestNetDebt == null
+    ? null
+    : valuation.market_cap_mbrl + latestNetDebt;
+  const peTtm = valuation?.market_cap_mbrl != null && reportedNetIncomeTtm != null && reportedNetIncomeTtm > 0
+    ? valuation.market_cap_mbrl / reportedNetIncomeTtm
+    : valuation?.pe_ttm ?? null;
+  const evEbitTtm = enterpriseValueMbrl != null && reportedEbitTtm != null && reportedEbitTtm > 0
+    ? enterpriseValueMbrl / reportedEbitTtm
+    : valuation?.ev_ebit_ttm ?? null;
+  const fcfYield = valuation?.market_cap_mbrl != null && reportedFcfTtm != null
+    ? reportedFcfTtm / valuation.market_cap_mbrl * 100
+    : valuation?.adjusted_fcf_yield_pct ?? null;
 
   return (
-    <div className="bemobiPage">
-      <section className="bemobiHero card">
+    <div className="bemobiPage bemobiPageClean">
+      <section className="card bemobiCleanHero">
         <div>
-          <span className="label">BEMOBI / BMOB3</span>
-          <h2>Otellos største underliggende verdi</h2>
-          <p>
-            Løpende markedsverdi av Otellos Bemobi-post, siste rapporterte nøkkeltall,
-            verdsettelse og kontantutdelinger samlet i én investorvisning.
+          <span className="label">BEMOBI</span>
+          <h2>Hvordan går Bemobi operasjonelt?</h2>
+          <p>Siste resultat, vekst, kontantgenerering og verdsettelse – uten Otello/NAV-detaljer som finnes på egne sider.</p>
+        </div>
+        <div className="bemobiHeroQuote">
+          <span>BMOB3</span>
+          <strong>{market?.price_brl == null ? "–" : `R$ ${value(market.price_brl, 2)}`}</strong>
+          <small>{dateLabel(market?.price_date)}</small>
+        </div>
+      </section>
+
+      {failed && (
+        <ResourceNotice>
+          Ny oppdatering feilet. Siden viser sist vellykket hentede Bemobi-data.
+        </ResourceNotice>
+      )}
+
+      <section className="bemobiCleanKpiGrid">
+        <article className="card bemobiCleanKpi">
+          <span className="label">Omsetning</span>
+          <strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
+          <small className={metricTone(result?.adjusted_net_revenue_yoy_pct)}>{signedPct(result?.adjusted_net_revenue_yoy_pct)} år/år</small>
+        </article>
+        <article className="card bemobiCleanKpi">
+          <span className="label">Justert EBITDA</span>
+          <strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
+          <small className={metricTone(result?.adjusted_ebitda_yoy_pct)}>{signedPct(result?.adjusted_ebitda_yoy_pct)} år/år</small>
+        </article>
+        <article className="card bemobiCleanKpi">
+          <span className="label">EBITDA-margin</span>
+          <strong>{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
+          <small>{result?.period ?? "Siste kvartal"}</small>
+        </article>
+        <article className="card bemobiCleanKpi">
+          <span className="label">Justert resultat</span>
+          <strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
+          <small className={metricTone(result?.adjusted_net_income_yoy_pct)}>{signedPct(result?.adjusted_net_income_yoy_pct)} år/år</small>
+        </article>
+      </section>
+
+      <section className="bemobiCleanTwinGrid">
+        <article className="card bemobiCleanSection">
+          <div className="cardHeader">
+            <div>
+              <span className="label">VEKSTDRIVERE</span>
+              <h2>Hva driver veksten?</h2>
+            </div>
+            <span className="pill">{result?.period ?? "SISTE"}</span>
+          </div>
+          <div className="bemobiDriverGrid">
+            <div>
+              <span>Payments</span>
+              <strong className={metricTone(result?.payments_yoy_pct)}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
+              <small>år/år</small>
+            </div>
+            <div>
+              <span>SaaS</span>
+              <strong className={metricTone(result?.saas_yoy_pct)}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
+              <small>år/år</small>
+            </div>
+          </div>
+          <p className="bemobiCleanNote">
+            Samlet rapportert omsetningsvekst i kvartalet: <strong>{signedPct(result?.adjusted_net_revenue_yoy_pct)}</strong>.
           </p>
-        </div>
-        <div className="bemobiHeroMeta">
-          <span className="pill">BMOB3</span>
-          <span>Markedsdata {dateLabel(market?.price_date)}</span>
-        </div>
+        </article>
+
+        <article className="card bemobiCleanSection">
+          <div className="cardHeader">
+            <div>
+              <span className="label">KONTANTGENERERING</span>
+              <h2>Hvor mye blir til cash?</h2>
+            </div>
+          </div>
+          <div className="bemobiCashMetricGrid">
+            <div>
+              <span>EBITDA − capex</span>
+              <strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m</strong>
+              <small>siste kvartal</small>
+            </div>
+            <div>
+              <span>Cash conversion</span>
+              <strong>{value(result?.cash_conversion_pct, 1)} %</strong>
+              <small>rapportert av Bemobi</small>
+            </div>
+            <div>
+              <span>Netto cash</span>
+              <strong>R$ {value(netCashMbrl, 1)}m</strong>
+              <small>{latestQuarter?.period ?? valuation?.period ?? "TTM"}</small>
+            </div>
+          </div>
+        </article>
       </section>
 
-      <section className="bemobiKpiGrid">
-        {topCards.map((card) => (
-          <article className="card bemobiKpi" key={card.label}>
-            <span className="label">{card.label}</span>
-            <strong>{card.main}</strong>
-            <span>{card.sub}</span>
-          </article>
-        ))}
-      </section>
-
-      <section className="card bemobiValuation">
+      <section className="card bemobiCleanValuation">
         <div className="cardHeader">
           <div>
-            <span className="label">Verdsettelse nå · CVM-first</span>
-            <h2>Hva betaler markedet for Bemobi?</h2>
+            <span className="label">VERDSETTELSE</span>
+            <h2>Hva betaler markedet?</h2>
           </div>
           <span className="pill">{valuation?.period ?? "TTM"}</span>
         </div>
 
-        {evAnchorStale && (
-          <p className="bemobiValuationNote">
-            <strong>CVM-balanse/EBIT er ikke komplett ennå.</strong> Legacy EV-ankeret er eldre enn TTM-grunnlaget.
-            Enterprise value og EV/EBIT vises derfor først når CVM-grunnlaget eller et ferskt anker er tilgjengelig.
-          </p>
-        )}
-
-        <div className="bemobiValuationMetrics">
-          <div>
-            <span>Markedsverdi</span>
-            <strong>R$ {value(valuation?.market_cap_mbrl, 0)}m</strong>
-            <small>B3-kurs × aksjer</small>
-          </div>
+        <div className="bemobiCleanValuationGrid">
           <div>
             <span>P/E TTM</span>
-            <strong>{value(pePrimary, 1)}x</strong>
-            <small>{cvmPe != null ? "Rapportert CVM-resultat" : "Justert fallback"}</small>
+            <strong>{value(peTtm, 1)}x</strong>
+            <small>rapportert resultat når komplett</small>
           </div>
           <div>
-            <span>EV / EBIT TTM</span>
-            <strong>{value(evEbitPrimary, 1)}x</strong>
-            <small>{cvmEvEbit != null ? "CVM EBIT + CVM netto gjeld" : `Fallback · anker ${evAnchorPeriod}`}</small>
+            <span>EV / EBIT</span>
+            <strong>{value(evEbitTtm, 1)}x</strong>
+            <small>TTM</small>
           </div>
           <div>
             <span>FCF yield</span>
-            <strong>{value(fcfYieldPrimary, 1)} %</strong>
-            <small>{cvmFcfYield != null ? "CVM CFO − capex" : "FCF yield (just.) fallback"}</small>
+            <strong>{value(fcfYield, 1)} %</strong>
+            <small>CVM CFO − capex når komplett</small>
           </div>
           <div>
-            <span>Earnings yield</span>
-            <strong>{value(earningsYieldPrimary, 1)} %</strong>
-            <small>{cvmEarningsYield != null ? "Rapportert CVM-resultat" : "Justert fallback"}</small>
-          </div>
-          <div>
-            <span>Markedsverdi / EBITDA</span>
-            <strong>{value(valuation?.price_to_ebitda_ttm, 1)}x</strong>
-            <small>Justert EBITDA · Bemobi</small>
+            <span>Netto cash</span>
+            <strong>R$ {value(netCashMbrl, 1)}m</strong>
+            <small>siste tilgjengelige balanse</small>
           </div>
         </div>
 
-        <div className="bemobiValuationBody">
-          <div className="bemobiSensitivity">
-            <div className="bemobiSectionTitle">
-              <span>Multipelsensitivitet</span>
-              <small>Justert EPS · ikke kursmål</small>
-            </div>
-            <div className="bemobiScenarioGrid">
-              {(valuation?.scenarios ?? []).map((scenario) => (
-                <div key={scenario.multiple}>
-                  <span>{value(scenario.multiple, 0)}x P/E</span>
-                  <strong>R$ {value(scenario.implied_price_brl, 2)}</strong>
-                  <small className={scenario.upside_pct >= 0 ? "positive" : "negative"}>
-                    {signedValue(scenario.upside_pct, 1)} mot dagens kurs
-                  </small>
-                </div>
-              ))}
-            </div>
+        <div className="bemobiCleanScenarioBlock">
+          <div className="bemobiCleanSectionTitle">
+            <strong>Multipelsensitivitet</strong>
+            <span>Justert EPS · ikke kursmål</span>
           </div>
-
-          <div className="bemobiValuationBase">
-            <div className="bemobiSectionTitle">
-              <span>TTM-grunnlag</span>
-              <small>{ttmRange}</small>
-            </div>
-
-            <div className="bemobiTtmSummary">
-              <div>
-                <span>Harmonisert omsetning</span>
-                <strong>R$ {value(harmonizedRevenueTtm, 1)}m</strong>
-                <small>Bemobi / CVM</small>
+          <div className="bemobiCleanScenarioGrid">
+            {(valuation?.scenarios ?? []).map((scenario) => (
+              <div key={scenario.multiple}>
+                <span>{value(scenario.multiple, 0)}x P/E</span>
+                <strong>R$ {value(scenario.implied_price_brl, 2)}</strong>
+                <small className={metricTone(scenario.upside_pct)}>{signedPct(scenario.upside_pct)} mot BMOB3</small>
               </div>
-              <div>
-                <span>Justert EBITDA</span>
-                <strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong>
-                <small>Bemobi</small>
-              </div>
-              <div>
-                <span>Justert resultat</span>
-                <strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong>
-                <small>Bemobi</small>
-              </div>
-              <div>
-                <span>Justert FCF-proxy</span>
-                <strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong>
-                <small>TTM</small>
-              </div>
-              <div>
-                <span>Netto kontant</span>
-                <strong>R$ {value(cvmNetCash, 1)}m</strong>
-                <small>{latestCvm?.period ?? "siste CVM"}</small>
-              </div>
-            </div>
-
-            <div className="bemobiTtmSections">
-              <section className="bemobiTtmSection">
-                <div className="bemobiTtmSectionHeader">
-                  <strong>Rapportert regnskap</strong>
-                  <small>CVM</small>
-                </div>
-                <div className="bemobiTtmRows">
-                  <div><span>EBIT</span><strong>R$ {value(reportedEbitTtm, 1)}m</strong></div>
-                  <div><span>Resultat</span><strong>R$ {value(reportedNetIncomeTtm ?? valuation?.reported_net_income_ttm_mbrl, 1)}m</strong></div>
-                </div>
-              </section>
-
-              <section className="bemobiTtmSection">
-                <div className="bemobiTtmSectionHeader">
-                  <strong>Kontantstrøm</strong>
-                  <small>TTM</small>
-                </div>
-                <div className="bemobiTtmRows">
-                  <div><span>Operasjonell kontantstrøm</span><strong>R$ {value(reportedOperatingCashFlowTtm, 1)}m</strong></div>
-                  <div><span>Capex</span><strong>−R$ {value(reportedCapexTtm, 1)}m</strong></div>
-                  <div className="emphasis"><span>Fri kontantstrøm</span><strong>R$ {value(reportedFcfTtm, 1)}m</strong></div>
-                </div>
-              </section>
-
-              <section className="bemobiTtmSection">
-                <div className="bemobiTtmSectionHeader">
-                  <strong>Justerte nøkkeltall</strong>
-                  <small>Bemobi</small>
-                </div>
-                <div className="bemobiTtmRows">
-                  <div><span>Justert EBITDA</span><strong>R$ {value(valuation?.adjusted_ebitda_ttm_mbrl, 1)}m</strong></div>
-                  <div><span>Justert resultat</span><strong>R$ {value(valuation?.adjusted_net_income_ttm_mbrl, 1)}m</strong></div>
-                  <div><span>Justert FCF-proxy</span><strong>R$ {value(valuation?.adjusted_fcf_ttm_mbrl, 1)}m</strong></div>
-                  <div><span>Justert capex</span><strong>R$ {value(adjustedCapexTtm, 1)}m</strong></div>
-                </div>
-              </section>
-
-              <section className="bemobiTtmSection">
-                <div className="bemobiTtmSectionHeader">
-                  <strong>Verdsettelse</strong>
-                  <small>CVM-first</small>
-                </div>
-                <div className="bemobiTtmRows">
-                  <div><span>Netto kontant</span><strong>R$ {value(cvmNetCash, 1)}m</strong></div>
-                  <div className="emphasis"><span>Enterprise value</span><strong>R$ {value(cvmEnterpriseValue, 0)}m</strong></div>
-                </div>
-              </section>
-            </div>
+            ))}
           </div>
         </div>
-
-        <p className="bemobiValuationNote">
-          <strong>Omsetning:</strong> Harmonisert omsetning fra Bemobis offisielle resultatrapport brukes som
-          investorens omsetningsmål fordi M4U-bruttoføringen ellers blåser opp både omsetning og kostnader.
-        </p>
-
-        {(reportedCapexTtm != null || adjustedCapexTtm != null) && (
-          <p className="bemobiValuationNote">
-            <strong>Capex-avstemming:</strong> CVM DFC viser R$ {value(reportedCapexTtm, 1)}m TTM,
-            mens Bemobis justerte definisjon impliserer R$ {value(adjustedCapexTtm, 1)}m.
-            {capexTtmDelta != null && ` Differanse: R$ ${value(capexTtmDelta, 1)}m.`}
-            {" "}CVM-kontokoden kan endres mellom rapporter; trackeren følger beskrivelsen for kjøp av
-            imobilizado/intangível og lagrer faktisk kontokode som proveniens. Definisjonene kan ha ulikt
-            omfang, så CVM-linjen brukes som regulatorisk kontroll – ikke som automatisk erstatning for Bemobis justerte capex.
-          </p>
-        )}
-
-        <div className="bemobiQuarterSources">
-          <span>Resultatgrunnlag:</span>
-          {cvmQuarters.map((quarter) => (
-            <SourceLink
-              key={quarter.period}
-              url={quarter.harmonized_net_revenue_source_url ?? quarter.reported_net_income_parent_source_url ?? quarter.reported_revenue_source_url ?? quarter.source_url}
-            >
-              <span>
-                {quarter.period} · {quarter.reported_net_income_parent_mbrl != null ? "CVM ITR/DFP" : quarter.source}
-              </span>
-            </SourceLink>
-          ))}
-          {!cvmEvReady && (
-            <SourceLink url={valuation?.ev_anchor_source_url}>
-              <span>Legacy EV-anker {evAnchorPeriod} · {valuation?.ev_anchor_source ?? "CVM"}</span>
-            </SourceLink>
-          )}
-        </div>
-        {valuation?.methodology_note && <p className="bemobiValuationNote">{valuation.methodology_note}</p>}
       </section>
 
-      <section className="bemobiTwoColumn">
-        <article className="card bemobiResults">
-          <div className="cardHeader">
-            <div>
-              <span className="label">Siste rapport · CVM-first</span>
-              <h2>{result?.period ?? latestCvm?.period ?? "–"} · nøkkeltall</h2>
-            </div>
-            <SourceLink url={latestCvm?.reported_net_income_parent_source_url ?? result?.source_url}>
-              <span className="pill">{latestCvm?.reported_net_income_parent_mbrl != null ? "CVM" : sourceName(result?.source_code)}</span>
-            </SourceLink>
-          </div>
-
-          <div className="bemobiResultGrid">
-            <div>
-              <span>Harmonisert omsetning</span>
-              <strong>R$ {value(result?.adjusted_net_revenue_mbrl ?? latestCvm?.harmonized_net_revenue_mbrl, 1)}m</strong>
-              <em>Bemobi / CVM</em>
-            </div>
-            <div>
-              <span>Rapportert EBIT</span>
-              <strong>R$ {value(latestCvm?.reported_ebit_mbrl, 1)}m</strong>
-              <em>CVM 3.05</em>
-            </div>
-            <div>
-              <span>Resultat til Bemobi-aksjonærer</span>
-              <strong>R$ {value(latestCvm?.reported_net_income_parent_mbrl ?? result?.adjusted_net_income_mbrl, 1)}m</strong>
-              <em>{latestCvm?.reported_net_income_parent_mbrl != null ? "CVM 3.11.01" : "Justert fallback"}</em>
-            </div>
-            <div>
-              <span>Operasjonell kontantstrøm</span>
-              <strong>R$ {value(latestCvm?.reported_operating_cash_flow_mbrl, 1)}m</strong>
-              <em>CVM 6.01</em>
-            </div>
-            <div>
-              <span>Capex</span>
-              <strong>R$ {value(cvmCapexQuarter, 1)}m</strong>
-              <em>{cvmCapexAccount ? `CVM ${cvmCapexAccount}` : "CVM DFC"}</em>
-            </div>
-            <div>
-              <span>Kontantbeholdning</span>
-              <strong>R$ {value(latestCvm?.reported_cash_mbrl ?? result?.cash_mbrl, 0)}m</strong>
-              <em>{latestCvm?.reported_cash_mbrl != null ? "CVM 1.01.01" : "Bemobi fallback"}</em>
-            </div>
-          </div>
-
-          <div className="bemobiSectionTitle">
-            <span>Bemobi-justerte KPI-er</span>
-            <small>Offisiell resultatpresentasjon</small>
-          </div>
-          <div className="placeholderRows">
-            <div><span>Justert EBITDA</span><strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m · {value(result?.adjusted_ebitda_margin_pct, 1)} % margin</strong></div>
-            <div><span>Justert resultat</span><strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong></div>
-            <div><span>EBITDA etter capex</span><strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m · {value(result?.cash_conversion_pct, 1)} % konvertering</strong></div>
-          </div>
-
-          {(cvmCapexQuarter != null || adjustedCapexQuarter != null) && (
-            <p className="bemobiValuationNote">
-              Capex-avstemming {latestCvm?.period ?? result?.period}: CVM DFC
-              {cvmCapexAccount ? ` (${cvmCapexAccount})` : ""} R$ {value(cvmCapexQuarter, 1)}m
-              mot Bemobi-justert implisitt capex R$ {value(adjustedCapexQuarter, 1)}m.
-              {capexQuarterDelta != null && ` Differanse R$ ${value(capexQuarterDelta, 1)}m.`}
-            </p>
-          )}
-
-          <div className="bemobiGrowthStrip">
-            <div><span>Payments</span><strong>{growthValue(result?.payments_yoy_pct, 0)}</strong><small>år/år</small></div>
-            <div><span>SaaS</span><strong>{growthValue(result?.saas_yoy_pct, 0)}</strong><small>år/år</small></div>
-            <div><span>Rapportdato</span><strong>{dateLabel(result?.published_date)}</strong><small>{result?.period}</small></div>
-          </div>
-        </article>
-
-        <article className="card bemobiStake">
-          <div className="cardHeader">
-            <div><span className="label">Otellos eksponering</span><h2>Bemobi-posten</h2></div>
-            <span className="pill muted">{value(otello?.ownership_pct, 2)} %</span>
-          </div>
-          <div className="bemobiStakeValue">
-            <strong>{otello?.shares == null ? "–" : integer.format(otello.shares)}</strong>
-            <span>Bemobi-aksjer eid av Otello</span>
-          </div>
-          <div className="placeholderRows">
-            <div><span>Eierandel</span><strong>{value(otello?.ownership_pct, 2)} %</strong></div>
-            <div><span>Markedsverdi i BRL</span><strong>R$ {value(otello?.value_brl_m, 1)} mill.</strong></div>
-            <div><span>Markedsverdi i NOK</span><strong>{value(otello?.value_nok_m, 1)} mill. kr</strong></div>
-            <div><span>Verdi per OTEC-aksje</span><strong>{value(otello?.value_per_otello_share_nok, 2)} kr</strong></div>
-          </div>
-        </article>
-      </section>
-
-      <section className="card bemobiValuation">
+      <section className="card bemobiCleanHistory">
         <div className="cardHeader">
           <div>
-            <span className="label">Kapitalretur · TTM run-rate</span>
-            <h2>Estimert utbytte til Otello</h2>
+            <span className="label">KVARTALSUTVIKLING</span>
+            <h2>Siste fire rapporterte kvartaler</h2>
           </div>
-          <SourceLink url={distributionEstimate?.source_url}>
-            <span className="pill">{distributionEstimate?.ready ? sourceName(distributionEstimate.source_code) : "CVM"}</span>
-          </SourceLink>
         </div>
-
-        {distributionEstimate?.ready ? (
-          <>
-            <div className="bemobiValuationMetrics">
-              <div>
-                <span>Otello brutto</span>
-                <strong>{value(distributionEstimate.otello_gross_mnok, 1)} mill. kr</strong>
-                <small>R$ {value(distributionEstimate.otello_gross_mbrl, 1)}m</small>
-              </div>
-              <div>
-                <span>Per OTEC-aksje</span>
-                <strong>{value(distributionEstimate.otello_gross_per_otec_share_nok, 2)} kr</strong>
-                <small>Brutto run-rate</small>
-              </div>
-              <div>
-                <span>Rapportert resultat TTM</span>
-                <strong>R$ {value(distributionEstimate.reported_net_income_ttm_mbrl, 1)}m</strong>
-                <small>{distributionEstimate.period}</small>
-              </div>
-              <div>
-                <span>Otellos utdelingsandel</span>
-                <strong>{value(distributionEstimate.otello_distribution_share_pct, 2)} %</strong>
-                <small>
-                  {distributionEstimate.ownership_method === "LATEST_DISTRIBUTION_ELIGIBLE_SHARES"
-                    ? "Utbytteberettigede aksjer"
-                    : "Rapportert eierandel"}
-                </small>
-              </div>
-            </div>
-
-            <div className="placeholderRows">
-              <div>
-                <span>Indikert Bemobi-utdeling</span>
-                <strong>R$ {value(distributionEstimate.estimated_total_distribution_mbrl, 1)} mill.</strong>
-              </div>
-              <div>
-                <span>Payout brukt i modellen</span>
-                <strong>{value(distributionEstimate.payout_policy_pct, 0)} %</strong>
-              </div>
-              <div>
-                <span>Policy / scenario</span>
-                <strong>
-                  {distributionEstimate.policy_is_current
-                    ? `${distributionEstimate.policy_year} payout-policy`
-                    : "100 % payout-scenario"}
-                </strong>
-              </div>
-              <div>
-                <span>BRL/NOK</span>
-                <strong>{value(distributionEstimate.brl_nok, 4)}</strong>
-              </div>
-              {distributionEstimate.distribution_eligible_shares != null && (
-                <div>
-                  <span>Utbytteberettigede Bemobi-aksjer</span>
-                  <strong>{integer.format(distributionEstimate.distribution_eligible_shares)}</strong>
-                </div>
-              )}
-            </div>
-            <p className="bemobiValuationNote">
-              {distributionEstimate.methodology_note} Faktisk kontantbeløp kan avvike avhengig av
-              styrevedtak, JCP/utbytte-miks, skatt og eventuell endring i payout-policy.
-            </p>
-          </>
-        ) : (
-          <p className="bemobiEmpty">
-            Venter på fire sammenhengende kvartaler med rapportert CVM-resultat til Bemobis aksjonærer.
-            Når CVM-grunnlaget er komplett oppdateres TTM-estimatet automatisk.
-          </p>
-        )}
+        <div className="bemobiQuarterTableWrap">
+          <table className="bemobiQuarterTable">
+            <thead>
+              <tr>
+                <th>Kvartal</th>
+                <th>Omsetning</th>
+                <th>Justert EBITDA</th>
+                <th>Margin</th>
+                <th>Justert resultat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quarters.map((quarter) => {
+                const revenue = quarter.harmonized_net_revenue_mbrl ?? quarter.reported_revenue_mbrl ?? null;
+                const ebitda = quarter.adjusted_ebitda_mbrl ?? null;
+                const margin = revenue != null && revenue > 0 && ebitda != null
+                  ? ebitda / revenue * 100
+                  : null;
+                return (
+                  <tr key={quarter.period}>
+                    <td><strong>{quarter.period}</strong></td>
+                    <td>R$ {value(revenue, 1)}m</td>
+                    <td>R$ {value(ebitda, 1)}m</td>
+                    <td>{value(margin, 1)} %</td>
+                    <td>R$ {value(quarter.adjusted_net_income_mbrl, 1)}m</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section className="bemobiTwoColumn">
-        <article className="card bemobiDistribution">
-          <div className="cardHeader">
-            <div>
-              <span className="label">Kapitalretur</span>
-              <h2>Siste {distributionLabel(distribution?.type)}</h2>
-            </div>
-            {distribution && (
-              <SourceLink url={distribution.source_url}>
-                <span className="pill">{sourceName(distribution.source_code)}</span>
-              </SourceLink>
-            )}
+      <section className="card bemobiCleanWatch">
+        <div className="cardHeader">
+          <div>
+            <span className="label">FREMOVER</span>
+            <h2>Det viktigste å følge</h2>
           </div>
-          {distribution ? (
-            <div className="placeholderRows">
-              <div><span>Brutto per Bemobi-aksje</span><strong>R$ {value(distribution.gross_per_share_brl, 8)}</strong></div>
-              <div><span>Netto per Bemobi-aksje</span><strong>R$ {value(distribution.net_per_share_brl, 8)}</strong></div>
-              <div><span>Otellos bruttoandel</span><strong>R$ {value(distribution.otello_gross_mbrl, 2)} mill.</strong></div>
-              <div><span>Otellos estimerte nettoandel</span><strong>R$ {value(distribution.otello_net_mbrl, 2)} mill.</strong></div>
-              <div><span>Ex-dato</span><strong>{dateLabel(distribution.ex_date)}</strong></div>
-              <div><span>Betalingsdato</span><strong>{dateLabel(distribution.payment_date)}</strong></div>
-            </div>
-          ) : (
-            <p className="bemobiEmpty">Ingen strukturert Bemobi-utbetaling tilgjengelig.</p>
-          )}
-        </article>
-
-        <article className="card bemobiNextReport">
-          <div className="cardHeader">
-            <div><span className="label">Kommende rapport</span><h2>{nextReport?.period ?? "Neste kvartal"}</h2></div>
-            <span className="pill muted">KALENDER</span>
+        </div>
+        <div className="bemobiWatchGrid">
+          <div>
+            <span>Payments-vekst</span>
+            <strong className={metricTone(result?.payments_yoy_pct)}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
+            <small>år/år</small>
           </div>
-          <div className="bemobiCalendarDate">
+          <div>
+            <span>SaaS-vekst</span>
+            <strong className={metricTone(result?.saas_yoy_pct)}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
+            <small>år/år</small>
+          </div>
+          <div>
+            <span>Cash conversion</span>
+            <strong>{value(result?.cash_conversion_pct, 1)} %</strong>
+            <small>siste kvartal</small>
+          </div>
+          <div>
+            <span>Neste rapport</span>
             <strong>{nextReport?.date ? dateLabel(nextReport.date) : "Ikke bekreftet"}</strong>
-            <span>{nextReport?.label ?? "Venter på offisiell dato fra Bemobi."}</span>
+            <small>{nextReport?.period ?? "Neste kvartal"}</small>
           </div>
-          <p>
-            Vi viser ikke en estimert rapportdato som om den var bekreftet. Når Bemobi publiserer
-            datoen i sin offisielle kalender, kan den legges inn i datagrunnlaget.
-          </p>
-          <SourceLink url={nextReport?.source_url}>
-            <span className="bemobiSourceAction">Åpne Bemobis hendelseskalender →</span>
-          </SourceLink>
-        </article>
-      </section>
-
-      <BemobiSourceStatusPanel />
-
-      <section className="card bemobiSources">
-        <div className="cardHeader"><div><span className="label">Kilder</span><h2>Hva tallene bygger på</h2></div></div>
-        <div className="sourceList">
-          {(data.sources ?? []).map((source) => (
-            <div key={`${source.label}-${source.source}`}>
-              <span>{source.label}</span>
-              <strong>
-                <SourceLink url={source.url}>{source.source}</SourceLink>
-              </strong>
-            </div>
-          ))}
         </div>
-        {data.note && <p className="bemobiFootnote">{data.note}</p>}
+        <div className="bemobiCleanFooterMeta">
+          <span>Siste rapport: {result?.period ?? "–"} · publisert {dateLabel(result?.published_date)}</span>
+          {result?.source_url && (
+            <a href={result.source_url} target="_blank" rel="noreferrer">Åpne resultatkilden →</a>
+          )}
+          {nextReport?.source_url && (
+            <a href={nextReport.source_url} target="_blank" rel="noreferrer">Bemobi-kalender →</a>
+          )}
+        </div>
       </section>
     </div>
   );
