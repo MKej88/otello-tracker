@@ -16,7 +16,6 @@ type Program = {
   cash_spent_nok?: string | number | null;
   vwap_nok?: string | number | null;
   share_count_nav_effect_per_share_nok?: number | null;
-  share_count_nav_effect_pct?: number | null;
 };
 
 type LatestWeek = {
@@ -337,7 +336,6 @@ export default function BuybackPage() {
   const navEffect = data?.nav_effect?.per_share_nok;
   const navEffectPct = data?.nav_effect?.pct;
   const grossShareEffect = program?.share_count_nav_effect_per_share_nok;
-  const grossShareEffectPct = program?.share_count_nav_effect_pct;
 
   if (data == null && !failed) {
     return <ResourceNotice>Laster tilbakekjøpsdata …</ResourceNotice>;
@@ -420,7 +418,7 @@ export default function BuybackPage() {
         <article className="card buybackKpi navEffectKpi">
           <span className="label">Brutto effekt av færre aksjer</span>
           <strong>{signedKr(grossShareEffect, 2)}</strong>
-          <small>{signedPercentage(grossShareEffectPct, 2)} før kontantbruken i programmet</small>
+          <small>ren aksjeantallseffekt før kontantbruken i programmet</small>
         </article>
         <article className="card buybackKpi">
           <span className="label">Kapital brukt hittil</span>
