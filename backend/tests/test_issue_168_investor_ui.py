@@ -49,8 +49,10 @@ def test_issue_168_has_all_requested_periods_and_nav_views() -> None:
 
 def test_issue_168_moves_technical_information_to_data_quality() -> None:
     page = (FRONTEND / "DataQualityPage.tsx").read_text(encoding="utf-8")
-    assert "Drift, ferskhet og kildekontroll" in page
+    assert "DATAKVALITET NÅ" in page
+    assert "KRITISKE NAV-INPUTS" in page
     assert "Automatisk rapportinnlesing" in page
-    assert "BemobiSourceStatusPanel" in page
+    assert "TEKNISK DIAGNOSTIKK" in page
+    assert '"/api/bemobi/source-status"' in page
     assert "Produksjonsstatus" not in page
     assert "Rapportkontroll" not in page

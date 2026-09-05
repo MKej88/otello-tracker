@@ -63,18 +63,49 @@ def test_data_quality_shows_safe_preflight_warning_messages() -> None:
     quality = read_frontend("DataQualityPage.tsx")
 
     assert "warnings?: Array<{ code: string; message: string }>" in quality
-    assert "nightly?.preflight?.warnings ?? []" in quality
-    assert ".map((warning) => warning.message)" in quality
+    assert "const preflightWarnings = nightly?.preflight?.warnings ?? []" in quality
+    assert "preflightWarnings.map((warning)" in quality
+    assert "{warning.message}" in quality
 
 
-def test_data_quality_explains_partial_status_and_bemobi_fallback() -> None:
+def test_data_quality_prioritizes_trust_and_active_deviations() -> None:
     quality = read_frontend("DataQualityPage.tsx")
 
+    for label in (
+        "DATAKVALITET NÅ",
+        "AKTIVE AVVIK",
+        "KRITISKE NAV-INPUTS",
+        "Dataene som faktisk driver verdsettelsen",
+        "Kompakt kildeoversikt",
+        "TEKNISK DIAGNOSTIKK",
+        "Vis rapportpipeline",
+    ):
+        assert label in quality
+
+    assert '"/api/bemobi/source-status"' in quality
+    assert "uses_last_good" in quality
+    assert "Siste gode data er beholdt" in quality
+    assert "Advarsler stopper ikke oppdateringen når antall blokkeringer er 0" in quality
     assert "«Delvis» betyr at kjøringen ble fullført" in quality
-    assert "stopper" in quality
-    assert "ikke oppdateringen når antall blokkeringer er 0" in quality
-    assert "kilden ble ikke fullt oppdatert" in quality
-    assert "siste gode data er beholdt" in quality
+    assert 'import BemobiSourceStatusPanel' not in quality
+
+
+def test_data_quality_critical_inputs_cover_current_nav_drivers() -> None:
+    quality = read_frontend("DataQualityPage.tsx")
+
+    for label in (
+        "Bemobi-kurs",
+        "BRL/NOK",
+        "OTEC-kurs",
+        "Life360-kurs",
+        "Bemobi-eierandel",
+        "Otello rapportdata",
+    ):
+        assert label in quality
+
+    assert "qualitySourceRow" in quality
+    assert "Sist kontrollert" in quality
+    assert "Brukes av" in quality
 
 
 def test_history_chart_has_a_text_summary() -> None:
