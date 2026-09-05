@@ -113,8 +113,8 @@ def test_history_chart_has_a_text_summary() -> None:
 
     assert 'role="img"' in history
     assert 'className="chartSummary"' in history
-    assert "Siste rabatt er" in history
-    assert "siste OTEC-kurs er" in history
+    assert "Siste historiske observasjon" in history
+    assert "OTEC-kurs" in history
 
 
 def test_cash_movement_explanations_are_permanently_visible_in_calculation_column() -> None:
