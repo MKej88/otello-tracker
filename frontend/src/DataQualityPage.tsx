@@ -21,6 +21,13 @@ type Job = {
     warnings?: Array<{ code: string; message: string }>;
   } | null;
 };
+type DashboardQuality = {
+  available?: boolean;
+  status?: string;
+  data_status?: string;
+  as_of_date?: string | null;
+  reasons?: string[];
+};
 type Runtime = {
   ready: boolean;
   status: string;
@@ -28,6 +35,7 @@ type Runtime = {
   full_refresh?: Job;
   fast_refresh?: Job;
   hot_snapshot?: { cache_status?: string; valid?: boolean; age_seconds?: number | null; stored_version?: number | null; reason?: string | null };
+  dashboard_quality?: DashboardQuality;
   norges_bank?: { status?: string; checked_at?: string | null; has_error?: boolean };
   fx?: { current?: boolean; expected_date?: string | null; latest_common_date?: string | null };
 };
@@ -47,8 +55,12 @@ type Report = {
 
 function statusLabel(input?: string | null) {
   const value = (input ?? "").toUpperCase();
-  const labels: Record<string, string> = { SUCCESS: "OK", OK: "OK", PARTIAL: "DELVIS", FAILED: "FEIL", ERROR: "FEIL", RUNNING: "KJØRER", DEGRADED: "AVVIK", MISSING: "MANGLER", APPLIED: "INNLEST", REVIEW_REQUIRED: "KREVER KONTROLL", WAITING: "VENTER" };
+  const labels: Record<string, string> = { SUCCESS: "OK", OK: "OK", PARTIAL: "DELVIS", FAILED: "FEIL", ERROR: "FEIL", RUNNING: "KJØRER", DEGRADED: "AVVIK", ESTIMATED: "ESTIMERT", MISSING: "MANGLER", APPLIED: "INNLEST", REVIEW_REQUIRED: "KREVER KONTROLL", WAITING: "VENTER" };
   return labels[value] ?? input ?? "UKJENT";
+}
+
+function countLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function Step({ label, done }: { label: string; done?: boolean }) {
@@ -97,16 +109,24 @@ export default function DataQualityPage() {
     true,
   );
   const snapshot = runtime?.hot_snapshot;
+  const currentQuality = runtime?.dashboard_quality;
   const pipeline = report?.pipeline ?? {};
   const nightly = runtime?.full_refresh;
   const nightlySources = Object.entries(nightly?.source_health ?? {});
   const healthySourceCount = nightlySources.filter(([, status]) => status === "OK").length;
+  const nightlyDashboardWarning = (nightly?.preflight?.warnings ?? []).find(
+    (warning) => warning.code === "dashboard_quality",
+  );
   const nightlyWarnings = [
     ...nightlySources
       .filter(([, sourceStatus]) => sourceStatus !== "OK")
       .map(([code, sourceStatus]) => sourceWarningLabel(code, sourceStatus)),
     ...(nightly?.preflight?.warnings ?? []).map((warning) => warning.message).filter(Boolean),
   ];
+  const currentQualityReasons = currentQuality?.reasons ?? [];
+  const nightlyQualityResolved = Boolean(
+    nightlyDashboardWarning && currentQuality?.available && currentQuality.status === "OK",
+  );
   const operationalWarnings = [
     runtime?.fast_refresh?.stale ? "30-minutterskjøringen er eldre enn forventet." : null,
     runtime?.fast_refresh?.has_error ? "Siste 30-minutterskjøring registrerte en feil." : null,
@@ -151,11 +171,23 @@ export default function DataQualityPage() {
           <div className="qualityAlert" role="status">
             <strong>Dette krever oppmerksomhet</strong>
             <p>
-              Nattkontrollen fant {nightly.preflight.blocker_count ?? 0} blokkeringer og {nightly.preflight.warning_count ?? 0} advarsler.
+              Nattkontrollen fant {countLabel(nightly.preflight.blocker_count ?? 0, "blokkering", "blokkeringer")} og {countLabel(nightly.preflight.warning_count ?? 0, "advarsel", "advarsler")}.
               {nightly.preflight.ready
                 ? " Advarslene stoppet ikke oppdateringen."
                 : " Oppdateringen er ikke godkjent, og siste gode data beholdes."}
             </p>
+            {nightlyDashboardWarning && currentQuality?.available && (
+              <p>
+                <strong>Siste nattkontroll:</strong> {statusLabel("DEGRADED")} · <strong>Status nå:</strong> {statusLabel(currentQuality.status)}
+                {currentQuality.as_of_date ? ` (datadato ${formatDate(currentQuality.as_of_date)})` : ""}.
+              </p>
+            )}
+            {nightlyQualityResolved && (
+              <p>Avviket som ble registrert i nattkontrollen er ikke lenger aktivt i siste NAV-data.</p>
+            )}
+            {!nightlyQualityResolved && nightlyDashboardWarning && currentQualityReasons.length > 0 && (
+              <p><strong>Aktivt nå:</strong> {currentQualityReasons.join(" ")}</p>
+            )}
             {nightly?.status === "PARTIAL" && nightly.preflight.ready && (
               <p>
                 «Delvis» betyr at kjøringen ble fullført, men at minst én datakilde
@@ -178,6 +210,7 @@ export default function DataQualityPage() {
           <div><span>Siste kjøring</span><strong>{statusLabel(runtime?.fast_refresh?.status)}</strong><small>{formatDateTime(runtime?.fast_refresh?.finished_at ?? runtime?.fast_refresh?.started_at)}</small></div>
           <div><span>Førsteside</span><strong>{snapshot?.cache_status ?? "UKJENT"}</strong><small>{snapshot?.age_seconds == null ? snapshot?.reason ?? "–" : `${Math.round(snapshot.age_seconds / 60)} min gammel`}</small></div>
           <div><span>Valuta</span><strong>{formatDate(runtime?.fx?.latest_common_date)}</strong><small>Forventet minst {formatDate(runtime?.fx?.expected_date)}</small></div>
+          <div><span>Dashboardkvalitet</span><strong>{statusLabel(currentQuality?.status)}</strong><small>{currentQualityReasons[0] ?? (currentQuality?.as_of_date ? `Datadato ${formatDate(currentQuality.as_of_date)}` : "–")}</small></div>
         </div>
         {operationalWarnings.length > 0 && <div className="qualityAlert" role="status"><strong>Dette gjelder advarselen</strong><ul>{operationalWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       </section>
