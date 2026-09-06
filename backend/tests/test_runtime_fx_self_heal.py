@@ -79,6 +79,7 @@ class FakeRepository:
                         "economic": {},
                         "quotes": {},
                         "forecast": {},
+                        "events": {},
                     }
                 ),
                 "updated_at": generated_at,

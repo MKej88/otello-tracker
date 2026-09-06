@@ -56,7 +56,7 @@ def test_fastapi_app_does_not_eagerly_import_route_business_modules() -> None:
 
 def test_frontend_keeps_bounded_last_good_bootstrap_for_repeat_first_paint() -> None:
     source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(encoding="utf-8")
-    assert 'CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v1"' in source
+    assert 'CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v2"' in source
     assert "CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000" in source
     assert "window.localStorage.getItem" in source
     assert "window.localStorage.setItem" in source
@@ -106,10 +106,11 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
     assert "getCachedDashboardComponentForUrl<T>(url)" in polling
     assert "useState<T | null>(() =>" in polling
     assert "usePreloadedInitial ? getCachedDashboardComponentForUrl" in polling
-    assert overview.count("    true,\n  );") == 7
+    assert overview.count("    true,\n  );") == 6
     assert '"/api/dashboard/discount-history?days=365&max_points=72"' in overview
-    assert '"/api/news-events"' in overview
-    assert '"/api/brazil/dashboard"' in overview
+    assert '"/api/overview/events"' in overview
+    assert '"/api/news-events"' not in overview
+    assert '"/api/brazil/dashboard"' not in overview
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
 
 
