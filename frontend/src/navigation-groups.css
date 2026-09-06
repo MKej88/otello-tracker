@@ -10,12 +10,12 @@
 
 .navGroup + .navGroup {
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  border-top: 1px solid var(--ot-border-soft);
 }
 
 .navGroupLabel {
   padding: 0 12px 4px;
-  color: #53647f;
+  color: var(--ot-text-muted);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.13em;
