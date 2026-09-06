@@ -80,6 +80,9 @@ def test_all_current_otec_consumers_use_shared_live_helper() -> None:
     for filename, marker in expected.items():
         assert marker in (root / filename).read_text(encoding="utf-8")
 
+    buyback_source = (root / "buyback_service.py").read_text(encoding="utf-8")
+    assert "if as_of_date is None:" in buyback_source
+
 
 def test_hot_snapshot_version_is_bumped_for_live_price_semantics() -> None:
     source = (
