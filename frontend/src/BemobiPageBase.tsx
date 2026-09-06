@@ -139,23 +139,28 @@ function metricTone(input: number | null | undefined) {
   return input > 0 ? "positive" : "negative";
 }
 
-function selectForwardEstimate(
+function selectForwardEstimates(
   years: ForwardEstimate[],
   asOfDate?: string | null,
 ) {
   const sorted = years
     .filter((item) => typeof item.year === "number" && Number.isFinite(item.year))
     .sort((a, b) => Number(a.year) - Number(b.year));
-  if (!sorted.length) return null;
+  if (!sorted.length) return { primary: null, secondary: null };
 
   const asOfYear = Number(String(asOfDate ?? "").slice(0, 4));
-  if (Number.isFinite(asOfYear) && asOfYear > 2000) {
-    return sorted.find((item) => Number(item.year) > asOfYear)
-      ?? sorted.find((item) => Number(item.year) === asOfYear)
+  const primary = Number.isFinite(asOfYear) && asOfYear > 2000
+    ? sorted.find((item) => Number(item.year) === asOfYear)
+      ?? sorted.find((item) => Number(item.year) > asOfYear)
       ?? sorted.at(-1)
-      ?? null;
-  }
-  return sorted[0] ?? null;
+      ?? null
+    : sorted[0] ?? null;
+  const primaryYear = typeof primary?.year === "number" ? primary.year : null;
+  const secondary = primaryYear == null
+    ? null
+    : sorted.find((item) => Number(item.year) > primaryYear) ?? null;
+
+  return { primary, secondary };
 }
 
 export default function BemobiPageBase() {
@@ -267,18 +272,37 @@ export default function BemobiPageBase() {
     : null;
 
   const brokerEstimates = consensus?.ready ? consensus.broker_estimates : null;
-  const forwardEstimate = selectForwardEstimate(
+  const { primary: forwardEstimate, secondary: nextEstimate } = selectForwardEstimates(
     brokerEstimates?.years ?? [],
     market?.price_date,
   );
   const forwardYear = typeof forwardEstimate?.year === "number" ? forwardEstimate.year : null;
+  const nextYear = typeof nextEstimate?.year === "number" ? nextEstimate.year : null;
   const forwardLabel = forwardYear == null ? "TTM" : `${forwardYear}E`;
   const forwardPe = forwardEstimate?.pe ?? peTtm;
   const forwardEvEbitda = forwardEstimate?.ev_ebitda ?? evEbitdaTtm;
   const payoutYield = forwardEstimate?.earnings_yield_pct ?? null;
+  const nextPe = nextEstimate?.pe ?? null;
+  const nextEvEbitda = nextEstimate?.ev_ebitda ?? null;
+  const nextPayoutYield = nextEstimate?.earnings_yield_pct ?? null;
   const valuationPeriodLabel = forwardYear == null
     ? valuation?.period ?? "TTM"
-    : `TTM + ${forwardYear}E`;
+    : nextYear == null
+      ? `TTM + ${forwardYear}E`
+      : `${forwardYear}E + ${nextYear}E`;
+  const forwardEps = market?.price_brl != null && market.price_brl > 0 && forwardPe != null && forwardPe > 0
+    ? market.price_brl / forwardPe
+    : null;
+  const forwardScenarios = forwardEps == null || market?.price_brl == null || market.price_brl <= 0
+    ? valuation?.scenarios ?? []
+    : [12, 14, 16].map((multiple) => {
+        const impliedPrice = forwardEps * multiple;
+        return {
+          multiple,
+          implied_price_brl: impliedPrice,
+          upside_pct: (impliedPrice / market.price_brl! - 1) * 100,
+        };
+      });
 
   return (
     <div className="bemobiPage bemobiPageClean">
@@ -390,17 +414,17 @@ export default function BemobiPageBase() {
           <div>
             <span>P/E {forwardLabel}</span>
             <strong>{value(forwardPe, 1)}x</strong>
-            <small>{forwardYear == null ? "rapportert TTM" : `TTM ${value(peTtm, 1)}x`}</small>
+            <small>{nextYear == null ? `TTM ${value(peTtm, 1)}x` : `${nextYear}E ${value(nextPe, 1)}x · TTM ${value(peTtm, 1)}x`}</small>
           </div>
           <div>
             <span>EV / EBITDA {forwardLabel}</span>
             <strong>{value(forwardEvEbitda, 1)}x</strong>
-            <small>{evEbitdaTtm == null ? "TTM ikke komplett" : `TTM ${value(evEbitdaTtm, 1)}x`}</small>
+            <small>{nextYear == null ? `TTM ${value(evEbitdaTtm, 1)}x` : `${nextYear}E ${value(nextEvEbitda, 1)}x · TTM ${value(evEbitdaTtm, 1)}x`}</small>
           </div>
           <div>
             <span>Est. payout yield</span>
             <strong>{value(payoutYield, 1)} %</strong>
-            <small>{forwardYear == null ? "forward-estimat mangler" : `100 % av ${forwardYear}E resultat`}</small>
+            <small>{nextYear == null ? `100 % av ${forwardLabel} resultat` : `${nextYear}E ${value(nextPayoutYield, 1)} % · 100 % payout`}</small>
           </div>
           <div>
             <span>OpFCF yield TTM</span>
@@ -418,7 +442,7 @@ export default function BemobiPageBase() {
           <span>TTM og OpFCF: Bemobi/CVM · markedsverdi: BMOB3</span>
           {brokerEstimates?.source_url && forwardYear != null ? (
             <a href={brokerEstimates.source_url} target="_blank" rel="noreferrer">
-              Forward {forwardYear}E: {brokerEstimates.source ?? "meglerestimat"} · {dateLabel(brokerEstimates.published_date)} →
+              Meglergrunnlag {nextYear == null ? forwardLabel : `${forwardLabel}–${nextYear}E`}: {brokerEstimates.source ?? "meglerestimat"} · {dateLabel(brokerEstimates.published_date)} →
             </a>
           ) : consensusFailed ? (
             <span>Forward-estimat kunne ikke oppdateres; TTM vises der mulig.</span>
@@ -428,10 +452,10 @@ export default function BemobiPageBase() {
         <div className="bemobiCleanScenarioBlock">
           <div className="bemobiCleanSectionTitle">
             <strong>Multipelsensitivitet</strong>
-            <span>Justert EPS · ikke kursmål</span>
+            <span>{forwardYear == null ? "Justert EPS · ikke kursmål" : `${forwardYear}E EPS · ikke kursmål`}</span>
           </div>
           <div className="bemobiCleanScenarioGrid">
-            {(valuation?.scenarios ?? []).map((scenario) => (
+            {forwardScenarios.map((scenario) => (
               <div key={scenario.multiple}>
                 <span>{value(scenario.multiple, 0)}x P/E</span>
                 <strong>R$ {value(scenario.implied_price_brl, 2)}</strong>
