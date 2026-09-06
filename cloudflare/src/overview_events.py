@@ -218,7 +218,8 @@ async def overview_events(
     Company dates are read directly from D1. The Brazil calendar comes from the
     maintained official-date seed/rolling preview, while release time and true
     event consensus are restored only from the last-good D1 cache populated by
-    the normal Brazil refresh path.
+    the normal Brazil refresh path. Keep this request path read-only and free of
+    external network dependencies so it remains suitable for first-screen bootstrap.
     """
     today = date.fromisoformat(as_of_date) if as_of_date else _current_oslo_date()
     today_iso = today.isoformat()
