@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from src.quote_details import _latest_price, _quote
@@ -9,7 +10,7 @@ from src.quote_details import _latest_price, _quote
 class _CaptureRepository:
     def __init__(self) -> None:
         self.query = ""
-        self.params = ()
+        self.params: tuple[object, ...] = ()
 
     async def first(self, query, params=()):
         self.query = query
@@ -45,11 +46,21 @@ def test_otec_same_day_close_does_not_replace_last_trade() -> None:
 
     with (
         patch("src.quote_details._latest_price", new=AsyncMock(return_value=latest)),
-        patch("src.quote_details._latest_close", new=AsyncMock(return_value=completed)),
+        patch(
+            "src.quote_details._latest_close",
+            new=AsyncMock(return_value=completed),
+        ),
         patch("src.quote_details._daily_history", new=AsyncMock(return_value=[])),
-        patch("src.quote_details._volume_stats", new=AsyncMock(return_value={
-            "latest": None, "average_3m": None, "average_sessions": 0
-        })),
+        patch(
+            "src.quote_details._volume_stats",
+            new=AsyncMock(
+                return_value={
+                    "latest": None,
+                    "average_3m": None,
+                    "average_sessions": 0,
+                }
+            ),
+        ),
         patch("src.quote_details._day_stats", new=AsyncMock(return_value={})),
     ):
         quote = asyncio.run(_quote(object(), "OTEC"))
@@ -71,6 +82,8 @@ def test_all_current_otec_consumers_use_shared_live_helper() -> None:
 
 
 def test_hot_snapshot_version_is_bumped_for_live_price_semantics() -> None:
-    source = (Path(__file__).resolve().parents[1] / "src" / "dashboard_hot_snapshot.py").read_text(encoding="utf-8")
+    source = (
+        Path(__file__).resolve().parents[1] / "src" / "dashboard_hot_snapshot.py"
+    ).read_text(encoding="utf-8")
     assert 'STATE_KEY = "dashboard_hot_snapshot_v7"' in source
     assert "SNAPSHOT_VERSION = 7" in source
