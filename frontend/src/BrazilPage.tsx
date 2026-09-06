@@ -224,9 +224,23 @@ function norwayReleaseTime(value?: string | null) {
 }
 
 function toneLabel(tone?: Tone) {
-  if (tone === "positive") return "POSITIV";
-  if (tone === "negative") return "NEGATIV";
-  return "NØYTRAL";
+  if (tone === "positive") return "POSITIV FOR BEMOBI";
+  if (tone === "negative") return "NEGATIV FOR BEMOBI";
+  return "NØYTRAL FOR BEMOBI";
+}
+
+function rateExpectationText(
+  estimate?: number | null,
+  changeBp?: number | null,
+  year?: number,
+) {
+  if (estimate == null || !Number.isFinite(estimate) || changeBp == null || !Number.isFinite(changeBp) || year == null) {
+    return "Markedsforventningene brukes til å vise den forventede rentebanen fremover.";
+  }
+  if (changeBp === 0) {
+    return `Markedskonsensus venter ${number(estimate, 2)} % styringsrente ved utgangen av ${year}, uendret fra i dag.`;
+  }
+  return `Markedskonsensus venter ${number(estimate, 2)} % styringsrente ved utgangen av ${year}, ${number(Math.abs(changeBp), 0)} bp ${changeBp < 0 ? "lavere" : "høyere"} enn i dag.`;
 }
 
 function trendPoint(data: BrazilPayload, period: string, key: string, year?: number): FocusTrendPoint | undefined {
@@ -425,7 +439,7 @@ export default function BrazilPage() {
             <span><strong>{signedBp(ratePath?.expected_change_to_current_year_bp)}</strong> innen årsslutt</span>
             <span><strong>{signedBp(ratePath?.expected_change_to_next_year_bp)}</strong> til utgangen av {nextYear}</span>
           </div>
-          <p>{summary?.drivers?.valuation?.summary || "Rentebanen beregnes fra Selic og BCB Focus."}</p>
+          <p>{rateExpectationText(ratePath?.next_year_estimate, ratePath?.expected_change_to_next_year_bp, nextYear)}</p>
         </article>
 
         <article className="card brazilDriverCard">
@@ -439,7 +453,7 @@ export default function BrazilPage() {
             <span>+10 % BRL</span>
             <strong>{brlNavImpact10 == null ? "–" : `${signed(brlNavImpact10, 2)} kr NAV/OTEC`}</strong>
           </div>
-          <p>{brlNavImpact1 == null ? summary?.drivers?.nav_fx?.summary : `+1 % BRL tilsvarer om lag ${signed(brlNavImpact1, 2)} kr NAV per OTEC-aksje, alt annet likt.`}</p>
+          <p>{brlNavImpact1 == null ? financialText(summary?.drivers?.nav_fx?.summary) : `+1 % BRL tilsvarer om lag ${signed(brlNavImpact1, 2)} kr NAV per OTEC-aksje, alt annet likt.`}</p>
         </article>
 
         <article className="card brazilDriverCard">
@@ -448,17 +462,17 @@ export default function BrazilPage() {
             <span className={`brazilSignal ${summary?.drivers?.operations?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.operations?.tone)}</span>
           </div>
           <div className="brazilActivityPair">
-            <div><span>IBC-Br</span><strong>{signed(metrics.ibc_br?.value, 2)} %</strong></div>
+            <div><span>Økonomisk aktivitet</span><strong>{signed(metrics.ibc_br?.value, 2)} %</strong></div>
             <div><span>Tjenester</span><strong>{signed(metrics.ibc_services?.value, 2)} %</strong></div>
           </div>
-          <p>{summary?.drivers?.operations?.summary || "Aktivitetssignalene viser etterspørselsbildet Bemobi opererer i."}</p>
+          <p>{financialText(summary?.drivers?.operations?.summary) || "Aktivitetssignalene viser etterspørselsbildet Bemobi opererer i."}</p>
         </article>
       </section>
 
       <section className="card brazilChangeCard">
         <div className="sectionHeading compactHeading">
           <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
-          <small>Focus-endringer sammenlignes med samme offisielle BCB-serier rundt 30 dager tidligere.</small>
+          <small>Tabellen viser hvordan markedets medianforventninger har flyttet seg sammenlignet med rundt 30 dager tidligere.</small>
         </div>
         <div className="brazilChangeLayout">
           <div className="brazilChangeTableWrap">
@@ -466,17 +480,17 @@ export default function BrazilPage() {
               <thead><tr><th>Indikator</th><th>{currentYear}E</th><th>{nextYear}E</th></tr></thead>
               <tbody>
                 <tr>
-                  <td>Selic</td>
+                  <td>Styringsrente</td>
                   <td><strong className={trendTone(selicCurrent30d, true)}>{signedBp(selicCurrent30d?.change_bp)}</strong></td>
                   <td><strong className={trendTone(selicNext30d, true)}>{signedBp(selicNext30d?.change_bp)}</strong></td>
                 </tr>
                 <tr>
-                  <td>IPCA</td>
+                  <td>Prisvekst</td>
                   <td><strong className={trendTone(ipcaCurrent30d, true)}>{signedBp(ipcaCurrent30d?.change_bp)}</strong></td>
                   <td><strong className={trendTone(ipcaNext30d, true)}>{signedBp(ipcaNext30d?.change_bp)}</strong></td>
                 </tr>
                 <tr>
-                  <td>BNP</td>
+                  <td>BNP-vekst</td>
                   <td><strong className={trendTone(gdpCurrent30d, false)}>{gdpCurrent30d?.change == null ? "–" : `${signed(gdpCurrent30d.change, 2)} pp`}</strong></td>
                   <td><strong className={trendTone(gdpNext30d, false)}>{gdpNext30d?.change == null ? "–" : `${signed(gdpNext30d.change, 2)} pp`}</strong></td>
                 </tr>
@@ -517,10 +531,11 @@ export default function BrazilPage() {
 
       <section className="brazilDetailsStack">
         <details className="card brazilDetailBlock">
-          <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>BCB Focus</strong></span><span>Vis detaljer</span></summary>
+          <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>Forventninger til rente, inflasjon, vekst og valuta</strong></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
-            <p>Medianforventningen blant banker, forvaltere og andre deltakere i markedsundersøkelsen til Brasils sentralbank.</p>
+            <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
             <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
+            <p><small>Kilde: Banco Central do Brasil – Focus-undersøkelsen.</small></p>
           </div>
         </details>
 
@@ -545,10 +560,10 @@ export default function BrazilPage() {
         <details className="card brazilDetailBlock">
           <summary><span><span className="label">KILDER OG METODE</span><strong>Datagrunnlag</strong></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
-            <p>Selic, inflasjon og aktivitetsserier hentes fra Brasils sentralbank, Focus-forventninger fra BCB Olinda, publiseringsdatoer fra BCB/IBGE og BRL/NOK fra Norges Bank. Investing.com brukes bare som sekundær kilde for hendelseskonsensus og publiseringstid når dette finnes.</p>
+            <p>Styringsrente, inflasjon og aktivitetsserier hentes fra Brasils sentralbank. Markedsforventningene kommer fra sentralbankens ukentlige Focus-undersøkelse via BCB Olinda. Publiseringsdatoer hentes fra BCB/IBGE og BRL/NOK fra Norges Bank. Investing.com brukes bare som sekundær kilde for hendelseskonsensus og publiseringstid når dette finnes.</p>
             <p>Brasil-statusen er regelbasert og bruker tre transparente kanaler: rentebane, aktivitet og BRL/NOK. Den er ikke en AI-score. BRL-sensitiviteten bruker den samme Bemobi-komponenten som investor-NAV og viser isolert valutaeffekt, alt annet likt.</p>
             {bemobiNavShare != null ? <p>Bemobi utgjør nå omtrent <strong>{number(bemobiNavShare, 1)} %</strong> av investor-NAV før andre samtidige markedsbevegelser.</p> : null}
-            <div className="brazilSources">{(data.sources ?? []).map((source) => <span key={source.name}>{source.name}</span>)}</div>
+            <div className="brazilSources">{(data.sources ?? []).map((source) => <span key={source.name}>{financialText(source.name)}</span>)}</div>
           </div>
         </details>
       </section>
