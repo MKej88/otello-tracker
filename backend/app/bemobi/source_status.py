@@ -73,6 +73,27 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
     return "UNKNOWN", "Ingen ny Full Refresh-kontroll er registrert etter aktivering.", False
 
 
+def _result_release_status(
+    result: dict[str, Any],
+    fact: dict[str, Any] | None,
+    status: str,
+    detail: str,
+    uses_last_good: bool,
+) -> tuple[str, str, bool]:
+    """Treat an expected between-quarter parse gap as healthy when a valid result exists."""
+    if (
+        fact is not None
+        and str(result.get("status") or "").lower() == "not_available"
+        and str(result.get("reason") or "") == "result_documents_not_parseable"
+    ):
+        return (
+            "OK",
+            "Ingen ny kvartalsrapport er identifisert. Siste innleste resultatrapport beholdes frem til en nyere rapport publiseres.",
+            False,
+        )
+    return status, detail, uses_last_good
+
+
 def _latest_fact(connection, fact_types: tuple[str, ...], *, source_name: str | None = None) -> dict[str, Any] | None:
     placeholders = ",".join("?" for _ in fact_types)
     parameters: list[Any] = list(fact_types)
@@ -167,6 +188,14 @@ def _status_for_connection(connection) -> dict[str, Any]:
         result = _sub_result(metadata, source.key)
         status, detail, uses_last_good = _display_status(source.key, result)
         fact = _latest_fact(connection, source.fact_types, source_name=source.source_name)
+        if source.key == "result_release":
+            status, detail, uses_last_good = _result_release_status(
+                result,
+                fact,
+                status,
+                detail,
+                uses_last_good,
+            )
         items.append({
             "key": source.key,
             "label": source.label,
