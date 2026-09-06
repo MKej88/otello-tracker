@@ -71,7 +71,7 @@ def test_media_feed_parser_repairs_common_invalid_xml_tokens() -> None:
     assert articles[0]["title"] == "Bemobi & pagamentos recorrentes"
 
 
-def test_search_queries_are_split_and_redundant_across_google_and_bing() -> None:
+def test_bing_is_the_production_search_feed_and_google_is_only_compatibility() -> None:
     media = _media_module()
 
     assert media.SEARCH_TERMS == ("Bemobi", "BMOB3", '"Pedro Ripper"')
@@ -81,9 +81,11 @@ def test_search_queries_are_split_and_redundant_across_google_and_bing() -> None
     assert all("when%3A30d" in url for url in media.GOOGLE_NEWS_RSS_URLS)
     assert all("bing.com/news/search" in url for url in media.BING_NEWS_RSS_URLS)
     assert all("format=RSS" in url for url in media.BING_NEWS_RSS_URLS)
-    assert media.GOOGLE_NEWS_SOURCE in media.SEARCH_FEED_SOURCES
+    assert media.GOOGLE_NEWS_SOURCE not in media.SEARCH_FEED_SOURCES
     assert media.BING_NEWS_SOURCE in media.SEARCH_FEED_SOURCES
-    assert len(media.FEEDS) == 10
+    assert len(media.FEEDS) == 6
+    assert all(source != "CNN Brasil" for source, _ in media.FEEDS)
+    assert all(source != media.GOOGLE_NEWS_SOURCE for source, _ in media.FEEDS)
 
 
 def test_search_results_are_constrained_to_30_day_window() -> None:
@@ -175,11 +177,13 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert "seen_media_stories" in news_source
     assert 'metadata.get("publisher")' in news_source
     assert '"media_status": media_status' in news_source
+    assert '"failed_sources": failed_sources' in news_source
     assert '"nav_impact": nav_impact' in news_source
     assert '"paywall_likely": paywall_likely' in news_source
 
     assert 'type ContentFilter = "Alle" | "Viktige" | "Offisielt" | "Media"' in frontend_source
     assert 'media_status?: MediaStatus' in frontend_source
+    assert 'failed_sources?: string[]' in frontend_source
     assert 'paywall_likely?: boolean' in frontend_source
     assert "mediaDegraded" in frontend_source
     assert 'MEDIAINNHENTING' not in frontend_source

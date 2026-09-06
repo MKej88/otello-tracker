@@ -48,6 +48,9 @@ type MediaStatus = {
   started_at?: string | null;
   finished_at?: string | null;
   error_count?: number;
+  feed_error_count?: number;
+  translation_error_count?: number;
+  failed_sources?: string[];
 };
 
 type Payload = {
@@ -171,6 +174,7 @@ export default function NewsEventsPage() {
   const mediaStatus = data?.media_status;
   const mediaCheckedAt = mediaStatus?.finished_at ?? mediaStatus?.started_at;
   const mediaDegraded = mediaStatus?.status === "PARTIAL" || mediaStatus?.status === "FAILED";
+  const failedMediaSources = mediaStatus?.failed_sources ?? [];
 
   function changeCompany(next: CompanyFilter) {
     setCompany(next);
@@ -208,11 +212,13 @@ export default function NewsEventsPage() {
       {mediaDegraded && (
         <section className={`card mediaWarning ${mediaStatus?.status === "FAILED" ? "mediaWarningFailed" : "mediaWarningPartial"}`}>
           <div>
-            <strong>{mediaStatus?.status === "FAILED" ? "Medieinnhentingen feilet" : "Noen mediekilder feilet"}</strong>
+            <strong>{mediaStatus?.status === "FAILED" ? "Medieinnhentingen feilet" : "Noen mediekilder kunne ikke oppdateres"}</strong>
             <span>
               {mediaCheckedAt ? `Siste sjekk ${dateLabel(mediaCheckedAt, true)}. ` : ""}
-              {mediaStatus?.error_count ? `${mediaStatus.error_count} feil registrert. ` : ""}
-              Dette gjelder mediefeedene; offisielle selskapsmeldinger vises separat.
+              {failedMediaSources.length > 0 ? `Berørte kilder: ${failedMediaSources.join(", ")}. ` : ""}
+              {mediaStatus?.translation_error_count ? `${mediaStatus.translation_error_count} treff kunne ikke oversettes. ` : ""}
+              {failedMediaSources.length === 0 && !mediaStatus?.translation_error_count && mediaStatus?.error_count ? `${mediaStatus.error_count} feil registrert. ` : ""}
+              Offisielle selskapsmeldinger påvirkes ikke.
             </span>
           </div>
         </section>
