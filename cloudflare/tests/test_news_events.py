@@ -7,7 +7,7 @@ from pathlib import Path
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from news_events import _company_name, _news_item, news_and_events  # noqa: E402
+from news_events import _company_name, _media_refresh_status, _news_item, news_and_events  # noqa: E402
 
 
 class CompanyNameTest(unittest.TestCase):
@@ -72,6 +72,39 @@ class MediaNewsItemTest(unittest.TestCase):
         self.assertEqual(item["importance"], "HIGH")
         self.assertTrue(item["paywall_likely"])
 
+
+class MediaStatusRepository:
+    async def first(
+        self, query: str, parameters: tuple[object, ...] = ()
+    ) -> dict[str, object] | None:
+        assert "FROM job_runs" in query
+        assert parameters == ("bemobi_media_refresh",)
+        return {
+  "started_at": "2026-09-06T12:31:31Z",
+  "finished_at": "2026-09-06T12:32:01Z",
+  "status": "PARTIAL",
+  "records_written": 0,
+  "error_message": None,
+  "metadata_json": (
+      '{"feeds_checked":10,"feed_errors":['
+      '{"source":"Google News Brasil","error":"HTTP 503"},'
+      '{"source":"Google News Brasil","error":"HTTP 503"},'
+      '{"source":"CNN Brasil","error":"ParseError"}],'
+      '"translation_errors":[{"title":"Bemobi","error":"AI"}]}'
+  ),
+        }
+
+
+class MediaRefreshStatusTest(unittest.IsolatedAsyncioTestCase):
+    async def test_exposes_failed_sources_without_repeating_provider_names(self) -> None:
+        result = await _media_refresh_status(MediaStatusRepository())
+
+        self.assertEqual(result["error_count"], 4)
+        self.assertEqual(result["feed_error_count"], 3)
+        self.assertEqual(result["translation_error_count"], 1)
+        self.assertEqual(
+  result["failed_sources"], ["Google News Brasil", "CNN Brasil"]
+        )
 
 class FakeNewsRepository:
     def __init__(self) -> None:

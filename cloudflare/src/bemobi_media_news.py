@@ -63,17 +63,17 @@ BING_NEWS_RSS_URLS = tuple(_bing_news_url(term) for term in SEARCH_TERMS)
 # Compatibility aliases used by tests and diagnostics.
 GOOGLE_NEWS_RSS_URL = GOOGLE_NEWS_RSS_URLS[0]
 BING_NEWS_RSS_URL = BING_NEWS_RSS_URLS[0]
-SEARCH_FEED_SOURCES = frozenset({GOOGLE_NEWS_SOURCE, BING_NEWS_SOURCE})
+SEARCH_FEED_SOURCES = frozenset({BING_NEWS_SOURCE})
 
-# Direct publisher feeds give richer snippets when available. Search feeds are
-# deliberately duplicated across Google/Bing for coverage, but query membership
-# alone is never treated as proof that an item is relevant.
+# Direct publisher feeds give richer snippets when available. Bing News provides
+# discovery coverage across publishers; every item must still prove explicit Bemobi
+# relevance in its own RSS metadata. Google News helpers are kept for compatibility,
+# but production does not query them because the RSS endpoint returns HTTP 503 from
+# Cloudflare egress. CNN Brasil's former /feed/ URL now serves HTML instead of RSS.
 FEEDS = (
     ("InfoMoney", "https://www.infomoney.com.br/feed/"),
     ("NeoFeed", "https://neofeed.com.br/feed/"),
     ("Brazil Journal", "https://braziljournal.com/feed/"),
-    ("CNN Brasil", "https://www.cnnbrasil.com.br/tudo-sobre/economia/feed/"),
-    *((GOOGLE_NEWS_SOURCE, url) for url in GOOGLE_NEWS_RSS_URLS),
     *((BING_NEWS_SOURCE, url) for url in BING_NEWS_RSS_URLS),
 )
 
@@ -322,7 +322,7 @@ async def _ensure_source(repository) -> int:
     await repository.run(
         """
         INSERT INTO sources(code, name, source_type, base_url, is_official, is_active)
-        VALUES (?, ?, 'OTHER', 'https://news.google.com/', 0, 1)
+        VALUES (?, ?, 'OTHER', 'https://www.bing.com/news/', 0, 1)
         ON CONFLICT(code) DO UPDATE SET
             name=excluded.name, source_type=excluded.source_type,
             base_url=excluded.base_url, is_active=1
@@ -442,7 +442,7 @@ async def refresh_bemobi_media_news(
 ) -> dict[str, Any]:
     """Fetch investor-relevant Brazilian Bemobi media and store English renderings.
 
-    Google News and Bing are discovery sources only: every result must independently mention
+    Bing News is the production discovery source: every result must independently mention
     Bemobi, BMOB3 or Pedro Ripper in its RSS metadata. Quote pages, charts, technical-analysis
     pages, company profiles and disclaimer pages are filtered before translation. Generic
     paywalled mentions are also removed, while material paywalled stories are retained and

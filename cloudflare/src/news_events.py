@@ -73,6 +73,27 @@ def _error_count(metadata: dict[str, Any], error_message: Any) -> int:
     return count
 
 
+def _media_error_breakdown(metadata: dict[str, Any]) -> dict[str, Any]:
+    feed_errors = metadata.get("feed_errors")
+    translation_errors = metadata.get("translation_errors")
+    feed_items = feed_errors if isinstance(feed_errors, list) else []
+    translation_items = (
+        translation_errors if isinstance(translation_errors, list) else []
+    )
+    failed_sources: list[str] = []
+    for item in feed_items:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        if source and source not in failed_sources:
+            failed_sources.append(source)
+    return {
+        "feed_error_count": len(feed_items),
+        "translation_error_count": len(translation_items),
+        "failed_sources": failed_sources,
+    }
+
+
 async def _media_refresh_status(repository) -> dict[str, Any]:
     row = await repository.first(
         """
@@ -103,6 +124,7 @@ async def _media_refresh_status(repository) -> dict[str, Any]:
         "written": int(row.get("records_written") or metadata.get("written") or 0),
         "skipped_existing": int(metadata.get("skipped_existing") or 0),
         "error_count": _error_count(metadata, row.get("error_message")),
+        **_media_error_breakdown(metadata),
         "initial_backfill": bool(metadata.get("initial_backfill")),
         "article_limit": int(metadata.get("article_limit") or 0),
         "window_days": int(metadata.get("window_days") or DEFAULT_MEDIA_WINDOW_DAYS),
