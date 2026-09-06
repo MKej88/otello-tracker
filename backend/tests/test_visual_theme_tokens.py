@@ -72,7 +72,7 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
         "economic-nav.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-positive-border)"),
         "styles.css": ("var(--ot-border-soft)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
         "investor-v2.css": ("var(--ot-border-soft)", "var(--ot-positive)", "var(--ot-chart-secondary)"),
-        "overview-page.css": ("var(--ot-surface-inset)", "var(--ot-positive)", "var(--ot-warning-soft)"),
+        "overview-page.css": ("var(--ot-surface-inset)", "var(--ot-positive)", "var(--ot-accent-soft)", "var(--ot-control-soft)"),
         "news-events.css": ("var(--ot-surface)", "var(--ot-warning)", "var(--ot-positive-soft)"),
         "navigation-groups.css": ("var(--ot-border-soft)", "var(--ot-text-muted)"),
         "bemobi-source-status.css": ("var(--ot-positive)", "var(--ot-warning-border)", "var(--ot-negative)"),
@@ -101,6 +101,8 @@ def test_overview_reference_uses_same_shared_surface_contract() -> None:
 
     assert "background:var(--ot-surface-inset)" in overview
     assert "border:1px solid var(--ot-border-inset)" in overview
+    assert "background:var(--ot-accent-soft)" in overview
+    assert "background:var(--ot-control-soft)" in overview
     assert "color:var(--ot-positive)" in overview
     assert "color:var(--ot-negative)" in overview
 
