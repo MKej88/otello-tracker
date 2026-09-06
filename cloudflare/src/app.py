@@ -32,6 +32,7 @@ CACHE_POLICIES = {
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/bemobi/source-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
+    "/api/overview/events": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/brazil/dashboard": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/news-events": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/market/quotes": ("public, max-age=30", "public, max-age=300, stale-while-revalidate=1800"),
@@ -260,6 +261,24 @@ async def get_bemobi_source_status(request: Request) -> dict:
     from bemobi_source_status import bemobi_source_status
 
     return await bemobi_source_status(_repository(request))
+
+
+@app.get("/api/overview/events")
+async def get_overview_events(
+    request: Request,
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
+    from overview_events import overview_events
+
+    repository = _repository(request)
+    try:
+        if as_of_date is None:
+            cached = await dashboard_hot_component(repository, "events")
+            if cached is not None:
+                return cached
+        return await overview_events(repository, as_of_date=as_of_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
 
 
 @app.get("/api/brazil/dashboard")

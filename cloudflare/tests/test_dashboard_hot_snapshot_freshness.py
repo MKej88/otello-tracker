@@ -31,6 +31,10 @@ def test_snapshot_refresh_preserves_economic_nav_calculation_time() -> None:
             new=AsyncMock(return_value={"ready": True}),
         ),
         patch(
+            "src.dashboard_hot_snapshot.overview_events",
+            new=AsyncMock(return_value={"ready": True, "events": [], "calendar": []}),
+        ),
+        patch(
             "src.dashboard_hot_snapshot._now_iso",
             return_value="2026-08-31T10:00:00Z",
         ),

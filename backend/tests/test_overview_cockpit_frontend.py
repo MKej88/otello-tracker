@@ -19,8 +19,9 @@ def test_overview_is_a_compact_investor_cockpit() -> None:
     ):
         assert text in source
 
-    assert '"/api/news-events"' in source
-    assert '"/api/brazil/dashboard"' in source
+    assert '"/api/overview/events"' in source
+    assert '"/api/news-events"' not in source
+    assert '"/api/brazil/dashboard"' not in source
     assert '"/api/bemobi/dashboard"' not in source
     assert "MarketQuotePanelWithData" not in source
     assert "FreshnessCard" not in source

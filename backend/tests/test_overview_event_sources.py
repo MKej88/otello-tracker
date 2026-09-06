@@ -3,19 +3,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERVIEW = ROOT / "frontend" / "src" / "OverviewPage.tsx"
-NEWS_EVENTS = ROOT / "cloudflare" / "src" / "news_events.py"
-BRAZIL = ROOT / "cloudflare" / "src" / "brazil_dashboard_v2.py"
+OVERVIEW_EVENTS = ROOT / "cloudflare" / "src" / "overview_events.py"
+BRAZIL_CACHE = ROOT / "cloudflare" / "src" / "brazil_focus_resilience.py"
 
 
-def test_overview_uses_central_company_events_and_sourced_macro_calendar() -> None:
+def test_overview_uses_lightweight_company_and_macro_event_feed() -> None:
     overview = OVERVIEW.read_text(encoding="utf-8")
-    news_events = NEWS_EVENTS.read_text(encoding="utf-8")
-    brazil = BRAZIL.read_text(encoding="utf-8")
+    event_feed = OVERVIEW_EVENTS.read_text(encoding="utf-8")
+    brazil_cache = BRAZIL_CACHE.read_text(encoding="utf-8")
 
-    assert '"/api/news-events"' in overview
-    assert '"/api/brazil/dashboard"' in overview
+    assert '"/api/overview/events"' in overview
+    assert '"/api/news-events"' not in overview
+    assert '"/api/brazil/dashboard"' not in overview
     assert '"/api/bemobi/dashboard"' not in overview
-    assert "bemobi_investor_facts" in news_events
-    assert 'fact_type=\'NEXT_QUARTER\'' in news_events
-    assert 'result["calendar"] = _annotate_market_consensus(enriched)' in brazil
+    assert "bemobi_investor_facts" in event_feed
+    assert "calendar_events(as_of_date=today_iso, focus={})" in event_feed
+    assert "apply_cached_event_expectations" in event_feed
+    assert "live_external_fetches" in event_feed
+    assert "EVENT_STATE_KEY" in brazil_cache
     assert 'event.importance.startsWith("Høy")' in overview

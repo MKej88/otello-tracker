@@ -67,5 +67,5 @@ def test_live_composition_preserves_explicit_bemobi_cash_display() -> None:
 def test_hot_snapshot_version_is_bumped_for_new_economic_response_shape() -> None:
     source = HOT_SNAPSHOT.read_text(encoding="utf-8")
 
-    assert 'STATE_KEY = "dashboard_hot_snapshot_v6"' in source
-    assert "SNAPSHOT_VERSION = 6" in source
+    assert 'STATE_KEY = "dashboard_hot_snapshot_v7"' in source
+    assert "SNAPSHOT_VERSION = 7" in source

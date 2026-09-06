@@ -73,9 +73,10 @@ type NewsEvent = {
   source?: string | null;
 };
 
-type NewsEventsPayload = {
+type OverviewEventsPayload = {
   ready: boolean;
   events?: NewsEvent[];
+  calendar?: BrazilCalendarEvent[];
 };
 
 type BrazilCalendarExpectation = {
@@ -92,10 +93,6 @@ type BrazilCalendarEvent = {
   kind: string;
   importance: string;
   expectation?: BrazilCalendarExpectation | null;
-};
-
-type BrazilCalendarPayload = {
-  calendar?: BrazilCalendarEvent[];
 };
 
 type OverviewEvent = {
@@ -241,15 +238,12 @@ function companyEventType(category?: string | null) {
   return labels[String(category ?? "").toUpperCase()] ?? "Selskap";
 }
 
-function upcomingEvents(
-  companyPayload?: NewsEventsPayload | null,
-  brazilPayload?: BrazilCalendarPayload | null,
-): OverviewEvent[] {
+function upcomingEvents(payload?: OverviewEventsPayload | null): OverviewEvent[] {
   const today = osloDateKey();
   if (!today) return [];
   const events: OverviewEvent[] = [];
 
-  for (const event of companyPayload?.events ?? []) {
+  for (const event of payload?.events ?? []) {
     if (!event.date || event.date < today) continue;
     events.push({
       id: `company-${event.id}`,
@@ -265,7 +259,7 @@ function upcomingEvents(
     });
   }
 
-  for (const event of brazilPayload?.calendar ?? []) {
+  for (const event of payload?.calendar ?? []) {
     if (!event.date || event.date < today || !event.importance.startsWith("Høy")) continue;
     events.push({
       id: `macro-${event.date}-${event.kind}-${event.name}`,
@@ -385,13 +379,8 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
-  const { data: newsEvents } = usePollingResource<NewsEventsPayload>(
-    "/api/news-events",
-    EVENT_REFRESH_MS,
-    true,
-  );
-  const { data: brazilCalendar } = usePollingResource<BrazilCalendarPayload>(
-    "/api/brazil/dashboard",
+  const { data: overviewEvents } = usePollingResource<OverviewEventsPayload>(
+    "/api/overview/events",
     EVENT_REFRESH_MS,
     true,
   );
@@ -406,7 +395,7 @@ export default function OverviewPage() {
   const discountSpread = nav?.discount_pct != null && discountMedian != null
     ? nav.discount_pct - discountMedian
     : null;
-  const events = upcomingEvents(newsEvents, brazilCalendar);
+  const events = upcomingEvents(overviewEvents);
   const nextEvent = events[0];
   const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
 
