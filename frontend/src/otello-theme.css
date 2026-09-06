@@ -1,9 +1,9 @@
 /*
  * Otello visual identity
  *
- * A neutral, finance-first dark theme. Blue is reserved for brand/interaction,
- * while green/red/amber are reserved for semantic market states.
- * Keep layout rules in the existing page styles; this file owns the shared palette.
+ * Single source of truth for colour, surface and semantic state tokens.
+ * Page CSS owns layout, spacing and component geometry; it should consume these
+ * tokens instead of defining parallel palettes or cross-page overrides.
  */
 :root {
   color-scheme: dark;
@@ -15,7 +15,6 @@
   --ot-surface-muted: #101419;
   --ot-surface-inset: #17283d;
   --ot-surface-inset-nested: #142237;
-  --ot-surface-hero: linear-gradient(180deg, #17283d, #121c2b);
 
   --ot-border: #272d36;
   --ot-border-soft: #20262e;
@@ -32,8 +31,18 @@
   --ot-accent-border: rgba(79, 145, 212, 0.38);
 
   --ot-positive: #36c99a;
+  --ot-positive-soft: rgba(54, 201, 154, 0.12);
+  --ot-positive-border: rgba(54, 201, 154, 0.32);
   --ot-negative: #f06f7d;
+  --ot-negative-soft: rgba(240, 111, 125, 0.1);
+  --ot-negative-border: rgba(240, 111, 125, 0.32);
   --ot-warning: #d2a851;
+  --ot-warning-soft: rgba(210, 168, 81, 0.1);
+  --ot-warning-border: rgba(210, 168, 81, 0.32);
+
+  --ot-control-soft: rgba(255, 255, 255, 0.035);
+  --ot-overlay-soft: rgba(11, 13, 16, 0.18);
+  --ot-track: #424a55;
 
   --ot-chart-secondary: #55c9b5;
   --ot-chart-reference: rgba(159, 193, 255, 0.9);
@@ -55,7 +64,6 @@ body {
 }
 
 body {
-  /* Deliberately flat: avoids the generic AI/SaaS blue glow. */
   background-image: none;
 }
 
@@ -67,7 +75,7 @@ body {
 
 .brandMark {
   background: var(--ot-accent);
-  color: #fff;
+  color: var(--ot-text);
   box-shadow: none;
 }
 
@@ -81,7 +89,7 @@ body {
 }
 
 .navItem {
-  color: #929ca9;
+  color: var(--ot-text-secondary);
 }
 
 .navItem:not(:disabled):hover {
@@ -90,7 +98,7 @@ body {
 }
 
 .navItem.active {
-  background: #18202a;
+  background: var(--ot-surface-inset);
   color: var(--ot-text);
   box-shadow: inset 0 0 0 1px var(--ot-accent-border);
 }
@@ -101,7 +109,6 @@ body {
 }
 
 /* Typography ------------------------------------------------------------- */
-/* Defaults stay deliberately low-specificity so semantic state classes can win. */
 :where(h1, h2, .card strong) {
   color: var(--ot-text);
 }
@@ -130,82 +137,11 @@ body {
   color: var(--ot-text-muted);
 }
 
-/* Surfaces --------------------------------------------------------------- */
+/* Shared surfaces -------------------------------------------------------- */
 .card {
   background: var(--ot-surface);
   border-color: var(--ot-border);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
-}
-
-/*
- * Shared investor surface hierarchy:
- * neutral outer cards -> navy hero/emphasis -> navy inset data panels -> nested inset.
- * Page CSS owns layout; this contract owns the visual depth across pages.
- */
-.investorMainV2 :is(
-  .bemobiCleanHero,
-  .consensusHeroV2
-) {
-  background: var(--ot-surface-hero);
-  border-color: var(--ot-border-inset);
-}
-
-.investorMainV2 :is(
-  .bemobiCleanSection,
-  .bemobiCleanValuation,
-  .bemobiCleanHistory,
-  .bemobiCleanWatch
-) {
-  background: var(--ot-surface);
-  border-color: var(--ot-border);
-}
-
-.investorMainV2 :is(
-  .overviewNavSnapshot > div,
-  .cashInterestStrip > div,
-  .cashDistributionHeadline,
-  .cashBuybackFlowCard,
-  .cashMethodGrid > div,
-  .cashBuybackSecondaryFacts > div,
-  .accuracyGrid > div,
-  .bemobiDriverGrid > div,
-  .bemobiCashMetricGrid > div,
-  .bemobiCleanValuationGrid > div,
-  .bemobiWatchGrid > div,
-  .bemobiCleanScenarioGrid > div,
-  .consensusWaitingPreview,
-  .consensusBeatSummaryGrid > div,
-  .consensusForwardRevision,
-  .consensusRevisionEvent,
-  .beatMissGridDetails > article
-) {
-  background: var(--ot-surface-inset);
-  border-color: var(--ot-border-inset);
-}
-
-.investorMainV2 :is(
-  .bemobiCleanScenarioBlock,
-  .consensusForwardRevisionGrid > div,
-  .consensusRevisionEventGrid > div
-) {
-  background: var(--ot-surface-inset-nested);
-  border-color: var(--ot-border-soft);
-}
-
-.investorMainV2 :is(
-  .buybackTable th,
-  .bemobiQuarterTable th,
-  .consensusTable th
-) {
-  background: var(--ot-surface-inset);
-}
-
-.investorMainV2 :is(
-  .buybackTableWrap,
-  .bemobiQuarterTableWrap,
-  .consensusTableWrap
-) {
-  border-color: var(--ot-border-inset);
 }
 
 .insightDivider,
@@ -222,7 +158,7 @@ body {
 }
 
 .insightRangeTrack {
-  background: #424a55;
+  background: var(--ot-track);
 }
 
 .estimatedCashValue,
@@ -254,8 +190,8 @@ body {
 }
 
 .periodButtons button:hover {
-  border-color: #4a5563;
-  background: #1b2129;
+  border-color: var(--ot-border-strong);
+  background: var(--ot-surface-raised);
 }
 
 .periodButtons button.active {
@@ -275,7 +211,7 @@ body {
 
 /* Charts ----------------------------------------------------------------- */
 .realChart {
-  background: #0e1115;
+  background: var(--ot-surface-muted);
   border-color: var(--ot-border-soft);
 }
 
@@ -286,11 +222,11 @@ body {
 
 .axisTick,
 .axisZero {
-  stroke: #505966;
+  stroke: var(--ot-text-muted);
 }
 
 .legend {
-  background: rgba(11, 13, 16, 0.86);
+  background: var(--ot-bg);
 }
 
 .chartDates,
@@ -335,14 +271,12 @@ body {
 }
 
 .driverBarTrack {
-  background: #262c34;
+  background: var(--ot-border);
 }
 
 /* Semantic market colours ---------------------------------------------- */
 .positive,
 .sourceOk,
-.freshnessDot.fresh,
-.qualityDot.ok,
 .positiveBar {
   color: var(--ot-positive);
 }
@@ -374,7 +308,7 @@ body {
   color: var(--ot-text-muted);
 }
 
-/* Notices keep meaning, but use the neutral surface language. */
+/* Notices --------------------------------------------------------------- */
 .neutralWarning,
 .resourceNotice {
   border-color: var(--ot-border-strong);
