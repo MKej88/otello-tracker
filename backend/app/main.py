@@ -123,9 +123,7 @@ def _sync_summary_with_otec_quote(
         high = _finite_number(range_1y.get("high"))
         if current_discount is not None and low is not None and high is not None:
             range_1y["position_pct"] = (
-                50.0
-                if high == low
-                else (current_discount - low) / (high - low) * 100
+                50.0 if high == low else (current_discount - low) / (high - low) * 100
             )
         insights["range_1y"] = range_1y
         result["nav_discount_insights"] = insights
