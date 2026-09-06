@@ -120,7 +120,7 @@ def test_public_job_payload_includes_safe_nightly_summary() -> None:
     assert payload["preflight"] == {
         "ready": True,
         "blocker_count": 0,
-        "warning_count": 2,
+        "warning_count": 1,
         "warnings": [
             {
                 "code": "bemobi_cvm_current_year",
@@ -134,7 +134,7 @@ def test_public_job_payload_includes_safe_nightly_summary() -> None:
     assert "private_internal_check" not in str(payload["preflight"])
 
 
-def test_public_job_payload_explains_known_quality_warnings() -> None:
+def test_public_job_payload_filters_normal_estimates_and_explains_actionable_warnings() -> None:
     now = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
     row = {
         "status": "SUCCESS",
@@ -157,11 +157,8 @@ def test_public_job_payload_explains_known_quality_warnings() -> None:
         running_max_age=FULL_RUNNING_MAX_AGE,
     )
 
+    assert payload["preflight"]["warning_count"] == 1
     assert payload["preflight"]["warnings"] == [
-        {
-            "code": "dashboard_quality",
-            "message": "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer.",
-        },
         {
             "code": "buyback_forecast_current_state",
             "message": "Tilbakekjøpsprognose: Prognosemotoren er ikke klar i gjeldende tilstand.",
@@ -171,7 +168,7 @@ def test_public_job_payload_explains_known_quality_warnings() -> None:
     assert "secret" not in str(payload["preflight"])
 
 
-def test_dashboard_quality_warning_explains_known_degraded_note() -> None:
+def test_dashboard_quality_warning_ignores_normal_degraded_forecast_note() -> None:
     now = datetime(2026, 9, 5, 4, 0, tzinfo=UTC)
     notes = (
         "FULL NAV = stored CORE NAV + option-aware other net assets/liabilities. "
@@ -209,18 +206,11 @@ def test_dashboard_quality_warning_explains_known_degraded_note() -> None:
         running_max_age=FULL_RUNNING_MAX_AGE,
     )
 
-    assert payload["preflight"]["warnings"] == [
-        {
-            "code": "dashboard_quality",
-            "message": (
-                "Dashboardkvalitet: Andre nettoeiendeler/-forpliktelser er videreført "
-                "fra siste rapport og er derfor delvis estimert."
-            ),
-        }
-    ]
+    assert payload["preflight"]["warning_count"] == 0
+    assert payload["preflight"]["warnings"] == []
 
 
-def test_dashboard_quality_reasons_use_structured_causes() -> None:
+def test_dashboard_quality_reasons_ignore_normal_estimation_states() -> None:
     reasons = _dashboard_quality_reasons(
         {
             "data_status": "DEGRADED",
@@ -230,10 +220,24 @@ def test_dashboard_quality_reasons_use_structured_causes() -> None:
         }
     )
 
+    assert reasons == []
+
+
+def test_dashboard_quality_reasons_keep_real_quality_problems() -> None:
+    reasons = _dashboard_quality_reasons(
+        {
+            "data_status": "DEGRADED",
+            "cash_quality": "FORECAST_PARTIAL",
+            "cash_calibration_quality": "HIGH_RESIDUAL",
+            "share_count_quality": "POTENTIALLY_STALE",
+            "ona_quality": "FORECAST_PARTIAL",
+            "receivable_quality": "ESTIMATED_GROSS",
+        }
+    )
+
     assert reasons == [
-        "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser.",
-        "Antall utestående Otello-aksjer kan være utdatert mens tilbakekjøpsprogrammet pågår.",
-        "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert.",
+        "Kontantestimatet ligger i en periode med høy avstemmingsrest og har lavere kvalitet.",
+        "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden.",
     ]
 
 
@@ -267,18 +271,15 @@ class _QualityRepository:
         raise AssertionError(f"unexpected query: {query} {params}")
 
 
-def test_current_dashboard_quality_reports_live_status_and_reasons() -> None:
+def test_current_dashboard_quality_keeps_raw_status_but_suppresses_normal_estimate_warning() -> None:
     quality = asyncio.run(_current_dashboard_quality(_QualityRepository()))
 
     assert quality == {
         "available": True,
-        "status": "DEGRADED",
+        "status": "OK",
         "data_status": "DEGRADED",
         "as_of_date": "2026-09-04",
-        "reasons": [
-            "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser.",
-            "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert.",
-        ],
+        "reasons": [],
     }
 
 
