@@ -27,6 +27,7 @@ type NewsItem = {
   url?: string | null;
   content_type?: ContentType;
   original_language?: string | null;
+  paywall_likely?: boolean;
 };
 
 type EventItem = {
@@ -74,6 +75,16 @@ function SourceLink({ url, source }: { url?: string | null; source?: string | nu
     <a className="newsSourceLink" href={url} target="_blank" rel="noreferrer">
       {label} <span aria-hidden="true">↗</span>
     </a>
+  );
+}
+
+function NewsSourceMeta({ item }: { item: NewsItem }) {
+  return (
+    <span className="newsSourceMeta">
+      {contentType(item) === "MEDIA" ? "Media" : "Offisiell"} ·{" "}
+      {item.paywall_likely && <><span className="paywallBadge">Betalingsmur</span> · </>}
+      <SourceLink source={item.source} url={item.url} />
+    </span>
   );
 }
 
@@ -265,9 +276,7 @@ export default function NewsEventsPage() {
                   {impact && <span className={`impactTag impact${item.nav_impact}`}>{impact}</span>}
                   <div className="newsCardFooter newsCardFooterCompact">
                     <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
-                    <span className="newsSourceMeta">
-                      {contentType(item) === "MEDIA" ? "Media" : "Offisiell"} · <SourceLink source={item.source} url={item.url} />
-                    </span>
+                    <NewsSourceMeta item={item} />
                   </div>
                 </article>
               );
@@ -311,9 +320,7 @@ export default function NewsEventsPage() {
                   )}
                   <div className="newsCardFooter newsCardFooterCompact">
                     <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
-                    <span className="newsSourceMeta">
-                      {itemType === "MEDIA" ? "Media" : "Offisiell"} · <SourceLink source={item.source} url={item.url} />
-                    </span>
+                    <NewsSourceMeta item={item} />
                   </div>
                 </article>
               );
