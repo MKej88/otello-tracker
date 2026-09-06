@@ -43,75 +43,57 @@ def test_theme_owns_shared_surface_semantic_and_chart_tokens() -> None:
     assert "!important" not in theme
 
 
+def test_all_non_theme_stylesheets_consume_shared_palette() -> None:
+    hardcoded_colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
+    css_files = sorted(FRONTEND.glob("*.css"))
+
+    assert css_files
+    assert (FRONTEND / "otello-theme.css") in css_files
+
+    for path in css_files:
+        if path.name == "otello-theme.css":
+            continue
+        source = path.read_text(encoding="utf-8")
+        assert not hardcoded_colour.search(source), path.name
+        assert "!important" not in source, path.name
+
+
 def test_migrated_pages_consume_shared_tokens_directly() -> None:
     expected_tokens = {
-        "cash-page.css": (
-            "var(--ot-surface-inset)",
-            "var(--ot-surface-raised)",
-            "var(--ot-border-inset)",
-        ),
-        "buyback-page.css": (
-            "var(--ot-positive-soft)",
-            "var(--ot-warning-soft)",
-            "var(--ot-surface-raised)",
-        ),
-        "bemobi-page.css": (
-            "var(--ot-surface-inset)",
-            "var(--ot-border-inset)",
-            "var(--ot-positive)",
-        ),
-        "consensus-page.css": (
-            "var(--ot-surface-raised)",
-            "var(--ot-surface-inset)",
-            "var(--ot-positive-soft)",
-        ),
-        "consensus-history.css": (
-            "var(--ot-surface)",
-            "var(--ot-surface-raised)",
-            "var(--ot-accent-strong)",
-        ),
-        "brazil-page.css": (
-            "var(--ot-surface-raised)",
-            "var(--ot-warning-soft)",
-            "var(--ot-chart-secondary)",
-        ),
-        "data-quality.css": (
-            "var(--ot-surface-raised)",
-            "var(--ot-positive-soft)",
-            "var(--ot-warning-soft)",
-        ),
-        "nav-sensitivity.css": (
-            "var(--ot-surface-raised)",
-            "var(--ot-accent-soft)",
-            "var(--ot-negative-soft)",
-        ),
-        "market-quote-panel.css": (
-            "var(--ot-surface)",
-            "var(--ot-track)",
-            "var(--ot-positive)",
-        ),
-        "economic-nav.css": (
-            "var(--ot-surface)",
-            "var(--ot-surface-raised)",
-            "var(--ot-positive-border)",
-        ),
+        "cash-page.css": ("var(--ot-surface-inset)", "var(--ot-surface-raised)", "var(--ot-border-inset)"),
+        "buyback-page.css": ("var(--ot-positive-soft)", "var(--ot-warning-soft)", "var(--ot-surface-raised)"),
+        "bemobi-page.css": ("var(--ot-surface-inset)", "var(--ot-border-inset)", "var(--ot-positive)"),
+        "consensus-page.css": ("var(--ot-surface-raised)", "var(--ot-surface-inset)", "var(--ot-positive-soft)"),
+        "consensus-history.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-accent-strong)"),
+        "brazil-page.css": ("var(--ot-surface-raised)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
+        "data-quality.css": ("var(--ot-surface-raised)", "var(--ot-positive-soft)", "var(--ot-warning-soft)"),
+        "nav-sensitivity.css": ("var(--ot-surface-raised)", "var(--ot-accent-soft)", "var(--ot-negative-soft)"),
+        "market-quote-panel.css": ("var(--ot-surface)", "var(--ot-track)", "var(--ot-positive)"),
+        "economic-nav.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-positive-border)"),
+        "styles.css": ("var(--ot-border-soft)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
+        "investor-v2.css": ("var(--ot-border-soft)", "var(--ot-positive)", "var(--ot-chart-secondary)"),
+        "overview-page.css": ("var(--ot-surface-inset)", "var(--ot-positive)", "var(--ot-accent-soft)", "var(--ot-control-soft)"),
+        "news-events.css": ("var(--ot-surface)", "var(--ot-warning)", "var(--ot-positive-soft)"),
+        "navigation-groups.css": ("var(--ot-border-soft)", "var(--ot-text-muted)"),
+        "bemobi-source-status.css": ("var(--ot-positive)", "var(--ot-warning-border)", "var(--ot-negative)"),
+        "nav-waterfall.css": ("var(--ot-surface)", "var(--ot-positive)", "var(--ot-warning-soft)"),
+        "report-status.css": ("var(--ot-surface-raised)", "var(--ot-positive-soft)", "var(--ot-warning-soft)"),
+        "runtime-status.css": ("var(--ot-surface-raised)", "var(--ot-negative-soft)", "var(--ot-warning-soft)"),
+        "history-page.css": ("var(--ot-surface-inset)", "var(--ot-chart-reference)", "var(--ot-warning-soft)"),
     }
-
-    hardcoded_colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
 
     for filename, tokens in expected_tokens.items():
         source = read_frontend(filename)
         for token in tokens:
             assert token in source
-        assert not hardcoded_colour.search(source), filename
-        assert "!important" not in source
 
     assert "--bemobi-" not in read_frontend("bemobi-page.css")
     assert "--cash-inset-surface" not in read_frontend("cash-page.css")
 
-    brazil = read_frontend("brazil-page.css")
-    for legacy_token in ("var(--muted)", "var(--border)", "var(--accent", "var(--text)"):
-        assert legacy_token not in brazil
+    for filename in ("brazil-page.css", "news-events.css"):
+        source = read_frontend(filename)
+        for legacy_token in ("var(--muted)", "var(--border)", "var(--accent", "var(--text)", "var(--line)"):
+            assert legacy_token not in source
 
 
 def test_overview_reference_uses_same_shared_surface_contract() -> None:
@@ -119,6 +101,8 @@ def test_overview_reference_uses_same_shared_surface_contract() -> None:
 
     assert "background:var(--ot-surface-inset)" in overview
     assert "border:1px solid var(--ot-border-inset)" in overview
+    assert "background:var(--ot-accent-soft)" in overview
+    assert "background:var(--ot-control-soft)" in overview
     assert "color:var(--ot-positive)" in overview
     assert "color:var(--ot-negative)" in overview
 
@@ -128,21 +112,6 @@ def test_cross_page_surface_override_layer_is_gone() -> None:
 
     assert 'import "./surface-hierarchy.css"' not in main
     assert not (FRONTEND / "surface-hierarchy.css").exists()
-
-    for filename in (
-        "cash-page.css",
-        "buyback-page.css",
-        "bemobi-page.css",
-        "consensus-page.css",
-        "brazil-page.css",
-        "data-quality.css",
-        "nav-sensitivity.css",
-        "market-quote-panel.css",
-        "economic-nav.css",
-    ):
-        source = read_frontend(filename)
-        assert "var(--ot-surface" in source
-        assert "var(--ot-border" in source
 
 
 def test_history_context_uses_shared_chart_contract() -> None:
@@ -161,21 +130,29 @@ def test_history_context_uses_shared_chart_contract() -> None:
         assert token in history
 
 
-def test_theme_load_order_is_explicit_and_old_override_files_are_gone() -> None:
+def test_global_stylesheet_order_is_owned_by_entrypoint() -> None:
     main = read_frontend("main.tsx")
     app = read_frontend("InvestorApp.tsx")
 
     base_index = main.index('import "./styles.css"')
     theme_index = main.index('import "./otello-theme.css"')
+    investor_index = main.index('import "./investor-v2.css"')
+    navigation_index = main.index('import "./navigation-groups.css"')
     history_index = main.index('import "./history-context.css"')
-    assert base_index < theme_index < history_index
+    assert base_index < theme_index < investor_index < navigation_index < history_index
+
+    assert 'import "./investor-v2.css"' not in app
+    assert 'import "./navigation-groups.css"' not in app
     assert 'import "./otello-theme.css"' not in app
+    assert 'import "./prelive.css"' not in main
+    assert not (FRONTEND / "prelive.css").exists()
 
     for removed_name in (
         "cash-surface-overrides.css",
         "overview-driver-colors.css",
         "overview-surface-overrides.css",
         "surface-hierarchy.css",
+        "prelive.css",
     ):
         assert removed_name not in main
         assert not (FRONTEND / removed_name).exists()

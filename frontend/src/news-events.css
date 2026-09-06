@@ -1,70 +1,70 @@
 .newsEventsPage { gap: 22px; }
-.newsHero { display: flex; justify-content: space-between; gap: 32px; padding: 28px 30px; background: linear-gradient(135deg, rgba(25, 54, 48, .98), rgba(17, 34, 31, .98)); color: #f6f2e8; }
+.newsHero { display: flex; justify-content: space-between; gap: 32px; padding: 28px 30px; background: var(--ot-surface); color: var(--ot-text); }
 .newsHeroClean { align-items: center; }
 .newsHero h2 { margin: 7px 0 8px; font-size: clamp(1.5rem, 2.8vw, 2.15rem); }
-.newsHero p { max-width: 720px; margin: 0; color: rgba(246, 242, 232, .74); line-height: 1.55; }
-.newsStaleNote { display: block; margin-top: 10px; color: #f2c985; }
-.newsNextEvent { width: min(330px, 38%); min-width: 250px; padding: 16px 18px; border: 1px solid rgba(255,255,255,.14); border-radius: 14px; background: rgba(255,255,255,.06); }
+.newsHero p { max-width: 720px; margin: 0; color: var(--ot-text-secondary); line-height: 1.55; }
+.newsStaleNote { display: block; margin-top: 10px; color: var(--ot-warning); }
+.newsNextEvent { width: min(330px, 38%); min-width: 250px; padding: 16px 18px; border: 1px solid var(--ot-border-soft); border-radius: 14px; background: var(--ot-surface-raised); }
 .newsNextEvent > * { display: block; }
 .newsNextEvent strong { margin: 6px 0 4px; font-size: 1.35rem; }
 .newsNextEvent > span:not(.label) { line-height: 1.35; }
-.newsNextEvent small { margin-top: 6px; color: rgba(246, 242, 232, .64); }
-.newsNextEventEmpty { margin-top: 8px; color: rgba(246, 242, 232, .64); }
+.newsNextEvent small { margin-top: 6px; color: var(--ot-text-muted); }
+.newsNextEventEmpty { margin-top: 8px; color: var(--ot-text-muted); }
 .newsToolbar { display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: end; }
 .newsFilterGroup { display: grid; gap: 7px; }
-.newsFilterLabel { color: var(--muted); font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.newsFilterLabel { color: var(--ot-text-muted); font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .newsFilterButtons { display: flex; flex-wrap: wrap; gap: 8px; }
-.mediaWarning { padding: 13px 17px; border-left: 4px solid #b88424; }
-.mediaWarningFailed { border-left-color: #a64b42; }
+.mediaWarning { padding: 13px 17px; border-left: 4px solid var(--ot-warning); }
+.mediaWarningFailed { border-left-color: var(--ot-negative); }
 .mediaWarning div { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .mediaWarning strong { font-size: .86rem; }
-.mediaWarning span { color: var(--muted); font-size: .8rem; line-height: 1.45; }
+.mediaWarning span { color: var(--ot-text-muted); font-size: .8rem; line-height: 1.45; }
 .sectionHeading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 11px; }
 .sectionHeading h2 { margin: 4px 0 0; }
 .importantNewsSection { display: grid; gap: 0; }
 .importantNewsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .importantNewsCard { padding: 18px 20px; min-width: 0; }
 .importantNewsCard h3 { margin: 10px 0 7px; line-height: 1.32; font-size: 1.02rem; }
-.importantNewsCard p { margin: 0; color: var(--muted); line-height: 1.5; font-size: .85rem; }
+.importantNewsCard p { margin: 0; color: var(--ot-text-muted); line-height: 1.5; font-size: .85rem; }
 .newsCardTop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.newsMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: .76rem; }
+.newsMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ot-text-muted); font-size: .76rem; }
 .newsMetaCompact { gap: 7px; font-size: .72rem; }
 .companyTag, .importanceBadge { padding: 4px 8px; border-radius: 999px; font-weight: 750; letter-spacing: .04em; }
-.companyOtello { color: #145a49; background: #daf0e8; }
-.companyBemobi { color: #35559a; background: #e5ebfa; }
-.importanceHIGH { color: #8b3027; background: #f9dfdb; }
-.importanceMEDIUM { color: #805d12; background: #f8eccb; }
+.companyOtello { color: var(--ot-positive); background: var(--ot-positive-soft); }
+.companyBemobi { color: var(--ot-accent-strong); background: var(--ot-accent-soft); }
+.importanceHIGH { color: var(--ot-negative); background: var(--ot-negative-soft); }
+.importanceMEDIUM { color: var(--ot-warning); background: var(--ot-warning-soft); }
 .impactTag { display: inline-flex; width: fit-content; margin-top: 11px; padding: 5px 8px; border-radius: 8px; font-size: .7rem; font-weight: 750; }
-.impactDIRECT { color: #145a49; background: #daf0e8; }
-.impactPOTENTIAL { color: #805d12; background: #f8eccb; }
+.impactDIRECT { color: var(--ot-positive); background: var(--ot-positive-soft); }
+.impactPOTENTIAL { color: var(--ot-warning); background: var(--ot-warning-soft); }
 .newsLayout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .72fr); gap: 22px; align-items: start; }
 .newsList { display: grid; gap: 10px; }
 .newsCard { padding: 18px 20px; }
 .newsCardCompact { padding: 16px 18px; }
 .newsCard h3, .calendarEvent h3 { margin: 8px 0 6px; line-height: 1.33; }
 .newsCardCompact h3 { font-size: .98rem; }
-.newsCard p, .calendarEvent p { color: var(--muted); line-height: 1.5; }
+.newsCard p, .calendarEvent p { color: var(--ot-text-muted); line-height: 1.5; }
 .newsCardCompact p { margin: 0; font-size: .84rem; }
-.translationNote { display: block; margin-top: 8px; color: var(--muted); font-size: .7rem; font-style: italic; }
-.newsCardFooter { display: flex; justify-content: space-between; gap: 14px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); color: var(--muted); font-size: .78rem; }
+.translationNote { display: block; margin-top: 8px; color: var(--ot-text-muted); font-size: .7rem; font-style: italic; }
+.newsCardFooter { display: flex; justify-content: space-between; gap: 14px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: .78rem; }
 .newsCardFooterCompact { align-items: baseline; }
 .newsSourceMeta { text-align: right; }
-.newsSourceLink { color: var(--accent); font-weight: 700; text-decoration: none; }
+.newsSourceLink { color: var(--ot-accent); font-weight: 700; text-decoration: none; }
 .newsSourceLink:hover { text-decoration: underline; }
-.newsSource { color: var(--muted); }
+.newsSource { color: var(--ot-text-muted); }
 .newsLoadMoreWrap { display: flex; justify-content: center; margin-top: 14px; }
 .newsLoadMore { min-width: 120px; }
 .calendarColumn { position: sticky; top: 20px; }
 .calendarCard { padding: 6px 18px; }
-.calendarEvent { display: grid; grid-template-columns: 86px 1fr; gap: 13px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.calendarEvent { display: grid; grid-template-columns: 86px 1fr; gap: 13px; padding: 16px 0; border-bottom: 1px solid var(--ot-border-soft); }
 .calendarEvent:last-of-type { border-bottom: 0; }
-.calendarEvent > time { align-self: start; padding: 8px 7px; text-align: center; border-radius: 10px; background: rgba(69, 92, 85, .08); color: var(--text); }
+.calendarEvent > time { align-self: start; padding: 8px 7px; text-align: center; border-radius: 10px; background: var(--ot-surface-raised); color: var(--ot-text); }
 .calendarEvent > time strong { display: block; font-size: .78rem; white-space: nowrap; }
 .calendarEvent h3 { font-size: .93rem; }
 .calendarEvent p { margin: 0 0 6px; font-size: .76rem; }
 .calendarEvent .newsSourceLink, .calendarEvent .newsSource { font-size: .72rem; }
-.calendarMore { margin: 0; padding: 13px 0; color: var(--muted); font-size: .76rem; text-align: center; border-top: 1px solid var(--line); }
-.calendarNote, .emptyCalendar, .emptyNewsCard { color: var(--muted); line-height: 1.5; }
+.calendarMore { margin: 0; padding: 13px 0; color: var(--ot-text-muted); font-size: .76rem; text-align: center; border-top: 1px solid var(--ot-border-soft); }
+.calendarNote, .emptyCalendar, .emptyNewsCard { color: var(--ot-text-muted); line-height: 1.5; }
 .calendarNote { margin: 8px 2px 0; font-size: .73rem; }
 .emptyNewsCard { padding: 20px; }
 @media (max-width: 1120px) { .importantNewsGrid { grid-template-columns: 1fr; } }

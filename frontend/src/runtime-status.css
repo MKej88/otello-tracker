@@ -16,7 +16,7 @@
 
 .runtimeHeader p {
   margin: 0;
-  opacity: 0.7;
+  color: var(--ot-text-secondary);
 }
 
 .runtimePill {
@@ -25,23 +25,31 @@
   justify-content: center;
   min-width: 70px;
   padding: 7px 10px;
+  border: 1px solid var(--ot-border-strong);
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.04em;
-  background: rgba(120, 120, 120, 0.12);
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
 }
 
 .runtimePill.ok {
-  background: rgba(55, 150, 95, 0.14);
+  border-color: var(--ot-positive-border);
+  background: var(--ot-positive-soft);
+  color: var(--ot-positive);
 }
 
 .runtimePill.warn {
-  background: rgba(205, 145, 40, 0.16);
+  border-color: var(--ot-warning-border);
+  background: var(--ot-warning-soft);
+  color: var(--ot-warning);
 }
 
 .runtimePill.bad {
-  background: rgba(190, 70, 70, 0.16);
+  border-color: var(--ot-negative-border);
+  background: var(--ot-negative-soft);
+  color: var(--ot-negative);
 }
 
 .runtimeGrid {
@@ -52,9 +60,9 @@
 
 .runtimeMetric {
   padding: 14px;
-  border: 1px solid rgba(127, 127, 127, 0.16);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 12px;
-  background: rgba(127, 127, 127, 0.035);
+  background: var(--ot-surface-raised);
 }
 
 .runtimeMetric span,
@@ -63,8 +71,8 @@
 }
 
 .runtimeMetric span {
+  color: var(--ot-text-muted);
   font-size: 0.78rem;
-  opacity: 0.65;
   margin-bottom: 6px;
 }
 
@@ -74,12 +82,12 @@
 }
 
 .runtimeMetric small {
-  opacity: 0.68;
+  color: var(--ot-text-muted);
 }
 
 .runtimeMetricWarn {
-  border-color: rgba(205, 145, 40, 0.36);
-  background: rgba(205, 145, 40, 0.07);
+  border-color: var(--ot-warning-border);
+  background: var(--ot-warning-soft);
 }
 
 .runtimeAlert,
@@ -90,11 +98,15 @@
 }
 
 .runtimeAlert {
-  background: rgba(205, 145, 40, 0.09);
+  border: 1px solid var(--ot-warning-border);
+  background: var(--ot-warning-soft);
+  color: var(--ot-warning);
 }
 
 .runtimeError {
-  background: rgba(190, 70, 70, 0.08);
+  border: 1px solid var(--ot-negative-border);
+  background: var(--ot-negative-soft);
+  color: var(--ot-negative);
   word-break: break-word;
 }
 
