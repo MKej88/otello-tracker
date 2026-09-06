@@ -6,7 +6,6 @@ import "./styles.css";
 import "./prelive.css";
 import "./otello-theme.css";
 import "./history-context.css";
-import "./surface-hierarchy.css";
 
 installDashboardBootstrapFetch();
 
