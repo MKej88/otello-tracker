@@ -24,7 +24,9 @@ jobs:
               file = Path(path)
               text = file.read_text(encoding="utf-8")
               if old not in text:
-                  raise SystemExit(f"Fant ikke forventet blokk i {path}: {old[:160]!r}")
+                  raise SystemExit(
+                      f"Fant ikke forventet blokk i {path}: {old[:160]!r}"
+                  )
               file.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           dashboard = "backend/app/dashboard.py"
@@ -93,15 +95,12 @@ jobs:
               '''    otec_price_nok = (\n        Decimal(str(row["otec_price_nok"]))\n        if row["otec_price_nok"] is not None\n        else None\n    )\n    if latest_otec is not None and latest_otec.get("price") is not None:\n        try:\n            live_otec_price = Decimal(str(latest_otec["price"]))\n        except (InvalidOperation, TypeError, ValueError):\n            live_otec_price = None\n        if (\n            live_otec_price is not None\n            and live_otec_price.is_finite()\n            and live_otec_price > 0\n        ):\n            otec_price_nok = live_otec_price\n\n    base_pre_option_total = (''',
           )
 
-          for test_path in (\n              "backend/tests/test_estimated_cash_card.py",\n              "backend/tests/test_nav_live_composition_contract.py",\n          ):
-              path = Path(test_path)
-              text = path.read_text(encoding="utf-8")
-              if 'dashboard_hot_snapshot_v6' not in text:
-                  raise SystemExit(f"Fant ikke v6 i {test_path}")
-              path.write_text(\n                  text.replace('dashboard_hot_snapshot_v6', 'dashboard_hot_snapshot_v7'),\n                  encoding="utf-8",\n              )
-
           Path(".github/workflows/sync-otec-reference-parity.yml").unlink()
           PY
+      - name: Restore normal static-analysis workflow
+        run: |
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/python-static-analysis.yml
       - name: Compile changed Python
         run: python -m compileall -q backend/app cloudflare/src
       - name: Commit parity fix
