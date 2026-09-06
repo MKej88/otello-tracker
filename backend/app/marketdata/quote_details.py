@@ -89,11 +89,15 @@ def _latest_price(connection, symbol: str) -> dict[str, Any] | None:
         LEFT JOIN source_documents sd ON sd.id=mp.source_document_id
         WHERE i.symbol=? AND mp.price_type IN ('LAST','CLOSE')
         ORDER BY mp.trading_date DESC,
-                 CASE WHEN mp.price_type='CLOSE' THEN 0 ELSE 1 END,
+                 CASE
+                     WHEN ?='OTEC' AND mp.price_type='LAST' THEN 0
+                     WHEN ?<>'OTEC' AND mp.price_type='CLOSE' THEN 0
+                     ELSE 1
+                 END,
                  mp.observed_at DESC, mp.id DESC
         LIMIT 1
         """,
-        (symbol,),
+        (symbol, symbol, symbol),
     ).fetchone()
     return dict(row) if row is not None else None
 
@@ -525,8 +529,12 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
     if symbol == "LIF":
         latest = _normalize_lif_yahoo_price(latest)
     current_close = _latest_close(connection, symbol) if symbol == "OTEC" else None
-    if current_close and str(current_close["trading_date"]) >= str(
-        latest["trading_date"]
+    if current_close and (
+        str(current_close["trading_date"]) > str(latest["trading_date"])
+        or (
+            str(current_close["trading_date"]) == str(latest["trading_date"])
+            and latest.get("price_type") != "LAST"
+        )
     ):
         latest = {
             **current_close,

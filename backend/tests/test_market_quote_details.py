@@ -234,7 +234,7 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     )
 
 
-def test_otec_card_uses_completed_close_and_previous_day_close(tmp_path) -> None:
+def test_otec_card_prefers_latest_trade_and_keeps_previous_day_close(tmp_path) -> None:
     database = str(tmp_path / "otec-completed-close.db")
     init_database(database)
     seed_otec_activity_history(database)
@@ -278,9 +278,9 @@ def test_otec_card_uses_completed_close_and_previous_day_close(tmp_path) -> None
 
     otec = market_quote_details(database)["symbols"]["OTEC"]
 
-    assert otec["last"] == 17.48
-    assert otec["last_price_type"] == "CLOSE"
-    assert otec["last_updated_at"] == "2026-08-28T16:20:00+02:00"
+    assert otec["last"] == 17.28
+    assert otec["last_price_type"] == "LAST"
+    assert otec["last_updated_at"] == "2026-08-28T14:03:00Z"
     assert otec["session"]["high"] == 17.48
     assert otec["last_close"]["price"] == 17.28
     assert otec["last_close"]["date"] == "2026-08-27"
