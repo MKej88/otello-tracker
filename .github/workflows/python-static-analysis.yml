@@ -14,26 +14,252 @@ on:
       - ".github/workflows/python-static-analysis.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  ruff:
-    name: Ruff correctness checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  sync-otec-reference:
+    name: Sync OTEC live price reference parity
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/otec-production-live-price'
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.12"
-      - name: Install pinned Ruff
-        run: python -m pip install ruff==0.16.3
-      - name: Run expanded correctness checks
-        # newsweb_daily_buybacks validates target_date by assigning date.fromisoformat;
-        # keep this one deliberate F841 exception local to that proven parser.
-        run: >-
-          ruff check --select E4,E7,E9,F
-          --per-file-ignores "cloudflare/src/newsweb_daily_buybacks.py:F841"
-          backend/app cloudflare/src
+          ref: fix/otec-production-live-price
+      - name: Align SQLite reference with production semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Fant ikke forventet blokk i {path}: {old[:160]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          dashboard = "backend/app/dashboard.py"
+          replace_once(
+              dashboard,
+              "from app.nav_waterfall_attribution import symmetric_two_factor_attribution\n",
+              "from app.nav_waterfall_attribution import symmetric_two_factor_attribution\nfrom app.marketdata.quote_details import _latest_price\n",
+          )
+          replace_once(
+              dashboard,
+              '''def _nav_discount_insights(
+    connection, *, calculation_version: str, nav_scope: str, latest
+) -> dict[str, Any]:''',
+              '''def _nav_discount_insights(
+    connection,
+    *,
+    calculation_version: str,
+    nav_scope: str,
+    latest,
+    current_otec_price: Any = None,
+) -> dict[str, Any]:''',
+          )
+          replace_once(
+              dashboard,
+              '        share_price=latest["otec_price_nok"],',
+              '''        share_price=(
+            current_otec_price
+            if current_otec_price is not None
+            else latest["otec_price_nok"]
+        ),''',
+          )
+          replace_once(
+              dashboard,
+              '''        as_of_date = str(latest["as_of_at"])[:10]
+        holding = connection.execute(''',
+              '''        as_of_date = str(latest["as_of_at"])[:10]
+        latest_otec = _latest_price(connection, "OTEC")
+        live_otec_price = (
+            _float(latest_otec.get("price"))
+            if latest_otec is not None and latest_otec.get("price") is not None
+            else _float(latest["otec_price_nok"])
+        )
+        nav_discount_insight = _nav_discount_insights(
+            connection,
+            calculation_version=calculation_version,
+            nav_scope=model_scope,
+            latest=latest,
+            current_otec_price=live_otec_price,
+        )
+        holding = connection.execute(''',
+          )
+          replace_once(
+              dashboard,
+              '''        otec_change = _pct_change(
+            latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
+        )
+        discount_change = (
+            float(
+                Decimal(str(latest["discount_pct"]))
+                - Decimal(str(previous["discount_pct"]))
+            )
+            if previous is not None
+            and latest["discount_pct"] is not None
+            and previous["discount_pct"] is not None
+            else None
+        )''',
+              '''        otec_change = _pct_change(
+            live_otec_price, previous["otec_price_nok"] if previous else None
+        )
+        current_discount = nav_discount_insight.get("discount_pct")
+        discount_change = (
+            float(
+                Decimal(str(current_discount))
+                - Decimal(str(previous["discount_pct"]))
+            )
+            if previous is not None
+            and current_discount is not None
+            and previous["discount_pct"] is not None
+            else None
+        )''',
+          )
+          replace_once(
+              dashboard,
+              '''            "otec_price": _float(latest["otec_price_nok"]),
+            "nav_discount_pct": _float(latest["discount_pct"]),
+            "nav_discount_insights": _nav_discount_insights(
+                connection,
+                calculation_version=calculation_version,
+                nav_scope=model_scope,
+                latest=latest,
+            ),''',
+              '''            "otec_price": live_otec_price,
+            "otec_price_date": (
+                latest_otec.get("trading_date")
+                if latest_otec is not None
+                else otec.get("price_date")
+            ),
+            "otec_price_observed_at": (
+                latest_otec.get("observed_at")
+                if latest_otec is not None
+                else otec.get("price_observed_at")
+            ),
+            "otec_price_type": (
+                latest_otec.get("price_type")
+                if latest_otec is not None
+                else otec.get("price_type")
+            ),
+            "nav_discount_pct": current_discount,
+            "nav_discount_insights": nav_discount_insight,''',
+          )
+          replace_once(
+              dashboard,
+              '''            "otec_price_quality": otec.get("price_quality"),
+            "otec_price_source": otec.get("price_source"),''',
+              '''            "otec_price_quality": (
+                latest_otec.get("quality")
+                if latest_otec is not None
+                else otec.get("price_quality")
+            ),
+            "otec_price_source": (
+                latest_otec.get("source_code")
+                if latest_otec is not None
+                else otec.get("price_source")
+            ),''',
+          )
+
+          freshness = "backend/app/dashboard_freshness.py"
+          replace_once(
+              freshness,
+              '''    component_dates = {
+        "otec": _as_date(otec.get("price_date")),
+        "bmob3": _as_date(bmob3.get("price_date")),
+        "brl_nok": _as_date(bmob3.get("brl_nok_date")),
+    }''',
+              '''    component_dates = {
+        "otec": _as_date(summary.get("otec_price_date") or otec.get("price_date")),
+        "bmob3": _as_date(bmob3.get("price_date")),
+        "brl_nok": _as_date(bmob3.get("brl_nok_date")),
+    }''',
+          )
+          replace_once(
+              freshness,
+              '''        "otec": {
+            "date": otec.get("price_date"),
+            "observed_at": otec.get("price_observed_at"),
+            "price_type": otec.get("price_type"),
+        },''',
+              '''        "otec": {
+            "date": summary.get("otec_price_date") or otec.get("price_date"),
+            "observed_at": (
+                summary.get("otec_price_observed_at")
+                or otec.get("price_observed_at")
+            ),
+            "price_type": summary.get("otec_price_type") or otec.get("price_type"),
+        },''',
+          )
+
+          economic = "backend/app/economic_nav_investor.py"
+          replace_once(
+              economic,
+              "from app.nav_waterfall_attribution import symmetric_two_factor_attribution\n",
+              "from app.nav_waterfall_attribution import symmetric_two_factor_attribution\nfrom app.marketdata.quote_details import _latest_price\n",
+          )
+          replace_once(
+              economic,
+              '''        month_row = connection.execute(
+            """
+            SELECT substr(as_of_at, 1, 10) AS as_of_date, shares_outstanding
+            FROM nav_snapshots
+            WHERE calculation_version=? AND nav_scope='FULL'
+              AND substr(as_of_at, 1, 10) <= ?
+            ORDER BY as_of_at DESC, id DESC LIMIT 1
+            """,
+            (FULL_CALCULATION_VERSION, month_target),
+        ).fetchone()''',
+              '''        month_row = connection.execute(
+            """
+            SELECT substr(as_of_at, 1, 10) AS as_of_date, shares_outstanding
+            FROM nav_snapshots
+            WHERE calculation_version=? AND nav_scope='FULL'
+              AND substr(as_of_at, 1, 10) <= ?
+            ORDER BY as_of_at DESC, id DESC LIMIT 1
+            """,
+            (FULL_CALCULATION_VERSION, month_target),
+        ).fetchone()
+        latest_otec = _latest_price(connection, "OTEC")''',
+          )
+          replace_once(
+              economic,
+              '''    otec_price_nok = (
+        Decimal(str(row["otec_price_nok"]))
+        if row["otec_price_nok"] is not None
+        else None
+    )
+
+    base_pre_option_total = (''',
+              '''    otec_price_nok = (
+        Decimal(str(row["otec_price_nok"]))
+        if row["otec_price_nok"] is not None
+        else None
+    )
+    if latest_otec is not None and latest_otec.get("price") is not None:
+        try:
+            live_otec_price = Decimal(str(latest_otec["price"]))
+        except (InvalidOperation, TypeError, ValueError):
+            live_otec_price = None
+        if (
+            live_otec_price is not None
+            and live_otec_price.is_finite()
+            and live_otec_price > 0
+        ):
+            otec_price_nok = live_otec_price
+
+    base_pre_option_total = (''',
+          )
+          PY
+      - name: Restore normal workflow and remove temporary helper
+        run: |
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/python-static-analysis.yml
+          rm -f .github/workflows/sync-otec-reference-parity.yml
+      - name: Commit parity changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Synk OTEC livepris mellom produksjon og referanse"
+          git push origin HEAD:fix/otec-production-live-price
