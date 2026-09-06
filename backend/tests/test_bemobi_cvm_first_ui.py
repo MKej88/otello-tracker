@@ -20,9 +20,11 @@ def test_bemobi_primary_view_focuses_on_operations_and_valuation() -> None:
         "SaaS",
         "KONTANTGENERERING",
         "Hva betaler markedet?",
-        "P/E TTM",
-        "EV / EBIT",
-        "FCF yield",
+        "P/E {forwardLabel}",
+        "EV / EBITDA {forwardLabel}",
+        "Est. payout yield",
+        "OpFCF yield TTM",
+        "Net cash / MCap",
         "KVARTALSUTVIKLING",
         "Siste fire rapporterte kvartaler",
         "Det viktigste å følge",
@@ -36,14 +38,17 @@ def test_bemobi_primary_view_focuses_on_operations_and_valuation() -> None:
         "Kapitalretur · skatt",
         "BemobiSourceStatusPanel",
         "Capex-avstemming",
+        "CVM CFO − capex når komplett",
     ):
         assert removed_label not in page
         assert removed_label not in wrapper
 
     assert 'completeTtm(quarters, "reported_net_income_parent_mbrl")' in page
-    assert 'completeTtm(quarters, "reported_ebit_mbrl")' in page
-    assert 'completeTtm(quarters, "reported_operating_cash_flow_mbrl")' in page
-    assert 'completeTtm(quarters, "reported_capex_cash_outflow_mbrl")' in page
+    assert 'completeTtm(quarters, "adjusted_ebitda_mbrl")' in page
+    assert 'fetchPreloadedJson<BemobiConsensus>("/api/bemobi/consensus")' in page
+    assert "selectForwardEstimate" in page
+    assert "adjusted_fcf_yield_pct" in page
+    assert "earnings_yield_pct" in page
 
     assert 'CAPEX_FIELD = "reported_capex_cash_outflow_mbrl"' in financials
     assert 'CAPEX_SELECTION = "CVM_DFC_DESCRIPTION_MATCH"' in financials

@@ -1,0 +1,35 @@
+.bemobiCleanValuationGridFive {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.bemobiValuationSources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin-top: 11px;
+  color: var(--ot-text-muted);
+  font-size: 10px;
+}
+
+.bemobiValuationSources a {
+  color: var(--ot-accent-strong);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.bemobiValuationSources a:hover {
+  color: var(--ot-text);
+}
+
+@media (max-width: 1180px) {
+  .bemobiCleanValuationGridFive {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .bemobiCleanValuationGridFive {
+    grid-template-columns: 1fr;
+  }
+}

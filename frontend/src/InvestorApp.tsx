@@ -66,6 +66,7 @@ function preload(view: View) {
   if (view === "Bemobi") {
     void loadBemobiPage();
     preloadJson("/api/bemobi/dashboard");
+    preloadJson("/api/bemobi/consensus");
   }
   if (view === "BRL/NOK") {
     void loadFxPage();

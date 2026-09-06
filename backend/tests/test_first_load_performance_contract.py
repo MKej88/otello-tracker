@@ -193,8 +193,13 @@ def test_navigation_shares_bemobi_request_while_route_code_loads() -> None:
 
     assert bemobi_preload < bemobi_route
     assert 'preloadJson("/api/bemobi/dashboard")' in app_source
+    assert 'preloadJson("/api/bemobi/consensus")' in app_source
     assert (
         'fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")'
+        in base_source
+    )
+    assert (
+        'fetchPreloadedJson<BemobiConsensus>("/api/bemobi/consensus")'
         in base_source
     )
     assert "<BemobiPageBase />" in page_source
@@ -209,8 +214,11 @@ def test_bemobi_clean_page_has_one_dashboard_polling_owner() -> None:
     assert 'fetch("/api/bemobi/dashboard")' not in page_source
     assert "<BemobiPageBase />" in page_source
     assert "BemobiTaxPanel" not in page_source
-    assert "window.setInterval(load, AUTO_REFRESH_MS)" in base_source
+    assert base_source.count("window.setInterval(") == 1
+    assert "loadDashboard(false);" in base_source
+    assert "loadConsensus(false);" in base_source
     assert base_source.count('fetch("/api/bemobi/dashboard")') == 1
+    assert base_source.count('fetch("/api/bemobi/consensus")') == 1
 
 
 def test_navigation_starts_consensus_data_in_parallel_with_route_code() -> None:
