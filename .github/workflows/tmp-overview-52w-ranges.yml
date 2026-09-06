@@ -138,17 +138,7 @@ jobs:
 
           replace_once(
               page,
-              '''            <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
-                  </article>
-
-                  <article className="card overviewDriverCard">
-                    <span className="label">BRL/NOK</span>
-                    <strong>{signed(brl?.month_pct, 1, " % siste måned")}</strong>
-                    <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)}`}>
-                      {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
-                    </div>
-                    <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
-                  </article>''',
+              '''            <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>''',
               '''            <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
                     <OverviewRange
                       current={quotes?.symbols?.BMOB3?.last ?? bemobi?.price_brl}
@@ -156,23 +146,19 @@ jobs:
                       high={quotes?.symbols?.BMOB3?.range_52w?.high}
                       digits={2}
                       prefix="R$"
-                    />
-                  </article>
+                    />''',
+          )
 
-                  <article className="card overviewDriverCard">
-                    <span className="label">BRL/NOK</span>
-                    <strong>{signed(brl?.month_pct, 1, " % siste måned")}</strong>
-                    <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)}`}>
-                      {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
-                    </div>
-                    <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
+          replace_once(
+              page,
+              '''            <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>''',
+              '''            <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
                     <OverviewRange
                       current={summary?.brl_nok}
                       low={brl?.range_1y?.low}
                       high={brl?.range_1y?.high}
                       digits={4}
-                    />
-                  </article>''',
+                    />''',
           )
 
           css = "frontend/src/overview-page.css"
