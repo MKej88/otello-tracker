@@ -46,7 +46,11 @@ def test_bemobi_primary_view_focuses_on_operations_and_valuation() -> None:
     assert 'completeTtm(quarters, "reported_net_income_parent_mbrl")' in page
     assert 'completeTtm(quarters, "adjusted_ebitda_mbrl")' in page
     assert 'fetchPreloadedJson<BemobiConsensus>("/api/bemobi/consensus")' in page
-    assert "selectForwardEstimate" in page
+    assert "selectForwardEstimates" in page
+    assert 'Number(item.year) === asOfYear' in page
+    assert "secondary: nextEstimate" in page
+    assert "forwardScenarios" in page
+    assert "`${forwardYear}E EPS · ikke kursmål`" in page
     assert "adjusted_fcf_yield_pct" in page
     assert "earnings_yield_pct" in page
 
