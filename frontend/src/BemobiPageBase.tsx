@@ -25,6 +25,29 @@ type ValuationSourceQuarter = {
   harmonized_net_revenue_source_url?: string | null;
 };
 
+type ForwardEstimate = {
+  year?: number | null;
+  net_income_mbrl?: number | null;
+  ebitda_mbrl?: number | null;
+  net_debt_mbrl?: number | null;
+  market_cap_mbrl?: number | null;
+  enterprise_value_mbrl?: number | null;
+  pe?: number | null;
+  earnings_yield_pct?: number | null;
+  ev_ebitda?: number | null;
+};
+
+type BemobiConsensus = {
+  ready: boolean;
+  broker_estimates?: {
+    source?: string | null;
+    source_url?: string | null;
+    published_date?: string | null;
+    year_range?: string | null;
+    years?: ForwardEstimate[];
+  };
+};
+
 type BemobiDashboard = {
   ready: boolean;
   reason?: string;
@@ -116,13 +139,35 @@ function metricTone(input: number | null | undefined) {
   return input > 0 ? "positive" : "negative";
 }
 
+function selectForwardEstimate(
+  years: ForwardEstimate[],
+  asOfDate?: string | null,
+) {
+  const sorted = years
+    .filter((item) => typeof item.year === "number" && Number.isFinite(item.year))
+    .sort((a, b) => Number(a.year) - Number(b.year));
+  if (!sorted.length) return null;
+
+  const asOfYear = Number(String(asOfDate ?? "").slice(0, 4));
+  if (Number.isFinite(asOfYear) && asOfYear > 2000) {
+    return sorted.find((item) => Number(item.year) > asOfYear)
+      ?? sorted.find((item) => Number(item.year) === asOfYear)
+      ?? sorted.at(-1)
+      ?? null;
+  }
+  return sorted[0] ?? null;
+}
+
 export default function BemobiPageBase() {
   const [data, setData] = useState<BemobiDashboard | null>(null);
+  const [consensus, setConsensus] = useState<BemobiConsensus | null>(null);
   const [failed, setFailed] = useState(false);
+  const [consensusFailed, setConsensusFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
-    const load = (initial = false) => {
+
+    const loadDashboard = (initial = false) => {
       const request = initial
         ? fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")
         : fetch("/api/bemobi/dashboard").then((response) => {
@@ -141,8 +186,31 @@ export default function BemobiPageBase() {
         });
     };
 
-    load(true);
-    const timer = window.setInterval(load, AUTO_REFRESH_MS);
+    const loadConsensus = (initial = false) => {
+      const request = initial
+        ? fetchPreloadedJson<BemobiConsensus>("/api/bemobi/consensus")
+        : fetch("/api/bemobi/consensus").then((response) => {
+            if (!response.ok) throw new Error("Bemobi konsensus API-feil");
+            return response.json() as Promise<BemobiConsensus>;
+          });
+      request
+        .then((result) => {
+          if (!active) return;
+          setConsensus(result);
+          setConsensusFailed(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setConsensusFailed(true);
+        });
+    };
+
+    loadDashboard(true);
+    loadConsensus(true);
+    const timer = window.setInterval(() => {
+      loadDashboard(false);
+      loadConsensus(false);
+    }, AUTO_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -179,15 +247,7 @@ export default function BemobiPageBase() {
   const latestQuarter = quarters.at(-1);
 
   const reportedNetIncomeTtm = completeTtm(quarters, "reported_net_income_parent_mbrl");
-  const reportedEbitTtm = completeTtm(quarters, "reported_ebit_mbrl");
-  const reportedOperatingCashFlowTtm = completeTtm(quarters, "reported_operating_cash_flow_mbrl");
-  const reportedCapexCashOutflowTtm = completeTtm(quarters, "reported_capex_cash_outflow_mbrl");
-  const reportedCapexTtm = reportedCapexCashOutflowTtm == null
-    ? null
-    : Math.abs(reportedCapexCashOutflowTtm);
-  const reportedFcfTtm = reportedOperatingCashFlowTtm == null || reportedCapexTtm == null
-    ? null
-    : reportedOperatingCashFlowTtm - reportedCapexTtm;
+  const adjustedEbitdaTtm = completeTtm(quarters, "adjusted_ebitda_mbrl");
   const latestNetDebt = latestQuarter?.reported_net_debt_mbrl;
   const netCashMbrl = typeof latestNetDebt === "number"
     ? -latestNetDebt
@@ -198,12 +258,27 @@ export default function BemobiPageBase() {
   const peTtm = valuation?.market_cap_mbrl != null && reportedNetIncomeTtm != null && reportedNetIncomeTtm > 0
     ? valuation.market_cap_mbrl / reportedNetIncomeTtm
     : valuation?.pe_ttm ?? null;
-  const evEbitTtm = enterpriseValueMbrl != null && reportedEbitTtm != null && reportedEbitTtm > 0
-    ? enterpriseValueMbrl / reportedEbitTtm
-    : valuation?.ev_ebit_ttm ?? null;
-  const fcfYield = valuation?.market_cap_mbrl != null && reportedFcfTtm != null
-    ? reportedFcfTtm / valuation.market_cap_mbrl * 100
-    : valuation?.adjusted_fcf_yield_pct ?? null;
+  const evEbitdaTtm = enterpriseValueMbrl != null && adjustedEbitdaTtm != null && adjustedEbitdaTtm > 0
+    ? enterpriseValueMbrl / adjustedEbitdaTtm
+    : null;
+  const opFcfYield = valuation?.adjusted_fcf_yield_pct ?? null;
+  const netCashToMarketCap = valuation?.market_cap_mbrl != null && valuation.market_cap_mbrl > 0 && netCashMbrl != null
+    ? netCashMbrl / valuation.market_cap_mbrl * 100
+    : null;
+
+  const brokerEstimates = consensus?.ready ? consensus.broker_estimates : null;
+  const forwardEstimate = selectForwardEstimate(
+    brokerEstimates?.years ?? [],
+    market?.price_date,
+  );
+  const forwardYear = typeof forwardEstimate?.year === "number" ? forwardEstimate.year : null;
+  const forwardLabel = forwardYear == null ? "TTM" : `${forwardYear}E`;
+  const forwardPe = forwardEstimate?.pe ?? peTtm;
+  const forwardEvEbitda = forwardEstimate?.ev_ebitda ?? evEbitdaTtm;
+  const payoutYield = forwardEstimate?.earnings_yield_pct ?? null;
+  const valuationPeriodLabel = forwardYear == null
+    ? valuation?.period ?? "TTM"
+    : `TTM + ${forwardYear}E`;
 
   return (
     <div className="bemobiPage bemobiPageClean">
@@ -308,30 +383,46 @@ export default function BemobiPageBase() {
             <span className="label">VERDSETTELSE</span>
             <h2>Hva betaler markedet?</h2>
           </div>
-          <span className="pill">{valuation?.period ?? "TTM"}</span>
+          <span className="pill">{valuationPeriodLabel}</span>
         </div>
 
-        <div className="bemobiCleanValuationGrid">
+        <div className="bemobiCleanValuationGrid bemobiCleanValuationGridFive">
           <div>
-            <span>P/E TTM</span>
-            <strong>{value(peTtm, 1)}x</strong>
-            <small>rapportert resultat når komplett</small>
+            <span>P/E {forwardLabel}</span>
+            <strong>{value(forwardPe, 1)}x</strong>
+            <small>{forwardYear == null ? "rapportert TTM" : `TTM ${value(peTtm, 1)}x`}</small>
           </div>
           <div>
-            <span>EV / EBIT</span>
-            <strong>{value(evEbitTtm, 1)}x</strong>
-            <small>TTM</small>
+            <span>EV / EBITDA {forwardLabel}</span>
+            <strong>{value(forwardEvEbitda, 1)}x</strong>
+            <small>{evEbitdaTtm == null ? "TTM ikke komplett" : `TTM ${value(evEbitdaTtm, 1)}x`}</small>
           </div>
           <div>
-            <span>FCF yield</span>
-            <strong>{value(fcfYield, 1)} %</strong>
-            <small>CVM CFO − capex når komplett</small>
+            <span>Est. payout yield</span>
+            <strong>{value(payoutYield, 1)} %</strong>
+            <small>{forwardYear == null ? "forward-estimat mangler" : `100 % av ${forwardYear}E resultat`}</small>
           </div>
           <div>
-            <span>Netto cash</span>
-            <strong>R$ {value(netCashMbrl, 1)}m</strong>
-            <small>siste tilgjengelige balanse</small>
+            <span>OpFCF yield TTM</span>
+            <strong>{value(opFcfYield, 1)} %</strong>
+            <small>justert EBITDA − capex</small>
           </div>
+          <div>
+            <span>Net cash / MCap</span>
+            <strong>{value(netCashToMarketCap, 1)} %</strong>
+            <small>R$ {value(netCashMbrl, 1)}m netto cash</small>
+          </div>
+        </div>
+
+        <div className="bemobiValuationSources">
+          <span>TTM og OpFCF: Bemobi/CVM · markedsverdi: BMOB3</span>
+          {brokerEstimates?.source_url && forwardYear != null ? (
+            <a href={brokerEstimates.source_url} target="_blank" rel="noreferrer">
+              Forward {forwardYear}E: {brokerEstimates.source ?? "meglerestimat"} · {dateLabel(brokerEstimates.published_date)} →
+            </a>
+          ) : consensusFailed ? (
+            <span>Forward-estimat kunne ikke oppdateres; TTM vises der mulig.</span>
+          ) : null}
         </div>
 
         <div className="bemobiCleanScenarioBlock">
