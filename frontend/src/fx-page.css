@@ -1,0 +1,582 @@
+.fxPage {
+  display: grid;
+  gap: 18px;
+}
+
+.fxPage h2,
+.fxPage h3,
+.fxPage p {
+  margin: 0;
+}
+
+.fxHero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 6px 2px 2px;
+}
+
+.fxHero h2 {
+  margin-top: 5px;
+  font-size: clamp(24px, 3vw, 34px);
+  letter-spacing: -0.03em;
+}
+
+.fxHero p {
+  max-width: 760px;
+  margin-top: 8px;
+  color: var(--ot-text-secondary);
+  line-height: 1.55;
+}
+
+.fxHeroMeta {
+  display: grid;
+  gap: 3px;
+  min-width: 175px;
+  text-align: right;
+  color: var(--ot-text-muted);
+  font-size: 12px;
+}
+
+.fxHeroMeta strong {
+  color: var(--ot-text);
+  font-size: 15px;
+}
+
+.fxHeroMeta small {
+  color: var(--ot-warning);
+}
+
+.fxKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fxKpi {
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 18px;
+}
+
+.fxKpi.primary,
+.fxKpi.accent {
+  background: linear-gradient(145deg, var(--ot-surface-inset), var(--ot-surface));
+  border-color: var(--ot-accent-border);
+}
+
+.fxKpi strong {
+  font-size: 24px;
+  letter-spacing: -0.025em;
+}
+
+.fxKpi small {
+  color: var(--ot-text-muted);
+  line-height: 1.35;
+}
+
+.fxPage .positive {
+  color: var(--ot-positive);
+}
+
+.fxPage .negative {
+  color: var(--ot-negative);
+}
+
+.fxPage .neutral {
+  color: var(--ot-text-secondary);
+}
+
+.fxHistoryCard,
+.fxExposureCard,
+.fxDriverCard,
+.fxPositionCard,
+.fxContextCard,
+.fxMethodCard {
+  padding: 20px;
+}
+
+.fxSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.fxSectionHead.compact {
+  margin-bottom: 12px;
+}
+
+.fxSectionHead h3,
+.fxPositionCard h3,
+.fxContextCard h3 {
+  margin-top: 4px;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.fxRangeButtons,
+.fxDriverButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fxRangeButtons button,
+.fxDriverButtons button {
+  min-width: 46px;
+}
+
+.fxHistorySummary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background: var(--ot-surface-muted);
+}
+
+.fxHistorySummary > div {
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+  border-right: 1px solid var(--ot-border-soft);
+}
+
+.fxHistorySummary > div:last-child {
+  border-right: 0;
+}
+
+.fxHistorySummary span {
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fxHistorySummary strong {
+  font-size: 16px;
+}
+
+.fxChartWrap {
+  position: relative;
+  padding-top: 4px;
+}
+
+.fxChart {
+  display: block;
+  width: 100%;
+  min-height: 300px;
+  overflow: visible;
+}
+
+.fxGridLine {
+  stroke: var(--ot-border-soft);
+  stroke-width: 1;
+}
+
+.fxAxisLabel {
+  fill: var(--ot-text-muted);
+  font-size: 11px;
+}
+
+.fxLine {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.fxLineSpot {
+  stroke: var(--ot-accent-strong);
+  stroke-width: 2.4;
+}
+
+.fxLineMa50 {
+  stroke: var(--ot-chart-secondary);
+  stroke-width: 1.5;
+  opacity: 0.9;
+}
+
+.fxLineMa200 {
+  stroke: var(--ot-warning);
+  stroke-width: 1.4;
+  opacity: 0.85;
+}
+
+.fxLegend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  margin-top: -2px;
+}
+
+.fxLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fxLegend i {
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+}
+
+.fxLegend i.spot {
+  background: var(--ot-accent-strong);
+}
+
+.fxLegend i.ma50 {
+  background: var(--ot-chart-secondary);
+}
+
+.fxLegend i.ma200 {
+  background: var(--ot-warning);
+}
+
+.fxChartEmpty {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: var(--ot-text-muted);
+}
+
+.fxTwoColumn {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 14px;
+}
+
+.fxFormula {
+  margin-bottom: 10px !important;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ot-accent-border);
+  background: var(--ot-accent-soft);
+  color: var(--ot-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fxDriverRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.fxDriverRow > div {
+  display: grid;
+  gap: 3px;
+}
+
+.fxDriverRow span {
+  color: var(--ot-text-muted);
+  font-size: 12px;
+}
+
+.fxDriverRow > strong {
+  min-width: 85px;
+  text-align: right;
+  font-size: 16px;
+}
+
+.fxDriverConclusion {
+  margin-top: 14px !important;
+  color: var(--ot-text-secondary);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.fxPositionGauge {
+  margin: 22px 0 18px;
+}
+
+.fxPositionTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ot-track);
+  overflow: hidden;
+}
+
+.fxPositionTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ot-accent);
+}
+
+.fxPositionGauge > div:last-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  color: var(--ot-text-muted);
+  font-size: 11px;
+}
+
+.fxPositionGauge strong {
+  color: var(--ot-text);
+  font-size: 12px;
+}
+
+.fxPositionRows {
+  display: grid;
+}
+
+.fxPositionRows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.fxPositionRows > div:last-child {
+  border-bottom: 0;
+}
+
+.fxPositionRows span {
+  color: var(--ot-text-secondary);
+  font-size: 13px;
+}
+
+.fxExposureHeadline {
+  display: grid;
+  text-align: right;
+  gap: 2px;
+}
+
+.fxExposureHeadline span {
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.fxExposureHeadline strong {
+  font-size: 20px;
+}
+
+.fxExposureMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: -5px 0 14px;
+  color: var(--ot-text-muted);
+  font-size: 12px;
+}
+
+.fxTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+}
+
+.fxTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.fxTable th,
+.fxTable td {
+  padding: 11px 13px;
+  text-align: right;
+  border-bottom: 1px solid var(--ot-border-soft);
+  white-space: nowrap;
+}
+
+.fxTable th:first-child,
+.fxTable td:first-child {
+  text-align: left;
+}
+
+.fxTable th {
+  color: var(--ot-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--ot-surface-muted);
+}
+
+.fxTable td {
+  color: var(--ot-text-secondary);
+  font-size: 13px;
+}
+
+.fxTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.fxTable tr.current td {
+  color: var(--ot-text);
+  background: var(--ot-accent-soft);
+  font-weight: 650;
+}
+
+.fxFootnote {
+  margin-top: 12px !important;
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.fxFootnote a,
+.fxSources a {
+  color: var(--ot-accent-strong);
+  text-decoration: none;
+}
+
+.fxFootnote a:hover,
+.fxSources a:hover {
+  text-decoration: underline;
+}
+
+.fxContextGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fxContextCard {
+  min-height: 155px;
+}
+
+.fxContextCard h3 {
+  margin: 8px 0 5px;
+  font-size: 24px;
+}
+
+.fxContextCard p {
+  color: var(--ot-text-secondary);
+  line-height: 1.5;
+}
+
+.fxContextCard small {
+  display: block;
+  margin-top: 12px;
+  color: var(--ot-text-muted);
+  line-height: 1.45;
+}
+
+.fxMethodCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.fxMethodCard p {
+  margin-top: 5px;
+  color: var(--ot-text-muted);
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+.fxSources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fxSources span {
+  color: var(--ot-text-secondary);
+}
+
+.fxError {
+  padding: 24px;
+}
+
+.fxError strong {
+  display: block;
+  margin: 6px 0;
+}
+
+.fxError p {
+  color: var(--ot-text-muted);
+}
+
+@media (max-width: 1280px) {
+  .fxKpiGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .fxTwoColumn,
+  .fxContextGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fxHistorySummary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fxHistorySummary > div:nth-child(3) {
+    border-right: 0;
+  }
+
+  .fxHistorySummary > div:nth-child(n + 4) {
+    border-top: 1px solid var(--ot-border-soft);
+  }
+}
+
+@media (max-width: 680px) {
+  .fxHero,
+  .fxSectionHead,
+  .fxMethodCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .fxHeroMeta,
+  .fxExposureHeadline {
+    text-align: left;
+  }
+
+  .fxKpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fxHistorySummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fxHistorySummary > div,
+  .fxHistorySummary > div:nth-child(3) {
+    border-right: 1px solid var(--ot-border-soft);
+  }
+
+  .fxHistorySummary > div:nth-child(even) {
+    border-right: 0;
+  }
+
+  .fxHistorySummary > div:nth-child(n + 3) {
+    border-top: 1px solid var(--ot-border-soft);
+  }
+
+  .fxChart {
+    min-height: 230px;
+  }
+
+  .fxLegend {
+    flex-wrap: wrap;
+  }
+
+  .fxSources {
+    justify-content: flex-start;
+  }
+}
