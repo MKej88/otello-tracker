@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.bemobi.source_status import _operational_source_items, bemobi_source_status
+from app.bemobi.source_status import (
+    _operational_source_items,
+    _result_release_status,
+    bemobi_source_status,
+)
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
@@ -72,6 +76,40 @@ def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Pat
     assert by_key["consensus"]["uses_last_good"] is False
     assert "Kildeverifiserte meglermodeller" in by_key["consensus"]["detail"]
     assert by_key["xp_preview"]["status"] == "WAITING"
+
+
+def test_result_release_parse_gap_is_ok_when_latest_result_exists() -> None:
+    status, detail, uses_last_good = _result_release_status(
+        {
+            "status": "not_available",
+            "reason": "result_documents_not_parseable",
+        },
+        {"fact_type": "RESULT", "fact_key": "2Q26"},
+        "DEGRADED",
+        "result documents not parseable",
+        True,
+    )
+
+    assert status == "OK"
+    assert "Ingen ny kvartalsrapport" in detail
+    assert uses_last_good is False
+
+
+def test_newer_result_parse_failure_remains_degraded() -> None:
+    status, detail, uses_last_good = _result_release_status(
+        {
+            "status": "not_available",
+            "reason": "newer_result_documents_not_parseable",
+        },
+        {"fact_type": "RESULT", "fact_key": "2Q26"},
+        "DEGRADED",
+        "newer result documents not parseable",
+        True,
+    )
+
+    assert status == "DEGRADED"
+    assert detail == "newer result documents not parseable"
+    assert uses_last_good is True
 
 
 def test_source_status_is_unknown_before_first_new_full_refresh(tmp_path: Path) -> None:
