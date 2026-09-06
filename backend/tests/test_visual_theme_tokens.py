@@ -70,6 +70,31 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
             "var(--ot-surface-raised)",
             "var(--ot-accent-strong)",
         ),
+        "brazil-page.css": (
+            "var(--ot-surface-raised)",
+            "var(--ot-warning-soft)",
+            "var(--ot-chart-secondary)",
+        ),
+        "data-quality.css": (
+            "var(--ot-surface-raised)",
+            "var(--ot-positive-soft)",
+            "var(--ot-warning-soft)",
+        ),
+        "nav-sensitivity.css": (
+            "var(--ot-surface-raised)",
+            "var(--ot-accent-soft)",
+            "var(--ot-negative-soft)",
+        ),
+        "market-quote-panel.css": (
+            "var(--ot-surface)",
+            "var(--ot-track)",
+            "var(--ot-positive)",
+        ),
+        "economic-nav.css": (
+            "var(--ot-surface)",
+            "var(--ot-surface-raised)",
+            "var(--ot-positive-border)",
+        ),
     }
 
     hardcoded_colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
@@ -83,6 +108,10 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
 
     assert "--bemobi-" not in read_frontend("bemobi-page.css")
     assert "--cash-inset-surface" not in read_frontend("cash-page.css")
+
+    brazil = read_frontend("brazil-page.css")
+    for legacy_token in ("var(--muted)", "var(--border)", "var(--accent", "var(--text)"):
+        assert legacy_token not in brazil
 
 
 def test_overview_reference_uses_same_shared_surface_contract() -> None:
@@ -105,6 +134,11 @@ def test_cross_page_surface_override_layer_is_gone() -> None:
         "buyback-page.css",
         "bemobi-page.css",
         "consensus-page.css",
+        "brazil-page.css",
+        "data-quality.css",
+        "nav-sensitivity.css",
+        "market-quote-panel.css",
+        "economic-nav.css",
     ):
         source = read_frontend(filename)
         assert "var(--ot-surface" in source
