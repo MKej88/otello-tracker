@@ -21,76 +21,81 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import re
           from pathlib import Path
 
           quote_path = Path("backend/app/marketdata/quote_details.py")
           quote = quote_path.read_text(encoding="utf-8")
-          old_order = """        ORDER BY mp.trading_date DESC,
-                   CASE WHEN mp.price_type='CLOSE' THEN 0 ELSE 1 END,
-                   mp.observed_at DESC, mp.id DESC
-          LIMIT 1
-          \"\"\",
-          (symbol,),"""
-          new_order = """        ORDER BY mp.trading_date DESC,
+          order_pattern = re.compile(
+              r"        ORDER BY mp\.trading_date DESC,\n"
+              r"\s+CASE WHEN mp\.price_type='CLOSE' THEN 0 ELSE 1 END,\n"
+              r"\s+mp\.observed_at DESC, mp\.id DESC\n"
+              r"\s+LIMIT 1\n\s+\"\"\",\n\s+\(symbol,\),"
+          )
+          order_replacement = """        ORDER BY mp.trading_date DESC,
                    CASE
                        WHEN ?='OTEC' AND mp.price_type='LAST' THEN 0
                        WHEN ?<>'OTEC' AND mp.price_type='CLOSE' THEN 0
                        ELSE 1
                    END,
                    mp.observed_at DESC, mp.id DESC
-          LIMIT 1
-          \"\"\",
-          (symbol, symbol, symbol),"""
-          if old_order not in quote:
-              raise SystemExit("Fant ikke forventet _latest_price-sortering")
-          quote = quote.replace(old_order, new_order, 1)
+        LIMIT 1
+        \"\"\",
+        (symbol, symbol, symbol),"""
+          quote, count = order_pattern.subn(order_replacement, quote, count=1)
+          if count != 1:
+              raise SystemExit(f"Kunne ikke endre _latest_price-sortering: {count}")
 
-          old_override = """    if current_close and str(current_close[\"trading_date\"]) >= str(
-              latest[\"trading_date\"]
-          ):
-              latest = {"""
-          new_override = """    if current_close and (
-              str(current_close[\"trading_date\"]) > str(latest[\"trading_date\"])
-              or (
-                  str(current_close[\"trading_date\"]) == str(latest[\"trading_date\"])
-                  and latest.get(\"price_type\") != \"LAST\"
-              )
-          ):
-              latest = {"""
-          if old_override not in quote:
-              raise SystemExit("Fant ikke forventet OTEC close-overstyring")
-          quote = quote.replace(old_override, new_override, 1)
+          override_pattern = re.compile(
+              r"    if current_close and str\(current_close\[\"trading_date\"\]\) >= str\(\n"
+              r"\s+latest\[\"trading_date\"\]\n"
+              r"\s+\):\n"
+              r"\s+latest = \{"
+          )
+          override_replacement = """    if current_close and (
+        str(current_close[\"trading_date\"]) > str(latest[\"trading_date\"])
+        or (
+            str(current_close[\"trading_date\"]) == str(latest[\"trading_date\"])
+            and latest.get(\"price_type\") != \"LAST\"
+        )
+    ):
+        latest = {"""
+          quote, count = override_pattern.subn(override_replacement, quote, count=1)
+          if count != 1:
+              raise SystemExit(f"Kunne ikke endre OTEC close-overstyring: {count}")
           quote_path.write_text(quote, encoding="utf-8")
 
           forecast_path = Path("backend/app/buybacks/forecast.py")
           forecast = forecast_path.read_text(encoding="utf-8")
-          old_import = "from app.marketdata.oslo_calendar import oslo_bors_trading_days\n"
-          new_import = (
-              "from app.marketdata.oslo_calendar import oslo_bors_trading_days\n"
-              "from app.marketdata.quote_details import _latest_price\n"
+          import_line = "from app.marketdata.oslo_calendar import oslo_bors_trading_days\n"
+          if import_line not in forecast:
+              raise SystemExit("Fant ikke forecast-import")
+          forecast = forecast.replace(
+              import_line,
+              import_line + "from app.marketdata.quote_details import _latest_price\n",
+              1,
           )
-          if old_import not in forecast:
-              raise SystemExit("Fant ikke forventet forecast-import")
-          forecast = forecast.replace(old_import, new_import, 1)
 
-          old_price = """        last = lookback[-1]
-          last_close = Decimal(last[\"last_price_nok\"]) if last[\"last_price_nok\"] is not None else None
-          max_price = Decimal(program[\"max_price_nok\"]) if program[\"max_price_nok\"] is not None else None"""
-          new_price = """        last = lookback[-1]
-          last_close = (
-              Decimal(str(last[\"last_price_nok\"]))
-              if last[\"last_price_nok\"] is not None
-              else None
+          price_pattern = re.compile(
+              r"        last = lookback\[-1\]\n"
+              r"\s+last_close = Decimal\(last\[\"last_price_nok\"\]\) if last\[\"last_price_nok\"\] is not None else None\n"
+              r"\s+max_price = Decimal\(program\[\"max_price_nok\"\]\) if program\[\"max_price_nok\"\] is not None else None"
           )
-          if as_of_date is None:
-              live_quote = _latest_price(connection, \"OTEC\")
-              live_price = live_quote.get(\"price\") if live_quote else None
-              if live_price is not None:
-                  last_close = Decimal(str(live_price))
-          max_price = Decimal(program[\"max_price_nok\"]) if program[\"max_price_nok\"] is not None else None"""
-          if old_price not in forecast:
-              raise SystemExit("Fant ikke forventet forecast-prisblokk")
-          forecast = forecast.replace(old_price, new_price, 1)
+          price_replacement = """        last = lookback[-1]
+        last_close = (
+            Decimal(str(last[\"last_price_nok\"]))
+            if last[\"last_price_nok\"] is not None
+            else None
+        )
+        if as_of_date is None:
+            live_quote = _latest_price(connection, \"OTEC\")
+            live_price = live_quote.get(\"price\") if live_quote else None
+            if live_price is not None:
+                last_close = Decimal(str(live_price))
+        max_price = Decimal(program[\"max_price_nok\"]) if program[\"max_price_nok\"] is not None else None"""
+          forecast, count = price_pattern.subn(price_replacement, forecast, count=1)
+          if count != 1:
+              raise SystemExit(f"Kunne ikke endre forecast-pris: {count}")
           forecast_path.write_text(forecast, encoding="utf-8")
 
           Path(".github/workflows/apply-otec-live-fix.yml").unlink()
