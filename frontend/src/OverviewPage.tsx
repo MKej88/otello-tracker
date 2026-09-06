@@ -14,6 +14,11 @@ type Summary = {
     daily_pct?: number | null;
     month_pct?: number | null;
     nav_effect_1m_per_share_nok?: number | null;
+    range_1y?: {
+      low?: number | null;
+      high?: number | null;
+      position_pct?: number | null;
+    };
   };
   bemobi_insights?: {
     price_brl?: number | null;
@@ -278,6 +283,61 @@ function MarketTicker({ label, quote }: { label: string; quote?: Quote }) {
   );
 }
 
+function rangePosition(
+  current?: number | null,
+  low?: number | null,
+  high?: number | null,
+) {
+  if (
+    current == null
+    || low == null
+    || high == null
+    || !Number.isFinite(current)
+    || !Number.isFinite(low)
+    || !Number.isFinite(high)
+    || high < low
+  ) return null;
+  if (high === low) return 50;
+  return Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+}
+
+function OverviewRange({
+  current,
+  low,
+  high,
+  digits,
+  prefix = "",
+}: {
+  current?: number | null;
+  low?: number | null;
+  high?: number | null;
+  digits: number;
+  prefix?: string;
+}) {
+  const position = rangePosition(current, low, high);
+  const available = low != null
+    && high != null
+    && Number.isFinite(low)
+    && Number.isFinite(high)
+    && high >= low;
+  if (!available) return null;
+  return (
+    <div className="overviewRange52">
+      <div className="overviewRange52Header">
+        <span>52 uker</span>
+        <small>{position == null ? "" : `${formatNumber(position, 0)} % opp i intervallet`}</small>
+      </div>
+      <div className="overviewRange52Scale">
+        <span>{prefix}{formatNumber(low, digits)}</span>
+        <div className="overviewRange52Track" aria-label="Posisjon i 52-ukersintervallet">
+          {position != null ? <i style={{ left: `${position}%` }} /> : null}
+        </div>
+        <span>{prefix}{formatNumber(high, digits)}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function OverviewPage() {
   const { data: summary } = usePollingResource<Summary>(
     "/api/dashboard/summary",
@@ -400,6 +460,13 @@ export default function OverviewPage() {
               {signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
             <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
+          <OverviewRange
+            current={quotes?.symbols?.BMOB3?.last ?? bemobi?.price_brl}
+            low={quotes?.symbols?.BMOB3?.range_52w?.low}
+            high={quotes?.symbols?.BMOB3?.range_52w?.high}
+            digits={2}
+            prefix="R$"
+          />
           </article>
 
           <article className="card overviewDriverCard">
@@ -409,6 +476,12 @@ export default function OverviewPage() {
               {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
             <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
+          <OverviewRange
+            current={summary?.brl_nok}
+            low={brl?.range_1y?.low}
+            high={brl?.range_1y?.high}
+            digits={4}
+          />
           </article>
 
           <article className="card overviewDriverCard">
