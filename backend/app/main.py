@@ -1,5 +1,7 @@
+import math
 from contextlib import asynccontextmanager
 from datetime import date
+from typing import Any
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +46,130 @@ from app.settings import settings
 
 
 API_VERSION = "0.12.1"
+
+
+def _finite_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _discount_pct(otec_price: float | None, nav_per_share: Any) -> float | None:
+    nav = _finite_number(nav_per_share)
+    if otec_price is None or otec_price <= 0 or nav is None or nav <= 0:
+        return None
+    return (1 - otec_price / nav) * 100
+
+
+def _canonical_otec_quote() -> dict[str, Any]:
+    """Returner samme OTEC-quote som /api/market/quotes bruker."""
+    payload = market_quote_details(settings.database_path)
+    quote = dict((payload.get("symbols") or {}).get("OTEC") or {})
+    price = _finite_number(quote.get("last"))
+    if not quote.get("ready") or price is None or price <= 0:
+        return {}
+    quote["last"] = price
+    return quote
+
+
+def _sync_summary_with_otec_quote(
+    summary: dict[str, Any], quote: dict[str, Any]
+) -> dict[str, Any]:
+    """Synkroniser alle nåverdier i dashboard-summary mot kanonisk OTEC-quote."""
+    price = _finite_number(quote.get("last"))
+    if price is None or price <= 0:
+        return summary
+
+    result = dict(summary)
+    old_discount = _finite_number(result.get("nav_discount_pct"))
+    current_discount = _discount_pct(price, result.get("nav_per_share"))
+
+    result.update(
+        {
+            "otec_price": price,
+            "otec_price_updated_at": quote.get("last_updated_at"),
+            "otec_price_trading_date": quote.get("trading_date"),
+            "otec_price_type": quote.get("last_price_type"),
+            "otec_price_source": quote.get("source"),
+        }
+    )
+    if current_discount is not None:
+        result["nav_discount_pct"] = current_discount
+
+    insights = dict(result.get("nav_discount_insights") or {})
+    if insights:
+        previous_insight_discount = _finite_number(insights.get("discount_pct"))
+        insights["share_price"] = price
+        insights["discount_pct"] = current_discount
+        nav = _finite_number(insights.get("nav_per_share"))
+        insights["upside_to_nav_pct"] = (
+            (nav / price - 1) * 100
+            if nav is not None and nav > 0 and price > 0
+            else None
+        )
+        month_change = _finite_number(insights.get("month_change_pp"))
+        if (
+            current_discount is not None
+            and previous_insight_discount is not None
+            and month_change is not None
+        ):
+            insights["month_change_pp"] = (
+                month_change + current_discount - previous_insight_discount
+            )
+        range_1y = dict(insights.get("range_1y") or {})
+        low = _finite_number(range_1y.get("low"))
+        high = _finite_number(range_1y.get("high"))
+        if current_discount is not None and low is not None and high is not None:
+            range_1y["position_pct"] = (
+                50.0
+                if high == low
+                else (current_discount - low) / (high - low) * 100
+            )
+        insights["range_1y"] = range_1y
+        result["nav_discount_insights"] = insights
+
+    changes = dict(result.get("changes") or {})
+    quote_daily_pct = _finite_number((quote.get("changes") or {}).get("daily_pct"))
+    if quote_daily_pct is not None:
+        changes["otec_pct"] = quote_daily_pct
+    discount_change = _finite_number(changes.get("discount_pp"))
+    if (
+        current_discount is not None
+        and old_discount is not None
+        and discount_change is not None
+    ):
+        changes["discount_pp"] = discount_change + current_discount - old_discount
+    if changes:
+        result["changes"] = changes
+
+    return result
+
+
+def _sync_economic_with_otec_quote(
+    payload: dict[str, Any], quote: dict[str, Any]
+) -> dict[str, Any]:
+    """Beregn live rabatt fra samme OTEC-quote som resten av applikasjonen."""
+    price = _finite_number(quote.get("last"))
+    if price is None or price <= 0:
+        return payload
+
+    result = dict(payload)
+    result.update(
+        {
+            "otec_price": price,
+            "otec_price_updated_at": quote.get("last_updated_at"),
+            "otec_price_trading_date": quote.get("trading_date"),
+            "otec_price_type": quote.get("last_price_type"),
+            "otec_price_source": quote.get("source"),
+            "discount_pct": _discount_pct(price, result.get("nav_per_share")),
+            "conservative_discount_pct": _discount_pct(
+                price, result.get("conservative_nav_per_share")
+            ),
+        }
+    )
+    return result
 
 
 @asynccontextmanager
@@ -208,12 +334,14 @@ def nav_full() -> dict:
 @app.get("/api/dashboard/summary")
 def dashboard_summary() -> dict:
     summary = get_dashboard_summary(settings.database_path)
-    return enrich_dashboard_summary(summary, settings.database_path)
+    summary = enrich_dashboard_summary(summary, settings.database_path)
+    return _sync_summary_with_otec_quote(summary, _canonical_otec_quote())
 
 
 @app.get("/api/dashboard/economic")
 def dashboard_economic_nav() -> dict:
-    return economic_nav_summary(settings.database_path)
+    payload = economic_nav_summary(settings.database_path)
+    return _sync_economic_with_otec_quote(payload, _canonical_otec_quote())
 
 
 @app.get("/api/dashboard/waterfall")
