@@ -62,7 +62,7 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
     expected_tokens = {
         "cash-page.css": ("var(--ot-surface-inset)", "var(--ot-surface-raised)", "var(--ot-border-inset)"),
         "buyback-page.css": ("var(--ot-positive-soft)", "var(--ot-warning-soft)", "var(--ot-surface-raised)"),
-        "bemobi-page.css": ("var(--ot-surface-inset)", "var(--ot-border-inset)", "var(--ot-positive)"),
+        "bemobi-page.css": ("var(--ot-surface-raised)", "var(--ot-surface-muted)", "var(--ot-border-soft)", "var(--ot-positive)"),
         "consensus-page.css": ("var(--ot-surface-raised)", "var(--ot-surface-inset)", "var(--ot-positive-soft)"),
         "consensus-history.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-accent-strong)"),
         "brazil-page.css": ("var(--ot-surface-raised)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
@@ -87,7 +87,10 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
         for token in tokens:
             assert token in source
 
-    assert "--bemobi-" not in read_frontend("bemobi-page.css")
+    bemobi = read_frontend("bemobi-page.css")
+    assert "--bemobi-" not in bemobi
+    assert "var(--ot-surface-inset)" not in bemobi
+    assert "var(--ot-border-inset)" not in bemobi
     assert "--cash-inset-surface" not in read_frontend("cash-page.css")
 
     for filename in ("brazil-page.css", "news-events.css"):
