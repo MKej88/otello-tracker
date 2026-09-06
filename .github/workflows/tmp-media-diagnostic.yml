@@ -1,0 +1,109 @@
+name: Temporary media feed diagnostic
+
+on:
+  push:
+    branches:
+      - fix/media-feed-failures
+    paths:
+      - .github/workflows/tmp-media-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+    steps:
+      - name: Read latest media refresh errors from production D1
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+          databases_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database"
+          curl --fail-with-body --silent --show-error \
+            --get \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --data-urlencode "name=${D1_DATABASE_NAME}" \
+            --data-urlencode "per_page=10" \
+            "$databases_url" > /tmp/databases.json
+
+          database_id="$(python - <<'PY'
+          import json, os
+          payload=json.load(open('/tmp/databases.json', encoding='utf-8'))
+          if payload.get('success') is not True:
+              raise SystemExit(payload)
+          matches=[row for row in (payload.get('result') or []) if row.get('name') == os.environ['D1_DATABASE_NAME']]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one D1 match, got {len(matches)}')
+          print(matches[0]['uuid'])
+          PY
+          )"
+
+          python - <<'PY'
+          import json
+          sql = """
+          SELECT started_at, finished_at, status, records_written,
+                 error_message, metadata_json
+          FROM job_runs
+          WHERE job_name='bemobi_media_refresh'
+          ORDER BY started_at DESC, id DESC
+          LIMIT 1
+          """
+          json.dump({'sql': sql}, open('/tmp/query.json', 'w', encoding='utf-8'))
+          PY
+
+          query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --data-binary @/tmp/query.json \
+            "$query_url" > /tmp/result.json
+
+          python - <<'PY'
+          import json
+          payload=json.load(open('/tmp/result.json', encoding='utf-8'))
+          if payload.get('success') is not True:
+              raise SystemExit('D1 query failed')
+          blocks=payload.get('result') or []
+          rows=(blocks[0].get('results') if blocks else None) or []
+          if not rows:
+              raise SystemExit('No bemobi_media_refresh job found')
+          row=rows[0]
+          try:
+              metadata=json.loads(str(row.get('metadata_json') or '{}'))
+          except json.JSONDecodeError:
+              metadata={}
+          print('MEDIA_JOB', json.dumps({
+              'started_at': row.get('started_at'),
+              'finished_at': row.get('finished_at'),
+              'status': row.get('status'),
+              'records_written': row.get('records_written'),
+              'feeds_checked': metadata.get('feeds_checked'),
+              'feeds_succeeded': metadata.get('feeds_succeeded'),
+              'candidates': metadata.get('candidates'),
+          }, ensure_ascii=False, sort_keys=True))
+          for index, item in enumerate(metadata.get('feed_errors') or [], start=1):
+              print('FEED_ERROR', index, json.dumps({
+                  'source': item.get('source'),
+                  'error_type': item.get('error_type'),
+                  'error': str(item.get('error') or '')[:500],
+              }, ensure_ascii=False, sort_keys=True))
+          for index, item in enumerate(metadata.get('translation_errors') or [], start=1):
+              print('TRANSLATION_ERROR', index, json.dumps({
+                  'title': str(item.get('title') or '')[:180],
+                  'error_type': item.get('error_type'),
+                  'error': str(item.get('error') or '')[:500],
+              }, ensure_ascii=False, sort_keys=True))
+          PY
