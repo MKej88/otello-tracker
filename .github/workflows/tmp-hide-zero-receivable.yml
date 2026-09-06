@@ -30,7 +30,7 @@ jobs:
           path = Path('frontend/src/NavPageV2.tsx')
           text = path.read_text(encoding='utf-8')
 
-          marker = '''function groupedDrivers(drivers: Driver[]): DisplayDriver[] {'''
+          marker = 'function groupedDrivers(drivers: Driver[]): DisplayDriver[] {'
           helper = '''function hasVisibleReceivableEffect(driver: Driver) {
             // Match the precision used in the UI: 0.0 mill. kr and 0.00 kr/aksje
             // should not create a separate "Fordring" detail row.
@@ -45,25 +45,21 @@ jobs:
               raise SystemExit(f'Expected one groupedDrivers marker, got {text.count(marker)}')
           text = text.replace(marker, helper, 1)
 
-          old = '''      breakdown: parts.map((part) => ({
-                label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
-                movement: driverMovement(part),
-                amount_mnok: part.amount_mnok,
-                per_share_nok: part.per_share_nok,
-              })),'''
-          new = '''      breakdown: parts
+          group_marker = 'label: "Bemobi-utbetalinger"'
+          group_pos = text.find(group_marker)
+          if group_pos < 0:
+              raise SystemExit('Could not find Bemobi-utbetalinger group')
+
+          target = 'breakdown: parts.map((part) => ({'
+          target_pos = text.find(target, group_pos)
+          if target_pos < 0:
+              raise SystemExit('Could not find Bemobi breakdown mapping')
+          replacement = '''breakdown: parts
                 .filter((part) => (
                   part.key !== "bemobi_receivable" || hasVisibleReceivableEffect(part)
                 ))
-                .map((part) => ({
-                  label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
-                  movement: driverMovement(part),
-                  amount_mnok: part.amount_mnok,
-                  per_share_nok: part.per_share_nok,
-                })),'''
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected one Bemobi breakdown block, got {text.count(old)}')
-          text = text.replace(old, new, 1)
+                .map((part) => ({'''
+          text = text[:target_pos] + replacement + text[target_pos + len(target):]
           path.write_text(text, encoding='utf-8')
           PY
 
