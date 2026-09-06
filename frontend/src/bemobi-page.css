@@ -3,23 +3,12 @@
   gap: 14px;
 }
 
-.bemobiPageClean {
-  --bemobi-surface: #0f1d31;
-  --bemobi-surface-raised: #13243a;
-  --bemobi-surface-soft: #162a43;
-  --bemobi-border: #203a5a;
-  --bemobi-text: #edf4ff;
-  --bemobi-muted: #7f93af;
-  --bemobi-accent: #3fd7b2;
-  --bemobi-blue: #65a7ff;
-}
-
 .bemobiNotice {
   min-height: 180px;
-  border: 1px solid var(--bemobi-border, #203a5a);
+  border: 1px solid var(--ot-border);
   border-radius: 14px;
-  background: #0f1d31;
-  color: #8395af;
+  background: var(--ot-surface);
+  color: var(--ot-text-secondary);
   display: grid;
   align-content: center;
   justify-items: center;
@@ -28,7 +17,7 @@
   text-align: center;
 }
 
-.bemobiNotice strong { color: #edf4ff; }
+.bemobiNotice strong { color: var(--ot-text); }
 
 .bemobiCleanHero {
   min-height: 118px;
@@ -36,14 +25,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 28px;
-  background:
-    radial-gradient(circle at 90% 10%, rgba(63, 215, 178, .10), transparent 31%),
-    linear-gradient(180deg, #11213a, #0e1b2f);
 }
 
 .bemobiCleanHero h2 {
   margin: 7px 0 0;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 25px;
   letter-spacing: -.025em;
 }
@@ -51,7 +37,7 @@
 .bemobiCleanHero p {
   max-width: 760px;
   margin: 9px 0 0;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-secondary);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -59,14 +45,14 @@
 .bemobiHeroQuote {
   min-width: 180px;
   padding-left: 24px;
-  border-left: 1px solid var(--bemobi-border);
+  border-left: 1px solid var(--ot-border-soft);
   text-align: right;
 }
 
 .bemobiHeroQuote span,
 .bemobiHeroQuote small {
   display: block;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 10px;
   letter-spacing: .06em;
 }
@@ -74,7 +60,7 @@
 .bemobiHeroQuote strong {
   display: block;
   margin: 4px 0;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 29px;
   letter-spacing: -.035em;
 }
@@ -92,7 +78,7 @@
 .bemobiCleanKpi > strong {
   display: block;
   margin-top: 12px;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 24px;
   letter-spacing: -.025em;
 }
@@ -100,12 +86,12 @@
 .bemobiCleanKpi > small {
   display: block;
   margin-top: 7px;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 11px;
 }
 
-.bemobiPageClean .positive { color: var(--bemobi-accent) !important; }
-.bemobiPageClean .negative { color: #ff8297 !important; }
+.bemobiPageClean .positive { color: var(--ot-positive); }
+.bemobiPageClean .negative { color: var(--ot-negative); }
 
 .bemobiCleanTwinGrid {
   display: grid;
@@ -113,19 +99,12 @@
   gap: 14px;
 }
 
-.bemobiCleanSection,
-.bemobiCleanValuation,
-.bemobiCleanHistory,
-.bemobiCleanWatch {
-  background: linear-gradient(180deg, #102039, #0d1a2e);
-}
-
 .bemobiCleanSection h2,
 .bemobiCleanValuation h2,
 .bemobiCleanHistory h2,
 .bemobiCleanWatch h2 {
   margin: 6px 0 0;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 17px;
 }
 
@@ -141,9 +120,9 @@
 .bemobiCleanValuationGrid > div,
 .bemobiWatchGrid > div {
   min-width: 0;
-  border: 1px solid var(--bemobi-border);
+  border: 1px solid var(--ot-border-inset);
   border-radius: 10px;
-  background: var(--bemobi-surface-raised);
+  background: var(--ot-surface-inset);
   padding: 15px 16px;
 }
 
@@ -156,26 +135,26 @@
 .bemobiWatchGrid span,
 .bemobiWatchGrid small {
   display: block;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 10px;
 }
 
 .bemobiDriverGrid strong {
   display: block;
   margin: 7px 0 3px;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 28px;
   letter-spacing: -.03em;
 }
 
 .bemobiCleanNote {
   margin: 12px 0 0;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 11px;
   line-height: 1.5;
 }
 
-.bemobiCleanNote strong { color: #dce9fb; }
+.bemobiCleanNote strong { color: var(--ot-text-secondary); }
 
 .bemobiCashMetricGrid {
   display: grid;
@@ -189,7 +168,7 @@
 .bemobiWatchGrid strong {
   display: block;
   margin: 7px 0 4px;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 19px;
   letter-spacing: -.02em;
 }
@@ -206,9 +185,9 @@
 .bemobiCleanScenarioBlock {
   margin-top: 14px;
   padding: 15px;
-  border: 1px solid var(--bemobi-border);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 11px;
-  background: var(--bemobi-surface);
+  background: var(--ot-surface-raised);
 }
 
 .bemobiCleanSectionTitle {
@@ -219,12 +198,12 @@
 }
 
 .bemobiCleanSectionTitle strong {
-  color: #c7d5e8;
+  color: var(--ot-text-secondary);
   font-size: 12px;
 }
 
 .bemobiCleanSectionTitle span {
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 10px;
 }
 
@@ -236,30 +215,30 @@
 }
 
 .bemobiCleanScenarioGrid > div {
-  border: 1px solid var(--bemobi-border);
+  border: 1px solid var(--ot-border-inset);
   border-radius: 9px;
-  background: var(--bemobi-surface-raised);
+  background: var(--ot-surface-inset);
   padding: 13px 14px;
 }
 
 .bemobiCleanScenarioGrid span,
 .bemobiCleanScenarioGrid small {
   display: block;
-  color: var(--bemobi-muted);
+  color: var(--ot-text-muted);
   font-size: 10px;
 }
 
 .bemobiCleanScenarioGrid strong {
   display: block;
   margin: 6px 0 4px;
-  color: var(--bemobi-text);
+  color: var(--ot-text);
   font-size: 20px;
 }
 
 .bemobiQuarterTableWrap {
   margin-top: 16px;
   overflow-x: auto;
-  border: 1px solid var(--bemobi-border);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 11px;
 }
 
@@ -267,13 +246,13 @@
   width: 100%;
   border-collapse: collapse;
   min-width: 690px;
-  background: var(--bemobi-surface);
+  background: var(--ot-surface);
 }
 
 .bemobiQuarterTable th,
 .bemobiQuarterTable td {
   padding: 13px 16px;
-  border-bottom: 1px solid var(--bemobi-border);
+  border-bottom: 1px solid var(--ot-border-soft);
   text-align: right;
   white-space: nowrap;
 }
@@ -284,21 +263,21 @@
 }
 
 .bemobiQuarterTable th {
-  color: var(--bemobi-muted);
-  background: var(--bemobi-surface-raised);
+  color: var(--ot-text-muted);
+  background: var(--ot-surface-raised);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .03em;
 }
 
 .bemobiQuarterTable td {
-  color: #cdd9ea;
+  color: var(--ot-text-secondary);
   font-size: 12px;
 }
 
-.bemobiQuarterTable td strong { color: var(--bemobi-text); }
+.bemobiQuarterTable td strong { color: var(--ot-text); }
 .bemobiQuarterTable tbody tr:last-child td { border-bottom: 0; }
-.bemobiQuarterTable tbody tr:last-child { background: rgba(76, 139, 220, .08); }
+.bemobiQuarterTable tbody tr:last-child { background: var(--ot-accent-soft); }
 
 .bemobiWatchGrid {
   display: grid;
@@ -314,18 +293,18 @@
   gap: 10px 18px;
   margin-top: 13px;
   padding-top: 12px;
-  border-top: 1px solid var(--bemobi-border);
-  color: var(--bemobi-muted);
+  border-top: 1px solid var(--ot-border-soft);
+  color: var(--ot-text-muted);
   font-size: 10px;
 }
 
 .bemobiCleanFooterMeta a {
-  color: var(--bemobi-blue);
+  color: var(--ot-accent-strong);
   text-decoration: none;
   font-weight: 700;
 }
 
-.bemobiCleanFooterMeta a:hover { color: #a9ccff; }
+.bemobiCleanFooterMeta a:hover { color: var(--ot-text); }
 
 @media (max-width: 1180px) {
   .bemobiCleanKpiGrid,
@@ -347,7 +326,7 @@
     width: 100%;
     padding: 13px 0 0;
     border-left: 0;
-    border-top: 1px solid var(--bemobi-border);
+    border-top: 1px solid var(--ot-border-soft);
     text-align: left;
   }
 
