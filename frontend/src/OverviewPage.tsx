@@ -72,11 +72,20 @@ type NewsEventsPayload = {
   events?: NewsEvent[];
 };
 
+type BrazilCalendarExpectation = {
+  value?: number | null;
+  unit?: string;
+  event_consensus?: boolean;
+  previous?: string | null;
+  release_at_utc?: string | null;
+};
+
 type BrazilCalendarEvent = {
   date: string;
   name: string;
   kind: string;
   importance: string;
+  expectation?: BrazilCalendarExpectation | null;
 };
 
 type BrazilCalendarPayload = {
@@ -92,6 +101,7 @@ type OverviewEvent = {
   confirmed: boolean;
   source?: string | null;
   importance: number;
+  macroExpectation?: BrazilCalendarExpectation | null;
 };
 
 function finiteNumber(value: string | number | null | undefined): number | null {
@@ -161,6 +171,41 @@ function countdownLabel(input: string) {
   return days > 1 ? `Om ${days} dager` : "";
 }
 
+function norwayReleaseTime(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("nb-NO", {
+    timeZone: "Europe/Oslo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+}
+
+function expectationLabel(expectation?: BrazilCalendarExpectation | null) {
+  if (!expectation?.event_consensus) return null;
+  const value = finiteNumber(expectation.value);
+  if (value == null) return null;
+  const unit = expectation.unit ? ` ${expectation.unit}` : "";
+  return `Konsensus ${formatNumber(value, 2)}${unit}`;
+}
+
+function eventMetaLabel(event: OverviewEvent) {
+  if (event.badgeClass === "macro") {
+    const parts: string[] = [];
+    const releaseTime = norwayReleaseTime(event.macroExpectation?.release_at_utc);
+    const expectation = expectationLabel(event.macroExpectation);
+    if (releaseTime) parts.push(`Norsk tid kl. ${releaseTime}`);
+    if (expectation) parts.push(expectation);
+    if (expectation && event.macroExpectation?.previous) {
+      parts.push(`Forrige ${event.macroExpectation.previous}`);
+    }
+    return parts.join(" · ");
+  }
+  return `${event.confirmed ? "Bekreftet dato" : "Forventet dato"}${event.source ? ` · ${event.source}` : ""}`;
+}
+
 function macroTitle(event: BrazilCalendarEvent) {
   const labels: Record<string, string> = {
     copom: "Rentebeslutning fra sentralbanken",
@@ -205,8 +250,8 @@ function upcomingEvents(
       badge: "Makro",
       badgeClass: "macro",
       confirmed: true,
-      source: "BCB / IBGE",
       importance: 0,
+      macroExpectation: event.expectation,
     });
   }
 
@@ -321,7 +366,7 @@ export default function OverviewPage() {
                     <strong>{nextEvent.title}</strong>
                     <span className={`overviewEventBadge ${nextEvent.badgeClass}`}>{nextEvent.badge}</span>
                   </div>
-                  <small>{nextEvent.confirmed ? "Bekreftet dato" : "Forventet dato"}{nextEvent.source ? ` · ${nextEvent.source}` : ""}</small>
+                  {eventMetaLabel(nextEvent) ? <small>{eventMetaLabel(nextEvent)}</small> : null}
                 </div>
               </div>
               {events.length > 1 && (
