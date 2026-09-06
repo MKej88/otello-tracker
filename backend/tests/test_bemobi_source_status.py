@@ -18,6 +18,36 @@ def _database(tmp_path: Path) -> str:
     return database
 
 
+def _insert_source_document(
+    connection,
+    source_code: str,
+    *,
+    external_id: str,
+    published_at: str = "2026-08-20T07:00:00Z",
+    fetched_at: str = "2026-08-20T08:00:00Z",
+) -> None:
+    source_id = connection.execute(
+        "SELECT id FROM sources WHERE code = ?",
+        (source_code,),
+    ).fetchone()[0]
+    connection.execute(
+        """
+        INSERT INTO source_documents(
+            source_id, external_id, document_type, title,
+            published_at, url, fetched_at
+        )
+        VALUES (?, ?, 'REPORT', 'Test report', ?, ?, ?)
+        """,
+        (
+            source_id,
+            external_id,
+            published_at,
+            f"https://example.com/{external_id}.pdf",
+            fetched_at,
+        ),
+    )
+
+
 def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Path) -> None:
     database = _database(tmp_path)
     metadata = {
@@ -180,6 +210,97 @@ def test_source_status_includes_health_for_operational_sources(tmp_path: Path) -
     assert by_key["norges_bank"]["source"] == "Norges Bank"
     assert by_key["norges_bank"]["status"] == "OK"
     assert by_key["norges_bank"]["checked_at"] == "2026-08-20T18:00:00Z"
+
+
+def test_otello_report_data_is_ok_without_health_row(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        _insert_source_document(
+            connection,
+            "OTELLO_IR",
+            external_id="otello-1h26",
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+    by_key = {item["key"]: item for item in result["items"]}
+    otello = by_key["otello_ir"]
+
+    assert otello["status"] == "OK"
+    assert otello["checked_at"] is None
+    assert otello["last_good_at"] == "2026-08-20T08:00:00Z"
+    assert otello["uses_last_good"] is False
+    assert "ingen aktiv kildefeil" in otello["detail"]
+
+
+def test_other_operational_source_stays_unknown_without_health_row(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        _insert_source_document(
+            connection,
+            "NORGES_BANK",
+            external_id="norges-bank-test",
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+    by_key = {item["key"]: item for item in result["items"]}
+
+    assert by_key["norges_bank"]["status"] == "UNKNOWN"
+
+
+def test_otello_explicit_degraded_status_is_preserved(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        _insert_source_document(
+            connection,
+            "OTELLO_IR",
+            external_id="otello-degraded",
+        )
+        source_id = connection.execute("SELECT id FROM sources WHERE code='OTELLO_IR'").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO source_health(source_id, checked_at, status, error_message)
+            VALUES (?, ?, 'DEGRADED', ?)
+            """,
+            (source_id, "2026-08-20T09:00:00Z", "Ufullstendig respons fra Otello IR"),
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+    by_key = {item["key"]: item for item in result["items"]}
+    otello = by_key["otello_ir"]
+
+    assert otello["status"] == "DEGRADED"
+    assert otello["uses_last_good"] is True
+    assert otello["detail"] == "Ufullstendig respons fra Otello IR"
+
+
+def test_otello_explicit_error_status_is_preserved(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with get_connection(database) as connection:
+        _insert_source_document(
+            connection,
+            "OTELLO_IR",
+            external_id="otello-down",
+        )
+        source_id = connection.execute("SELECT id FROM sources WHERE code='OTELLO_IR'").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO source_health(source_id, checked_at, status, error_message)
+            VALUES (?, ?, 'DOWN', ?)
+            """,
+            (source_id, "2026-08-20T09:00:00Z", "Otello IR svarte ikke"),
+        )
+        connection.commit()
+
+    result = bemobi_source_status(database)
+    by_key = {item["key"]: item for item in result["items"]}
+    otello = by_key["otello_ir"]
+
+    assert otello["status"] == "ERROR"
+    assert otello["uses_last_good"] is True
+    assert otello["detail"] == "Otello IR svarte ikke"
 
 
 def test_operational_source_status_uses_one_database_query(tmp_path: Path) -> None:
