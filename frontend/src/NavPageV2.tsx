@@ -243,6 +243,15 @@ function driverMovement(driver: Driver) {
   }
 }
 
+function hasVisibleReceivableEffect(driver: Driver) {
+  // Match the precision used in the UI: 0.0 mill. kr and 0.00 kr/aksje
+  // should not create a separate "Fordring" detail row.
+  return (
+    Math.abs(driver.amount_mnok ?? 0) >= 0.05 ||
+    Math.abs(driver.per_share_nok) >= 0.005
+  );
+}
+
 function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
   const bemobiPrice = drivers.find((driver) => driver.key === "bemobi_price");
   const bemobiFx = drivers.find((driver) => driver.key === "bemobi_fx");
@@ -292,7 +301,11 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
       label: "Bemobi-utbetalinger",
       amount_mnok: parts.reduce((sum, part) => sum + (part.amount_mnok ?? 0), 0),
       per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0),
-      breakdown: parts.map((part) => ({
+      breakdown: parts
+      .filter((part) => (
+        part.key !== "bemobi_receivable" || hasVisibleReceivableEffect(part)
+      ))
+      .map((part) => ({
         label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
         movement: driverMovement(part),
         amount_mnok: part.amount_mnok,
