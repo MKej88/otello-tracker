@@ -331,9 +331,9 @@
   display: grid;
   gap: 5px;
   padding: 11px;
-  border: 1px solid var(--ot-border-inset);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 8px;
-  background: var(--ot-surface-inset);
+  background: var(--ot-surface-muted);
 }
 
 .consensusForwardRevisionGrid span,
@@ -372,9 +372,9 @@
   display: grid;
   gap: 5px;
   padding: 10px;
-  border: 1px solid var(--ot-border-inset);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 8px;
-  background: var(--ot-surface-inset);
+  background: var(--ot-surface-muted);
 }
 
 .consensusRevisionEventGrid span,
