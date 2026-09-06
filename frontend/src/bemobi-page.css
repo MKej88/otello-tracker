@@ -120,9 +120,9 @@
 .bemobiCleanValuationGrid > div,
 .bemobiWatchGrid > div {
   min-width: 0;
-  border: 1px solid var(--ot-border-inset);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 10px;
-  background: var(--ot-surface-inset);
+  background: var(--ot-surface-raised);
   padding: 15px 16px;
 }
 
@@ -187,7 +187,7 @@
   padding: 15px;
   border: 1px solid var(--ot-border-soft);
   border-radius: 11px;
-  background: var(--ot-surface-raised);
+  background: var(--ot-surface-muted);
 }
 
 .bemobiCleanSectionTitle {
@@ -215,9 +215,9 @@
 }
 
 .bemobiCleanScenarioGrid > div {
-  border: 1px solid var(--ot-border-inset);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 9px;
-  background: var(--ot-surface-inset);
+  background: var(--ot-surface-raised);
   padding: 13px 14px;
 }
 
@@ -277,7 +277,7 @@
 
 .bemobiQuarterTable td strong { color: var(--ot-text); }
 .bemobiQuarterTable tbody tr:last-child td { border-bottom: 0; }
-.bemobiQuarterTable tbody tr:last-child { background: var(--ot-accent-soft); }
+.bemobiQuarterTable tbody tr:last-child { background: var(--ot-surface-raised); }
 
 .bemobiWatchGrid {
   display: grid;
