@@ -8,6 +8,7 @@ from typing import Any
 
 from app.db.connection import get_connection
 from app.marketdata.oslo_calendar import oslo_bors_trading_days
+from app.marketdata.quote_details import _latest_price
 
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
@@ -236,7 +237,16 @@ def buyback_forecast(
         high = min(high_reference, base_case + capacity_estimate * band)
 
         last = lookback[-1]
-        last_close = Decimal(last["last_price_nok"]) if last["last_price_nok"] is not None else None
+        last_close = (
+            Decimal(str(last["last_price_nok"]))
+            if last["last_price_nok"] is not None
+            else None
+        )
+        if as_of_date is None:
+            live_quote = _latest_price(connection, "OTEC")
+            live_price = live_quote.get("price") if live_quote else None
+            if live_price is not None:
+                last_close = Decimal(str(live_price))
         max_price = Decimal(program["max_price_nok"]) if program["max_price_nok"] is not None else None
         price_state = "UNKNOWN"
         price_headroom_pct: float | None = None
