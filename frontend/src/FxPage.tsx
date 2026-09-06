@@ -150,6 +150,7 @@ function rangeStats(points: FxPoint[]) {
 
 function chartPath(
   points: LinePoint[],
+  domainDates: string[],
   min: number,
   max: number,
   width: number,
@@ -157,12 +158,15 @@ function chartPath(
   padX: number,
   padY: number,
 ) {
-  if (points.length < 2) return "";
+  if (points.length < 2 || domainDates.length < 2) return "";
   const span = Math.max(max - min, 0.000001);
-  return points.map((point, index) => {
-    const x = padX + index / (points.length - 1) * (width - padX * 2);
+  const datePositions = new Map(domainDates.map((day, index) => [day, index]));
+  return points.flatMap((point, index) => {
+    const domainIndex = datePositions.get(point.date);
+    if (domainIndex == null) return [];
+    const x = padX + domainIndex / (domainDates.length - 1) * (width - padX * 2);
     const y = padY + (max - point.value) / span * (height - padY * 2);
-    return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+    return [`${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`];
   }).join(" ");
 }
 
@@ -217,9 +221,9 @@ function FxChart({ series, range }: { series: FxPoint[]; range: RangeKey }) {
             </g>
           );
         })}
-        <path className="fxLine fxLineSpot" d={chartPath(spotLine, min, max, width, height, padX, padY)} />
-        {ma50.length > 1 ? <path className="fxLine fxLineMa50" d={chartPath(ma50, min, max, width, height, padX, padY)} /> : null}
-        {ma200.length > 1 ? <path className="fxLine fxLineMa200" d={chartPath(ma200, min, max, width, height, padX, padY)} /> : null}
+        <path className="fxLine fxLineSpot" d={chartPath(spotLine, dates, min, max, width, height, padX, padY)} />
+        {ma50.length > 1 ? <path className="fxLine fxLineMa50" d={chartPath(ma50, dates, min, max, width, height, padX, padY)} /> : null}
+        {ma200.length > 1 ? <path className="fxLine fxLineMa200" d={chartPath(ma200, dates, min, max, width, height, padX, padY)} /> : null}
         {labelIndices.map((index) => {
           const point = filtered[index];
           const x = padX + index / (filtered.length - 1) * (width - padX * 2);
