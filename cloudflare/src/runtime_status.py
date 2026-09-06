@@ -117,8 +117,8 @@ def _job_freshness(
     }
 
 
-def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
-    """Translate known NAV quality states to safe investor-facing explanations."""
+def _expected_between_reports(details: dict[str, Any]) -> bool:
+    """Return True when lower-quality flags only describe normal between-report estimates."""
     data_status = str(details.get("data_status") or "").upper()
     cash_quality = str(details.get("cash_quality") or "").upper()
     cash_calibration_quality = str(details.get("cash_calibration_quality") or "").upper()
@@ -128,48 +128,54 @@ def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
     option_quality = str(details.get("option_quality") or "").upper()
     notes = str(details.get("quality_notes") or "").lower()
 
+    if data_status == "ESTIMATED":
+        return True
+    if data_status != "DEGRADED":
+        return False
+
+    actionable = (
+        cash_calibration_quality == "HIGH_RESIDUAL"
+        or receivable_quality == "ESTIMATED_GROSS"
+        or "gross-estimated" in notes
+    )
+    expected_markers = (
+        cash_quality in {"FORECAST_PARTIAL", "ANCHORED_ESTIMATE"}
+        or share_count_quality == "POTENTIALLY_STALE"
+        or ona_quality in {"FORECAST_PARTIAL", "INTERPOLATED"}
+        or "partial forecast data" in notes
+        or "interpolated between reported anchors" in notes
+        or option_quality in {"INTERPOLATED_TO_REPORTED", "FORECAST_MARK_TO_MARKET"}
+        or "latest reported risk-free-rate/volatility" in notes
+    )
+    return expected_markers and not actionable
+
+
+def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
+    """Expose actionable NAV-quality issues, not normal estimates between reports."""
+    data_status = str(details.get("data_status") or "").upper()
+    cash_calibration_quality = str(details.get("cash_calibration_quality") or "").upper()
+    receivable_quality = str(details.get("receivable_quality") or "").upper()
+    notes = str(details.get("quality_notes") or "").lower()
+
     reasons: list[str] = []
+    if cash_calibration_quality == "HIGH_RESIDUAL":
+        reasons.append(
+            "Kontantestimatet ligger i en periode med høy avstemmingsrest og har lavere kvalitet."
+        )
+    if receivable_quality == "ESTIMATED_GROSS" or "gross-estimated" in notes:
+        reasons.append(
+            "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden."
+        )
 
-    if data_status == "DEGRADED":
-        if cash_quality == "FORECAST_PARTIAL":
-            reasons.append(
-                "Kontantbeholdningen er delvis estimert fra siste rapport og kjente kontantbevegelser."
-            )
-        if cash_calibration_quality == "HIGH_RESIDUAL":
-            reasons.append(
-                "Kontantestimatet ligger i en periode med høy avstemmingsrest og har lavere kvalitet."
-            )
-        if share_count_quality == "POTENTIALLY_STALE":
-            reasons.append(
-                "Antall utestående Otello-aksjer kan være utdatert mens tilbakekjøpsprogrammet pågår."
-            )
-        if ona_quality == "FORECAST_PARTIAL" or "partial forecast data" in notes:
-            reasons.append(
-                "Andre nettoeiendeler/-forpliktelser er videreført fra siste rapport og er derfor delvis estimert."
-            )
-        if receivable_quality == "ESTIMATED_GROSS" or "gross-estimated" in notes:
-            reasons.append(
-                "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden."
-            )
-    elif data_status == "ESTIMATED":
-        if cash_quality == "ANCHORED_ESTIMATE":
-            reasons.append(
-                "Kontantbeholdningen er et forankret estimat mellom rapportdatoer."
-            )
-        if ona_quality == "INTERPOLATED" or "interpolated between reported anchors" in notes:
-            reasons.append(
-                "Andre nettoeiendeler/-forpliktelser er interpolert mellom rapporterte verdier."
-            )
-        if option_quality == "INTERPOLATED_TO_REPORTED":
-            reasons.append(
-                "Opsjonsforpliktelsen er interpolert mot neste rapporterte verdi."
-            )
-        if option_quality == "FORECAST_MARK_TO_MARKET" or "latest reported risk-free-rate/volatility" in notes:
-            reasons.append(
-                "Opsjonsforpliktelsen bruker sist rapporterte verdsettelsesforutsetninger frem til neste rapport."
-            )
+    if (
+        data_status == "DEGRADED"
+        and not reasons
+        and not _expected_between_reports(details)
+    ):
+        reasons.append(
+            "NAV-data har et kvalitetsavvik utover normal estimering mellom rapportdatoer."
+        )
 
-    # Preserve order while avoiding duplicates when both structured state and notes identify the same cause.
     return list(dict.fromkeys(reasons))
 
 
@@ -200,18 +206,11 @@ def _public_preflight_warnings(
             )
             message = f"Bemobi / CVM: Ingen CVM-dokumenter funnet{period}."
         elif code == "dashboard_quality":
-            data_status = str(safe_details.get("data_status") or "").upper()
             reasons = _dashboard_quality_reasons(safe_details)
+            if not reasons and _expected_between_reports(safe_details):
+                continue
             if reasons:
                 message = "Dashboardkvalitet: " + " ".join(reasons)
-            elif data_status == "ESTIMATED":
-                message = (
-                    "Dashboardkvalitet: NAV bruker estimerte data mellom rapportdatoer."
-                )
-            elif data_status == "DEGRADED":
-                message = (
-                    "Dashboardkvalitet: Datakvaliteten var redusert da nattkontrollen ble kjørt."
-                )
             else:
                 message = "Dashboardkvalitet: Nattkontrollen registrerte en kvalitetsadvarsel."
         elif code == "buyback_forecast_current_state":
@@ -255,6 +254,14 @@ def _job_payload(
     source_health = raw_source_health if isinstance(raw_source_health, dict) else {}
     raw_preflight = metadata.get("preflight")
     preflight = raw_preflight if isinstance(raw_preflight, dict) else {}
+    public_warnings = (
+        _public_preflight_warnings(
+            preflight,
+            target_date=metadata.get("target_date"),
+        )
+        if preflight
+        else []
+    )
     return {
         "available": True,
         "status": row.get("status"),
@@ -275,11 +282,8 @@ def _job_payload(
             {
                 "ready": bool(preflight.get("ready")),
                 "blocker_count": len(preflight.get("blockers") or []),
-                "warning_count": len(preflight.get("warnings") or []),
-                "warnings": _public_preflight_warnings(
-                    preflight,
-                    target_date=metadata.get("target_date"),
-                ),
+                "warning_count": len(public_warnings),
+                "warnings": public_warnings,
             }
             if preflight
             else None
@@ -394,13 +398,14 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
         "option_quality": option.get("quality"),
         "quality_notes": full.get("quality_notes"),
     }
-    public_status = data_status if data_status in {"DEGRADED", "ESTIMATED"} else "OK"
+    reasons = _dashboard_quality_reasons(details)
+    public_status = "DEGRADED" if reasons else "OK"
     return {
         "available": True,
         "status": public_status,
         "data_status": data_status,
         "as_of_date": str(full.get("as_of_at") or "")[:10] or None,
-        "reasons": _dashboard_quality_reasons(details),
+        "reasons": reasons,
     }
 
 
