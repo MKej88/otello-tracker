@@ -178,7 +178,17 @@ jobs:
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
           worker_pid=$!
-          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          cleanup_worker() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo '--- Worker-logg etter smoke-feil ---'
+              cat /tmp/otello-worker.log || true
+              echo '--- Slutt Worker-logg ---'
+            fi
+            kill "$worker_pid" 2>/dev/null || true
+            return "$status"
+          }
+          trap cleanup_worker EXIT
           ready=0
           for attempt in $(seq 1 45); do
             if curl -fsS http://127.0.0.1:8787/api/health > /tmp/worker-health.json; then
