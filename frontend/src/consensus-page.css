@@ -28,7 +28,6 @@
   gap: 28px;
   min-height: 142px;
   padding: 22px 24px;
-  background: linear-gradient(180deg, rgba(23, 40, 61, 0.94), rgba(18, 28, 43, 0.94));
 }
 
 .consensusHeroV2 h2 {
@@ -131,7 +130,7 @@
   width: 100%;
   min-width: 720px;
   border-collapse: collapse;
-  background: #132033;
+  background: var(--ot-surface);
 }
 
 .consensusTable th,
@@ -150,7 +149,7 @@
 
 .consensusTable th {
   color: var(--ot-text-muted);
-  background: #17283d;
+  background: var(--ot-surface-raised);
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -192,9 +191,9 @@
   gap: 10px;
   margin-top: 16px;
   padding: 18px;
-  border: 1px solid rgba(79, 145, 212, 0.24);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 10px;
-  background: #17283d;
+  background: var(--ot-surface-raised);
 }
 
 .consensusWaitingPreview > strong {
@@ -217,20 +216,16 @@
   padding: 6px 8px;
   border: 1px solid var(--ot-border-strong);
   border-radius: 7px;
-  background: rgba(11, 13, 16, 0.18);
+  background: var(--ot-control-soft);
   color: var(--ot-text-secondary);
   font-size: 0.7rem;
 }
 
 .consensusBeatSummaryGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
   margin-top: 16px;
-  overflow: hidden;
-  border: 1px solid var(--ot-border-soft);
-  border-radius: 10px;
-  background: var(--ot-border-soft);
 }
 
 .consensusBeatSummaryGrid > div {
@@ -238,7 +233,9 @@
   gap: 7px;
   min-height: 105px;
   padding: 15px;
-  background: #17283d;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: var(--ot-surface-raised);
 }
 
 .consensusBeatSummaryGrid span,
@@ -296,9 +293,9 @@
 
 .consensusForwardRevision {
   padding: 16px;
-  border: 1px solid rgba(79, 145, 212, 0.24);
+  border: 1px solid var(--ot-border-soft);
   border-radius: 10px;
-  background: #17283d;
+  background: var(--ot-surface-raised);
 }
 
 .consensusForwardRevisionHeader,
@@ -334,9 +331,9 @@
   display: grid;
   gap: 5px;
   padding: 11px;
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
   border-radius: 8px;
-  background: rgba(11, 13, 16, 0.18);
+  background: var(--ot-surface-inset);
 }
 
 .consensusForwardRevisionGrid span,
@@ -358,7 +355,7 @@
   padding: 15px;
   border: 1px solid var(--ot-border-soft);
   border-radius: 10px;
-  background: #142237;
+  background: var(--ot-surface-raised);
 }
 
 .consensusRevisionEventHeader > div > strong {
@@ -375,9 +372,9 @@
   display: grid;
   gap: 5px;
   padding: 10px;
-  border: 1px solid var(--ot-border-soft);
+  border: 1px solid var(--ot-border-inset);
   border-radius: 8px;
-  background: rgba(11, 13, 16, 0.16);
+  background: var(--ot-surface-inset);
 }
 
 .consensusRevisionEventGrid span,
@@ -443,12 +440,12 @@
 
 .targetRangeAverage {
   background: var(--ot-accent-strong);
-  box-shadow: 0 0 0 3px rgba(79, 145, 212, 0.18);
+  box-shadow: 0 0 0 3px var(--ot-accent-soft);
 }
 
 .targetRangeMarket {
   background: var(--ot-positive);
-  box-shadow: 0 0 0 3px rgba(54, 201, 154, 0.16);
+  box-shadow: 0 0 0 3px var(--ot-positive-soft);
 }
 
 .targetRangeLegend {
@@ -541,20 +538,20 @@
 
 .rating.buy {
   color: var(--ot-positive);
-  border: 1px solid rgba(54, 201, 154, 0.26);
-  background: rgba(54, 201, 154, 0.1);
+  border: 1px solid var(--ot-positive-border);
+  background: var(--ot-positive-soft);
 }
 
 .rating.hold {
   color: var(--ot-warning);
-  border: 1px solid rgba(210, 168, 81, 0.28);
-  background: rgba(210, 168, 81, 0.08);
+  border: 1px solid var(--ot-warning-border);
+  background: var(--ot-warning-soft);
 }
 
 .rating.sell {
   color: var(--ot-negative);
-  border: 1px solid rgba(240, 111, 125, 0.28);
-  background: rgba(240, 111, 125, 0.08);
+  border: 1px solid var(--ot-negative-border);
+  background: var(--ot-negative-soft);
 }
 
 .analystTable {
@@ -572,7 +569,7 @@
   padding: 13px;
   border: 1px solid var(--ot-border-soft);
   border-radius: 9px;
-  background: #142237;
+  background: var(--ot-surface-raised);
 }
 
 .beatMissHeader {
