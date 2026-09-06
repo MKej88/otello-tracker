@@ -21,7 +21,7 @@ def test_investor_navigation_is_grouped_without_changing_views() -> None:
 
     assert 'items: ["Oversikt", "NAV", "NAV-sensitivitet", "Historikk"]' in views
     assert 'items: ["Tilbakekjøpsprogram", "Cash"]' in views
-    assert 'items: ["Bemobi", "Konsensus", "Brasil"]' in views
+    assert 'items: ["Bemobi", "Konsensus", "BRL/NOK", "Brasil"]' in views
     assert 'items: ["Nyheter", "Datakvalitet"]' in views
     assert "navigationGroups.flatMap" in views
 
