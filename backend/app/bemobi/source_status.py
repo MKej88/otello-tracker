@@ -115,6 +115,31 @@ def _latest_fact(connection, fact_types: tuple[str, ...], *, source_name: str | 
     return None if row is None else dict(row)
 
 
+def _operational_display_status(
+    source: _OperationalSourceDefinition,
+    values: dict[str, Any],
+) -> tuple[str, str | None]:
+    raw_health_status = str(values.get("status") or "").upper()
+    has_last_good = values.get("fetched_at") is not None
+
+    if not raw_health_status and source.key == "otello_ir" and has_last_good:
+        return (
+            "OK",
+            "Siste lagrede Otello-rapportdata er tilgjengelig; ingen aktiv kildefeil er registrert.",
+        )
+
+    health_status = raw_health_status or "UNKNOWN"
+    status = "ERROR" if health_status == "DOWN" else health_status
+    detail = values.get("error_message")
+    if status == "UNKNOWN":
+        detail = "Ingen kildekontroll er registrert ennå."
+    elif status == "OK":
+        detail = "Siste kontroll fullført uten feil."
+    elif not detail:
+        detail = "Kilden har et registrert avvik; siste gode data beholdes."
+    return status, detail
+
+
 def _operational_source_items(connection) -> list[dict[str, Any]]:
     source_codes = tuple(source.source_code for source in _OPERATIONAL_SOURCE_DEFINITIONS)
     placeholders = ",".join("?" for _ in source_codes)
@@ -139,15 +164,7 @@ def _operational_source_items(connection) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for source in _OPERATIONAL_SOURCE_DEFINITIONS:
         values = values_by_code.get(source.source_code, {})
-        health_status = str(values.get("status") or "UNKNOWN").upper()
-        status = "ERROR" if health_status == "DOWN" else health_status
-        detail = values.get("error_message")
-        if status == "UNKNOWN":
-            detail = "Ingen kildekontroll er registrert ennå."
-        elif status == "OK":
-            detail = "Siste kontroll fullført uten feil."
-        elif not detail:
-            detail = "Kilden har et registrert avvik; siste gode data beholdes."
+        status, detail = _operational_display_status(source, values)
         items.append({
             "key": source.key,
             "label": source.label,
