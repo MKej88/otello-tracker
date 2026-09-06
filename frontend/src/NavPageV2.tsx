@@ -302,15 +302,15 @@ function groupedDrivers(drivers: Driver[]): DisplayDriver[] {
       amount_mnok: parts.reduce((sum, part) => sum + (part.amount_mnok ?? 0), 0),
       per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0),
       breakdown: parts
-      .filter((part) => (
-        part.key !== "bemobi_receivable" || hasVisibleReceivableEffect(part)
-      ))
-      .map((part) => ({
-        label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
-        movement: driverMovement(part),
-        amount_mnok: part.amount_mnok,
-        per_share_nok: part.per_share_nok,
-      })),
+        .filter((part) => (
+          part.key !== "bemobi_receivable" || hasVisibleReceivableEffect(part)
+        ))
+        .map((part) => ({
+          label: part.key === "bemobi_receivable" ? "Fordring" : "Utbetalt",
+          movement: driverMovement(part),
+          amount_mnok: part.amount_mnok,
+          per_share_nok: part.per_share_nok,
+        })),
     });
   }
   if (buybackCash && buybackShares) {
@@ -625,7 +625,7 @@ export default function NavPageV2() {
                 <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
-            <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Life360 vises med samlet markedsverdieffekt for hele perioden. Når start og slutt bruker samme notering og valuta, deles effekten videre i aksjekurs, valuta og eventuell beholdningsendring; ved skifte mellom 360.AX/AUD og LIF/USD vises samlet markedsverdi uten å konstruere en kunstig kurs-/valutasplitt. Bekreftede Bemobi-utdelinger vises som én livsløpslinje: først som fordring fra ex-dato og deretter som utbetalt netto kontantbevegelse på betalingsdato. Overgangen fra fordring til kontanter endrer ikke NAV i seg selv. Øvrig kontantendring deles i estimert drift, kildebelagt rapportert renteinntekt og en resterende kontantendring. Renteinntekt fra halvårsrapportene periodiseres etter kalenderdager og Otellos rapporterte USD/NOK-perioder; det er en attribusjon, ikke en antakelse om eksakt daglig opptjening. Tilbakekjøp vises som to egne effekter: kontantbruk og færre utestående aksjer. NAV/aksje-effekten fordeles symmetrisk mellom verdiendring og aksjeantall, slik at kryssleddet ikke avhenger av rekkefølgen og summen fortsatt avstemmer mot nettoendringen i NAV.</p>
+            <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Life360 vises med samlet markedsverdieffekt. Bekreftede Bemobi-utdelinger vises først som fordring og deretter som utbetalt kontant; overgangen påvirker ikke NAV. Øvrig kontantendring fordeles på drift og renteinntekter. Tilbakekjøp vises som nettoeffekten av kontantbruk og færre aksjer. NAV/aksje-effekter avrundes symmetrisk.</p>
           </>
         ) : (
           <p className="dataNotice">Venter på nok historiske NAV-observasjoner for valgt periode.</p>
