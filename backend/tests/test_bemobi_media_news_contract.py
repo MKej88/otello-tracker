@@ -95,7 +95,7 @@ def test_search_results_are_constrained_to_30_day_window() -> None:
     assert media._within_lookback(None, now=now) is True
 
 
-def test_search_feed_can_keep_relevant_result_without_bemobi_in_snippet() -> None:
+def test_search_feed_requires_explicit_bemobi_relevance_in_metadata() -> None:
     media = _media_module()
     payload = b"""<?xml version='1.0' encoding='UTF-8'?>
     <rss version='2.0'><channel>
@@ -117,20 +117,16 @@ def test_search_feed_can_keep_relevant_result_without_bemobi_in_snippet() -> Non
         payload,
         fallback_source=media.GOOGLE_NEWS_SOURCE,
         feed_url=media.GOOGLE_NEWS_RSS_URL,
-        trust_query_relevance=True,
     )
     bing_articles = media._parse_feed(
         payload,
         fallback_source=media.BING_NEWS_SOURCE,
         feed_url=media.BING_NEWS_RSS_URL,
-        trust_query_relevance=True,
     )
 
     assert direct_articles == []
-    assert len(google_articles) == 1
-    assert len(bing_articles) == 1
-    assert google_articles[0]["publisher"] == "InfoMoney"
-    assert bing_articles[0]["publisher"] == "InfoMoney"
+    assert google_articles == []
+    assert bing_articles == []
 
 
 def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -> None:
@@ -147,7 +143,9 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert 'SEARCH_TERMS = ("Bemobi", "BMOB3", \'"Pedro Ripper"\')' in media_source
     assert "GOOGLE_NEWS_RSS_URLS" in media_source
     assert "BING_NEWS_RSS_URLS" in media_source
-    assert "trust_query_relevance=feed_source in SEARCH_FEED_SOURCES" in media_source
+    assert "media_should_be_shown" in media_source
+    assert "story_key = media_story_key" in media_source
+    assert "media_paywall_likely" in media_source
     assert "_within_lookback" in media_source
     assert "_repair_xml_payload" in media_source
     assert "feeds_succeeded += 1" in media_source
@@ -158,6 +156,7 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert '"original_title"' in media_source
     assert '"original_summary"' in media_source
     assert '"original_url"' in media_source
+    assert '"paywall_likely"' in media_source
     assert "Full article bodies and paywalled content are not copied" in media_source
     assert "_article_external_id" in media_source
     assert "ON CONFLICT(source_id, external_id) DO NOTHING" in media_source
@@ -171,16 +170,21 @@ def test_bemobi_media_ingestion_is_translated_deduplicated_and_metadata_only() -
     assert config["ai"]["binding"] == "AI"
 
     assert 'content_type": "MEDIA" if is_media else "OFFICIAL"' in news_source
-    assert "and not is_media" in news_source
+    assert "classify_media_item" in news_source
+    assert "media_should_be_shown" in news_source
+    assert "seen_media_stories" in news_source
     assert 'metadata.get("publisher")' in news_source
     assert '"media_status": media_status' in news_source
     assert '"nav_impact": nav_impact' in news_source
+    assert '"paywall_likely": paywall_likely' in news_source
 
     assert 'type ContentFilter = "Alle" | "Viktige" | "Offisielt" | "Media"' in frontend_source
     assert 'media_status?: MediaStatus' in frontend_source
+    assert 'paywall_likely?: boolean' in frontend_source
     assert "mediaDegraded" in frontend_source
     assert 'MEDIAINNHENTING' not in frontend_source
     assert 'mediaRefreshMetrics' not in frontend_source
     assert 'contentTypeBadge' not in frontend_source
     assert 'Automatisk oversatt fra portugisisk · basert på RSS-metadata' in frontend_source
+    assert 'className="paywallBadge">Betalingsmur' in frontend_source
     assert '<SourceLink source={item.source} url={item.url} />' in frontend_source
