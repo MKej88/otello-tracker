@@ -71,7 +71,7 @@ def enrich_dashboard_summary(
     bmob3 = components.get("bmob3") or {}
     otec = components.get("otec") or {}
     component_dates = {
-        "otec": _as_date(otec.get("price_date")),
+        "otec": _as_date(summary.get("otec_price_date") or otec.get("price_date")),
         "bmob3": _as_date(bmob3.get("price_date")),
         "brl_nok": _as_date(bmob3.get("brl_nok_date")),
     }
@@ -101,9 +101,12 @@ def enrich_dashboard_summary(
         "max_component_age_days": max_age,
         "missing_components": missing,
         "otec": {
-            "date": otec.get("price_date"),
-            "observed_at": otec.get("price_observed_at"),
-            "price_type": otec.get("price_type"),
+            "date": summary.get("otec_price_date") or otec.get("price_date"),
+            "observed_at": (
+                summary.get("otec_price_observed_at")
+                or otec.get("price_observed_at")
+            ),
+            "price_type": summary.get("otec_price_type") or otec.get("price_type"),
         },
         "bmob3": {
             "date": bmob3.get("price_date"),

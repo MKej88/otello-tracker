@@ -11,6 +11,7 @@ from app.life360_nav import life360_nav_adjustment
 from app.live_nav_composition import live_nav_composition
 from app.nav.full_nav import FULL_CALCULATION_VERSION
 from app.nav_waterfall_attribution import symmetric_two_factor_attribution
+from app.marketdata.quote_details import _latest_price
 from app.option_settlement import (
     MILLION,
     nav_cash_settlement,
@@ -177,6 +178,7 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
             """,
             (FULL_CALCULATION_VERSION, month_target),
         ).fetchone()
+        latest_otec = _latest_price(connection, "OTEC")
     if row is None:
         return {"ready": False, "reason": "missing_full_nav_row"}
 
@@ -229,6 +231,17 @@ def economic_nav_summary(database_path: str | None = None) -> dict[str, Any]:
         if row["otec_price_nok"] is not None
         else None
     )
+    if latest_otec is not None and latest_otec.get("price") is not None:
+        try:
+            live_otec_price = Decimal(str(latest_otec["price"]))
+        except (InvalidOperation, TypeError, ValueError):
+            live_otec_price = None
+        if (
+            live_otec_price is not None
+            and live_otec_price.is_finite()
+            and live_otec_price > 0
+        ):
+            otec_price_nok = live_otec_price
 
     base_pre_option_total = (
         full_nav_total_nok

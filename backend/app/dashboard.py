@@ -11,6 +11,7 @@ from app.db.connection import get_connection
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_CALCULATION_VERSION
 from app.nav.full_nav import FULL_CALCULATION_VERSION
 from app.nav_waterfall_attribution import symmetric_two_factor_attribution
+from app.marketdata.quote_details import _latest_price
 
 
 def _float(value: Any) -> float | None:
@@ -129,7 +130,12 @@ def nav_discount_metrics(
 
 
 def _nav_discount_insights(
-    connection, *, calculation_version: str, nav_scope: str, latest
+    connection,
+    *,
+    calculation_version: str,
+    nav_scope: str,
+    latest,
+    current_otec_price: Any = None,
 ) -> dict[str, Any]:
     current_date = str(latest["as_of_at"])[:10]
     start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
@@ -146,7 +152,11 @@ def _nav_discount_insights(
     by_date = {str(row["date"]): dict(row) for row in rows}
     return nav_discount_metrics(
         nav_per_share=latest["nav_per_share_nok"],
-        share_price=latest["otec_price_nok"],
+        share_price=(
+            current_otec_price
+            if current_otec_price is not None
+            else latest["otec_price_nok"]
+        ),
         current_date=current_date,
         observations=list(by_date.values()),
     )
@@ -532,6 +542,19 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
         otec = current_components.get("otec", {})
 
         as_of_date = str(latest["as_of_at"])[:10]
+        latest_otec = _latest_price(connection, "OTEC")
+        live_otec_price = (
+            _float(latest_otec.get("price"))
+            if latest_otec is not None and latest_otec.get("price") is not None
+            else _float(latest["otec_price_nok"])
+        )
+        nav_discount_insight = _nav_discount_insights(
+            connection,
+            calculation_version=calculation_version,
+            nav_scope=model_scope,
+            latest=latest,
+            current_otec_price=live_otec_price,
+        )
         holding = connection.execute(
             """
             SELECT shares, ownership_pct FROM bemobi_holdings
@@ -584,15 +607,16 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             previous["nav_per_share_nok"] if previous else None,
         )
         otec_change = _pct_change(
-            latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
+            live_otec_price, previous["otec_price_nok"] if previous else None
         )
+        current_discount = nav_discount_insight.get("discount_pct")
         discount_change = (
             float(
-                Decimal(str(latest["discount_pct"]))
+                Decimal(str(current_discount))
                 - Decimal(str(previous["discount_pct"]))
             )
             if previous is not None
-            and latest["discount_pct"] is not None
+            and current_discount is not None
             and previous["discount_pct"] is not None
             else None
         )
@@ -612,14 +636,24 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "calculation_version": calculation_version,
             "as_of_date": as_of_date,
             "nav_per_share": _float(latest["nav_per_share_nok"]),
-            "otec_price": _float(latest["otec_price_nok"]),
-            "nav_discount_pct": _float(latest["discount_pct"]),
-            "nav_discount_insights": _nav_discount_insights(
-                connection,
-                calculation_version=calculation_version,
-                nav_scope=model_scope,
-                latest=latest,
+            "otec_price": live_otec_price,
+            "otec_price_date": (
+                latest_otec.get("trading_date")
+                if latest_otec is not None
+                else otec.get("price_date")
             ),
+            "otec_price_observed_at": (
+                latest_otec.get("observed_at")
+                if latest_otec is not None
+                else otec.get("price_observed_at")
+            ),
+            "otec_price_type": (
+                latest_otec.get("price_type")
+                if latest_otec is not None
+                else otec.get("price_type")
+            ),
+            "nav_discount_pct": current_discount,
+            "nav_discount_insights": nav_discount_insight,
             "bmob3_price": _float(bmob3.get("price_brl")),
             "brl_nok": _float(bmob3.get("brl_nok")),
             "brl_nok_insights": brl_nok_insights(connection, as_of_date=as_of_date),
@@ -653,8 +687,16 @@ def dashboard_summary(database_path: str | None = None) -> dict[str, Any]:
             "cash_quality": cash.get("quality"),
             "cash_calibration_quality": cash.get("calibration_quality"),
             "share_count_quality": otec.get("share_count_quality"),
-            "otec_price_quality": otec.get("price_quality"),
-            "otec_price_source": otec.get("price_source"),
+            "otec_price_quality": (
+                latest_otec.get("quality")
+                if latest_otec is not None
+                else otec.get("price_quality")
+            ),
+            "otec_price_source": (
+                latest_otec.get("source_code")
+                if latest_otec is not None
+                else otec.get("price_source")
+            ),
             "bmob3_price_quality": bmob3.get("price_quality"),
             "bmob3_price_source": bmob3.get("price_source"),
             "quality_notes": latest["quality_notes"],
