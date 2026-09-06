@@ -12,8 +12,20 @@ from urllib.parse import quote_plus
 from xml.etree import ElementTree as ET
 
 try:
+    from .bemobi_news_quality import (
+        classify_media_item,
+        media_paywall_likely,
+        media_should_be_shown,
+        media_story_key,
+    )
     from .bounded_response import read_response_bytes
 except ImportError:
+    from bemobi_news_quality import (
+        classify_media_item,
+        media_paywall_likely,
+        media_should_be_shown,
+        media_story_key,
+    )
     from bounded_response import read_response_bytes
 
 MEDIA_SOURCE_CODE = "BRAZIL_MEDIA"
@@ -54,8 +66,8 @@ BING_NEWS_RSS_URL = BING_NEWS_RSS_URLS[0]
 SEARCH_FEED_SOURCES = frozenset({GOOGLE_NEWS_SOURCE, BING_NEWS_SOURCE})
 
 # Direct publisher feeds give richer snippets when available. Search feeds are
-# deliberately split into simple queries and duplicated across Google/Bing so a
-# transient block at one provider cannot remove all broad Bemobi coverage.
+# deliberately duplicated across Google/Bing for coverage, but query membership
+# alone is never treated as proof that an item is relevant.
 FEEDS = (
     ("InfoMoney", "https://www.infomoney.com.br/feed/"),
     ("NeoFeed", "https://neofeed.com.br/feed/"),
@@ -65,7 +77,6 @@ FEEDS = (
     *((BING_NEWS_SOURCE, url) for url in BING_NEWS_RSS_URLS),
 )
 
-_RELEVANCE_TERMS = ("bemobi", "bmob3", "pedro ripper")
 _ILLEGAL_XML_BYTES = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _BARE_AMPERSAND_BYTES = re.compile(
     rb"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]+;)"
@@ -97,11 +108,6 @@ def _strip_html(value: Any) -> str:
     except Exception:
         return _clean(re.sub(r"<[^>]+>", " ", text))
     return _clean(" ".join(parser.parts))
-
-
-def _is_relevant(title: Any, summary: Any = None) -> bool:
-    haystack = f"{_clean(title)} {_strip_html(summary)}".casefold()
-    return any(term in haystack for term in _RELEVANCE_TERMS)
 
 
 def _repair_xml_payload(payload: bytes) -> bytes:
@@ -212,7 +218,6 @@ def _parse_feed(
     *,
     fallback_source: str,
     feed_url: str,
-    trust_query_relevance: bool = False,
 ) -> list[dict[str, Any]]:
     root = _parse_xml_root(payload)
     entries = [node for node in root.iter() if _tag_name(node) in {"item", "entry"}]
@@ -223,16 +228,12 @@ def _parse_feed(
         if not title or not link:
             continue
         summary = _child_markup_text(entry, "description", "summary", "encoded", "content")
-        # Direct publisher feeds are broad, so they still require an explicit Bemobi term
-        # in RSS metadata. Google/Bing search feeds already come from narrow Bemobi queries;
-        # applying the same snippet filter again drops valid stories where the company is
-        # mentioned only in the indexed article body.
-        if not trust_query_relevance and not _is_relevant(title, summary):
+        publisher = _publisher(entry, fallback_source)
+        if not media_should_be_shown(title=title, summary=summary, publisher=publisher):
             continue
         published = _published_iso(
             _child_text(entry, "pubdate", "published", "updated", "date")
         )
-        publisher = _publisher(entry, fallback_source)
         articles.append(
             {
                 "title": _clean(title),
@@ -256,21 +257,6 @@ def _article_external_id(article: dict[str, Any]) -> str:
         )
     )
     return "media-" + hashlib.sha256(basis.encode("utf-8")).hexdigest()[:32]
-
-
-def _category(title: str) -> tuple[str, str]:
-    lowered = title.casefold()
-    if any(term in lowered for term in ("resultado", "resultados", "balanço", "balanco", "lucro")):
-        return "RESULTS", "POTENTIAL"
-    if any(term in lowered for term in ("aquisição", "aquisicao", "adquire", "fusão", "fusao", "m&a")):
-        return "M_AND_A", "POTENTIAL"
-    if "recompra" in lowered:
-        return "BUYBACK", "POTENTIAL"
-    if "juros sobre capital" in lowered or "jcp" in lowered:
-        return "JCP", "POTENTIAL"
-    if "dividendo" in lowered:
-        return "DIVIDEND", "POTENTIAL"
-    return "OTHER", "POTENTIAL"
 
 
 async def _fetch_feed(url: str, *, fetcher=None) -> bytes:
@@ -396,6 +382,7 @@ async def _insert_article(
         "feed_source": article.get("feed_source"),
         "feed_url": article.get("feed_url"),
         "original_url": article.get("url"),
+        "paywall_likely": media_paywall_likely(article.get("publisher")),
     }
     content_hash = hashlib.sha256(
         json.dumps(metadata, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -424,7 +411,7 @@ async def _insert_article(
     )
     if document is None:
         raise RuntimeError("Media source document was not persisted")
-    category, nav_impact = _category(str(article.get("title") or ""))
+    category, nav_impact = classify_media_item(article.get("title"), article.get("summary"))
     await repository.run(
         """
         INSERT INTO company_news(
@@ -453,13 +440,13 @@ async def refresh_bemobi_media_news(
     fetcher=None,
     max_new_articles: int | None = None,
 ) -> dict[str, Any]:
-    """Fetch relevant Brazilian Bemobi media and store English renderings.
+    """Fetch investor-relevant Brazilian Bemobi media and store English renderings.
 
-    Search-engine coverage uses three simple Bemobi/BMOB3/Pedro Ripper queries against both
-    Google News and Bing News. Direct publisher feeds still require Bemobi terms in their RSS
-    metadata. Search results are deduplicated and constrained to the same 30-day window. On a
-    new installation the first run gets a larger bounded write budget so history is populated
-    quickly; subsequent 30-minute runs retain the smaller steady-state budget.
+    Google News and Bing are discovery sources only: every result must independently mention
+    Bemobi, BMOB3 or Pedro Ripper in its RSS metadata. Quote pages, charts, technical-analysis
+    pages, company profiles and disclaimer pages are filtered before translation. Generic
+    paywalled mentions are also removed, while material paywalled stories are retained and
+    marked. Headlines are conservatively deduplicated across feeds within the same date.
 
     Only RSS/Atom metadata is ingested. Full article bodies and paywalled content are not copied.
     Failures are best-effort and must never block market-data refreshes.
@@ -501,7 +488,6 @@ async def refresh_bemobi_media_news(
                 payload,
                 fallback_source=feed_source,
                 feed_url=feed_url,
-                trust_query_relevance=feed_source in SEARCH_FEED_SOURCES,
             )
         except Exception as exc:
             feed_errors.append(
@@ -518,7 +504,8 @@ async def refresh_bemobi_media_news(
                 article.get("published_at"), now=search_now
             ):
                 continue
-            candidates.setdefault(_article_external_id(article), article)
+            story_key = media_story_key(article.get("title"), article.get("published_at"))
+            candidates.setdefault(story_key, article)
 
     ordered = sorted(
         candidates.values(),

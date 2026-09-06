@@ -5,6 +5,12 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from bemobi_news_quality import (
+    classify_media_item,
+    media_paywall_likely,
+    media_should_be_shown,
+    media_story_key,
+)
 from bemobi_news_translation import translate_bemobi_news
 
 CATEGORY_LABELS = {
@@ -104,6 +110,18 @@ async def _media_refresh_status(repository) -> dict[str, Any]:
     }
 
 
+def _media_source(metadata: dict[str, Any], row: dict[str, Any]) -> Any:
+    return metadata.get("publisher") or row.get("source_name") or row.get("source_code")
+
+
+def _media_original_text(
+    metadata: dict[str, Any], row: dict[str, Any]
+) -> tuple[Any, Any]:
+    title = metadata.get("original_title") or row.get("headline")
+    summary = metadata.get("original_summary") or row.get("summary")
+    return title, summary
+
+
 def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     category = str(row.get("category") or "OTHER")
     nav_impact = str(row.get("nav_impact") or "NONE")
@@ -112,17 +130,22 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     is_media = content_type == "MEDIA"
     headline = row.get("headline")
     summary = row.get("summary")
-    if row.get("symbol") == "BMOB3" and not is_media:
+    source = (
+        _media_source(metadata, row)
+        if is_media
+        else row.get("source_name") or row.get("source_code")
+    )
+
+    if is_media:
+        original_title, original_summary = _media_original_text(metadata, row)
+        category, nav_impact = classify_media_item(original_title, original_summary)
+    elif row.get("symbol") == "BMOB3":
         headline, summary = translate_bemobi_news(
             headline=headline,
             summary=summary,
             metadata=metadata,
         )
-    source = (
-        metadata.get("publisher")
-        if is_media and metadata.get("publisher")
-        else row.get("source_name") or row.get("source_code")
-    )
+
     url = (
         metadata.get("original_url")
         if is_media and metadata.get("original_url")
@@ -132,6 +155,11 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "Medieomtale"
         if is_media and category == "OTHER"
         else CATEGORY_LABELS.get(category, "Annet")
+    )
+    paywall_likely = bool(
+        metadata.get("paywall_likely")
+        if is_media and "paywall_likely" in metadata
+        else is_media and media_paywall_likely(source)
     )
     return {
         "id": int(row["id"]),
@@ -147,6 +175,7 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "url": _safe_url(url),
         "content_type": "MEDIA" if is_media else "OFFICIAL",
         "original_language": metadata.get("original_language") if is_media else None,
+        "paywall_likely": paywall_likely,
     }
 
 
@@ -187,6 +216,7 @@ async def news_and_events(
     safe_limit = max(1, min(news_limit, 100))
     media_status = await _media_refresh_status(repository)
     news = []
+    seen_media_stories: set[str] = set()
     batch_size = safe_limit * 3
     offset = 0
     while len(news) < safe_limit:
@@ -211,6 +241,21 @@ async def news_and_events(
             metadata = _decode_payload(row.get("metadata_json"))
             if metadata.get("is_latest_version") is False:
                 continue
+
+            if str(metadata.get("content_type") or "").upper() == "MEDIA":
+                original_title, original_summary = _media_original_text(metadata, row)
+                source = _media_source(metadata, row)
+                if not media_should_be_shown(
+                    title=original_title,
+                    summary=original_summary,
+                    publisher=source,
+                ):
+                    continue
+                story_key = media_story_key(original_title, row.get("published_at"))
+                if story_key in seen_media_stories:
+                    continue
+                seen_media_stories.add(story_key)
+
             news.append(_news_item(row))
             if len(news) >= safe_limit:
                 break

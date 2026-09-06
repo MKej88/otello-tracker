@@ -7,7 +7,7 @@ from pathlib import Path
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from news_events import _company_name, news_and_events  # noqa: E402
+from news_events import _company_name, _news_item, news_and_events  # noqa: E402
 
 
 class CompanyNameTest(unittest.TestCase):
@@ -18,6 +18,59 @@ class CompanyNameTest(unittest.TestCase):
     def test_rejects_companies_outside_dashboard(self) -> None:
         self.assertIsNone(_company_name("LIF"))
         self.assertIsNone(_company_name(None))
+
+
+class MediaNewsItemTest(unittest.TestCase):
+    def test_generic_media_is_reclassified_as_low_importance(self) -> None:
+        item = _news_item(
+            {
+                "id": 7,
+                "headline": "Bemobi expands in Latin America",
+                "published_at": "2026-09-05T10:00:00Z",
+                "category": "OTHER",
+                "nav_impact": "POTENTIAL",
+                "summary": "Executives discuss strategy.",
+                "symbol": "BMOB3",
+                "url": "https://example.com",
+                "source_code": "BRAZIL_MEDIA",
+                "source_name": "Brasiliansk medieomtale",
+                "metadata_json": (
+                    '{"content_type":"MEDIA","publisher":"InfoMoney",'
+                    '"original_title":"Bemobi expands in Latin America",'
+                    '"original_summary":"Executives discuss strategy."}'
+                ),
+            }
+        )
+
+        self.assertEqual(item["category"], "OTHER")
+        self.assertEqual(item["nav_impact"], "NONE")
+        self.assertEqual(item["importance"], "LOW")
+        self.assertFalse(item["paywall_likely"])
+
+    def test_material_paywalled_media_is_marked(self) -> None:
+        item = _news_item(
+            {
+                "id": 8,
+                "headline": "Bemobi profit rises",
+                "published_at": "2026-09-05T11:00:00Z",
+                "category": "OTHER",
+                "nav_impact": "POTENTIAL",
+                "summary": "Quarterly numbers improved.",
+                "symbol": "BMOB3",
+                "url": "https://example.com",
+                "source_code": "BRAZIL_MEDIA",
+                "source_name": "Brasiliansk medieomtale",
+                "metadata_json": (
+                    '{"content_type":"MEDIA","publisher":"O GLOBO",'
+                    '"original_title":"Bemobi lucro rises after resultado",'
+                    '"original_summary":"BMOB3 quarterly numbers improved."}'
+                ),
+            }
+        )
+
+        self.assertEqual(item["category"], "RESULTS")
+        self.assertEqual(item["importance"], "HIGH")
+        self.assertTrue(item["paywall_likely"])
 
 
 class FakeNewsRepository:
