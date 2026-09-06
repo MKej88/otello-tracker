@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from market_attribution import symmetric_two_factor_attribution
+from quote_details import latest_otec_current_price
 
 CORE_CALCULATION_VERSION = "core-market-nav-daily-v1"
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
@@ -102,7 +103,14 @@ def nav_discount_metrics(
     }
 
 
-async def _nav_discount_insights(repository, *, calculation_version, nav_scope, latest):
+async def _nav_discount_insights(
+    repository,
+    *,
+    calculation_version,
+    nav_scope,
+    latest,
+    current_otec_price=None,
+):
     current_date = str(latest["as_of_at"])[:10]
     start_date = (date.fromisoformat(current_date) - timedelta(days=365)).isoformat()
     rows = await repository.all(
@@ -114,7 +122,11 @@ async def _nav_discount_insights(repository, *, calculation_version, nav_scope, 
     by_date = {str(row["date"]): row for row in rows}
     return nav_discount_metrics(
         nav_per_share=latest["nav_per_share_nok"],
-        share_price=latest["otec_price_nok"],
+        share_price=(
+            current_otec_price
+            if current_otec_price is not None
+            else latest["otec_price_nok"]
+        ),
         current_date=current_date,
         observations=list(by_date.values()),
     )
@@ -546,6 +558,19 @@ async def dashboard_summary(repository) -> dict[str, Any]:
     otec = current_components.get("otec", {})
 
     as_of_date = str(latest["as_of_at"])[:10]
+    latest_otec = await latest_otec_current_price(repository)
+    live_otec_price = (
+        _float(latest_otec.get("price"))
+        if latest_otec is not None and latest_otec.get("price") is not None
+        else _float(latest["otec_price_nok"])
+    )
+    nav_discount_insight = await _nav_discount_insights(
+        repository,
+        calculation_version=calculation_version,
+        nav_scope=model_scope,
+        latest=latest,
+        current_otec_price=live_otec_price,
+    )
     holding = await repository.first(
         """
         SELECT shares, ownership_pct FROM bemobi_holdings
@@ -598,15 +623,16 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         previous["nav_per_share_nok"] if previous else None,
     )
     otec_change = _pct_change(
-        latest["otec_price_nok"], previous["otec_price_nok"] if previous else None
+        live_otec_price, previous["otec_price_nok"] if previous else None
     )
+    current_discount = nav_discount_insight.get("discount_pct")
     discount_change = (
         float(
-            Decimal(str(latest["discount_pct"]))
+            Decimal(str(current_discount))
             - Decimal(str(previous["discount_pct"]))
         )
         if previous is not None
-        and latest["discount_pct"] is not None
+        and current_discount is not None
         and previous["discount_pct"] is not None
         else None
     )
@@ -623,14 +649,18 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "calculation_version": calculation_version,
         "as_of_date": as_of_date,
         "nav_per_share": _float(latest["nav_per_share_nok"]),
-        "otec_price": _float(latest["otec_price_nok"]),
-        "nav_discount_pct": _float(latest["discount_pct"]),
-        "nav_discount_insights": await _nav_discount_insights(
-            repository,
-            calculation_version=calculation_version,
-            nav_scope=model_scope,
-            latest=latest,
+        "otec_price": live_otec_price,
+        "otec_price_date": (
+            latest_otec.get("trading_date") if latest_otec is not None else otec.get("price_date")
         ),
+        "otec_price_observed_at": (
+            latest_otec.get("observed_at") if latest_otec is not None else otec.get("price_observed_at")
+        ),
+        "otec_price_type": (
+            latest_otec.get("price_type") if latest_otec is not None else otec.get("price_type")
+        ),
+        "nav_discount_pct": current_discount,
+        "nav_discount_insights": nav_discount_insight,
         "bmob3_price": _float(bmob3.get("price_brl")),
         "brl_nok": _float(bmob3.get("brl_nok")),
         "brl_nok_insights": await brl_nok_insights(repository, as_of_date=as_of_date),
@@ -664,8 +694,12 @@ async def dashboard_summary(repository) -> dict[str, Any]:
         "cash_quality": cash.get("quality"),
         "cash_calibration_quality": cash.get("calibration_quality"),
         "share_count_quality": otec.get("share_count_quality"),
-        "otec_price_quality": otec.get("price_quality"),
-        "otec_price_source": otec.get("price_source"),
+        "otec_price_quality": (
+            latest_otec.get("quality") if latest_otec is not None else otec.get("price_quality")
+        ),
+        "otec_price_source": (
+            latest_otec.get("source_code") if latest_otec is not None else otec.get("price_source")
+        ),
         "bmob3_price_quality": bmob3.get("price_quality"),
         "bmob3_price_source": bmob3.get("price_source"),
         "quality_notes": latest["quality_notes"],
@@ -721,7 +755,7 @@ async def enrich_dashboard_summary(
     bmob3 = components.get("bmob3") or {}
     otec = components.get("otec") or {}
     component_dates = {
-        "otec": _as_date(otec.get("price_date")),
+        "otec": _as_date(summary.get("otec_price_date") or otec.get("price_date")),
         "bmob3": _as_date(bmob3.get("price_date")),
         "brl_nok": _as_date(bmob3.get("brl_nok_date")),
     }
@@ -751,9 +785,11 @@ async def enrich_dashboard_summary(
         "max_component_age_days": max_age,
         "missing_components": missing,
         "otec": {
-            "date": otec.get("price_date"),
-            "observed_at": otec.get("price_observed_at"),
-            "price_type": otec.get("price_type"),
+            "date": summary.get("otec_price_date") or otec.get("price_date"),
+            "observed_at": (
+                summary.get("otec_price_observed_at") or otec.get("price_observed_at")
+            ),
+            "price_type": summary.get("otec_price_type") or otec.get("price_type"),
         },
         "bmob3": {
             "date": bmob3.get("price_date"),

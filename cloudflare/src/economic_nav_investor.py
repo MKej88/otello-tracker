@@ -14,6 +14,7 @@ from option_settlement import (
     settlement_inputs_from_components,
 )
 from nav_waterfall_attribution import symmetric_two_factor_attribution
+from quote_details import latest_otec_current_price
 
 FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"
 CONSERVATIVE_COST_POLICY = "MAX_BASE_RUN_RATE_AND_SOURCE_CONSERVATIVE"
@@ -226,6 +227,18 @@ async def economic_nav_summary(repository) -> dict[str, Any]:
         if row.get("otec_price_nok") is not None
         else None
     )
+    latest_otec = await latest_otec_current_price(repository)
+    if latest_otec is not None and latest_otec.get("price") is not None:
+        try:
+            live_otec_price = Decimal(str(latest_otec["price"]))
+        except (InvalidOperation, TypeError, ValueError):
+            live_otec_price = None
+        if (
+            live_otec_price is not None
+            and live_otec_price.is_finite()
+            and live_otec_price > 0
+        ):
+            otec_price_nok = live_otec_price
 
     base_pre_option_total = (
         full_nav_total_nok

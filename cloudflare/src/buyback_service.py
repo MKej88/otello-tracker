@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from src.oslo_calendar import oslo_bors_trading_days
+from src.quote_details import latest_otec_current_price
 
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
@@ -302,7 +303,20 @@ async def buyback_forecast(
     high = min(high_reference, base_case + capacity_estimate * band)
 
     last = lookback[-1]
-    last_close = Decimal(str(last["last_price_nok"])) if last["last_price_nok"] is not None else None
+    last_close = (
+        Decimal(str(last["last_price_nok"]))
+        if last["last_price_nok"] is not None
+        else None
+    )
+    if as_of_date is None:
+        live_otec = await latest_otec_current_price(repository)
+        if live_otec is not None and live_otec.get("price") is not None:
+            try:
+                live_price = Decimal(str(live_otec["price"]))
+            except (InvalidOperation, TypeError, ValueError):
+                live_price = None
+            if live_price is not None and live_price.is_finite() and live_price > 0:
+                last_close = live_price
     max_price = Decimal(str(program["max_price_nok"])) if program["max_price_nok"] is not None else None
     price_state = "UNKNOWN"
     price_headroom_pct: float | None = None
