@@ -344,7 +344,9 @@ export default function DataQualityPage() {
     ? "Alle kritiske data er oppdatert"
     : overallState === "ERROR"
       ? "Kritiske data har en feil"
-      : "Data brukes med ett eller flere avvik";
+      : overallState === "DEGRADED"
+        ? "Data brukes med ett eller flere avvik"
+        : "Datastatus er ikke komplett";
   const heroSubtitle = issues.length === 0
     ? "Ingen aktive avvik i dataene som brukes i investorvisningen."
     : `${countLabel(issues.length, "aktivt avvik", "aktive avvik")} krever oppmerksomhet.`;
