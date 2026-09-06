@@ -32,5 +32,8 @@ def test_overview_next_event_uses_oslo_day_and_countdown() -> None:
     assert 'if (days === 0) return "I dag";' in page
     assert 'if (days === 1) return "I morgen";' in page
     assert 'return days > 1 ? `Om ${days} dager` : "";' in page
-    assert 'badge: event.company' in page
-    assert 'badge: "Makro"' in page
+    assert 'typeBadge: companyEventType(event.category)' in page
+    assert 'scopeBadge: event.company' in page
+    assert 'typeBadge: "Makro"' in page
+    assert 'scopeBadge: "Brasil"' in page
+    assert 'className="overviewEventBadges"' in page

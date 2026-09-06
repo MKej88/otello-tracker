@@ -67,6 +67,7 @@ type NewsEvent = {
   date: string;
   company: "Otello" | "Bemobi";
   title: string;
+  category?: string | null;
   importance: "HIGH" | "MEDIUM" | "LOW";
   confirmed: boolean;
   source?: string | null;
@@ -101,8 +102,10 @@ type OverviewEvent = {
   id: string;
   date: string;
   title: string;
-  badge: string;
-  badgeClass: "bemobi" | "otello" | "macro";
+  typeBadge: string;
+  scopeBadge: string;
+  scopeClass: "bemobi" | "otello" | "brazil";
+  eventKind: "company" | "macro";
   confirmed: boolean;
   source?: string | null;
   importance: number;
@@ -197,7 +200,7 @@ function expectationLabel(expectation?: BrazilCalendarExpectation | null) {
 }
 
 function eventMetaLabel(event: OverviewEvent) {
-  if (event.badgeClass === "macro") {
+  if (event.eventKind === "macro") {
     const parts: string[] = [];
     const releaseTime = norwayReleaseTime(event.macroExpectation?.release_at_utc);
     const expectation = expectationLabel(event.macroExpectation);
@@ -224,6 +227,20 @@ function macroTitle(event: BrazilCalendarEvent) {
   return labels[event.kind] ?? event.name;
 }
 
+function companyEventType(category?: string | null) {
+  const labels: Record<string, string> = {
+    RESULTS: "Rapport",
+    DIVIDEND: "Utbytte",
+    DISTRIBUTION: "Utbytte",
+    JCP: "JCP",
+    BUYBACK: "Tilbakekjøp",
+    M_AND_A: "Transaksjon",
+    CAPITAL: "Kapital",
+    GUIDANCE: "Utsikter",
+  };
+  return labels[String(category ?? "").toUpperCase()] ?? "Selskap";
+}
+
 function upcomingEvents(
   companyPayload?: NewsEventsPayload | null,
   brazilPayload?: BrazilCalendarPayload | null,
@@ -238,8 +255,10 @@ function upcomingEvents(
       id: `company-${event.id}`,
       date: event.date,
       title: event.title,
-      badge: event.company,
-      badgeClass: event.company === "Bemobi" ? "bemobi" : "otello",
+      typeBadge: companyEventType(event.category),
+      scopeBadge: event.company,
+      scopeClass: event.company === "Bemobi" ? "bemobi" : "otello",
+      eventKind: "company",
       confirmed: event.confirmed,
       source: event.source,
       importance: event.importance === "HIGH" ? 0 : event.importance === "MEDIUM" ? 1 : 2,
@@ -252,8 +271,10 @@ function upcomingEvents(
       id: `macro-${event.date}-${event.kind}-${event.name}`,
       date: event.date,
       title: macroTitle(event),
-      badge: "Makro",
-      badgeClass: "macro",
+      typeBadge: "Makro",
+      scopeBadge: "Brasil",
+      scopeClass: "brazil",
+      eventKind: "macro",
       confirmed: true,
       importance: 0,
       macroExpectation: event.expectation,
@@ -424,7 +445,10 @@ export default function OverviewPage() {
                 <div className="overviewNextEventMain">
                   <div>
                     <strong>{nextEvent.title}</strong>
-                    <span className={`overviewEventBadge ${nextEvent.badgeClass}`}>{nextEvent.badge}</span>
+                    <span className="overviewEventBadges">
+                      <span className="overviewEventBadge type">{nextEvent.typeBadge}</span>
+                      <span className={`overviewEventBadge ${nextEvent.scopeClass}`}>{nextEvent.scopeBadge}</span>
+                    </span>
                   </div>
                   {eventMetaLabel(nextEvent) ? <small>{eventMetaLabel(nextEvent)}</small> : null}
                 </div>
@@ -435,7 +459,10 @@ export default function OverviewPage() {
                     <div key={event.id}>
                       <time>{eventDateLabel(event.date)}</time>
                       <strong>{event.title}</strong>
-                      <span className={`overviewEventBadge ${event.badgeClass}`}>{event.badge}</span>
+                      <span className="overviewEventBadges">
+                        <span className="overviewEventBadge type">{event.typeBadge}</span>
+                        <span className={`overviewEventBadge ${event.scopeClass}`}>{event.scopeBadge}</span>
+                      </span>
                     </div>
                   ))}
                 </div>
