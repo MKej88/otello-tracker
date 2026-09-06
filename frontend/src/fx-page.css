@@ -256,8 +256,8 @@
   gap: 14px;
 }
 
-.fxFormula {
-  margin-bottom: 10px !important;
+.fxPage .fxFormula {
+  margin-bottom: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--ot-accent-border);
@@ -291,8 +291,8 @@
   font-size: 16px;
 }
 
-.fxDriverConclusion {
-  margin-top: 14px !important;
+.fxPage .fxDriverConclusion {
+  margin-top: 14px;
   color: var(--ot-text-secondary);
   line-height: 1.5;
   font-size: 13px;
@@ -426,8 +426,8 @@
   font-weight: 650;
 }
 
-.fxFootnote {
-  margin-top: 12px !important;
+.fxPage .fxFootnote {
+  margin-top: 12px;
   color: var(--ot-text-muted);
   font-size: 11px;
   line-height: 1.5;
