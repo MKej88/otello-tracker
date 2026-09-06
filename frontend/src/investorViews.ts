@@ -6,6 +6,7 @@ export type View =
   | "Tilbakekjøpsprogram"
   | "Cash"
   | "Bemobi"
+  | "BRL/NOK"
   | "Brasil"
   | "Konsensus"
   | "Nyheter"
@@ -27,7 +28,7 @@ export const navigationGroups: NavigationGroup[] = [
   },
   {
     label: "Bemobi",
-    items: ["Bemobi", "Konsensus", "Brasil"],
+    items: ["Bemobi", "Konsensus", "BRL/NOK", "Brasil"],
   },
   {
     label: "Informasjon",
@@ -45,6 +46,7 @@ export const viewSlugs: Record<View, string> = {
   Tilbakekjøpsprogram: "tilbakekjop",
   Cash: "cash",
   Bemobi: "bemobi",
+  "BRL/NOK": "brl-nok",
   Brasil: "brasil",
   Konsensus: "konsensus",
   Nyheter: "nyheter",
@@ -59,6 +61,7 @@ export const viewTitles: Record<View, string> = {
   Tilbakekjøpsprogram: "Tilbakekjøpsprogram",
   Cash: "Cash & kapitalallokering",
   Bemobi: "Bemobi",
+  "BRL/NOK": "BRL/NOK",
   Brasil: "Brasil",
   Konsensus: "Konsensus",
   Nyheter: "Nyheter og hendelser",

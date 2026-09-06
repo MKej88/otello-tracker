@@ -11,6 +11,7 @@ const loadHistoryPage = () => import("./EstimatedHistoryPage");
 const loadBuybackPage = () => import("./BuybackPage");
 const loadCashPage = () => import("./CashPage");
 const loadBemobiPage = () => import("./BemobiPage");
+const loadFxPage = () => import("./FxPage");
 const loadBrazilPage = () => import("./BrazilPage");
 const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
@@ -22,6 +23,7 @@ const EstimatedHistoryPage = lazy(loadHistoryPage);
 const BuybackPage = lazy(loadBuybackPage);
 const CashPage = lazy(loadCashPage);
 const BemobiPage = lazy(loadBemobiPage);
+const FxPage = lazy(loadFxPage);
 const BrazilPage = lazy(loadBrazilPage);
 const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
@@ -65,6 +67,12 @@ function preload(view: View) {
     void loadBemobiPage();
     preloadJson("/api/bemobi/dashboard");
   }
+  if (view === "BRL/NOK") {
+    void loadFxPage();
+    preloadJson("/api/fx/dashboard");
+    preloadJson("/api/dashboard/summary");
+    preloadJson("/api/dashboard/economic");
+  }
   if (view === "Brasil") {
     void loadBrazilPage();
     preloadJson("/api/brazil/dashboard");
@@ -95,6 +103,7 @@ function ActiveView({ view }: { view: View }) {
   if (view === "Bemobi") {
     return <div className="normalBemobiView"><BemobiPage /></div>;
   }
+  if (view === "BRL/NOK") return <FxPage />;
   if (view === "Brasil") return <BrazilPage />;
   if (view === "Konsensus") return <ConsensusPage />;
   if (view === "Nyheter") return <NewsEventsPage />;
