@@ -1,10 +1,11 @@
-export type BootstrapComponent = "summary" | "economic" | "quotes" | "forecast";
+export type BootstrapComponent = "summary" | "economic" | "quotes" | "forecast" | "events";
 
 type BootstrapPayload = {
   summary?: unknown;
   economic?: unknown;
   quotes?: unknown;
   forecast?: unknown;
+  events?: unknown;
   meta?: {
     source?: string;
     snapshot_version?: number | null;
@@ -23,11 +24,12 @@ const COMPONENT_BY_PATH: Record<string, BootstrapComponent> = {
   "/api/dashboard/summary": "summary",
   "/api/dashboard/economic": "economic",
   "/api/market/quotes": "quotes",
-  "/api/buybacks/forecast": "forecast"
+  "/api/buybacks/forecast": "forecast",
+  "/api/overview/events": "events"
 };
 
-const CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v1";
-const CLIENT_CACHE_VERSION = 1;
+const CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v2";
+const CLIENT_CACHE_VERSION = 2;
 const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 let installed = false;
@@ -63,7 +65,8 @@ function completeBootstrap(payload: BootstrapPayload | null): payload is Bootstr
     && isObject(payload.summary)
     && isObject(payload.economic)
     && isObject(payload.quotes)
-    && isObject(payload.forecast);
+    && isObject(payload.forecast)
+    && isObject(payload.events);
 }
 
 function loadStoredBootstrap(): StoredBootstrap | null {
