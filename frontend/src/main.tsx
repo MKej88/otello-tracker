@@ -3,8 +3,9 @@ import ReactDOM from "react-dom/client";
 import InvestorApp from "./InvestorApp";
 import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
 import "./styles.css";
-import "./prelive.css";
 import "./otello-theme.css";
+import "./investor-v2.css";
+import "./navigation-groups.css";
 import "./history-context.css";
 
 installDashboardBootstrapFetch();
