@@ -23,6 +23,7 @@ CACHE_POLICIES = {
     "/api/dashboard/economic": ("public, max-age=15", "public, max-age=300, stale-while-revalidate=1800"),
     "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
+    "/api/fx/dashboard": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/discount-history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/nav-periods": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
@@ -51,7 +52,9 @@ async def add_response_hardening(request: Request, call_next):
     response = await call_next(request)
     for header, value in SECURITY_HEADERS.items():
         response.headers[header] = value
-    browser_policy, edge_policy = CACHE_POLICIES.get(request.url.path, ("no-store", "no-store"))
+    browser_policy, edge_policy = CACHE_POLICIES.get(
+        request.url.path, ("no-store", "no-store")
+    )
     response.headers["Cache-Control"] = browser_policy
     response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
     return response
@@ -150,6 +153,13 @@ async def get_fx_backtest(request: Request) -> dict:
     from fx_backtest import fx_backtest_summary
 
     return await fx_backtest_summary(_repository(request))
+
+
+@app.get("/api/fx/dashboard")
+async def get_fx_dashboard(request: Request) -> dict:
+    from fx_dashboard import fx_dashboard
+
+    return await fx_dashboard(_repository(request))
 
 
 @app.get("/api/dashboard/history")
@@ -260,7 +270,6 @@ async def get_brazil_dashboard(
     from brazil_dashboard_v2 import brazil_dashboard
 
     try:
-        # Focus resilience persists last-good annual and event-specific expectations.
         return await brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
