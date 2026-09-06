@@ -49,6 +49,7 @@
 .newsCardFooter { display: flex; justify-content: space-between; gap: 14px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: .78rem; }
 .newsCardFooterCompact { align-items: baseline; }
 .newsSourceMeta { text-align: right; }
+.paywallBadge { display: inline-flex; align-items: center; padding: 2px 6px; border: 1px solid var(--ot-border-soft); border-radius: 999px; color: var(--ot-warning); background: var(--ot-warning-soft); font-size: .68rem; font-weight: 750; }
 .newsSourceLink { color: var(--ot-accent); font-weight: 700; text-decoration: none; }
 .newsSourceLink:hover { text-decoration: underline; }
 .newsSource { color: var(--ot-text-muted); }
