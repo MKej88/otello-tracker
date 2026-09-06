@@ -3,7 +3,7 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from src.oslo_calendar import oslo_bors_trading_days
