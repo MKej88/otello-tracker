@@ -1,0 +1,135 @@
+name: Apply OTEC production live price fix
+
+on:
+  push:
+    branches:
+      - fix/otec-production-live-price
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/otec-production-live-price
+      - name: Apply production fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Fant ikke forventet blokk i {path}: {old[:120]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # 1) Cloudflare quote endpoint: OTEC LAST skal vinne over same-day CLOSE.
+          quote = "cloudflare/src/quote_details.py"
+          replace_once(
+              quote,
+              '''        ORDER BY mp.trading_date DESC,\n                 CASE WHEN mp.price_type='CLOSE' THEN 0 ELSE 1 END,\n                 mp.observed_at DESC, mp.id DESC\n        LIMIT 1\n        \"\"\",\n        (symbol,),\n    )\n\n\ndef _parse_timestamp''',
+              '''        ORDER BY mp.trading_date DESC,\n                 CASE\n                     WHEN ?='OTEC' AND mp.price_type='LAST' THEN 0\n                     WHEN ?<>'OTEC' AND mp.price_type='CLOSE' THEN 0\n                     ELSE 1\n                 END,\n                 mp.observed_at DESC, mp.id DESC\n        LIMIT 1\n        \"\"\",\n        (symbol, symbol, symbol),\n    )\n\n\nasync def latest_otec_current_price(repository) -> dict[str, Any] | None:\n    \"\"\"Returner siste lagrede OTEC-handel for nåtidsvisninger.\"\"\"\n    return await _latest_price(repository, \"OTEC\")\n\n\ndef _parse_timestamp''',
+          )
+          replace_once(
+              quote,
+              '''    if current_close and str(current_close[\"trading_date\"]) >= str(\n        latest[\"trading_date\"]\n    ):\n        latest = {\n            **current_close,\n            \"price_type\": \"CLOSE\",\n            \"observed_at\": _oslo_close_timestamp(str(current_close[\"trading_date\"])),\n        }''',
+              '''    if current_close and (\n        str(current_close[\"trading_date\"]) > str(latest[\"trading_date\"])\n        or (\n            str(current_close[\"trading_date\"]) == str(latest[\"trading_date\"])\n            and latest.get(\"price_type\") != \"LAST\"\n        )\n    ):\n        latest = {\n            **current_close,\n            \"price_type\": \"CLOSE\",\n            \"observed_at\": _oslo_close_timestamp(str(current_close[\"trading_date\"])),\n        }''',
+          )
+
+          # 2) Dashboard summary: ikke les nåkurs fra materialisert NAV-snapshot.
+          dashboard = "cloudflare/src/dashboard_service.py"
+          replace_once(
+              dashboard,
+              'from market_attribution import symmetric_two_factor_attribution\n',
+              'from market_attribution import symmetric_two_factor_attribution\nfrom quote_details import latest_otec_current_price\n',
+          )
+          replace_once(
+              dashboard,
+              'async def _nav_discount_insights(repository, *, calculation_version, nav_scope, latest):',
+              '''async def _nav_discount_insights(\n    repository,\n    *,\n    calculation_version,\n    nav_scope,\n    latest,\n    current_otec_price=None,\n):''',
+          )
+          replace_once(
+              dashboard,
+              '        share_price=latest[\"otec_price_nok\"],',
+              '''        share_price=(\n            current_otec_price\n            if current_otec_price is not None\n            else latest[\"otec_price_nok\"]\n        ),''',
+          )
+          replace_once(
+              dashboard,
+              '''    as_of_date = str(latest[\"as_of_at\"])[:10]\n    holding = await repository.first(''',
+              '''    as_of_date = str(latest[\"as_of_at\"])[:10]\n    latest_otec = await latest_otec_current_price(repository)\n    live_otec_price = (\n        _float(latest_otec.get(\"price\"))\n        if latest_otec is not None and latest_otec.get(\"price\") is not None\n        else _float(latest[\"otec_price_nok\"])\n    )\n    nav_discount_insight = await _nav_discount_insights(\n        repository,\n        calculation_version=calculation_version,\n        nav_scope=model_scope,\n        latest=latest,\n        current_otec_price=live_otec_price,\n    )\n    holding = await repository.first(''',
+          )
+          replace_once(
+              dashboard,
+              '''    otec_change = _pct_change(\n        latest[\"otec_price_nok\"], previous[\"otec_price_nok\"] if previous else None\n    )\n    discount_change = (\n        float(\n            Decimal(str(latest[\"discount_pct\"]))\n            - Decimal(str(previous[\"discount_pct\"]))\n        )\n        if previous is not None\n        and latest[\"discount_pct\"] is not None\n        and previous[\"discount_pct\"] is not None\n        else None\n    )''',
+              '''    otec_change = _pct_change(\n        live_otec_price, previous[\"otec_price_nok\"] if previous else None\n    )\n    current_discount = nav_discount_insight.get(\"discount_pct\")\n    discount_change = (\n        float(\n            Decimal(str(current_discount))\n            - Decimal(str(previous[\"discount_pct\"]))\n        )\n        if previous is not None\n        and current_discount is not None\n        and previous[\"discount_pct\"] is not None\n        else None\n    )''',
+          )
+          replace_once(
+              dashboard,
+              '''        \"otec_price\": _float(latest[\"otec_price_nok\"]),\n        \"nav_discount_pct\": _float(latest[\"discount_pct\"]),\n        \"nav_discount_insights\": await _nav_discount_insights(\n            repository,\n            calculation_version=calculation_version,\n            nav_scope=model_scope,\n            latest=latest,\n        ),''',
+              '''        \"otec_price\": live_otec_price,\n        \"otec_price_date\": (\n            latest_otec.get(\"trading_date\") if latest_otec is not None else otec.get(\"price_date\")\n        ),\n        \"otec_price_observed_at\": (\n            latest_otec.get(\"observed_at\") if latest_otec is not None else otec.get(\"price_observed_at\")\n        ),\n        \"otec_price_type\": (\n            latest_otec.get(\"price_type\") if latest_otec is not None else otec.get(\"price_type\")\n        ),\n        \"nav_discount_pct\": current_discount,\n        \"nav_discount_insights\": nav_discount_insight,''',
+          )
+          replace_once(
+              dashboard,
+              '''        \"otec_price_quality\": otec.get(\"price_quality\"),\n        \"otec_price_source\": otec.get(\"price_source\"),''',
+              '''        \"otec_price_quality\": (\n            latest_otec.get(\"quality\") if latest_otec is not None else otec.get(\"price_quality\")\n        ),\n        \"otec_price_source\": (\n            latest_otec.get(\"source_code\") if latest_otec is not None else otec.get(\"price_source\")\n        ),''',
+          )
+          replace_once(
+              dashboard,
+              '''    component_dates = {\n        \"otec\": _as_date(otec.get(\"price_date\")),\n        \"bmob3\": _as_date(bmob3.get(\"price_date\")),\n        \"brl_nok\": _as_date(bmob3.get(\"brl_nok_date\")),\n    }''',
+              '''    component_dates = {\n        \"otec\": _as_date(summary.get(\"otec_price_date\") or otec.get(\"price_date\")),\n        \"bmob3\": _as_date(bmob3.get(\"price_date\")),\n        \"brl_nok\": _as_date(bmob3.get(\"brl_nok_date\")),\n    }''',
+          )
+          replace_once(
+              dashboard,
+              '''        \"otec\": {\n            \"date\": otec.get(\"price_date\"),\n            \"observed_at\": otec.get(\"price_observed_at\"),\n            \"price_type\": otec.get(\"price_type\"),\n        },''',
+              '''        \"otec\": {\n            \"date\": summary.get(\"otec_price_date\") or otec.get(\"price_date\"),\n            \"observed_at\": (\n                summary.get(\"otec_price_observed_at\") or otec.get(\"price_observed_at\")\n            ),\n            \"price_type\": summary.get(\"otec_price_type\") or otec.get(\"price_type\"),\n        },''',
+          )
+
+          # 3) Economic NAV-rabatt: bruk samme live OTEC-kurs som summary/sensitivitet.
+          economic = "cloudflare/src/economic_nav_investor.py"
+          replace_once(
+              economic,
+              'from nav_waterfall_attribution import symmetric_two_factor_attribution\n',
+              'from nav_waterfall_attribution import symmetric_two_factor_attribution\nfrom quote_details import latest_otec_current_price\n',
+          )
+          replace_once(
+              economic,
+              '''    otec_price_nok = (\n        Decimal(str(row[\"otec_price_nok\"]))\n        if row.get(\"otec_price_nok\") is not None\n        else None\n    )\n\n    base_pre_option_total = (''',
+              '''    otec_price_nok = (\n        Decimal(str(row[\"otec_price_nok\"]))\n        if row.get(\"otec_price_nok\") is not None\n        else None\n    )\n    latest_otec = await latest_otec_current_price(repository)\n    if latest_otec is not None and latest_otec.get(\"price\") is not None:\n        try:\n            live_otec_price = Decimal(str(latest_otec[\"price\"]))\n        except (InvalidOperation, TypeError, ValueError):\n            live_otec_price = None\n        if (\n            live_otec_price is not None\n            and live_otec_price.is_finite()\n            and live_otec_price > 0\n        ):\n            otec_price_nok = live_otec_price\n\n    base_pre_option_total = (''',
+          )
+
+          # 4) Tilbakekjøpsvisningen: live pris for nåtid, historisk aktivitet for as_of-dato.
+          buyback = "cloudflare/src/buyback_service.py"
+          replace_once(
+              buyback,
+              'from src.oslo_calendar import oslo_bors_trading_days\n',
+              'from src.oslo_calendar import oslo_bors_trading_days\nfrom src.quote_details import latest_otec_current_price\n',
+          )
+          replace_once(
+              buyback,
+              '''    last = lookback[-1]\n    last_close = Decimal(str(last[\"last_price_nok\"])) if last[\"last_price_nok\"] is not None else None\n    max_price = Decimal(str(program[\"max_price_nok\"])) if program[\"max_price_nok\"] is not None else None''',
+              '''    last = lookback[-1]\n    last_close = (\n        Decimal(str(last[\"last_price_nok\"]))\n        if last[\"last_price_nok\"] is not None\n        else None\n    )\n    if as_of_date is None:\n        live_otec = await latest_otec_current_price(repository)\n        if live_otec is not None and live_otec.get(\"price\") is not None:\n            try:\n                live_price = Decimal(str(live_otec[\"price\"]))\n            except (InvalidOperation, TypeError, ValueError):\n                live_price = None\n            if live_price is not None and live_price.is_finite() and live_price > 0:\n                last_close = live_price\n    max_price = Decimal(str(program[\"max_price_nok\"])) if program[\"max_price_nok\"] is not None else None''',
+          )
+
+          # 5) Invalider gammel persisted hot snapshot på deploy.
+          hot = "cloudflare/src/dashboard_hot_snapshot.py"
+          replace_once(hot, 'STATE_KEY = "dashboard_hot_snapshot_v6"\nSNAPSHOT_VERSION = 6', 'STATE_KEY = "dashboard_hot_snapshot_v7"\nSNAPSHOT_VERSION = 7')
+
+          # 6) Produksjonsregresjonstester.
+          test = Path("cloudflare/tests/test_otec_live_price_semantics.py")
+          test.write_text('''from __future__ import annotations\n\nimport asyncio\nfrom unittest.mock import AsyncMock, patch\n\nfrom src.quote_details import _latest_price, _quote\n\n\nclass _CaptureRepository:\n    def __init__(self) -> None:\n        self.query = \"\"\n        self.params = ()\n\n    async def first(self, query, params=()):\n        self.query = query\n        self.params = params\n        return None\n\n\ndef test_otec_latest_price_sql_prioritizes_last_trade() -> None:\n    repository = _CaptureRepository()\n    asyncio.run(_latest_price(repository, \"OTEC\"))\n\n    assert \"WHEN ?='OTEC' AND mp.price_type='LAST' THEN 0\" in repository.query\n    assert repository.params == (\"OTEC\", \"OTEC\", \"OTEC\")\n\n\ndef test_otec_same_day_close_does_not_replace_last_trade() -> None:\n    latest = {\n        \"id\": 2,\n        \"trading_date\": \"2026-09-04\",\n        \"observed_at\": \"2026-09-04T14:15:00Z\",\n        \"price_type\": \"LAST\",\n        \"price\": 17.98,\n        \"currency\": \"NOK\",\n        \"quality\": \"DIRECT\",\n        \"source_code\": \"EURONEXT\",\n    }\n    completed = {\n        \"trading_date\": \"2026-09-04\",\n        \"price\": 17.84,\n        \"source_code\": \"EURONEXT\",\n        \"close_basis\": \"DELAYED_TRADE_SUM\",\n    }\n\n    with (\n        patch(\"src.quote_details._latest_price\", new=AsyncMock(return_value=latest)),\n        patch(\"src.quote_details._latest_close\", new=AsyncMock(return_value=completed)),\n        patch(\"src.quote_details._daily_history\", new=AsyncMock(return_value=[])),\n        patch(\"src.quote_details._volume_stats\", new=AsyncMock(return_value={\n            \"latest\": None, \"average_3m\": None, \"average_sessions\": 0\n        })),\n        patch(\"src.quote_details._day_stats\", new=AsyncMock(return_value={})),\n    ):\n        quote = asyncio.run(_quote(object(), \"OTEC\"))\n\n    assert quote[\"last\"] == 17.98\n    assert quote[\"last_price_type\"] == \"LAST\"\n    assert quote[\"last_updated_at\"] == \"2026-09-04T14:15:00Z\"\n\n\ndef test_all_current_otec_consumers_use_shared_live_helper() -> None:\n    expected = {\n        \"dashboard_service.py\": \"latest_otec_current_price(repository)\",\n        \"economic_nav_investor.py\": \"latest_otec_current_price(repository)\",\n        \"buyback_service.py\": \"latest_otec_current_price(repository)\",\n    }\n    root = Path(__file__).resolve().parents[1] / \"src\"\n    for filename, marker in expected.items():\n        assert marker in (root / filename).read_text(encoding=\"utf-8\")\n\n\ndef test_hot_snapshot_version_is_bumped_for_live_price_semantics() -> None:\n    source = (Path(__file__).resolve().parents[1] / \"src\" / \"dashboard_hot_snapshot.py\").read_text(encoding=\"utf-8\")\n    assert 'STATE_KEY = \"dashboard_hot_snapshot_v7\"' in source\n    assert \"SNAPSHOT_VERSION = 7\" in source\n'''.replace('from unittest.mock import AsyncMock, patch\\n', 'from pathlib import Path\\nfrom unittest.mock import AsyncMock, patch\\n'), encoding="utf-8")
+
+          Path(".github/workflows/apply-otec-production-live-price.yml").unlink()
+          PY
+      - name: Compile production Python
+        run: python -m compileall -q cloudflare/src
+      - name: Commit production fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Bruk OTEC livekurs i Cloudflare-produksjon"
+          git push origin HEAD:fix/otec-production-live-price
