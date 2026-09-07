@@ -5,12 +5,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from bemobi_news_quality import (
-    classify_media_item,
-    media_paywall_likely,
-    media_should_be_shown,
-    media_story_key,
-)
 from bemobi_news_translation import translate_bemobi_news
 
 CATEGORY_LABELS = {
@@ -25,8 +19,6 @@ CATEGORY_LABELS = {
     "OTHER": "Annet",
 }
 OSLO_TZ = ZoneInfo("Europe/Oslo")
-MEDIA_JOB_NAME = "bemobi_media_refresh"
-DEFAULT_MEDIA_WINDOW_DAYS = 30
 
 
 def _current_oslo_date(now: datetime | None = None) -> date:
@@ -63,141 +55,31 @@ def _decode_payload(value: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _error_count(metadata: dict[str, Any], error_message: Any) -> int:
-    feed_errors = metadata.get("feed_errors")
-    translation_errors = metadata.get("translation_errors")
-    count = len(feed_errors) if isinstance(feed_errors, list) else 0
-    count += len(translation_errors) if isinstance(translation_errors, list) else 0
-    if count == 0 and str(error_message or "").strip():
-        count = 1
-    return count
-
-
-def _media_error_breakdown(metadata: dict[str, Any]) -> dict[str, Any]:
-    feed_errors = metadata.get("feed_errors")
-    translation_errors = metadata.get("translation_errors")
-    feed_items = feed_errors if isinstance(feed_errors, list) else []
-    translation_items = (
-        translation_errors if isinstance(translation_errors, list) else []
-    )
-    failed_sources: list[str] = []
-    for item in feed_items:
-        if not isinstance(item, dict):
-            continue
-        source = str(item.get("source") or "").strip()
-        if source and source not in failed_sources:
-            failed_sources.append(source)
-    return {
-        "feed_error_count": len(feed_items),
-        "translation_error_count": len(translation_items),
-        "failed_sources": failed_sources,
-    }
-
-
-async def _media_refresh_status(repository) -> dict[str, Any]:
-    row = await repository.first(
-        """
-        SELECT started_at, finished_at, status, records_written,
-               error_message, metadata_json
-        FROM job_runs
-        WHERE job_name=?
-        ORDER BY started_at DESC, id DESC
-        LIMIT 1
-        """,
-        (MEDIA_JOB_NAME,),
-    )
-    if row is None:
-        return {
-            "available": False,
-            "status": None,
-            "window_days": DEFAULT_MEDIA_WINDOW_DAYS,
-        }
-
-    metadata = _decode_payload(row.get("metadata_json"))
-    return {
-        "available": True,
-        "status": row.get("status"),
-        "started_at": row.get("started_at"),
-        "finished_at": row.get("finished_at"),
-        "feeds_checked": int(metadata.get("feeds_checked") or 0),
-        "candidates": int(metadata.get("candidates") or 0),
-        "written": int(row.get("records_written") or metadata.get("written") or 0),
-        "skipped_existing": int(metadata.get("skipped_existing") or 0),
-        "error_count": _error_count(metadata, row.get("error_message")),
-        **_media_error_breakdown(metadata),
-        "initial_backfill": bool(metadata.get("initial_backfill")),
-        "article_limit": int(metadata.get("article_limit") or 0),
-        "window_days": int(metadata.get("window_days") or DEFAULT_MEDIA_WINDOW_DAYS),
-        "error_message": str(row.get("error_message") or "")[:300] or None,
-    }
-
-
-def _media_source(metadata: dict[str, Any], row: dict[str, Any]) -> Any:
-    return metadata.get("publisher") or row.get("source_name") or row.get("source_code")
-
-
-def _media_original_text(
-    metadata: dict[str, Any], row: dict[str, Any]
-) -> tuple[Any, Any]:
-    title = metadata.get("original_title") or row.get("headline")
-    summary = metadata.get("original_summary") or row.get("summary")
-    return title, summary
-
-
 def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     category = str(row.get("category") or "OTHER")
     nav_impact = str(row.get("nav_impact") or "NONE")
     metadata = _decode_payload(row.get("metadata_json"))
-    content_type = str(metadata.get("content_type") or "OFFICIAL").upper()
-    is_media = content_type == "MEDIA"
     headline = row.get("headline")
     summary = row.get("summary")
-    source = (
-        _media_source(metadata, row)
-        if is_media
-        else row.get("source_name") or row.get("source_code")
-    )
-
-    if is_media:
-        original_title, original_summary = _media_original_text(metadata, row)
-        category, nav_impact = classify_media_item(original_title, original_summary)
-    elif row.get("symbol") == "BMOB3":
+    if row.get("symbol") == "BMOB3":
         headline, summary = translate_bemobi_news(
             headline=headline,
             summary=summary,
             metadata=metadata,
         )
-
-    url = (
-        metadata.get("original_url")
-        if is_media and metadata.get("original_url")
-        else row.get("url")
-    )
-    category_label = (
-        "Medieomtale"
-        if is_media and category == "OTHER"
-        else CATEGORY_LABELS.get(category, "Annet")
-    )
-    paywall_likely = bool(
-        metadata.get("paywall_likely")
-        if is_media and "paywall_likely" in metadata
-        else is_media and media_paywall_likely(source)
-    )
     return {
         "id": int(row["id"]),
         "company": "Bemobi" if row.get("symbol") == "BMOB3" else "Otello",
         "headline": headline,
         "published_at": row.get("published_at"),
         "category": category,
-        "category_label": category_label,
+        "category_label": CATEGORY_LABELS.get(category, "Annet"),
         "importance": _importance(category, nav_impact),
         "nav_impact": nav_impact,
         "summary": summary,
-        "source": source,
-        "url": _safe_url(url),
-        "content_type": "MEDIA" if is_media else "OFFICIAL",
-        "original_language": metadata.get("original_language") if is_media else None,
-        "paywall_likely": paywall_likely,
+        "source": row.get("source_name") or row.get("source_code"),
+        "url": _safe_url(row.get("url")),
+        "content_type": "OFFICIAL",
     }
 
 
@@ -236,9 +118,7 @@ async def news_and_events(
 ) -> dict[str, Any]:
     today = date.fromisoformat(as_of_date) if as_of_date else _current_oslo_date()
     safe_limit = max(1, min(news_limit, 100))
-    media_status = await _media_refresh_status(repository)
     news = []
-    seen_media_stories: set[str] = set()
     batch_size = safe_limit * 3
     offset = 0
     while len(news) < safe_limit:
@@ -254,6 +134,7 @@ async def news_and_events(
             JOIN source_documents sd ON sd.id=cn.source_document_id
             JOIN sources s ON s.id=sd.source_id
             WHERE i.symbol IN ('OTEC', 'BMOB3')
+              AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
             ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
             LIMIT ? OFFSET ?
             """,
@@ -263,20 +144,6 @@ async def news_and_events(
             metadata = _decode_payload(row.get("metadata_json"))
             if metadata.get("is_latest_version") is False:
                 continue
-
-            if str(metadata.get("content_type") or "").upper() == "MEDIA":
-                original_title, original_summary = _media_original_text(metadata, row)
-                source = _media_source(metadata, row)
-                if not media_should_be_shown(
-                    title=original_title,
-                    summary=original_summary,
-                    publisher=source,
-                ):
-                    continue
-                story_key = media_story_key(original_title, row.get("published_at"))
-                if story_key in seen_media_stories:
-                    continue
-                seen_media_stories.add(story_key)
 
             news.append(_news_item(row))
             if len(news) >= safe_limit:
@@ -428,5 +295,4 @@ async def news_and_events(
         "news": news,
         "events": events[:40],
         "counts": {"news": len(news), "events": min(len(events), 40)},
-        "media_status": media_status,
     }
