@@ -44,7 +44,7 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
         "summary": asyncio.Event(),
         "economic": asyncio.Event(),
         "quotes": asyncio.Event(),
-        "forecast": asyncio.Event(),
+        "buyback": asyncio.Event(),
         "events": asyncio.Event(),
     }
 
@@ -75,9 +75,9 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
         await mark_started("quotes")
         return {"ready": True, "symbols": {"OTEC": {"ready": True, "last": 24.0}}}
 
-    async def fake_forecast(_repository):
-        calls.append("forecast")
-        await mark_started("forecast")
+    async def fake_buyback(_repository):
+        calls.append("buyback")
+        await mark_started("buyback")
         return {
             "ready": True,
             "status": "READY",
@@ -93,16 +93,16 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
     monkeypatch.setattr(hot, "enrich_dashboard_summary", fake_enrich)
     monkeypatch.setattr(hot, "economic_nav_summary", fake_economic)
     monkeypatch.setattr(hot, "market_quote_details", fake_quotes)
-    monkeypatch.setattr(hot, "buyback_forecast", fake_forecast)
+    monkeypatch.setattr(hot, "buyback_overview_status", fake_buyback)
     monkeypatch.setattr(hot, "overview_events", fake_events)
 
     result = asyncio.run(hot.refresh_dashboard_hot_snapshot(repository, force=True))
 
     assert result["status"] == "ok"
-    assert result["components"] == ["economic", "events", "forecast", "quotes", "summary"]
+    assert result["components"] == ["buyback", "economic", "events", "quotes", "summary"]
     assert result["bytes"] > 0
     assert repository.writes == 1
-    assert set(calls[:5]) == {"summary", "economic", "quotes", "forecast", "events"}
+    assert set(calls[:5]) == {"summary", "economic", "quotes", "buyback", "events"}
     assert calls[-1] == "enrich"
 
     snapshot = asyncio.run(hot.load_dashboard_hot_snapshot(repository))
@@ -113,10 +113,10 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
     assert snapshot["economic"]["calculated_at"] == "2026-08-23T23:59:59Z"
     assert snapshot["economic"]["calculated_at"] != snapshot["generated_at"]
     assert snapshot["quotes"]["symbols"]["OTEC"]["last"] == 24.0
-    assert snapshot["forecast"]["estimate"]["base_case_shares"] == 1000
+    assert snapshot["buyback"]["estimate"]["base_case_shares"] == 1000
     assert snapshot["events"]["ready"] is True
 
-    for component in ("summary", "economic", "quotes", "forecast", "events"):
+    for component in ("summary", "economic", "quotes", "buyback", "events"):
         value = asyncio.run(hot.dashboard_hot_component(repository, component))
         assert value == snapshot[component]
 
@@ -129,7 +129,7 @@ def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) 
         "summary": {"ready": True},
         "economic": {"ready": True},
         "quotes": {"ready": True},
-        "forecast": {"ready": True},
+        "buyback": {"ready": True},
         "events": {"ready": True, "events": [], "calendar": []},
     }
     repository.rows[hot.STATE_KEY] = {
@@ -145,7 +145,7 @@ def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) 
     monkeypatch.setattr(hot, "dashboard_summary", must_not_run)
     monkeypatch.setattr(hot, "economic_nav_summary", must_not_run)
     monkeypatch.setattr(hot, "market_quote_details", must_not_run)
-    monkeypatch.setattr(hot, "buyback_forecast", must_not_run)
+    monkeypatch.setattr(hot, "buyback_overview_status", must_not_run)
     monkeypatch.setattr(hot, "overview_events", must_not_run)
 
     result = asyncio.run(hot.refresh_dashboard_hot_snapshot(repository, force=False))
@@ -166,7 +166,7 @@ def test_dashboard_bootstrap_reuses_hot_snapshot_without_rebuild(monkeypatch) ->
         "summary": {"ready": True, "nav_per_share": 31.5},
         "economic": {"ready": True, "nav_per_share": 32.1},
         "quotes": {"ready": True, "symbols": {"OTEC": {"last": 24.0}}},
-        "forecast": {"ready": True, "status": "READY"},
+        "buyback": {"ready": True, "status": "READY"},
         "events": {"ready": True, "events": [], "calendar": []},
     }
     repository.rows[hot.STATE_KEY] = {
@@ -180,7 +180,7 @@ def test_dashboard_bootstrap_reuses_hot_snapshot_without_rebuild(monkeypatch) ->
     monkeypatch.setattr(hot, "dashboard_summary", must_not_run)
     monkeypatch.setattr(hot, "economic_nav_summary", must_not_run)
     monkeypatch.setattr(hot, "market_quote_details", must_not_run)
-    monkeypatch.setattr(hot, "buyback_forecast", must_not_run)
+    monkeypatch.setattr(hot, "buyback_overview_status", must_not_run)
     monkeypatch.setattr(hot, "overview_events", must_not_run)
 
     result = asyncio.run(hot.dashboard_bootstrap_payload(repository))
@@ -188,7 +188,7 @@ def test_dashboard_bootstrap_reuses_hot_snapshot_without_rebuild(monkeypatch) ->
     assert result["summary"] == existing["summary"]
     assert result["economic"] == existing["economic"]
     assert result["quotes"] == existing["quotes"]
-    assert result["forecast"] == existing["forecast"]
+    assert result["buyback"] == existing["buyback"]
     assert result["events"] == existing["events"]
     assert result["meta"]["source"] == "hot_snapshot"
     assert result["meta"]["snapshot_version"] == hot.SNAPSHOT_VERSION
@@ -205,7 +205,7 @@ def test_hot_snapshot_status_reports_hit_age_size_and_components() -> None:
         "summary": {"ready": True},
         "economic": {"ready": True},
         "quotes": {"ready": True},
-        "forecast": {"ready": True},
+        "buyback": {"ready": True},
         "events": {"ready": True, "events": [], "calendar": []},
     }
     encoded = json.dumps(existing)
@@ -230,7 +230,7 @@ def test_hot_snapshot_status_reports_hit_age_size_and_components() -> None:
     assert status["generated_at"] == existing["generated_at"]
     assert status["age_seconds"] == 300
     assert status["bytes"] == len(encoded.encode("utf-8"))
-    assert status["components"] == ["economic", "events", "forecast", "quotes", "summary"]
+    assert status["components"] == ["buyback", "economic", "events", "quotes", "summary"]
     assert status["reason"] is None
 
 
@@ -248,7 +248,7 @@ def test_hot_snapshot_status_reports_missing_and_version_mismatch() -> None:
         "summary": {},
         "economic": {},
         "quotes": {},
-        "forecast": {},
+        "buyback": {},
     }
     repository.rows[hot.STATE_KEY] = {
         "value": json.dumps(old),
@@ -278,7 +278,7 @@ def test_stale_snapshot_is_ignored_and_reported() -> None:
                 "summary": {"ready": True},
                 "economic": {"ready": True},
                 "quotes": {"ready": True},
-                "forecast": {"ready": True},
+                "buyback": {"ready": True},
                 "events": {"ready": True, "events": [], "calendar": []},
             }
         ),
@@ -308,7 +308,7 @@ def test_invalid_or_old_snapshot_is_ignored() -> None:
                 "summary": {},
                 "economic": {},
                 "quotes": {},
-                "forecast": {},
+                "buyback": {},
             }
         ),
         "updated_at": "x",

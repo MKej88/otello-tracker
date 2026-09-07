@@ -27,7 +27,7 @@ def test_snapshot_refresh_preserves_economic_nav_calculation_time() -> None:
             new=AsyncMock(return_value={"ready": True}),
         ),
         patch(
-            "src.dashboard_hot_snapshot.buyback_forecast",
+            "src.dashboard_hot_snapshot.buyback_overview_status",
             new=AsyncMock(return_value={"ready": True}),
         ),
         patch(

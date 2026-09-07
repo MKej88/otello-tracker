@@ -46,13 +46,13 @@ async def market_quote_details(repository: Any) -> dict[str, Any]:
     return await implementation(repository)
 
 
-async def buyback_forecast(
+async def buyback_overview_status(
     repository: Any, *args: Any, **kwargs: Any
 ) -> dict[str, Any]:
     try:
-        from .buyback_service import buyback_forecast as implementation
+        from .buyback_dashboard import buyback_overview_status as implementation
     except ImportError:
-        from buyback_service import buyback_forecast as implementation
+        from buyback_dashboard import buyback_overview_status as implementation
     return await implementation(repository, *args, **kwargs)
 
 
@@ -67,10 +67,10 @@ async def overview_events(repository: Any) -> dict[str, Any]:
 # Persisted hot snapshots contain already-rendered API payloads. Bump both the key
 # and version whenever response semantics change so a newly deployed Worker cannot
 # serve a payload produced by the previous application version.
-STATE_KEY = "dashboard_hot_snapshot_v7"
-SNAPSHOT_VERSION = 7
+STATE_KEY = "dashboard_hot_snapshot_v8"
+SNAPSHOT_VERSION = 8
 SNAPSHOT_MAX_AGE_SECONDS = 90 * 60
-_COMPONENTS = {"summary", "economic", "quotes", "forecast", "events"}
+_COMPONENTS = {"summary", "economic", "quotes", "buyback", "events"}
 
 
 def _now_iso() -> str:
@@ -98,11 +98,11 @@ async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
 
     # First-screen sections do not depend on each other. Build them concurrently so
     # a missing snapshot never serializes independent calculation/read chains.
-    summary, economic, quotes, forecast, events = await asyncio.gather(
+    summary, economic, quotes, buyback, events = await asyncio.gather(
         build_summary(),
         economic_nav_summary(repository),
         market_quote_details(repository),
-        buyback_forecast(repository),
+        buyback_overview_status(repository),
         overview_events(repository),
     )
     generated_at = _now_iso()
@@ -114,7 +114,7 @@ async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
             "summary": summary,
             "economic": economic,
             "quotes": quotes,
-            "forecast": forecast,
+            "buyback": buyback,
             "events": events,
         }
     )
@@ -169,7 +169,7 @@ async def dashboard_bootstrap_payload(repository: Any) -> dict[str, Any]:
         "summary": snapshot["summary"],
         "economic": snapshot["economic"],
         "quotes": snapshot["quotes"],
-        "forecast": snapshot["forecast"],
+        "buyback": snapshot["buyback"],
         "events": snapshot["events"],
         "meta": {
             "source": source,
