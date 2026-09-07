@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -211,6 +212,57 @@ def upsert_market_price(
         (iid, observed_at, price_type, sid),
     ).fetchone()
     return int(row["id"])
+
+
+def upsert_market_prices(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source_code: str,
+    price_type: str,
+    currency: str,
+    prices: Iterable[tuple[str, str, Decimal | str | int | float]],
+    source_document_id: int | None = None,
+    quality: str = "DIRECT",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Upsert many prices which share instrument and source in one batch."""
+    iid = instrument_id(connection, symbol)
+    sid = source_id(connection, source_code)
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
+
+    connection.executemany(
+        """
+        INSERT INTO market_prices(
+            instrument_id, observed_at, trading_date, price_type, price,
+            currency, source_id, source_document_id, quality, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(instrument_id, observed_at, price_type, source_id)
+        DO UPDATE SET
+            trading_date = excluded.trading_date,
+            price = excluded.price,
+            currency = excluded.currency,
+            source_document_id = excluded.source_document_id,
+            quality = excluded.quality,
+            metadata_json = excluded.metadata_json,
+            fetched_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        """,
+        (
+            (
+                iid,
+                observed_at,
+                trading_date,
+                price_type,
+                decimal_text(price),
+                currency,
+                sid,
+                source_document_id,
+                quality,
+                metadata_json,
+            )
+            for observed_at, trading_date, price in prices
+        ),
+    )
 
 
 def upsert_fx_rate(
