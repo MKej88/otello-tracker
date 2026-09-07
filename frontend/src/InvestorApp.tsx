@@ -52,6 +52,7 @@ function preload(view: View) {
   }
   if (view === "Historikk") {
     void loadHistoryPage();
+    preloadJson("/api/dashboard/economic");
     preloadJson(discountHistoryUrl(investorPeriods()[4]));
   }
   if (view === "Tilbakekjøpsprogram") {
@@ -79,6 +80,7 @@ function preload(view: View) {
   if (view === "Brasil") {
     void loadBrazilPage();
     preloadJson("/api/brazil/dashboard");
+    preloadJson("/api/dashboard/economic");
   }
   if (view === "Konsensus") {
     void loadConsensusPage();
