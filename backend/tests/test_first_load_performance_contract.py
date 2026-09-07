@@ -149,6 +149,12 @@ def test_html_preloads_first_screen_data_before_javascript() -> None:
     assert 'as="fetch"' in source
     assert 'crossorigin="anonymous"' in source
     assert 'fetchpriority="high"' in source
+    assert (
+        'href="/api/dashboard/discount-history?days=365&amp;max_points=72"'
+        in source
+    )
+    assert source.index("discount-history") < script_start
+    assert 'fetchpriority="low"' in source
 
 
 def test_navigation_starts_history_data_before_route_is_mounted() -> None:
