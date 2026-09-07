@@ -204,7 +204,7 @@ async def materialize_estimated_nav_history_batch(
     batch_size: int = 100,
     after_date: str | None = None,
 ) -> dict[str, Any]:
-    """Materialize one bounded batch and persist scan progress across nightly runs."""
+    """Materialize one bounded missing/stale batch and persist scan progress."""
     if after_date is not None:
         date.fromisoformat(after_date)
     persistent_cursor = await _load_scan_cursor(repository)
@@ -218,8 +218,11 @@ async def materialize_estimated_nav_history_batch(
            LEFT JOIN estimated_nav_history_points p
              ON p.date=substr(n.as_of_at, 1, 10)
             AND p.calculation_version=? AND p.quality='VALID'
-           WHERE n.calculation_version=? AND n.nav_scope='FULL' AND p.date IS NULL
-             AND (? IS NULL OR substr(n.as_of_at, 1, 10) > ?)
+           WHERE n.calculation_version=? AND n.nav_scope='FULL'
+             AND (
+                 (p.date IS NULL AND (? IS NULL OR substr(n.as_of_at, 1, 10) > ?))
+                 OR p.calculated_at < COALESCE(n.updated_at, n.created_at)
+             )
            ORDER BY date LIMIT ?""",
         (
             ESTIMATED_NAV_CALCULATION_VERSION,
