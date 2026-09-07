@@ -132,7 +132,7 @@ def test_cash_movement_explanations_are_permanently_visible_in_calculation_colum
     assert 'title={displayFormula(item)}' not in nav_page
 
 
-def test_news_page_prioritizes_investor_relevance_over_ingestion_diagnostics() -> None:
+def test_news_page_shows_only_official_sources() -> None:
     news = read_frontend("NewsEventsPage.tsx")
 
     for label in (
@@ -142,11 +142,13 @@ def test_news_page_prioritizes_investor_relevance_over_ingestion_diagnostics() -
         "Det som kan flytte caset",
         "Viktige",
         "Vis flere",
-        "Automatisk oversatt fra portugisisk · basert på RSS-metadata",
+        "Kun offisielle meldinger fra NewsWeb, CVM og Bemobis hjemmeside",
     ):
         assert label in news
 
     assert "MEDIAINNHENTING" not in news
     assert "mediaRefreshMetrics" not in news
     assert "feeds</span>" not in news
+    assert "Automatisk oversatt" not in news
+    assert '"Media"' not in news
     assert 'item.category === "JCP" ? "JCP"' in news
