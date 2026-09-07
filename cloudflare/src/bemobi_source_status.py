@@ -122,26 +122,29 @@ def _operational_display_status(
 
 
 async def _operational_source_items(repository) -> list[dict[str, Any]]:
+    source_codes = tuple(source.source_code for source in _OPERATIONAL_SOURCE_DEFINITIONS)
+    placeholders = ",".join("?" for _ in source_codes)
+    rows = await repository.all(
+        f"""
+        SELECT s.code, s.base_url, sh.checked_at, sh.status, sh.error_message,
+               sd.fetched_at, sd.published_at
+        FROM sources s
+        LEFT JOIN source_health sh ON sh.id = (
+            SELECT id FROM source_health WHERE source_id = s.id
+            ORDER BY checked_at DESC, id DESC LIMIT 1
+        )
+        LEFT JOIN source_documents sd ON sd.id = (
+            SELECT id FROM source_documents WHERE source_id = s.id
+            ORDER BY fetched_at DESC, id DESC LIMIT 1
+        )
+        WHERE s.code IN ({placeholders})
+        """,
+        source_codes,
+    )
+    values_by_code = {str(row["code"]): row for row in rows}
     items: list[dict[str, Any]] = []
     for source in _OPERATIONAL_SOURCE_DEFINITIONS:
-        row = await repository.first(
-            """
-            SELECT s.base_url, sh.checked_at, sh.status, sh.error_message,
-                   sd.fetched_at, sd.published_at
-            FROM sources s
-            LEFT JOIN source_health sh ON sh.id = (
-                SELECT id FROM source_health WHERE source_id = s.id
-                ORDER BY checked_at DESC, id DESC LIMIT 1
-            )
-            LEFT JOIN source_documents sd ON sd.id = (
-                SELECT id FROM source_documents WHERE source_id = s.id
-                ORDER BY fetched_at DESC, id DESC LIMIT 1
-            )
-            WHERE s.code = ?
-            """,
-            (source.source_code,),
-        )
-        values = {} if row is None else row
+        values = values_by_code.get(source.source_code, {})
         status, detail = _operational_display_status(source, values)
         items.append({
             "key": source.key,
