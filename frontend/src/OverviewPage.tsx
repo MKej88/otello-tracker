@@ -422,7 +422,7 @@ export default function OverviewPage() {
 
         <article className="card overviewUpcomingCard overviewUpcomingCardV3">
           <div className="overviewUpcomingHeader">
-            <div><span className="label">NESTE VIKTIGE DATOER</span><h2>Hva bør følges nå?</h2></div>
+            <div><span className="label">NESTE VIKTIGE DATOER</span><h2>Dette bør du følge med på</h2></div>
           </div>
           {nextEvent ? (
             <>

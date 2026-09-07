@@ -14,7 +14,7 @@ def test_overview_splits_nav_hero_and_shows_case_calendar() -> None:
     assert 'className="card overviewNavCard overviewNavCardV3"' in page
     assert 'className="card overviewUpcomingCard overviewUpcomingCardV3"' in page
     assert "NESTE VIKTIGE DATOER" in page
-    assert "Hva bør følges nå?" in page
+    assert "Dette bør du følge med på" in page
     assert '"/api/overview/events"' in page
     assert '"/api/news-events"' not in page
     assert '"/api/brazil/dashboard"' not in page

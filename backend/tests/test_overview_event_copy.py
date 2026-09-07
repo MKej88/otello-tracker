@@ -9,7 +9,7 @@ def test_overview_case_calendar_is_compact_and_investor_focused() -> None:
     page = OVERVIEW.read_text(encoding="utf-8")
 
     assert "NESTE VIKTIGE DATOER" in page
-    assert "Hva bør følges nå?" in page
+    assert "Dette bør du følge med på" in page
     assert 'event.importance.startsWith("Høy")' in page
     assert 'copom: "Rentebeslutning fra sentralbanken"' in page
     assert 'event.name.includes("15") ? "Foreløpig prisvekst" : "Prisvekst"' in page
