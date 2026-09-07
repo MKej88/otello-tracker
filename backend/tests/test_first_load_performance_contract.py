@@ -157,6 +157,7 @@ def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     history_source = (FRONTEND_SRC / "EstimatedHistoryPage.tsx").read_text(
         encoding="utf-8"
     )
+    brazil_source = (FRONTEND_SRC / "BrazilPage.tsx").read_text(encoding="utf-8")
 
     assert "preloadJson(discountHistoryUrl(investorPeriods()[0]))" in app_source
     assert "preloadJson(discountHistoryUrl(investorPeriods()[4]))" in app_source
@@ -164,6 +165,34 @@ def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     assert "preload(view)" in app_source
     assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in nav_source
     assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in history_source
+
+    history_preload = app_source.index('if (view === "Historikk")')
+    brazil_preload = app_source.index('if (view === "Brasil")')
+    nav_route = app_source.index('window.location.hash = viewSlugs[view]')
+
+    assert history_preload < nav_route
+    assert brazil_preload < nav_route
+    assert (
+        'if (view === "Historikk") {\n'
+        "    void loadHistoryPage();\n"
+        '    preloadJson("/api/dashboard/economic");'
+    ) in app_source
+    assert (
+        'if (view === "Brasil") {\n'
+        "    void loadBrazilPage();\n"
+        '    preloadJson("/api/brazil/dashboard");\n'
+        '    preloadJson("/api/dashboard/economic");'
+    ) in app_source
+    assert (
+        '    "/api/dashboard/economic",\n'
+        "    AUTO_REFRESH_MS,\n"
+        "    true,"
+    ) in history_source
+    assert (
+        '    "/api/dashboard/economic",\n'
+        "    REFRESH_MS,\n"
+        "    true,"
+    ) in brazil_source
 
 
 def test_navigation_starts_live_nav_data_while_route_code_loads() -> None:

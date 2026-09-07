@@ -101,6 +101,41 @@ def test_full_newsweb_archive_is_idempotent_and_does_not_persist_body(tmp_path, 
     assert status["by_year"] == {"2020": 1, "2022": 1, "2023": 1}
 
 
+def test_history_refresh_preserves_applied_news_data(tmp_path, monkeypatch) -> None:
+    db = str(tmp_path / "applied.db")
+    init_database(db)
+    message = _message(495017, "Registration of share capital reduction")
+    monkeypatch.setattr(
+        "app.newsweb.history.discover_otec_messages", lambda *args, **kwargs: [message]
+    )
+    monkeypatch.setattr(
+        "app.newsweb.history.fetch_message", lambda *args, **kwargs: message
+    )
+
+    collect_newsweb_history(db, from_date="2021-02-26", to_date="2021-02-26")
+    with get_connection(db) as connection:
+        connection.execute(
+            """
+            UPDATE company_news
+            SET processing_status='APPLIED', summary='Kontrollert sammendrag',
+                notes='Rapporten er behandlet'
+            """
+        )
+        connection.commit()
+
+    collect_newsweb_history(db, from_date="2021-02-26", to_date="2021-02-26")
+
+    with get_connection(db) as connection:
+        row = connection.execute(
+            "SELECT processing_status, summary, notes FROM company_news"
+        ).fetchone()
+    assert dict(row) == {
+        "processing_status": "APPLIED",
+        "summary": "Kontrollert sammendrag",
+        "notes": "Rapporten er behandlet",
+    }
+
+
 def test_incremental_history_refresh_overlaps_latest_date(tmp_path, monkeypatch) -> None:
     db = str(tmp_path / "incremental.db")
     init_database(db)

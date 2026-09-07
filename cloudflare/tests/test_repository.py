@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from src.repository import D1Repository, D1WriteRepository
+from src.performance_repository import PerformanceD1WriteRepository
 
 
 @dataclass
@@ -42,6 +43,13 @@ class BatchDatabase(Database):
     async def batch(self, statements: list[Statement]) -> list[object]:
         self.statements = statements
         return []
+
+
+class MutableBatchDatabase(BatchDatabase):
+    async def batch(self, statements: list[Statement]) -> list[object]:
+        result = await super().batch(statements)
+        self.result = QueryResult(results=[{"value": "oppdatert"}])
+        return result
 
 
 def test_all_accepts_an_empty_result_list() -> None:
@@ -81,3 +89,20 @@ def test_run_batch_prepares_all_writes_for_one_database_call() -> None:
     assert len(database.statements) == 2
     assert database.statements[0].parameters == ("a", 1)
     assert database.statements[1].parameters == (2,)
+
+
+def test_performance_repository_invalidates_read_cache_after_batch() -> None:
+    database = MutableBatchDatabase()
+    repository = PerformanceD1WriteRepository(database)
+
+    assert asyncio.run(repository.all("SELECT value FROM example")) == []
+    asyncio.run(
+        repository.run_batch(
+            [("INSERT INTO example(value) VALUES (?)", ("oppdatert",))]
+        )
+    )
+
+    assert asyncio.run(repository.all("SELECT value FROM example")) == [
+        {"value": "oppdatert"}
+    ]
+    assert repository.performance_metrics()["d1_writes"] == 1
