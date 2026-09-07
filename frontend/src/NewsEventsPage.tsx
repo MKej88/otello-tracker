@@ -9,8 +9,7 @@ const CALENDAR_LIMIT = 8;
 
 type Importance = "HIGH" | "MEDIUM" | "LOW";
 type CompanyFilter = "Alle" | "Otello" | "Bemobi";
-type ContentType = "OFFICIAL" | "MEDIA";
-type ContentFilter = "Alle" | "Viktige" | "Offisielt" | "Media";
+type ContentFilter = "Alle" | "Viktige";
 type NavImpact = "DIRECT" | "POTENTIAL" | "NONE";
 
 type NewsItem = {
@@ -25,9 +24,6 @@ type NewsItem = {
   summary?: string | null;
   source?: string | null;
   url?: string | null;
-  content_type?: ContentType;
-  original_language?: string | null;
-  paywall_likely?: boolean;
 };
 
 type EventItem = {
@@ -42,22 +38,10 @@ type EventItem = {
   url?: string | null;
 };
 
-type MediaStatus = {
-  available?: boolean;
-  status?: string | null;
-  started_at?: string | null;
-  finished_at?: string | null;
-  error_count?: number;
-  feed_error_count?: number;
-  translation_error_count?: number;
-  failed_sources?: string[];
-};
-
 type Payload = {
   ready: boolean;
   news?: NewsItem[];
   events?: EventItem[];
-  media_status?: MediaStatus;
 };
 
 const importanceLabels: Record<Importance, string> = {
@@ -84,8 +68,7 @@ function SourceLink({ url, source }: { url?: string | null; source?: string | nu
 function NewsSourceMeta({ item }: { item: NewsItem }) {
   return (
     <span className="newsSourceMeta">
-      {contentType(item) === "MEDIA" ? "Media" : "Offisiell"} ·{" "}
-      {item.paywall_likely && <><span className="paywallBadge">Betalingsmur</span> · </>}
+      Offisiell ·{" "}
       <SourceLink source={item.source} url={item.url} />
     </span>
   );
@@ -94,10 +77,6 @@ function NewsSourceMeta({ item }: { item: NewsItem }) {
 function ImportanceBadge({ importance }: { importance: Importance }) {
   if (importance === "LOW") return null;
   return <span className={`importanceBadge importance${importance}`}>{importanceLabels[importance]}</span>;
-}
-
-function contentType(item: NewsItem): ContentType {
-  return item.content_type === "MEDIA" ? "MEDIA" : "OFFICIAL";
 }
 
 function categoryLabel(item: NewsItem) {
@@ -109,7 +88,7 @@ function matchesContentFilter(item: NewsItem, filter: ContentFilter) {
   if (filter === "Viktige") {
     return item.importance === "HIGH" || item.nav_impact === "DIRECT" || item.nav_impact === "POTENTIAL";
   }
-  return filter === "Media" ? contentType(item) === "MEDIA" : contentType(item) === "OFFICIAL";
+  return true;
 }
 
 function importantScore(item: NewsItem) {
@@ -124,14 +103,6 @@ function impactLabel(item: NewsItem) {
   if (item.nav_impact === "DIRECT") return "Direkte NAV-effekt";
   if (item.nav_impact === "POTENTIAL") return "Potensiell betydning";
   return null;
-}
-
-function translationLabel(item: NewsItem) {
-  const language = String(item.original_language ?? "").toLowerCase();
-  if (language.startsWith("pt")) {
-    return "Automatisk oversatt fra portugisisk · basert på RSS-metadata";
-  }
-  return "Automatisk oversatt · basert på RSS-metadata";
 }
 
 export default function NewsEventsPage() {
@@ -171,11 +142,6 @@ export default function NewsEventsPage() {
     return allEvents.find((item) => item.importance === "HIGH") ?? allEvents[0] ?? null;
   }, [data?.events]);
 
-  const mediaStatus = data?.media_status;
-  const mediaCheckedAt = mediaStatus?.finished_at ?? mediaStatus?.started_at;
-  const mediaDegraded = mediaStatus?.status === "PARTIAL" || mediaStatus?.status === "FAILED";
-  const failedMediaSources = mediaStatus?.failed_sources ?? [];
-
   function changeCompany(next: CompanyFilter) {
     setCompany(next);
     setVisibleCount(PAGE_SIZE);
@@ -192,7 +158,7 @@ export default function NewsEventsPage() {
         <div>
           <span className="label">NYHETER</span>
           <h2>Siste relevante hendelser for Otello og Bemobi</h2>
-          <p>Prioritert etter betydning for caset, med originalkilden ett klikk unna.</p>
+          <p>Kun offisielle meldinger fra NewsWeb, CVM og Bemobis hjemmeside, med originalkilden ett klikk unna.</p>
           {refreshFailed && <small className="newsStaleNote">Ny oppdatering feilet · viser siste gode data</small>}
         </div>
         <div className="newsNextEvent">
@@ -208,21 +174,6 @@ export default function NewsEventsPage() {
           )}
         </div>
       </section>
-
-      {mediaDegraded && (
-        <section className={`card mediaWarning ${mediaStatus?.status === "FAILED" ? "mediaWarningFailed" : "mediaWarningPartial"}`}>
-          <div>
-            <strong>{mediaStatus?.status === "FAILED" ? "Medieinnhentingen feilet" : "Noen mediekilder kunne ikke oppdateres"}</strong>
-            <span>
-              {mediaCheckedAt ? `Siste sjekk ${dateLabel(mediaCheckedAt, true)}. ` : ""}
-              {failedMediaSources.length > 0 ? `Berørte kilder: ${failedMediaSources.join(", ")}. ` : ""}
-              {mediaStatus?.translation_error_count ? `${mediaStatus.translation_error_count} treff kunne ikke oversettes. ` : ""}
-              {failedMediaSources.length === 0 && !mediaStatus?.translation_error_count && mediaStatus?.error_count ? `${mediaStatus.error_count} feil registrert. ` : ""}
-              Offisielle selskapsmeldinger påvirkes ikke.
-            </span>
-          </div>
-        </section>
-      )}
 
       <section className="newsToolbar" aria-label="Filtrer innhold">
         <div className="newsFilterGroup">
@@ -243,7 +194,7 @@ export default function NewsEventsPage() {
         <div className="newsFilterGroup">
           <span className="newsFilterLabel">Innhold</span>
           <div className="newsFilterButtons">
-            {(["Alle", "Viktige", "Offisielt", "Media"] as ContentFilter[]).map((item) => (
+            {(["Alle", "Viktige"] as ContentFilter[]).map((item) => (
               <button
                 className={contentFilter === item ? "periodButton active" : "periodButton"}
                 key={item}
@@ -309,7 +260,6 @@ export default function NewsEventsPage() {
 
           <div className="newsList newsListCompact">
             {visibleNews.map((item) => {
-              const itemType = contentType(item);
               return (
                 <article className="card newsCard newsCardCompact" key={item.id}>
                   <div className="newsCardTop">
@@ -321,9 +271,6 @@ export default function NewsEventsPage() {
                   </div>
                   <h3>{item.headline}</h3>
                   {item.summary && <p>{item.summary}</p>}
-                  {itemType === "MEDIA" && item.original_language && (
-                    <span className="translationNote">{translationLabel(item)}</span>
-                  )}
                   <div className="newsCardFooter newsCardFooterCompact">
                     <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
                     <NewsSourceMeta item={item} />
