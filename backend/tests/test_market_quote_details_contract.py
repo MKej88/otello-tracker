@@ -62,6 +62,8 @@ def test_issue_83_market_quote_contract() -> None:
     assert "latest_date?: string | null" in frontend
     assert "Number.isFinite" in frontend
     assert 'const EMPTY = "—"' in frontend
+    assert 'quote.symbol === "OTEC" ? "Siste handel" : "Siste kurs"' in frontend
+    assert "tidspunktet er siste registrerte handel" in frontend
 
     assert "/api/market/quotes" in ci
     assert "worker-quotes.json" in ci

@@ -248,6 +248,48 @@ def test_intraday_refresh_falls_back_from_15_minutes_to_last_hour() -> None:
     assert len(repository.prices) == 1
 
 
+def test_intraday_refresh_compares_both_windows_before_selecting_trade() -> None:
+    short_window = _zip_payload(
+        [
+            _otec_row(
+                trade_time="2026-09-07T08:30:00Z",
+                publication_time="2026-09-07T11:16:00Z",
+                price="18.40",
+                quantity="100",
+                trade_id="late-old-trade",
+            )
+        ]
+    )
+    hour_window = _zip_payload(
+        [
+            _otec_row(
+                trade_time="2026-09-07T11:02:27Z",
+                publication_time="2026-09-07T11:17:27Z",
+                price="18.52",
+                quantity="1124",
+                trade_id="newest-trade",
+            )
+        ]
+    )
+    requested: list[str] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        requested.append(url)
+        payload = short_window if "LAST_15_MINUTES" in url else hour_window
+        return FakeResponse(payload)
+
+    repository = FakeRepository()
+    result = asyncio.run(refresh_otec_intraday(repository=repository, fetcher=fake_fetch))
+
+    assert len(requested) == 2
+    assert result["selected"] == "LAST_HOUR"
+    assert result["price_nok"] == "18.52"
+    assert result["trade_unique_identifier"] == "newest-trade"
+    assert result["attempts"][0]["persisted"] is False
+    assert len(repository.prices) == 1
+    assert repository.prices[0]["price"] == "18.52"
+
+
 def test_gap_recovery_skips_day_file_when_recent_otec_poll_has_overlap_coverage() -> None:
     no_otec = _zip_payload(
         [

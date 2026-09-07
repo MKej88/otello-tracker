@@ -302,7 +302,8 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert '"Siste dagsvolum vs 3 mnd snitt"' in panel
     assert "volume?.latest_date" in panel
     assert ": undefined" in panel
-    assert "30 min refresh" in panel
+    assert 'quote.symbol === "OTEC" ? "Siste handel" : "Siste kurs"' in panel
+    assert "Hentes hvert 30. min · tidspunktet er siste registrerte handel" in panel
     for label in (
         "NAV-effekt 1 mnd",
         "Verdi / OTEC-aksje",
