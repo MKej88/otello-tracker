@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from app.db.connection import get_connection
-from app.db.repository import create_source_document, upsert_fx_rate, upsert_market_price
+from app.db.repository import (
+    create_source_document,
+    upsert_fx_rate,
+    upsert_market_price,
+    upsert_market_prices,
+)
 from app.marketdata.b3_cotahist import B3_YEARLY_URL, parse_cotahist_zip_bytes
 from app.marketdata.ecb_fx import derive_nok_cross_rates, parse_ecb_csv
 from app.marketdata.euronext_csv import parse_euronext_historical_csv
@@ -43,19 +48,23 @@ def import_b3_bmob3_zip(payload: bytes, *, year: int, database_path: str | None 
             content_sha256=digest,
             metadata={"year": year, "ticker": "BMOB3", "format": "COTAHIST"},
         )
-        for item in prices:
-            upsert_market_price(
-                connection,
-                symbol="BMOB3",
-                observed_at=f"{item.trading_date}T23:59:59Z",
-                trading_date=item.trading_date,
-                price_type="CLOSE",
-                price=item.close,
-                currency="BRL",
-                source_code="B3",
-                source_document_id=document_id,
-            )
-            written += 1
+        upsert_market_prices(
+            connection,
+            symbol="BMOB3",
+            source_code="B3",
+            price_type="CLOSE",
+            currency="BRL",
+            source_document_id=document_id,
+            prices=(
+                (
+                    f"{item.trading_date}T23:59:59Z",
+                    item.trading_date,
+                    item.close,
+                )
+                for item in prices
+            ),
+        )
+        written = len(prices)
         connection.commit()
     return written
 
