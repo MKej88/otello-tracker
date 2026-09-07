@@ -249,7 +249,7 @@ function DriverRow({ label, value, explanation }: { label: string; value: number
   return (
     <div className="fxDriverRow">
       <div><strong>{label}</strong><span>{explanation}</span></div>
-      <strong className={tone}>{signedPct(value).replace("%", "pp")}</strong>
+      <strong className={tone}>{signedPct(value).replace(/%/g, "pp")}</strong>
     </div>
   );
 }
