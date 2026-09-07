@@ -153,7 +153,7 @@ function MarketInsightCard({
         </strong>
       </div>
       <small className="marketQuoteSubline">
-        {formatDate(quote.trading_date)} · {source} · {timestamp(quote.last_updated_at)}
+        {quote.symbol === "OTEC" ? "Siste handel" : "Siste kurs"}: {formatDate(quote.trading_date)} kl. {timestamp(quote.last_updated_at)} · {source}
       </small>
       <div className="marketDivider" />
       <MetricRows metrics={metrics} />
@@ -195,19 +195,24 @@ function MarketQuotePanelContent({ data, failed = false }: {
         {failed && <span className="pill muted">Viser sist hentet</span>}
       </div>
       <div className="marketQuoteGrid">
-        <MarketInsightCard quote={data?.symbols?.OTEC} title="OTEC" footer="Kilde: Euronext · 30 min refresh" metrics={[
-          { label: "NAV / aksje", value: finite(nav?.nav_per_share) ? `${formatNumber(nav.nav_per_share, 2)} kr` : EMPTY },
-          { label: "NAV-rabatt", value: finite(nav?.discount_pct) ? `${formatNumber(nav.discount_pct, 1)} %` : EMPTY },
-          {
-            label: "Siste dagsvolum vs 3 mnd snitt",
-            value: finite(data?.symbols?.OTEC?.volume?.relative_3m)
-              ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×`
-              : EMPTY,
-            detail: data?.symbols?.OTEC?.volume?.latest_date
-              ? formatDate(data.symbols.OTEC.volume.latest_date)
-              : undefined,
-          },
-        ]} />
+        <MarketInsightCard
+          quote={data?.symbols?.OTEC}
+          title="OTEC"
+          footer="Hentes hvert 30. min · tidspunktet er siste registrerte handel"
+          metrics={[
+            { label: "NAV / aksje", value: finite(nav?.nav_per_share) ? `${formatNumber(nav.nav_per_share, 2)} kr` : EMPTY },
+            { label: "NAV-rabatt", value: finite(nav?.discount_pct) ? `${formatNumber(nav.discount_pct, 1)} %` : EMPTY },
+            {
+              label: "Siste dagsvolum vs 3 mnd snitt",
+              value: finite(data?.symbols?.OTEC?.volume?.relative_3m)
+                ? `${formatNumber(data.symbols.OTEC.volume.relative_3m, 1)}×`
+                : EMPTY,
+              detail: data?.symbols?.OTEC?.volume?.latest_date
+                ? formatDate(data.symbols.OTEC.volume.latest_date)
+                : undefined,
+            },
+          ]}
+        />
         <MarketInsightCard quote={data?.symbols?.BMOB3} title="Bemobi / BMOB3" footer="Kilde: B3 · 30 min refresh" metrics={[
           { label: "Verdi for Otello", value: finite(summary?.bemobi_value_mnok) ? `${formatNumber(summary.bemobi_value_mnok, 1)} mill. kr` : EMPTY },
           { label: "Verdi / OTEC-aksje", value: finite(bemobi?.value_per_otec_share_nok) ? `${formatNumber(bemobi.value_per_otec_share_nok, 2)} kr` : EMPTY },

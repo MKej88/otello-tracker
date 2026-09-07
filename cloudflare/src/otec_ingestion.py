@@ -423,35 +423,66 @@ async def refresh_otec_intraday(
     repository: D1WriteRepository | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    """Refresh the bounded OTEC rolling windows and persist the latest direct trade."""
+    """Refresh both rolling windows and persist the latest direct OTEC trade.
+
+    Euronext groups rows by publication time. A late publication or correction can
+    therefore put an old trade in the 15-minute file while the one-hour file contains
+    newer trades. Compare both files instead of stopping at the first OTEC row.
+    """
     if repository is None:
         if database is None:
             raise ValueError("D1 database eller repository må oppgis")
         repository = D1WriteRepository(database)
 
-    attempts: list[dict[str, Any]] = []
+    downloads: list[tuple[str, str, bytes, DelayedTrade | None]] = []
     for selection in INTRADAY_SELECTIONS:
         url, payload = await download_euronext_intraday(selection, fetcher=fetcher)
+        downloads.append((selection, url, payload, latest_otec_trade(payload)))
+
+    candidates = [item for item in downloads if item[3] is not None]
+    if candidates:
+        selection, url, payload, selected_trade = max(
+            candidates,
+            key=lambda item: (
+                item[3].trading_datetime,
+                item[3].publication_datetime,
+            ),
+        )
         result = await import_delayed_otec_trade(
             repository,
             payload,
             time_selection=selection,
             source_url=url,
         )
-        attempts.append(result)
-        if result.get("found"):
-            return {
-                "status": "ok",
-                "feed_mode": "worker_intraday",
-                "selected": selection,
-                "attempts": attempts,
-                **result,
+        attempts = [
+            {
+                "found": trade is not None,
+                "time_selection": item_selection,
+                "trading_datetime": trade.trading_datetime if trade else None,
+                "source_url": item_url,
+                "persisted": trade is selected_trade,
             }
+            for item_selection, item_url, _, trade in downloads
+        ]
+        return {
+            "status": "ok",
+            "feed_mode": "worker_intraday",
+            "selected": selection,
+            "attempts": attempts,
+            **result,
+        }
     return {
         "status": "no_trade",
         "feed_mode": "worker_intraday",
         "selected": None,
-        "attempts": attempts,
+        "attempts": [
+            {
+                "found": False,
+                "time_selection": selection,
+                "source_url": url,
+            }
+            for selection, url, _, _ in downloads
+        ],
     }
 
 
