@@ -61,7 +61,9 @@ def _patch_common_sources(monkeypatch, calls: dict[str, object]) -> None:
     )
 
 
-def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_path, monkeypatch) -> None:
+def test_fast_refresh_uses_oslo_date_after_utc_midnight_boundary(
+    tmp_path, monkeypatch
+) -> None:
     database = str(tmp_path / "fast.db")
     init_database(database)
     seed_curated_history(database)
@@ -74,7 +76,7 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
 
     monkeypatch.setattr(fast, "date", FixedDate)
     _patch_common_sources(monkeypatch, calls)
-    monkeypatch.setattr(fast, "_latest_otec_date", lambda *_args, **_kwargs: "2026-08-17")
+    monkeypatch.setattr(fast, "_latest_otec_date", lambda *_args, **_kwargs: "2026-08-18")
     monkeypatch.setattr(fast, "_has_market_price_for_date", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
         fast,
@@ -92,29 +94,30 @@ def test_fast_refresh_uses_incremental_sources_and_skips_heavy_providers(tmp_pat
         lambda *_args, **_kwargs: {
             "ready": True,
             "data_status": "BACKFILLED",
-            "as_of_date": "2026-08-17",
+            "as_of_date": "2026-08-18",
         },
     )
 
-    now = datetime(2026, 8, 17, 12, 0, tzinfo=ZoneInfo("Europe/Oslo"))
-    result = fast.run_fast_refresh(database, target_date="2026-08-17", now=now)
+    now = datetime(2026, 8, 18, 0, 30, tzinfo=ZoneInfo("Europe/Oslo"))
+    result = fast.run_fast_refresh(database, now=now)
 
     assert result["refresh_mode"] == "fast"
     assert result["status"] == "ok"
+    assert result["target_date"] == "2026-08-18"
     assert result["live_calendar_snapshot"] is False
     assert calls["otec_intraday"] is True
     assert calls["bmob3_intraday"] is True
-    assert calls["otec_eod_kwargs"] == {"target_date": "2026-08-17", "now": now}
+    assert calls["otec_eod_kwargs"] == {"target_date": "2026-08-18", "now": now}
     assert calls["bmob3_eod_kwargs"] == {"now": now}
-    assert calls["history_kwargs"] == {"to_date": "2026-08-17"}
-    assert calls["buyback_kwargs"] == {"to_date": "2026-08-17"}
+    assert calls["history_kwargs"] == {"to_date": "2026-08-18"}
+    assert calls["buyback_kwargs"] == {"to_date": "2026-08-18"}
     assert calls["core_nav_kwargs"] == {
-        "start_date": "2026-08-17",
-        "end_date": "2026-08-17",
+        "start_date": "2026-08-18",
+        "end_date": "2026-08-18",
     }
     assert calls["full_nav_kwargs"] == {
-        "start_date": "2026-08-17",
-        "end_date": "2026-08-17",
+        "start_date": "2026-08-18",
+        "end_date": "2026-08-18",
     }
 
 
@@ -161,7 +164,8 @@ def test_live_bmob3_quote_can_advance_nav_date_before_otec_trades(tmp_path, monk
         },
     )
 
-    result = fast.run_fast_refresh(database, target_date="2026-08-17")
+    now = datetime(2026, 8, 17, 12, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    result = fast.run_fast_refresh(database, target_date="2026-08-17", now=now)
 
     assert result["live_calendar_snapshot"] is True
     assert result["latest_otec_date"] == "2026-08-14"
@@ -220,7 +224,8 @@ def test_bmob3_eod_priority_skips_intraday(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(fast, "_has_market_price_for_date", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(fast, "dashboard_summary", lambda *_args, **_kwargs: {"ready": False})
 
-    result = fast.run_fast_refresh(database, target_date="2026-08-17")
+    now = datetime(2026, 8, 17, 20, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    result = fast.run_fast_refresh(database, target_date="2026-08-17", now=now)
     assert result["steps"]["bmob3_delayed"] == {
         "skipped": True,
         "reason": "eod_finalized_for_session",

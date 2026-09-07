@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.buybacks import (
     activity_check_done,
@@ -97,9 +98,12 @@ def run_fast_refresh(
     normal model lookbacks supply the other components and freshness metadata exposes any
     mixed market dates instead of silently ignoring a fresh BMOB3 quote.
     """
-    end = target_date or date.today().isoformat()
+    current = now or datetime.now(ZoneInfo("Europe/Oslo"))
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=ZoneInfo("Europe/Oslo"))
+    today = current.astimezone(ZoneInfo("Europe/Oslo")).date()
+    end = target_date or today.isoformat()
     end_day = date.fromisoformat(end)
-    today = date.today()
     init_database(database_path)
 
     errors: list[dict[str, str]] = []
