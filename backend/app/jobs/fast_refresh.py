@@ -84,6 +84,21 @@ def _ona_has_date(database_path: str, target_date: str) -> bool:
     return row is not None
 
 
+def _record_failed_result(
+    step: str,
+    result: Any,
+    errors: list[dict[str, str]],
+) -> None:
+    """Propagate explicit provider failures that were returned instead of raised."""
+    if not isinstance(result, dict):
+        return
+    status = str(result.get("status") or "").lower()
+    if status not in {"error", "failed", "stale"}:
+        return
+    reason = result.get("reason") or result.get("error") or f"status={status}"
+    errors.append({"step": step, "error": str(reason)})
+
+
 def run_fast_refresh(
     database_path: str,
     *,
@@ -140,6 +155,7 @@ def run_fast_refresh(
             errors,
         )
         steps["otec_eod"] = eod_result
+        _record_failed_result("otec_eod", eod_result, errors)
         if _eod_is_authoritative_for_cycle(eod_result):
             steps["otec_delayed"] = {
                 "skipped": True,
@@ -151,6 +167,7 @@ def run_fast_refresh(
                 lambda: refresh_otec_intraday_price(database_path, now=now),
                 errors,
             )
+        _record_failed_result("otec_delayed", steps["otec_delayed"], errors)
 
         bmob3_eod = _safe_step(
             "bmob3_eod",
@@ -158,6 +175,7 @@ def run_fast_refresh(
             errors,
         )
         steps["bmob3_eod"] = bmob3_eod
+        _record_failed_result("bmob3_eod", bmob3_eod, errors)
         if _eod_is_authoritative_for_cycle(bmob3_eod):
             steps["bmob3_delayed"] = {
                 "skipped": True,
@@ -169,6 +187,7 @@ def run_fast_refresh(
                 lambda: refresh_bmob3_intraday_price(database_path, now=now),
                 errors,
             )
+        _record_failed_result("bmob3_delayed", steps["bmob3_delayed"], errors)
     else:
         steps["otec_delayed"] = {
             "skipped": True,
