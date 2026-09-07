@@ -1,59 +1,63 @@
 # Målrettet frontend-audit, 7. september 2026
 
-## Arkitektur og innganger
+## Critical path
 
-Frontend er én Vite/React-applikasjon med `main.tsx` som HTML-inngang.
-`InvestorApp` viser Oversikt som standard og lazy-laster de elleve øvrige
-visningene. Oversikt er den viktigste førsteskjermen og henter seks ressurser med
-polling. Fire av dem samles i `/api/dashboard/bootstrap`; rabatt-historikk og
-tilbakekjøpsdata ble hentet separat.
+Den faktiske førstesidestien er:
 
-## Undersøkte og prioriterte kandidater
+1. Nettleseren åpner `index.html` og starter preload av
+   `/api/dashboard/bootstrap` før JavaScript-pakken.
+2. React monterer `InvestorApp` og den ikke-kodesplittede `OverviewPage`.
+3. Seks polling-hooks starter. Fire nyttige ressurser gjenbrukte bootstrap, mens
+   rabatt-historikk og tilbakekjøpsstatus startet egne HTTP-kall.
+4. Hver hook oppdaterer state når sin respons er ferdig; kortene rendres deretter
+   uavhengig. Ingen blocking `await` mellom de seks kallene ble funnet.
+5. Førstesiden har ingen store bilder, eksterne fonter eller lange tabeller. Det
+   finnes derfor ikke dokumentasjon på at DOM, layout eller paint er flaskehalsen.
 
-| Kandidat | Måling/observasjon | Prioritering |
-| --- | --- | --- |
-| For stor tilbakekjøpsrespons på Oversikt | Oversikt leste bare `program` og `nav_effect`, men hentet hele dashboardet med prognose, backtest, ukehistorikk og metodebeskrivelse. Reproduserbar fixture: 3 879 byte JSON / 1 430 byte gzip. | Høy sikkerhet, lav kompleksitet, valgt. |
-| Bundle og avhengigheter | Produksjonsbygget er 216,89 kB JS / 68,55 kB gzip. React og ReactDOM er eneste produksjonsavhengigheter, og alle sekundærvisninger er allerede splittet. | Ingen trygg materiell endring funnet. |
-| Requests og waterfalls | Førsteskjermen starter bootstrap, rabatt-historikk og tilbakekjøp samtidig. Ingen sekvensiell kjede eller duplikat ble funnet. | Ikke endret. |
-| Renderarbeid og lister | Oversikt har ingen stor tabell. Polling hindrer overlappende kall. Uten nettleserprofil finnes ikke grunnlag for memo-tiltak. | Ikke endret. |
-| Bilder, fonter og layoutskift | Ingen eksterne bilder eller fonter på førsteskjermen; lastetilstander beholder kortstrukturen. | Ikke endret. |
+Sekundærvisninger er kode-splittet. Navigasjonens `preload` starter både modul og
+nødvendige data før hash-ruten oppdateres, og et felles promise hindrer dupliserte
+requests. NAV-periodene hentes i én materialisert pakke. Gjennomgangen fant ingen
+reell avhengighet som tvinger datarequests til å vente på hverandre.
 
-Prioriteringen følger effekt × sikkerhet ÷ kompleksitet/risiko. Det er ikke lagt
-inn generell memo-isering eller refaktorering.
+## Kandidater og prioritering
 
-## Endring: kompakt respons for tilbakekjøpskortene
+| Kandidat | Start → slutt | Måling/estimat | Vurdering |
+| --- | --- | --- | --- |
+| Separat tilbakekjøpskall på Oversikt | React effect → `overview-status` → state → synlig tilbakekjøpskort | 1 av 3 førsteskjermrequests. På gjenbesøk kunne kortet ikke bruke den synkrone nettlesercachen og måtte vente én full HTTP-respons, typisk minst én nettverksrunde (anslått 50–200 ms, mer ved Worker-oppstart). | Høy impact og sikkerhet, lav risiko. **Valgt.** |
+| Rabatt-historikk utenfor bootstrap | React effect → historikkrespons → synlig median | 1 av 3 requests, opptil 72 punkter. Har annen cachetid og datastruktur enn øyeblikksbildet. | Middels mulig effekt, men større payload og risiko for foreldet snapshot. Ikke valgt. |
+| Bundle/modulinnlasting | HTML → entry bundle → første React-render | Produksjonsbygget før endringen: ca. 217 kB JS / 69 kB gzip. Sekundærvisninger er allerede splittet; Oversikt er liten og nødvendig. | Lav forventet gevinst uten nettleserprofil. Ikke valgt. |
+| React/DOM/databehandling | API-resultat → state → render → paint | Små lister og seks avgrensede state-oppdateringer; ingen stor synkron beregning på førstesiden. | Ingen dokumentert materiell flaskehals. Ikke endret. |
+| Backend-latency | HTTP-start → API-respons | Bootstrap leser normalt ett ferdigberegnet D1-snapshot og rapporterer `server_ms`; live beregning er kun reserve. | Overvåkes, men ikke et frontendproblem på normalsti. |
 
-**Flaskehals:** Oversikt brukte 2 av 9 toppnivåfelt fra
-`/api/buybacks/dashboard`. Nettleseren måtte derfor overføre og tolke data som
-først trengs når brukeren åpner den detaljerte tilbakekjøpssiden.
+Prioriteringen er effekt × sikkerhet ÷ risiko/kompleksitet. Ingen generell
+memoisering eller refaktorering er gjort.
 
-Et nytt endepunkt returnerer nøyaktig de samme `program`- og `nav_effect`-objektene
-fra den eksisterende beregningen. Datakorrekthet og feilhåndtering er uendret, og
-det detaljerte endepunktet er beholdt urørt.
+## Valgt forbedring
 
-Samme fixture og kompakte JSON-koding er brukt før og etter:
+Tilbakekjøpsstatusen som Oversikt faktisk viser, er flyttet inn i det eksisterende
+bootstrap-snapshotet. Den ubrukte prognosen i bootstrap er tatt ut; prognose-API-et
+består uendret for detaljvisningen og andre klienter. Worker-endepunktet for
+`overview-status` leser nå samme ferdigberegnede snapshot, og frontendens
+request-samler leverer komponenten fra bootstrap eller fra siste gyldige
+nettleserkopi.
 
-- Før: **3 879 byte JSON / 1 430 byte gzip**.
-- Etter: **379 byte JSON / 239 byte gzip**.
-- Reduksjon: **3 500 byte (90,2 %) ukomprimert**, eller **1 191 byte (83,3 %)
-  med gzip**.
-- Antall førsteskjermrequests er uendret (**3**), men én respons krever vesentlig
-  mindre overføring og parsing.
+Avhengigheten er kontrollert: tilbakekjøpsstatus, summary, economic, quotes og
+events er uavhengige og bygges fortsatt parallelt uten sekvensielle `await`.
+Snapshot- og nettleskcacheversjonene er økt, slik at gamle payloads aldri tolkes
+som den nye formen. Feil i bootstrap faller fortsatt tilbake til det ordinære
+endepunktet, og nettverksrevalidering erstatter en eventuell siste-gode kopi.
 
-Bundle-størrelsen påvirkes ikke på en meningsfull måte. LCP, INP og CLS kunne ikke
-måles fordi miljøet ikke har Chrome/Chromium. Endringen retter derfor bare den
-flaskehalsen som kunne dokumenteres reproducerbart.
+## Før og etter
 
-## Resultat
+Samme statiske request-opptelling på førstesiden:
 
-- **Viktigste flaskehals før:** tilbakekjøpskortene lastet et helt detaljdatasett
-  selv om førsteskjermen bare bruker to feltgrupper.
-- **Endringer gjort:** et kompatibelt, kompakt statusendepunkt i begge Python-
-  kjøremiljøene, brukt av Oversikt.
-- **Måling før:** 3 879 byte JSON / 1 430 byte gzip.
-- **Måling etter:** 379 byte JSON / 239 byte gzip.
-- **Forbedring:** 90,2 % mindre ukomprimert respons og 83,3 % mindre med gzip.
-- **Trade-offs:** serveren utfører foreløpig samme beregning; gevinsten gjelder
-  nettverk og arbeid i nettleseren, ikke beregningstid på serveren.
-- **Neste mest lovende forbedring:** mål LCP og main-thread-tid i en ekte mobil-
-  nettleser før eventuell videre splitting av Oversikt eller React-optimalisering.
+- Før: **3 HTTP-kall** (`bootstrap`, rabatt-historikk og tilbakekjøpsstatus).
+- Etter: **2 HTTP-kall** (`bootstrap` og rabatt-historikk), altså **33 % færre**.
+- På gjenbesøk: tilbakekjøpskortet kan nå få siste-gode verdi på første
+  React-render i stedet for først etter en separat respons.
+- Produksjonsbuild etter endringen: **216,90 kB JS / 68,56 kB gzip**, i praksis
+  uendret.
+
+En faktisk millisekundmåling av LCP/INP var ikke praktisk mulig fordi miljøet ikke
+har Chrome/Chromium. Tidsgevinsten er derfor oppgitt som fjernet nettverksrunde,
+ikke som en påstått laboratoriemåling.

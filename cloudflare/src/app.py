@@ -218,10 +218,6 @@ async def get_buyback_forecast(
 ) -> dict:
     repository = _repository(request)
     try:
-        if as_of_date is None:
-            cached = await dashboard_hot_component(repository, "forecast")
-            if cached is not None:
-                return cached
         from buyback_service import buyback_forecast
 
         return await buyback_forecast(repository, as_of_date=as_of_date)
@@ -248,10 +244,14 @@ async def get_buyback_overview_status(
     request: Request,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
-    from buyback_dashboard import buyback_overview_status
-
     repository = _repository(request)
     try:
+        if as_of_date is None:
+            cached = await dashboard_hot_component(repository, "buyback")
+            if cached is not None:
+                return cached
+        from buyback_dashboard import buyback_overview_status
+
         return await buyback_overview_status(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc

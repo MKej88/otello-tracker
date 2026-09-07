@@ -56,7 +56,7 @@ def test_fastapi_app_does_not_eagerly_import_route_business_modules() -> None:
 
 def test_frontend_keeps_bounded_last_good_bootstrap_for_repeat_first_paint() -> None:
     source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(encoding="utf-8")
-    assert 'CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v2"' in source
+    assert 'CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v3"' in source
     assert "CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000" in source
     assert "window.localStorage.getItem" in source
     assert "window.localStorage.setItem" in source
@@ -112,6 +112,22 @@ def test_repeat_visit_renders_cached_first_screen_before_react_effects() -> None
     assert '"/api/news-events"' not in overview
     assert '"/api/brazil/dashboard"' not in overview
     assert "bootstrapPromise = fetchBootstrap(originalFetch)" in bootstrap
+
+
+def test_buyback_overview_reuses_bootstrap_instead_of_a_separate_request() -> None:
+    bootstrap = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(
+        encoding="utf-8"
+    )
+    hot_snapshot = (CLOUDFLARE_SRC / "dashboard_hot_snapshot.py").read_text(
+        encoding="utf-8"
+    )
+    worker = (CLOUDFLARE_SRC / "app.py").read_text(encoding="utf-8")
+
+    assert '"/api/buybacks/overview-status": "buyback"' in bootstrap
+    assert "&& isObject(payload.buyback)" in bootstrap
+    assert 'buyback_overview_status(repository)' in hot_snapshot
+    assert 'dashboard_hot_component(repository, "buyback")' in worker
+    assert 'dashboard_hot_component(repository, "forecast")' not in worker
 
 
 def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
