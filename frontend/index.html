@@ -12,6 +12,14 @@
       crossorigin="anonymous"
       fetchpriority="high"
     />
+    <!-- Medianrabatten er ikke del av bootstrap, men vises i det viktigste NAV-kortet. -->
+    <link
+      rel="preload"
+      href="/api/dashboard/discount-history?days=365&amp;max_points=72"
+      as="fetch"
+      crossorigin="anonymous"
+      fetchpriority="low"
+    />
     <title>Otello NAV-oversikt</title>
   </head>
   <body>
