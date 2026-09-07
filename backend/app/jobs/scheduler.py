@@ -160,7 +160,9 @@ def _job_result_status(result: dict[str, Any]) -> str:
     status = str(result.get("status", "")).lower()
     if status in {"ok", "ready", "success"}:
         return "SUCCESS"
-    return "PARTIAL"
+    if status in {"degraded", "partial"}:
+        return "PARTIAL"
+    return "FAILED"
 
 
 def _job_metadata(result: dict[str, Any]) -> dict[str, Any]:
@@ -262,7 +264,9 @@ def _run_managed_job(
             )
             connection.commit()
         return {
-            "event": "maintenance_complete",
+            "event": (
+                "maintenance_failed" if status == "FAILED" else "maintenance_complete"
+            ),
             "job_name": job_name,
             "status": status.lower(),
             "started_at": started.isoformat(),

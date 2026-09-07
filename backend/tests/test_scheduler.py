@@ -334,6 +334,55 @@ def test_failed_maintenance_is_retried_on_the_next_dispatch(tmp_path) -> None:
     ]
 
 
+def test_not_ready_maintenance_is_failed_and_retried(tmp_path) -> None:
+    database = str(tmp_path / "scheduler-not-ready.db")
+    config = SchedulerConfig(
+        database,
+        1800,
+        True,
+        full_interval_seconds=86400,
+        backup_interval_seconds=86400,
+    )
+    fixed = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    attempts = 0
+
+    def full_refresh(_path: str):
+        nonlocal attempts
+        attempts += 1
+        return {
+            "status": "not_ready" if attempts == 1 else "ok",
+            "source_errors": [],
+            "dashboard": {"ready": attempts > 1},
+        }
+
+    def backup(_path: str, *, backup_dir: str | None = None):
+        return {
+            "status": "ok",
+            "backup_path": backup_dir or "backup.db",
+            "size_bytes": 1,
+            "integrity_check": "ok",
+        }
+
+    first = run_maintenance_if_due(
+        config, full_refresh_fn=full_refresh, backup_fn=backup, now_fn=lambda: fixed
+    )
+    second = run_maintenance_if_due(
+        config, full_refresh_fn=full_refresh, backup_fn=backup, now_fn=lambda: fixed
+    )
+
+    assert first[0]["event"] == "maintenance_failed"
+    assert first[0]["status"] == "failed"
+    assert second[0]["event"] == "maintenance_complete"
+    assert attempts == 2
+
+    with get_connection(database) as connection:
+        rows = connection.execute(
+            "SELECT status FROM job_runs "
+            "WHERE job_name='full_refresh' ORDER BY id"
+        ).fetchall()
+    assert [row["status"] for row in rows] == ["FAILED", "SUCCESS"]
+
+
 def test_stale_running_maintenance_is_reclaimed_at_interval_boundary(tmp_path) -> None:
     database = str(tmp_path / "scheduler-stale-running.db")
     config = SchedulerConfig(
