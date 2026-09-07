@@ -365,7 +365,7 @@ export default function OverviewPage() {
     true,
   );
   const { data: buybackStatus } = usePollingResource<BuybackProgramStatus>(
-    "/api/buybacks/dashboard",
+    "/api/buybacks/overview-status",
     REFRESH_MS,
     true,
   );
