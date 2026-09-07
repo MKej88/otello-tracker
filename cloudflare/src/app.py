@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
-from dashboard_hot_snapshot import dashboard_bootstrap_payload, dashboard_hot_component
+from dashboard_hot_snapshot import (
+    canonical_otec_quote,
+    dashboard_bootstrap_payload,
+    dashboard_hot_component,
+    sync_otec_price,
+)
 from performance_repository import PerformanceD1Repository, PerformanceD1WriteRepository
 
 API_VERSION = "0.13.2"
@@ -108,11 +113,16 @@ async def get_dashboard_summary(request: Request) -> dict:
     repository = _repository(request)
     cached = await dashboard_hot_component(repository, "summary")
     if cached is not None:
-        return cached
+        quotes = await dashboard_hot_component(repository, "quotes") or {}
+        return sync_otec_price(cached, canonical_otec_quote(quotes))
     from dashboard_service import dashboard_summary, enrich_dashboard_summary
 
     summary = await dashboard_summary(repository)
-    return await enrich_dashboard_summary(summary, repository)
+    summary = await enrich_dashboard_summary(summary, repository)
+    from quote_details import market_quote_details
+
+    quotes = await market_quote_details(repository)
+    return sync_otec_price(summary, canonical_otec_quote(quotes))
 
 
 @app.get("/api/dashboard/report-status")
@@ -134,10 +144,17 @@ async def get_economic_nav(request: Request) -> dict:
     repository = _repository(request)
     cached = await dashboard_hot_component(repository, "economic")
     if cached is not None:
-        return cached
+        quotes = await dashboard_hot_component(repository, "quotes") or {}
+        return sync_otec_price(
+            cached, canonical_otec_quote(quotes), economic=True
+        )
     from economic_nav_investor import economic_nav_summary
 
-    return await economic_nav_summary(repository)
+    payload = await economic_nav_summary(repository)
+    from quote_details import market_quote_details
+
+    quotes = await market_quote_details(repository)
+    return sync_otec_price(payload, canonical_otec_quote(quotes), economic=True)
 
 
 @app.get("/api/dashboard/waterfall")

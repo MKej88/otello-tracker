@@ -24,7 +24,18 @@ def test_snapshot_refresh_preserves_economic_nav_calculation_time() -> None:
         ),
         patch(
             "src.dashboard_hot_snapshot.market_quote_details",
-            new=AsyncMock(return_value={"ready": True}),
+            new=AsyncMock(
+                return_value={
+                    "ready": True,
+                    "symbols": {
+                        "OTEC": {
+                            "ready": True,
+                            "last": 17.98,
+                            "last_price_type": "CLOSE",
+                        }
+                    },
+                }
+            ),
         ),
         patch(
             "src.dashboard_hot_snapshot.buyback_overview_status",
@@ -43,3 +54,5 @@ def test_snapshot_refresh_preserves_economic_nav_calculation_time() -> None:
 
     assert result["generated_at"] == "2026-08-31T10:00:00Z"
     assert result["economic"]["calculated_at"] == calculated_at
+    assert result["summary"]["otec_price"] == 17.98
+    assert result["economic"]["otec_price"] == 17.98

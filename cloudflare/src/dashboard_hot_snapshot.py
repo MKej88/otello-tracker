@@ -67,10 +67,62 @@ async def overview_events(repository: Any) -> dict[str, Any]:
 # Persisted hot snapshots contain already-rendered API payloads. Bump both the key
 # and version whenever response semantics change so a newly deployed Worker cannot
 # serve a payload produced by the previous application version.
-STATE_KEY = "dashboard_hot_snapshot_v8"
-SNAPSHOT_VERSION = 8
+STATE_KEY = "dashboard_hot_snapshot_v9"
+SNAPSHOT_VERSION = 9
 SNAPSHOT_MAX_AGE_SECONDS = 90 * 60
 _COMPONENTS = {"summary", "economic", "quotes", "buyback", "events"}
+
+
+def _number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and abs(number) != float("inf") else None
+
+
+def _discount_pct(price: float, nav_per_share: Any) -> float | None:
+    nav = _number(nav_per_share)
+    if nav is None or nav <= 0:
+        return None
+    return (1 - price / nav) * 100
+
+
+def canonical_otec_quote(quotes: dict[str, Any]) -> dict[str, Any]:
+    quote = dict((quotes.get("symbols") or {}).get("OTEC") or {})
+    price = _number(quote.get("last"))
+    if not quote.get("ready") or price is None or price <= 0:
+        return {}
+    quote["last"] = price
+    return quote
+
+
+def sync_otec_price(
+    payload: dict[str, Any], quote: dict[str, Any], *, economic: bool = False
+) -> dict[str, Any]:
+    """Bruk markedsvisningens OTEC-kurs i alle kort med nåverdier."""
+    price = _number(quote.get("last"))
+    if price is None or price <= 0:
+        return payload
+
+    result = dict(payload)
+    result.update(
+        {
+            "otec_price": price,
+            "otec_price_updated_at": quote.get("last_updated_at"),
+            "otec_price_trading_date": quote.get("trading_date"),
+            "otec_price_type": quote.get("last_price_type"),
+            "otec_price_source": quote.get("source"),
+            "discount_pct" if economic else "nav_discount_pct": _discount_pct(
+                price, result.get("nav_per_share")
+            ),
+        }
+    )
+    if economic:
+        result["conservative_discount_pct"] = _discount_pct(
+            price, result.get("conservative_nav_per_share")
+        )
+    return result
 
 
 def _now_iso() -> str:
@@ -105,6 +157,9 @@ async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
         buyback_overview_status(repository),
         overview_events(repository),
     )
+    quote = canonical_otec_quote(quotes)
+    summary = sync_otec_price(summary, quote)
+    economic = sync_otec_price(economic, quote, economic=True)
     generated_at = _now_iso()
 
     return jsonable_encoder(
@@ -165,9 +220,10 @@ async def dashboard_bootstrap_payload(repository: Any) -> dict[str, Any]:
         snapshot = await build_dashboard_hot_snapshot(repository)
         source = "live_fallback"
 
+    quote = canonical_otec_quote(snapshot["quotes"])
     return {
-        "summary": snapshot["summary"],
-        "economic": snapshot["economic"],
+        "summary": sync_otec_price(snapshot["summary"], quote),
+        "economic": sync_otec_price(snapshot["economic"], quote, economic=True),
         "quotes": snapshot["quotes"],
         "buyback": snapshot["buyback"],
         "events": snapshot["events"],
