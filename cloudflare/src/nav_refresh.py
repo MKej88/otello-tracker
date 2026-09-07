@@ -600,9 +600,33 @@ async def _receivable_actions(repository) -> list[dict[str, Any]]:
         """
         SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date,
                ca.amount_per_share, ca.currency, ca.source_document_id,
-               ca.component_group
+               ca.component_group,
+               h.id AS holding_id, h.shares AS holding_shares,
+               h.ownership_pct AS holding_ownership_pct,
+               h.effective_from AS holding_effective_from,
+               h.effective_to AS holding_effective_to,
+               r.id AS calibration_anchor_id,
+               r.as_of_date AS calibration_anchor_date,
+               r.associated_receivable_reported
         FROM corporate_actions ca
         JOIN instruments i ON i.id=ca.issuer_instrument_id
+        LEFT JOIN bemobi_holdings h ON h.id = (
+            SELECT candidate.id
+            FROM bemobi_holdings candidate
+            WHERE candidate.effective_from <= ca.ex_date
+              AND (candidate.effective_to IS NULL OR candidate.effective_to >= ca.ex_date)
+            ORDER BY candidate.effective_from DESC, candidate.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN other_net_assets_reported_anchors r ON r.id = (
+            SELECT candidate.id
+            FROM other_net_assets_reported_anchors candidate
+            WHERE candidate.as_of_date >= ca.ex_date
+              AND candidate.as_of_date < ca.payment_date
+              AND CAST(candidate.associated_receivable_reported AS REAL) != 0
+            ORDER BY candidate.as_of_date
+            LIMIT 1
+        )
         WHERE i.symbol='BMOB3'
           AND ca.action_type IN ('DIVIDEND','JCP')
           AND ca.ex_date IS NOT NULL AND ca.payment_date IS NOT NULL
@@ -613,20 +637,27 @@ async def _receivable_actions(repository) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     gross_by_anchor: dict[int, Decimal] = {}
     for action in actions:
-        holding = await _holding(repository, str(action["ex_date"]))
-        if holding is None:
+        if action.get("holding_id") is None:
             continue
-        gross_brl = Decimal(str(action["amount_per_share"])) * Decimal(int(holding["shares"]))
-        calibration_anchor = await repository.first(
-            """
-            SELECT id, as_of_date, associated_receivable_reported
-            FROM other_net_assets_reported_anchors
-            WHERE as_of_date >= ? AND as_of_date < ?
-              AND CAST(associated_receivable_reported AS REAL) != 0
-            ORDER BY as_of_date LIMIT 1
-            """,
-            (action["ex_date"], action["payment_date"]),
+        holding = {
+            "id": action["holding_id"],
+            "shares": action["holding_shares"],
+            "ownership_pct": action.get("holding_ownership_pct"),
+            "effective_from": action.get("holding_effective_from"),
+            "effective_to": action.get("holding_effective_to"),
+        }
+        gross_brl = Decimal(str(action["amount_per_share"])) * Decimal(
+            int(holding["shares"])
         )
+        calibration_anchor = None
+        if action.get("calibration_anchor_id") is not None:
+            calibration_anchor = {
+                "id": action["calibration_anchor_id"],
+                "as_of_date": action["calibration_anchor_date"],
+                "associated_receivable_reported": action[
+                    "associated_receivable_reported"
+                ],
+            }
         if calibration_anchor is not None:
             anchor_id = int(calibration_anchor["id"])
             gross_by_anchor[anchor_id] = gross_by_anchor.get(anchor_id, Decimal("0")) + gross_brl
