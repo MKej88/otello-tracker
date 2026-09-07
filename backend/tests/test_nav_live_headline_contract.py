@@ -8,7 +8,11 @@ NAV_PAGE = ROOT / "frontend" / "src" / "NavPageV2.tsx"
 def test_nav_headline_prefers_live_economic_nav_over_materialized_period() -> None:
     page = NAV_PAGE.read_text(encoding="utf-8")
 
-    assert 'const { data: live } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);' in page
+    assert """const { data: live } = usePollingResource<EstimatedNav>(
+    "/api/dashboard/economic",
+    REFRESH_MS,
+    true,
+  );""" in page
     assert 'const displayedNavPerShare = live?.ready && live.nav_per_share != null' in page
     assert '? live.nav_per_share\n    : current?.nav_per_share;' in page
     assert 'const displayedSharesOutstanding = live?.ready && live.shares_outstanding != null' in page
