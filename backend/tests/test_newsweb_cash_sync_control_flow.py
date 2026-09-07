@@ -19,6 +19,7 @@ from app.newsweb import cash_sync
 def _seed_week(
     database_path: str,
     *,
+    period_end: str = "2026-08-28",
     weekly_shares: int = 100,
     daily_rows: tuple[tuple[str, int, str, str], ...] = (
         ("2026-08-28", 100, "1720.00", "CONFIRMED"),
@@ -29,7 +30,7 @@ def _seed_week(
         source_id = create_source_document(
             connection,
             source_code="NEWSWEB",
-            external_id="cash-sync-test",
+            external_id=f"cash-sync-test-{period_end}",
             document_type="REGULATORY_NEWS",
             title="Kontantsynk-test",
             url="https://example.invalid/message/1",
@@ -39,10 +40,10 @@ def _seed_week(
             INSERT INTO buyback_programs(
                 external_program_id, announced_at, start_date, max_shares,
                 status, source_document_id
-            ) VALUES ('cash-sync-program', '2026-08-01T00:00:00Z',
+            ) VALUES (?, '2026-08-01T00:00:00Z',
                       '2026-08-01', 1000000, 'ACTIVE', ?)
             """,
-            (source_id,),
+            (f"cash-sync-program-{period_end}", source_id),
         ).lastrowid
         buyback_id = connection.execute(
             """
@@ -50,19 +51,19 @@ def _seed_week(
                 program_id, trade_date, shares, avg_price_nok, amount_nok,
                 cumulative_program_shares, treasury_shares_after,
                 source_document_id
-            ) VALUES (?, '2026-08-28', ?, '17.20', '1720.00', ?, 1000100, ?)
+            ) VALUES (?, ?, ?, '17.20', '1720.00', ?, 1000100, ?)
             """,
-            (program_id, weekly_shares, weekly_shares, source_id),
+            (program_id, period_end, weekly_shares, weekly_shares, source_id),
         ).lastrowid
         connection.execute(
             """
             INSERT INTO cash_movements(
                 movement_date, movement_type, amount_nok, currency,
                 description, confidence, buyback_id
-            ) VALUES ('2026-08-28', 'OTELLO_BUYBACK', '-1720.00', 'NOK',
+            ) VALUES (?, 'OTELLO_BUYBACK', '-1720.00', 'NOK',
                       'Ukentlig sikkerhetsnett', 'CONFIRMED', ?)
             """,
-            (buyback_id,),
+            (period_end, buyback_id),
         )
         for trade_date, shares, amount_nok, quality in daily_rows:
             connection.execute(
@@ -127,6 +128,30 @@ def test_avviser_rad_som_krever_kontroll_uten_delvis_lagring(
 
     assert [row["movement_type"] for row in _cash_rows(database_path)] == [
         "OTELLO_BUYBACK"
+    ]
+
+
+def test_feil_i_senere_uke_ruller_tilbake_tidligere_uke(tmp_path: Path) -> None:
+    """En full synk skal ikke etterlate en blanding av gamle og nye kontantdata."""
+    database_path = str(tmp_path / "atomisk-synk.db")
+    init_database(database_path)
+    _seed_week(
+        database_path,
+        period_end="2026-08-21",
+        daily_rows=(("2026-08-21", 100, "1720.00", "CONFIRMED"),),
+    )
+    _seed_week(
+        database_path,
+        period_end="2026-08-28",
+        weekly_shares=101,
+    )
+
+    with pytest.raises(ValueError, match="daglige aksjer 100 != uke 101"):
+        sync_newsweb_daily_buyback_cash(database_path)
+
+    assert [row["movement_type"] for row in _cash_rows(database_path)] == [
+        "OTELLO_BUYBACK",
+        "OTELLO_BUYBACK",
     ]
 
 
