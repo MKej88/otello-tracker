@@ -17,7 +17,6 @@ from .weekly_parser import parse_newsweb_weekly_status
 # collector and public package API use the same strict behavior.
 _enrichment._normalize_weekly_body = normalize_weekly_body
 _enrichment.parse_euronext_buyback_status = parse_newsweb_weekly_status
-_enrichment.parse_buyback_transaction_text = parse_buyback_transaction_text
 collect_newsweb_buybacks = _enrichment.collect_newsweb_buybacks
 newsweb_buyback_status = _enrichment.newsweb_buyback_status
 
