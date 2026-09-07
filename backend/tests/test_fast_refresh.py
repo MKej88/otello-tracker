@@ -189,6 +189,64 @@ def test_eod_result_skips_intraday_when_session_is_finalized() -> None:
     assert fast._eod_is_authoritative_for_cycle(None) is False
 
 
+def test_fast_refresh_degrades_when_provider_returns_stale_data(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "stale-provider.db")
+    init_database(database)
+    seed_curated_history(database)
+    calls: dict[str, object] = {}
+    _patch_common_sources(monkeypatch, calls)
+    monkeypatch.setattr(
+        fast,
+        "refresh_bmob3_intraday_price",
+        lambda *_args, **_kwargs: {
+            "status": "stale",
+            "reason": "provider_timestamp_stale",
+        },
+    )
+    monkeypatch.setattr(
+        fast,
+        "_latest_otec_date",
+        lambda *_args, **_kwargs: "2026-08-17",
+    )
+    monkeypatch.setattr(
+        fast,
+        "_has_market_price_for_date",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        fast,
+        "rebuild_daily_core_nav",
+        lambda *_args, **_kwargs: {"written": 1},
+    )
+    monkeypatch.setattr(
+        fast,
+        "rebuild_daily_full_nav",
+        lambda *_args, **_kwargs: {"written": 1},
+    )
+    monkeypatch.setattr(
+        fast,
+        "dashboard_summary",
+        lambda *_args, **_kwargs: {
+            "ready": True,
+            "data_status": "BACKFILLED",
+            "as_of_date": "2026-08-17",
+        },
+    )
+
+    result = fast.run_fast_refresh(
+        database,
+        target_date="2026-08-18",
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=ZoneInfo("Europe/Oslo")),
+    )
+
+    assert result["status"] == "degraded"
+    assert result["source_errors"] == [
+        {"step": "bmob3_delayed", "error": "provider_timestamp_stale"}
+    ]
+
+
 def test_bmob3_eod_priority_skips_intraday(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "bmob3-eod.db")
     init_database(database)
