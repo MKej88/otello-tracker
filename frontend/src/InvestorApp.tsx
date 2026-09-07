@@ -36,6 +36,8 @@ function ViewFallback() {
 function preload(view: View) {
   if (view === "NAV") {
     void loadNavPage();
+    preloadJson("/api/dashboard/economic");
+    preloadJson("/api/buybacks/dashboard");
     preloadNavPeriodBundle(Object.fromEntries(
       investorPeriods().map((period) => [period.key, discountHistoryUrl(period)]),
     ));

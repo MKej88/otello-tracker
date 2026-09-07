@@ -450,8 +450,16 @@ export default function NavPageV2() {
   const [cache, setCache] = useState<Record<string, EstimatedHistory>>({});
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const { data: live } = usePollingResource<EstimatedNav>("/api/dashboard/economic", REFRESH_MS);
-  const { data: buyback } = usePollingResource<BuybackShareBasis>("/api/buybacks/dashboard", REFRESH_MS);
+  const { data: live } = usePollingResource<EstimatedNav>(
+    "/api/dashboard/economic",
+    REFRESH_MS,
+    true,
+  );
+  const { data: buyback } = usePollingResource<BuybackShareBasis>(
+    "/api/buybacks/dashboard",
+    REFRESH_MS,
+    true,
+  );
   const data = cache[period.key];
 
   useEffect(() => {
