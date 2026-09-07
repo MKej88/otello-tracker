@@ -218,8 +218,13 @@ def test_navigation_starts_buyback_data_in_parallel_with_route_code() -> None:
 
     assert buyback_preload < buyback_route
     assert 'preloadJson("/api/buybacks/dashboard")' in app_source
+    assert 'preloadJson("/api/bemobi/dashboard")' in app_source
     assert (
         'fetchPreloadedJson<Dashboard>("/api/buybacks/dashboard")'
+        in buyback_source
+    )
+    assert (
+        'fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")'
         in buyback_source
     )
 
