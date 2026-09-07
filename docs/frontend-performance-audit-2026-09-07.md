@@ -122,3 +122,29 @@ Før/etter er kontrollert med samme statiske metode og produksjonsbygg. Før var
 stien `handling → modul → økonomi-request → komplett innhold`; etter er den
 `handling → modul og økonomi-request parallelt → komplett innhold`. En
 kontrakttest låser både tidlig request-start og gjenbruk i Historikk-hooken.
+
+## Oppfølgingsfunn: Bemobi-eksponering i tilbakekjøpsvisningen
+
+Gjennomgangen av den siste gjenværende direkte datahentingen i aktive visninger
+fant at tilbakekjøpssiden viser Bemobi-aksjer per 1 000 Otello-aksjer, men starter
+grunnlagskallet først etter at den kode-splittede siden er lastet og montert.
+
+| Kandidat | Startpunkt → sluttpunkt | Måling/estimat | Avhengighet og prioritering |
+| --- | --- | --- | --- |
+| Sent Bemobi-kall i tilbakekjøpsvisningen | Klikk/fokus/direkte rute → Buyback-modul → Bemobi-request → komplett eksponeringsfelt | Produksjonsbygget måler Buyback-chunken til 15,49 kB / 4,34 kB gzip. Kallet ventet dermed på én modulnettverksrunde samt parse og montering; anslått 50–200 ms på vanlig mobilnett. | Bemobi-kallet har ingen parameter eller resultatavhengighet til modulen eller tilbakekjøpskallet. Høy sikkerhet, svært lav risiko og liten endring. **Valgt.** |
+| Slå Bemobi-data sammen med tilbakekjøpsresponsen | Navigasjon → samlet backend-respons → komplett visning | Kan fjerne ett HTTP-kall, men krever en ny backend-kontrakt og kobler ulike cache- og feildomener. | Potensielt større gevinst, men klart høyere kompleksitet og korrekthetsrisiko. Ikke valgt. |
+| Ytterligere klientberegning/rendering | To små svar → enkel divisjon → DOM/paint | Feltet bruker bare én divisjon og React-listene er små. | Ingen materiell flaskehals dokumentert. Ikke endret. |
+
+Bemobi-requesten starter nå samtidig med Buyback-modulen og hovedrequesten.
+Komponenten gjenbruker samme pågående promise, så request-antallet er fortsatt to
+uavhengige kall totalt og ikke et preload-kall pluss et duplikat. Dermed endres
+stien fra `handling → modul → Bemobi-request → komplett felt` til `handling →
+modul og Bemobi-request parallelt → komplett felt`. Den delte funksjonen beholder
+samme HTTP-statuskontroll, avviser ved feil og cacher bare vellykkede svar i 30
+sekunder. Tilleggsfeltets eksisterende ikke-blokkerende feiloppførsel er også
+beholdt.
+
+Før og etter er kontrollert med samme statiske request- og avhengighetsanalyse og
+produksjonsbygg. Endringen påvirker ikke chunkstørrelsen nevneverdig og fjerner
+modulventingen fra requestens critical path. Faktisk spart veggklokketid bør
+fortsatt verifiseres med nettlesermåling mot produksjons-API-et.

@@ -281,11 +281,7 @@ export default function BuybackPage() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch("/api/bemobi/dashboard")
-        .then((response) => {
-          if (!response.ok) throw new Error("Bemobi dashboard API-feil");
-          return response.json() as Promise<BemobiDashboard>;
-        })
+      fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")
         .then((result) => {
           if (active) setBemobi(result);
         })
