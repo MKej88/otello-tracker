@@ -47,10 +47,18 @@ def _modeled_buyback_cash(connection, *, anchor_date: str, as_of_date: str) -> d
     rows = connection.execute(
         """
         SELECT movement_date, amount_nok, description
-        FROM cash_movements
-        WHERE movement_type='OTELLO_BUYBACK'
-          AND movement_date > ? AND movement_date <= ?
-        ORDER BY movement_date, id
+        FROM cash_movements cm
+        WHERE cm.movement_type IN ('OTELLO_BUYBACK', 'OTELLO_BUYBACK_DAILY')
+          AND cm.movement_date > ? AND cm.movement_date <= ?
+          AND (
+              cm.movement_type = 'OTELLO_BUYBACK_DAILY'
+              OR NOT EXISTS (
+                  SELECT 1 FROM cash_movements daily
+                  WHERE daily.movement_type = 'OTELLO_BUYBACK_DAILY'
+                    AND daily.buyback_id = cm.buyback_id
+              )
+          )
+        ORDER BY cm.movement_date, cm.id
         """,
         (anchor_date, as_of_date),
     ).fetchall()
