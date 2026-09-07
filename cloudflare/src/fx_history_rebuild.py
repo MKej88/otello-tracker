@@ -38,22 +38,48 @@ except ImportError:
 MAX_FX_LOOKBACK_DAYS = 7
 
 
-async def _norges_bank_rate(repository, base: str, day: str) -> dict[str, Any] | None:
-    floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
-    return await repository.first(
+async def _norges_bank_rates_for_window(
+    repository, *, start_date: str, end_date: str
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Load the applicable rates once for every currency/date in a rebuild window."""
+    floor_date = (
+        date.fromisoformat(start_date) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
+    ).isoformat()
+    rows = await repository.all(
         """
-        SELECT fr.id, substr(fr.observed_at,1,10) AS rate_date, fr.rate
+        SELECT fr.id, fr.base_currency,
+               substr(fr.observed_at,1,10) AS rate_date, fr.rate
         FROM fx_rates fr
         JOIN sources s ON s.id=fr.source_id
-        WHERE fr.base_currency=? AND fr.quote_currency='NOK'
+        WHERE fr.base_currency IN ('USD','BRL')
+          AND fr.quote_currency='NOK'
           AND s.code='NORGES_BANK'
-          AND substr(fr.observed_at,1,10) <= ?
           AND substr(fr.observed_at,1,10) >= ?
-        ORDER BY fr.observed_at DESC, fr.id DESC
-        LIMIT 1
+          AND substr(fr.observed_at,1,10) <= ?
+        ORDER BY fr.base_currency, fr.observed_at DESC, fr.id DESC
         """,
-        (base, day, floor_date),
+        (floor_date, end_date),
     )
+
+    latest_by_currency_and_date: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row["base_currency"]), str(row["rate_date"]))
+        latest_by_currency_and_date.setdefault(key, row)
+
+    applicable: dict[tuple[str, str], dict[str, Any]] = {}
+    current = date.fromisoformat(start_date)
+    last = date.fromisoformat(end_date)
+    while current <= last:
+        day = current.isoformat()
+        for currency in ("USD", "BRL"):
+            for offset in range(MAX_FX_LOOKBACK_DAYS + 1):
+                rate_day = (current - timedelta(days=offset)).isoformat()
+                rate = latest_by_currency_and_date.get((currency, rate_day))
+                if rate is not None:
+                    applicable[(currency, day)] = rate
+                    break
+        current += timedelta(days=1)
+    return applicable
 
 
 async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: str) -> dict[str, int]:
@@ -74,13 +100,16 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
         """,
         (start_date, end_date),
     )
+    rates: dict[tuple[str, str], dict[str, Any]] = {}
+    rates_loaded = False
+    if anchors:
+        rates = await _norges_bank_rates_for_window(
+            repository, start_date=start_date, end_date=end_date
+        )
+        rates_loaded = True
     anchor_updates = 0
     for anchor in anchors:
-        fx = await _norges_bank_rate(
-            repository,
-            str(anchor["reported_currency"]),
-            str(anchor["as_of_date"]),
-        )
+        fx = rates.get((str(anchor["reported_currency"]), str(anchor["as_of_date"])))
         if fx is None:
             continue
         amount_nok = Decimal(str(anchor["reported_amount"])) * Decimal(str(fx["rate"]))
@@ -105,13 +134,13 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
         """,
         (start_date, end_date),
     )
+    if movements and not rates_loaded:
+        rates = await _norges_bank_rates_for_window(
+            repository, start_date=start_date, end_date=end_date
+        )
     movement_updates = 0
     for movement in movements:
-        fx = await _norges_bank_rate(
-            repository,
-            str(movement["currency"]),
-            str(movement["movement_date"]),
-        )
+        fx = rates.get((str(movement["currency"]), str(movement["movement_date"])))
         if fx is None:
             continue
         amount_nok = Decimal(str(movement["amount_original"])) * Decimal(str(fx["rate"]))

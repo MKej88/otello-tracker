@@ -228,6 +228,7 @@ async def buyback_forecast(
         return {
             "ready": False,
             "status": "NO_ACTIVE_PROGRAM",
+            "as_of_date": as_of.isoformat(),
             "methodology_version": METHOD_VERSION,
         }
 
@@ -243,6 +244,7 @@ async def buyback_forecast(
         return {
             "ready": False,
             "status": "INSUFFICIENT_VOLUME_HISTORY",
+            "as_of_date": as_of.isoformat(),
             "required_days": LOOKBACK_DAYS,
             "available_days": len(lookback),
             "methodology_version": METHOD_VERSION,
@@ -273,6 +275,7 @@ async def buyback_forecast(
         return {
             "ready": False,
             "status": "NO_TRADING_DAYS",
+            "as_of_date": as_of.isoformat(),
             "methodology_version": METHOD_VERSION,
             "forecast_week": {
                 "from": period_start.isoformat(),
