@@ -861,7 +861,7 @@ def _stored_point(row: Any) -> dict[str, Any]:
 def materialize_estimated_nav_history(
     database_path: str | None = None, *, batch_size: int = 100
 ) -> dict[str, Any]:
-    """Build only missing points; safe to restart and rerun after a partial batch."""
+    """Build missing or stale points; safe to restart after a partial batch."""
     with get_connection(database_path) as connection:
         rows = connection.execute(
             """SELECT DISTINCT substr(n.as_of_at, 1, 10) AS date
@@ -870,7 +870,10 @@ def materialize_estimated_nav_history(
                  ON p.date = substr(n.as_of_at, 1, 10)
                 AND p.calculation_version = ? AND p.quality = 'VALID'
                WHERE n.calculation_version = ? AND n.nav_scope = 'FULL'
-                 AND p.date IS NULL
+                 AND (
+                     p.date IS NULL
+                     OR p.calculated_at < COALESCE(n.updated_at, n.created_at)
+                 )
                ORDER BY date LIMIT ?""",
             (ESTIMATED_NAV_CALCULATION_VERSION, FULL_CALCULATION_VERSION, batch_size),
         ).fetchall()
