@@ -148,6 +148,17 @@ class PerformanceD1WriteRepository(_PerformanceState, D1WriteRepository):
         self._read_cache.clear()
         return result
 
+    async def run_batch(
+        self,
+        statements: list[tuple[str, tuple[Any, ...]]],
+    ) -> Any:
+        started = perf_counter()
+        result = await super().run_batch(statements)
+        self._write_ms += (perf_counter() - started) * 1000
+        self._write_queries += len(statements)
+        self._read_cache.clear()
+        return result
+
     async def source_id(self, code: str) -> int:
         cached = self._source_ids.get(code)
         if cached is not None:
