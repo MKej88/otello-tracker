@@ -78,7 +78,7 @@ class FakeRepository:
                         "summary": {},
                         "economic": {},
                         "quotes": {},
-                        "forecast": {},
+                        "buyback": {},
                         "events": {},
                     }
                 ),
