@@ -96,3 +96,29 @@ sider av modulgrensen og et bygg av produksjonspakken. Nettlesermåling mot et
 produksjons-API er fortsatt nødvendig for å tallfeste spart veggklokketid; den
 nedre grensen er modulens innlastingstid for økonomidata, mens mindre
 nettverks-/backend-konkurranse kan gi ytterligere gevinst.
+
+## Oppfølgingsfunn: Historikk og Brasil
+
+Samme kontroll av alle rutene viste at Historikk og Brasil begge bruker live
+økonomisk NAV i synlig innhold, men bare startet dette API-kallet etter at den
+kode-splittede visningen var lastet, tolket og montert. Historikk trenger svaret
+til «Dagens rabatt» og sammenligningen med medianen. Brasil trenger det til
+BRL-følsomheten og Bemobis andel av NAV. Dermed kunne hoveddataene være på plass
+mens disse nyttige feltene fortsatt viste tomme verdier.
+
+| Kandidat | Startpunkt → sluttpunkt | Måling/estimat | Avhengighet og prioritering |
+| --- | --- | --- | --- |
+| Sent live-NAV-kall i Historikk og Brasil | Klikk/fokus/direkte rute → visningsmodul → økonomi-request → komplette nøkkeltall | Produksjonsbygget måler Historikk-chunken til 9,87 kB / 3,13 kB gzip og Brasil-chunken til 17,81 kB / 4,96 kB gzip. Kallet ventet på én ekstra modulnettverksrunde og parse/mount; anslått 50–200 ms på vanlig mobilnett, mer ved høy latenstid. | Økonomi-API-et har ingen parametere eller dataavhengighet fra visningsmodulen eller visningens andre request. Høy sikkerhet, lav risiko og liten endring. **Valgt.** |
+| Forhåndslaste alle oversiktsdata ved retur | Menyfokus/hover → seks API-svar → komplett oversikt | Kan skjule deler av ventetiden ved bevisst hover, men kan starte opptil seks unødvendige kall når brukeren bare undersøker menyen. | Middels effekt og større nettverks-/backendrisiko. Ikke valgt. |
+| Legge rabatt-historikk i bootstrap | Før HTML/JS → samlet bootstrap → median synlig | Fjerner ett separat førstesidekall, men øker den høyest prioriterte responsen for alle brukere og kobler ulik cachelevetid. | Lavere forhold mellom effekt og risiko. Ikke valgt. |
+
+Begge eksisterende kall startes nå i `preload(view)`, samtidig med modul og øvrige
+visningsdata. Polling-hookene brukte allerede den delte request-funksjonen, så de
+gjenbruker samme promise ved montering. Antall requests er uendret: endringen
+flytter to eksisterende kall tidligere og oppretter ingen nye datakontrakter.
+30-sekunders navigasjonscache, HTTP-feilhåndtering og senere polling er uendret.
+
+Før/etter er kontrollert med samme statiske metode og produksjonsbygg. Før var
+stien `handling → modul → økonomi-request → komplett innhold`; etter er den
+`handling → modul og økonomi-request parallelt → komplett innhold`. En
+kontrakttest låser både tidlig request-start og gjenbruk i Historikk-hooken.
