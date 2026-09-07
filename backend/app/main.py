@@ -17,7 +17,7 @@ from app.buybacks import (
     market_activity_status,
     seed_otec_activity_history,
 )
-from app.buybacks.dashboard import buyback_dashboard
+from app.buybacks.dashboard import buyback_dashboard, buyback_overview_status
 from app.dashboard import dashboard_history as get_dashboard_history
 from app.dashboard import dashboard_summary as get_dashboard_summary
 from app.dashboard_freshness import enrich_dashboard_summary
@@ -253,6 +253,16 @@ def system_buyback_dashboard(
     as_of_date: date | None = Query(default=None),
 ) -> dict:
     return buyback_dashboard(
+        settings.database_path,
+        as_of_date=as_of_date.isoformat() if as_of_date else None,
+    )
+
+
+@app.get("/api/buybacks/overview-status")
+def system_buyback_overview_status(
+    as_of_date: date | None = Query(default=None),
+) -> dict:
+    return buyback_overview_status(
         settings.database_path,
         as_of_date=as_of_date.isoformat() if as_of_date else None,
     )
