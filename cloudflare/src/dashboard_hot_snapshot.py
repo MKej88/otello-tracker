@@ -106,6 +106,8 @@ def sync_otec_price(
         return payload
 
     result = dict(payload)
+    old_discount = _number(result.get("nav_discount_pct"))
+    current_discount = _discount_pct(price, result.get("nav_per_share"))
     result.update(
         {
             "otec_price": price,
@@ -113,15 +115,59 @@ def sync_otec_price(
             "otec_price_trading_date": quote.get("trading_date"),
             "otec_price_type": quote.get("last_price_type"),
             "otec_price_source": quote.get("source"),
-            "discount_pct" if economic else "nav_discount_pct": _discount_pct(
-                price, result.get("nav_per_share")
-            ),
+            "discount_pct" if economic else "nav_discount_pct": current_discount,
         }
     )
     if economic:
         result["conservative_discount_pct"] = _discount_pct(
             price, result.get("conservative_nav_per_share")
         )
+        return result
+
+    insights = dict(result.get("nav_discount_insights") or {})
+    if insights:
+        previous_insight_discount = _number(insights.get("discount_pct"))
+        insights["share_price"] = price
+        insights["discount_pct"] = current_discount
+        nav = _number(insights.get("nav_per_share"))
+        insights["upside_to_nav_pct"] = (
+            (nav / price - 1) * 100
+            if nav is not None and nav > 0
+            else None
+        )
+        month_change = _number(insights.get("month_change_pp"))
+        if (
+            current_discount is not None
+            and previous_insight_discount is not None
+            and month_change is not None
+        ):
+            insights["month_change_pp"] = (
+                month_change + current_discount - previous_insight_discount
+            )
+        range_1y = dict(insights.get("range_1y") or {})
+        low = _number(range_1y.get("low"))
+        high = _number(range_1y.get("high"))
+        if current_discount is not None and low is not None and high is not None:
+            range_1y["position_pct"] = (
+                50.0 if high == low else (current_discount - low) / (high - low) * 100
+            )
+        insights["range_1y"] = range_1y
+        result["nav_discount_insights"] = insights
+
+    changes = dict(result.get("changes") or {})
+    quote_daily_pct = _number((quote.get("changes") or {}).get("daily_pct"))
+    if quote_daily_pct is not None:
+        changes["otec_pct"] = quote_daily_pct
+    discount_change = _number(changes.get("discount_pp"))
+    if (
+        current_discount is not None
+        and old_discount is not None
+        and discount_change is not None
+    ):
+        changes["discount_pp"] = discount_change + current_discount - old_discount
+    if changes:
+        result["changes"] = changes
+
     return result
 
 

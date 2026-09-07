@@ -6,6 +6,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.main import _sync_summary_with_otec_quote
+
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
@@ -35,6 +37,36 @@ class FakeRepository:
 
 def current_timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def test_worker_otec_sync_matches_reference_summary() -> None:
+    summary = {
+        "nav_per_share": 23.65,
+        "otec_price": 17.84,
+        "nav_discount_pct": 24.57,
+        "changes": {"otec_pct": -0.5, "discount_pp": 0.4},
+        "nav_discount_insights": {
+            "nav_per_share": 23.65,
+            "share_price": 17.84,
+            "discount_pct": 24.57,
+            "upside_to_nav_pct": 32.57,
+            "month_change_pp": 1.2,
+            "range_1y": {"low": 20.0, "high": 30.0, "position_pct": 45.7},
+        },
+    }
+    quote = {
+        "ready": True,
+        "last": 17.98,
+        "last_price_type": "CLOSE",
+        "trading_date": "2026-09-04",
+        "last_updated_at": "2026-09-04T16:20:00+02:00",
+        "source": "EURONEXT",
+        "changes": {"daily_pct": -0.11},
+    }
+
+    assert hot.sync_otec_price(summary, quote) == _sync_summary_with_otec_quote(
+        summary, quote
+    )
 
 
 def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> None:
@@ -73,7 +105,16 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
     async def fake_quotes(_repository):
         calls.append("quotes")
         await mark_started("quotes")
-        return {"ready": True, "symbols": {"OTEC": {"ready": True, "last": 24.0}}}
+        return {
+            "ready": True,
+            "symbols": {
+                "OTEC": {
+                    "ready": True,
+                    "last": 24.0,
+                    "changes": {"daily_pct": 1.5},
+                }
+            },
+        }
 
     async def fake_buyback(_repository):
         calls.append("buyback")

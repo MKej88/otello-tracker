@@ -26,6 +26,10 @@ from app.db.connection import get_connection  # noqa: E402
 from app.discount_history import discount_history as reference_discount_history  # noqa: E402
 from app.economic_nav_investor import economic_nav_summary as reference_economic_nav_summary  # noqa: E402
 from app.marketdata.quote_details import market_quote_details as reference_market_quote_details  # noqa: E402
+from app.main import (  # noqa: E402
+    _sync_economic_with_otec_quote,
+    _sync_summary_with_otec_quote,
+)
 from app.nav.daily_nav import CALCULATION_VERSION as CORE_VERSION  # noqa: E402
 from app.nav.full_nav import FULL_CALCULATION_VERSION as FULL_VERSION  # noqa: E402
 from app.nav_waterfall_settlement import nav_waterfall_summary as reference_nav_waterfall_summary  # noqa: E402
@@ -207,9 +211,16 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         connection.commit()
 
     expected_dir.mkdir(parents=True, exist_ok=True)
+    quotes = reference_market_quote_details(database_path)
+    otec_quote = dict((quotes.get("symbols") or {}).get("OTEC") or {})
+    summary = enrich_dashboard_summary(
+        reference_dashboard_summary(database_path), database_path
+    )
     expected = {
-        "summary": enrich_dashboard_summary(reference_dashboard_summary(database_path), database_path),
-        "economic": reference_economic_nav_summary(database_path),
+        "summary": _sync_summary_with_otec_quote(summary, otec_quote),
+        "economic": _sync_economic_with_otec_quote(
+            reference_economic_nav_summary(database_path), otec_quote
+        ),
         "waterfall": reference_nav_waterfall_summary(database_path),
         "history": reference_dashboard_history(database_path, days=365, max_points=300),
         "discount_history": reference_discount_history(database_path, days=365, max_points=600),
@@ -218,7 +229,7 @@ def build_worker_runtime_fixture(database_path: str, expected_dir: Path) -> dict
         "bemobi_dashboard": reference_bemobi_dashboard(database_path),
         "bemobi_consensus": reference_bemobi_consensus(database_path),
         "bemobi_source_status": reference_bemobi_source_status(database_path),
-        "quotes": reference_market_quote_details(database_path),
+        "quotes": quotes,
     }
     for name, payload in expected.items():
         (expected_dir / f"{name}.json").write_text(
