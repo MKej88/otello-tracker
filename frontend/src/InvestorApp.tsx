@@ -62,8 +62,8 @@ function preload(view: View) {
     void loadCashPage();
     preloadJson("/api/dashboard/summary");
     preloadJson("/api/bemobi/dashboard");
+    preloadJson("/api/dashboard/economic");
     preloadJson("/api/buybacks/dashboard");
-    preloadJson("/api/nav/daily-cash");
   }
   if (view === "Bemobi") {
     void loadBemobiPage();

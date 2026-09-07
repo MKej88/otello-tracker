@@ -68,3 +68,31 @@ Samme statiske critical-path-analyse viser:
 En kontrakttest låser både tidlig start før ruteendringen og gjenbruk i
 polling-hookene. Faktisk LCP/INP bør som oppfølging måles i en nettleser mot
 produksjons-API-et; det var ikke praktisk mulig i dette miljøet.
+
+## Oppfølgingsfunn: Cash-visningen
+
+En ny gjennomgang av hele navigasjonsstien avdekket én materiell feil som ikke
+var dekket av NAV-forbedringen:
+
+| Kandidat | Startpunkt → sluttpunkt | Måling/estimat | Avhengighet og prioritering |
+| --- | --- | --- | --- |
+| Dupliserte Cash-kall og sent økonomikall | Klikk/fokus → preload → modulinnlasting → komponent-effect → nyttige cash-tall | Statisk request-opptelling viste 9 kall: 4 preload-kall, 4 duplikater etter montering og 1 ubrukt kall. Økonomidata startet først etter Cash-chunken. Etter endringen er dette 4 delte kall. Det fjerner 5 kall (56 %) på første navigasjon og flytter økonomikallet én modulnettverksrunde tidligere. | Ingen av de fire responsene avhenger av en annen respons eller av modulkoden; komponenten brukte allerede `Promise.allSettled`. Høy effekt og sikkerhet, lav risiko. **Valgt.** |
+| Samlet backend-endepunkt for Cash | Navigasjon → ett aggregert svar → alle kort | Kunne redusert fire kall til ett, men ville krevd ny backend-kontrakt og endret caching-/feildomener. | Mulig høy effekt, men betydelig større korrekthets- og utrullingsrisiko. Ikke valgt. |
+| Cash-beregninger og rendering | Fire svar → state → memoiserte beregninger → DOM/paint | Beregningene er enkel aritmetikk over små objekter; ingen store lister eller synkrone løkker. | Ingen materiell flaskehals dokumentert. Ikke endret. |
+
+Før endringen startet preloaderen dessuten `/api/nav/daily-cash`, som Cash-siden
+aldri leser, mens `/api/dashboard/economic` (grunnlaget for de viktigste
+cash-kortene) ventet til modulen var lastet og montert. De fire faktiske
+ressursene starter nå parallelt med modulinnlastingen. Første komponentlasting
+gjenbruker nøyaktig de samme pågående promise-ene; ordinær polling etter to
+minutter går fortsatt direkte til API-et. `Promise.allSettled` og eksisterende
+delvis-feilhåndtering er beholdt, slik at ett feilende endepunkt ikke skjuler de
+andre svarene. Cachetiden er fortsatt 30 sekunder, og ingen datakontrakt er
+endret.
+
+Før/etter er kontrollert med samme statiske metode: opptelling av kall fra
+brukerhandling til første komplette Cash-render, kontroll av URL-ene på begge
+sider av modulgrensen og et bygg av produksjonspakken. Nettlesermåling mot et
+produksjons-API er fortsatt nødvendig for å tallfeste spart veggklokketid; den
+nedre grensen er modulens innlastingstid for økonomidata, mens mindre
+nettverks-/backend-konkurranse kan gi ytterligere gevinst.

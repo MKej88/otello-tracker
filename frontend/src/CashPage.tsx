@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import "./cash-page.css";
@@ -161,12 +162,13 @@ export default function CashPage() {
   useEffect(() => {
     let active = true;
 
-    const load = async () => {
+    const load = async (initial = false) => {
+      const request = initial ? fetchPreloadedJson : fetchJson;
       const [summaryResult, bemobiResult, economicResult, buybackResult] = await Promise.allSettled([
-        fetchJson<Summary>("/api/dashboard/summary"),
-        fetchJson<BemobiDashboard>("/api/bemobi/dashboard"),
-        fetchJson<EconomicDashboard>("/api/dashboard/economic"),
-        fetchJson<BuybackDashboard>("/api/buybacks/dashboard"),
+        request<Summary>("/api/dashboard/summary"),
+        request<BemobiDashboard>("/api/bemobi/dashboard"),
+        request<EconomicDashboard>("/api/dashboard/economic"),
+        request<BuybackDashboard>("/api/buybacks/dashboard"),
       ]);
 
       if (!active) return;
@@ -187,7 +189,7 @@ export default function CashPage() {
       setPartialFailed(buybackResult.status === "rejected");
     };
 
-    void load();
+    void load(true);
     const timer = window.setInterval(() => { void load(); }, AUTO_REFRESH_MS);
     return () => {
       active = false;
