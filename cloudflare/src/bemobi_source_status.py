@@ -6,6 +6,15 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class _SourceDefinition:
+    key: str
+    fact_types: tuple[str, ...]
+    source_name: str | None
+    source_label: str
+    label: str
+
+
+@dataclass(frozen=True)
 class _OperationalSourceDefinition:
     key: str
     source_code: str
@@ -21,6 +30,29 @@ _OPERATIONAL_SOURCE_DEFINITIONS = (
     _OperationalSourceDefinition("newsweb", "NEWSWEB", "NewsWeb", "Børsmeldinger og tilbakekjøp"),
     _OperationalSourceDefinition("otello_ir", "OTELLO_IR", "Otello IR", "Rapporter og selskapsinformasjon"),
     _OperationalSourceDefinition("life360_ir", "LIFE360_IR_LSEG", "Life360 IR / LSEG", "Reservekilde for Life360-kurs"),
+)
+
+_SOURCE_DEFINITIONS = (
+    _SourceDefinition(
+        "ir",
+        ("OWNERSHIP", "ANALYST"),
+        None,
+        "Bemobi IR",
+        "Eierandel og analytikerdekning",
+    ),
+    _SourceDefinition(
+        "result_release", ("RESULT",), None, "CVM / Bemobi", "Resultater"
+    ),
+    _SourceDefinition(
+        "consensus",
+        ("FORWARD_CONSENSUS",),
+        None,
+        "Offentlige meglerhus",
+        "Årsestimater / meglermodeller",
+    ),
+    _SourceDefinition(
+        "xp_preview", ("NEXT_QUARTER",), "XP", "XP", "Forhåndsestimat neste kvartal"
+    ),
 )
 
 
@@ -180,25 +212,14 @@ async def bemobi_source_status(repository) -> dict[str, Any]:
         except (TypeError, ValueError, json.JSONDecodeError):
             metadata = {}
 
-    fact_map = {
-        "ir": await _latest_fact(repository, ("OWNERSHIP", "ANALYST")),
-        "result_release": await _latest_fact(repository, ("RESULT",)),
-        "consensus": await _latest_fact(repository, ("FORWARD_CONSENSUS",)),
-        "xp_preview": await _latest_fact(repository, ("NEXT_QUARTER",), source_name="XP"),
-    }
-    labels = {
-        "ir": ("Bemobi IR", "Eierandel og analytikerdekning"),
-        "result_release": ("CVM / Bemobi", "Resultater"),
-        "consensus": ("Offentlige meglerhus", "Årsestimater / meglermodeller"),
-        "xp_preview": ("XP", "Forhåndsestimat neste kvartal"),
-    }
-
     items = await _operational_source_items(repository)
-    for key in ("ir", "result_release", "consensus", "xp_preview"):
-        result = _sub_result(metadata, key)
-        status, detail, uses_last_good = _display_status(key, result)
-        fact = fact_map[key]
-        if key == "result_release":
+    for source in _SOURCE_DEFINITIONS:
+        result = _sub_result(metadata, source.key)
+        status, detail, uses_last_good = _display_status(source.key, result)
+        fact = await _latest_fact(
+            repository, source.fact_types, source_name=source.source_name
+        )
+        if source.key == "result_release":
             status, detail, uses_last_good = _result_release_status(
                 result,
                 fact,
@@ -206,11 +227,10 @@ async def bemobi_source_status(repository) -> dict[str, Any]:
                 detail,
                 uses_last_good,
             )
-        source_label, label = labels[key]
         items.append({
-            "key": key,
-            "label": label,
-            "source": (fact or {}).get("source_name") or source_label,
+            "key": source.key,
+            "label": source.label,
+            "source": (fact or {}).get("source_name") or source.source_label,
             "status": status,
             "checked_at": None if health is None else health.get("checked_at"),
             "last_good_at": None if fact is None else fact.get("updated_at"),
