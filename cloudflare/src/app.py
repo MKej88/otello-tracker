@@ -29,6 +29,7 @@ CACHE_POLICIES = {
     "/api/dashboard/nav-periods": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/buybacks/forecast": ("public, max-age=300", "public, max-age=900, stale-while-revalidate=1800"),
     "/api/buybacks/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
+    "/api/buybacks/overview-status": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/dashboard": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/bemobi/consensus": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/bemobi/source-status": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=300"),
@@ -238,6 +239,20 @@ async def get_buyback_dashboard(
     repository = _repository(request)
     try:
         return await buyback_dashboard(repository, as_of_date=as_of_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
+
+
+@app.get("/api/buybacks/overview-status")
+async def get_buyback_overview_status(
+    request: Request,
+    as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
+    from buyback_dashboard import buyback_overview_status
+
+    repository = _repository(request)
+    try:
+        return await buyback_overview_status(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
 

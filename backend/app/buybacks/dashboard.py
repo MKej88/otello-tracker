@@ -408,3 +408,14 @@ def buyback_dashboard(
             "Safe Harbour-kapasitet og neste-uke-prognose følger den eksisterende walk-forward-modellen."
         ),
     }
+
+
+def buyback_overview_status(
+    database_path: str | None = None, *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """Return only the buyback fields rendered on the overview page."""
+    dashboard = buyback_dashboard(database_path, as_of_date=as_of_date)
+    return {
+        "program": dashboard.get("program"),
+        "nav_effect": dashboard.get("nav_effect"),
+    }
