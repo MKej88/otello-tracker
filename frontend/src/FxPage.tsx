@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
 
+import {
+  analyzeFxDrivers,
+  movementText,
+  roundedContributions,
+} from "./fxDriverAnalysis";
 import { usePollingResource } from "./usePollingResource";
 import "./fx-page.css";
 
@@ -239,23 +244,14 @@ function FxChart({ series, range }: { series: FxPoint[]; range: RangeKey }) {
   );
 }
 
-function DriverRow({ label, value, explanation }: { label: string; value: number | null | undefined; explanation: string }) {
+function DriverRow({ label, value, explanation }: { label: string; value: number; explanation: string }) {
   const tone = finite(value) && value !== 0 ? (value > 0 ? "positive" : "negative") : "neutral";
   return (
     <div className="fxDriverRow">
       <div><strong>{label}</strong><span>{explanation}</span></div>
-      <strong className={tone}>{signedPct(value)}</strong>
+      <strong className={tone}>{signedPct(value).replace("%", "pp")}</strong>
     </div>
   );
-}
-
-function periodDriverExplanation(snapshot?: PeriodSnapshot) {
-  const usdNok = snapshot?.usd_nok_pct;
-  const usdBrl = snapshot?.usd_brl_pct;
-  const pieces: string[] = [];
-  if (finite(usdNok)) pieces.push(usdNok > 0 ? "NOK har svekket seg mot USD" : usdNok < 0 ? "NOK har styrket seg mot USD" : "NOK er uendret mot USD");
-  if (finite(usdBrl)) pieces.push(usdBrl < 0 ? "BRL har styrket seg mot USD" : usdBrl > 0 ? "BRL har svekket seg mot USD" : "BRL er uendret mot USD");
-  return pieces.join(". ") || "Ikke nok data til å dekomponere perioden.";
 }
 
 export default function FxPage() {
@@ -340,6 +336,17 @@ export default function FxPage() {
 
   const activeDriver = fx.periods?.[driverPeriod];
   const activeDriverLabel = driverPeriod === "m1" ? "siste måned" : "hittil i år";
+  const driverAnalysis = finite(activeDriver?.usd_nok_pct) && finite(activeDriver?.usd_brl_pct)
+    ? analyzeFxDrivers(activeDriver.usd_nok_pct, activeDriver.usd_brl_pct)
+    : null;
+  const displayedDrivers = driverAnalysis ? roundedContributions(driverAnalysis) : null;
+  const displayedTotal = displayedDrivers?.total ?? activeDriver?.brl_nok_pct;
+  const investorTone = finite(displayedTotal) && displayedTotal !== 0
+    ? displayedTotal > 0 ? "positive" : "negative"
+    : "neutral";
+  const investorEffect = finite(displayedTotal) && displayedTotal !== 0
+    ? displayedTotal > 0 ? "Positivt" : "Negativt"
+    : "Nøytralt";
   const refreshWarning = fxRefreshFailed || summaryRefreshFailed;
 
   return (
@@ -386,17 +393,49 @@ export default function FxPage() {
       <section className="fxTwoColumn">
         <article className="card fxDriverCard">
           <div className="fxSectionHead compact">
-            <div><span className="label">HVA DRIVER KRYSSKURSEN?</span><h3>BRL eller NOK?</h3></div>
+            <div><span className="label">VALUTAEFFEKT PÅ BEMOBI</span><h3>Hva driver BRL/NOK?</h3></div>
             <div className="periodButtons fxDriverButtons">
               <button className={driverPeriod === "m1" ? "active" : ""} onClick={() => setDriverPeriod("m1")} type="button">1M</button>
               <button className={driverPeriod === "ytd" ? "active" : ""} onClick={() => setDriverPeriod("ytd")} type="button">YTD</button>
             </div>
           </div>
-          <p className="fxFormula">BRL/NOK = USD/NOK ÷ USD/BRL</p>
-          <DriverRow label="BRL/NOK" value={activeDriver?.brl_nok_pct} explanation={`Samlet endring ${activeDriverLabel}`} />
-          <DriverRow label="USD/NOK" value={activeDriver?.usd_nok_pct} explanation="Positiv endring betyr svakere NOK mot USD" />
-          <DriverRow label="USD/BRL" value={activeDriver?.usd_brl_pct} explanation="Negativ endring betyr sterkere BRL mot USD" />
-          <p className="fxDriverConclusion">{periodDriverExplanation(activeDriver)}</p>
+          <div className={`fxDriverHeadline ${investorTone}`}>
+            <strong>BRL/NOK {finite(displayedTotal) && displayedTotal < 0 ? "↓" : finite(displayedTotal) && displayedTotal > 0 ? "↑" : "→"} {signedPct(displayedTotal).replace(/[+-]/, "")}</strong>
+            <span>{investorEffect} for NOK-verdien av Bemobi</span>
+            <small>{driverPeriod === "m1" ? "Siste måned" : "Hittil i år"}</small>
+          </div>
+          {driverAnalysis && displayedDrivers && finite(activeDriver?.usd_nok_pct) && finite(activeDriver?.usd_brl_pct) ? (
+            <>
+              <div className="fxMainDriver">
+                <strong>Hoveddriver: {driverAnalysis.mainDriver ?? "Ingen tydelig"}</strong>
+                <p>{driverAnalysis.explanation}</p>
+              </div>
+              <div className="fxDriverTableHead" aria-hidden="true">
+                <span>Driver og bevegelse</span><span>Effekt på BRL/NOK</span>
+              </div>
+              <DriverRow
+                label={driverAnalysis.nokDirection === "sterkere" ? "Sterkere NOK" : driverAnalysis.nokDirection === "svakere" ? "Svakere NOK" : "Uendret NOK"}
+                value={displayedDrivers.nok}
+                explanation={movementText("NOK", driverAnalysis.nokDirection, activeDriver.usd_nok_pct, (value) => `${number(value, 1)} %`)}
+              />
+              <DriverRow
+                label={driverAnalysis.brlDirection === "sterkere" ? "Sterkere BRL" : driverAnalysis.brlDirection === "svakere" ? "Svakere BRL" : "Uendret BRL"}
+                value={displayedDrivers.brl}
+                explanation={movementText("BRL", driverAnalysis.brlDirection, activeDriver.usd_brl_pct, (value) => `${number(value, 1)} %`)}
+              />
+              <div className="fxDriverNet"><strong>Netto</strong><strong className={investorTone}>{signedPct(displayedDrivers.total)}</strong></div>
+            </>
+          ) : <p className="fxDriverUnavailable">Ikke nok data til å forklare driverne i {activeDriverLabel}.</p>}
+          <details className="fxDriverDetails">
+            <summary>Vis detaljer</summary>
+            <p className="fxFormula">BRL/NOK = USD/NOK ÷ USD/BRL</p>
+            <dl>
+              <div><dt>USD/NOK</dt><dd>{signedPct(activeDriver?.usd_nok_pct)}</dd></div>
+              <div><dt>USD/BRL</dt><dd>{signedPct(activeDriver?.usd_brl_pct)}</dd></div>
+              <div><dt>BRL/NOK</dt><dd>{signedPct(activeDriver?.brl_nok_pct)}</dd></div>
+            </dl>
+            <small>Periodeendringer fra referansedato {dateLabel(activeDriver?.reference_date)}. Bidragene over fordeler samspillet mellom valutaene likt.</small>
+          </details>
         </article>
 
         <article className="card fxPositionCard">

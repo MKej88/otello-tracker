@@ -257,7 +257,7 @@
 }
 
 .fxPage .fxFormula {
-  margin-bottom: 10px;
+  margin-top: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--ot-accent-border);
@@ -265,6 +265,59 @@
   color: var(--ot-text-secondary);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+.fxDriverHeadline {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 18px;
+  padding: 16px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: var(--ot-surface-muted);
+}
+
+.fxDriverHeadline strong {
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.03em;
+}
+
+.fxDriverHeadline span {
+  color: currentColor;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fxDriverHeadline small {
+  color: var(--ot-text-muted);
+  font-size: 12px;
+}
+
+.fxMainDriver {
+  margin-bottom: 16px;
+}
+
+.fxMainDriver strong {
+  font-size: 15px;
+}
+
+.fxMainDriver p {
+  margin-top: 5px;
+  color: var(--ot-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fxDriverTableHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 8px 2px;
+  color: var(--ot-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .fxDriverRow {
@@ -291,11 +344,53 @@
   font-size: 16px;
 }
 
-.fxPage .fxDriverConclusion {
-  margin-top: 14px;
+.fxDriverNet {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 2px;
+  font-size: 16px;
+}
+
+.fxDriverUnavailable {
+  padding: 14px 0;
   color: var(--ot-text-secondary);
-  line-height: 1.5;
   font-size: 13px;
+}
+
+.fxDriverDetails {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ot-border-soft);
+  color: var(--ot-text-muted);
+  font-size: 12px;
+}
+
+.fxDriverDetails summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--ot-text-secondary);
+  font-weight: 700;
+}
+
+.fxDriverDetails dl {
+  margin: 8px 0;
+}
+
+.fxDriverDetails dl > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--ot-border-soft);
+}
+
+.fxDriverDetails dd {
+  margin: 0;
+  color: var(--ot-text);
+  font-weight: 700;
+}
+
+.fxDriverDetails small {
+  line-height: 1.45;
 }
 
 .fxPositionGauge {
