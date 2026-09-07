@@ -2,9 +2,60 @@ from __future__ import annotations
 
 from src.bemobi_source_status import (
     _OperationalSourceDefinition,
+    _display_status,
     _operational_display_status,
     _result_release_status,
 )
+
+
+def test_display_status_preserves_general_status_policy() -> None:
+    assert _display_status("ir", {"status": "success"}) == (
+        "OK",
+        "Siste kontroll fullført uten feil.",
+        False,
+    )
+    assert _display_status("ir", {"status": "partial"}) == (
+        "DEGRADED",
+        "Deler av innhentingen feilet; siste gode data beholdes.",
+        True,
+    )
+    assert _display_status("ir", {"status": "failed", "error": "nettfeil"}) == (
+        "ERROR",
+        "nettfeil",
+        True,
+    )
+    assert _display_status("ir", {}) == (
+        "UNKNOWN",
+        "Ingen ny Full Refresh-kontroll er registrert etter aktivering.",
+        False,
+    )
+
+
+def test_display_status_preserves_source_specific_exceptions() -> None:
+    assert _display_status(
+        "result_release",
+        {"status": "skipped", "reason": "latest_result_already_ingested"},
+    ) == (
+        "OK",
+        "Ingen ny rapport; siste offentlige rapport er allerede innlest.",
+        False,
+    )
+    assert _display_status(
+        "consensus",
+        {"status": "skipped", "reason": "source_specific_public_broker_models"},
+    ) == (
+        "OK",
+        "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell finnes.",
+        False,
+    )
+    assert _display_status(
+        "xp_preview",
+        {"status": "not_available", "reason": "next_quarter_not_initialized"},
+    ) == (
+        "WAITING",
+        "Ingen offentlig XP-preview funnet for neste kvartal.",
+        False,
+    )
 
 
 def test_result_gap_is_healthy_when_previous_result_is_available() -> None:
