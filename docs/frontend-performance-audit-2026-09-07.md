@@ -148,3 +148,30 @@ Før og etter er kontrollert med samme statiske request- og avhengighetsanalyse 
 produksjonsbygg. Endringen påvirker ikke chunkstørrelsen nevneverdig og fjerner
 modulventingen fra requestens critical path. Faktisk spart veggklokketid bør
 fortsatt verifiseres med nettlesermåling mot produksjons-API-et.
+
+## Oppfølgingsfunn: medianrabatt på førstesiden
+
+Den siste separate ressursen på førstesiden, rabatt-historikken, ble startet av
+en React-effect. Nettleseren måtte derfor laste, tolke og kjøre hele
+inngangspakken før requesten kunne begynne, selv om URL-en er kjent direkte fra
+HTML-dokumentet. Medianrabatten fra svaret vises i det øverste NAV-kortet og er
+dermed en del av nyttig førstesideinnhold, ikke bare diagnostikk.
+
+| Kandidat | Startpunkt → sluttpunkt | Måling/estimat | Avhengighet og prioritering |
+| --- | --- | --- | --- |
+| Sen rabatt-request | HTML mottatt → inngangspakke → React-effect → rabatt-API → median synlig | Produksjonsbygget måler inngangspakken til 217,05 kB / 68,57 kB gzip. Request-start ventet på denne overføringen samt tolkning og første React-render; anslått omtrent 100–500 ms på vanlig mobilnett, mer ved høy latenstid eller svak prosessor. | URL-en er statisk og avhenger ikke av JavaScript, bootstrap-svaret eller andre API-svar. Høy sikkerhet, svært lav kode- og datarisiko. **Valgt.** |
+| Legge historikken i bootstrap | HTML → bootstrap → median synlig | Kunne også fjernet ventingen, men ville gjort den høyest prioriterte responsen større og koblet data med ulik levetid. | Høyere cache-, backend- og utrullingsrisiko enn en preload. Ikke valgt. |
+| Memoisere event- og rabattberegninger | State update → React-render → DOM | Høyst fire hendelser vises, og rabattberegningen er én subtraksjon. | Ingen materiell CPU- eller renderkostnad dokumentert. Ikke endret. |
+
+HTML-dokumentet forhåndslaster nå den eksisterende rabatt-URL-en parallelt med
+JavaScript-pakken. Den har lav prioritet, slik at den ikke fortrenger den viktigere
+bootstrap-responsen eller inngangspakken. Når React senere kaller samme URL med
+samme standard legitimasjonsmodus, gjenbruker nettleseren preload-responsen; det
+opprettes ikke et ekstra API-kall. Feilhåndtering, polling, responsformat og
+caching er uendret fordi komponenten fortsatt utfører det ordinære `fetch`-kallet.
+
+Samme statiske critical-path-metode viser at request-start flyttes fra etter
+68,57 kB gzip JavaScript, modulinitialisering og første render til HTML-parsingen.
+Produksjonsbygget er uendret i størrelse. Faktisk spart veggklokketid bør måles
+mot produksjons-API-et i en nettleser; Chrome/Chromium er ikke tilgjengelig i
+dette miljøet.
