@@ -67,20 +67,43 @@ def _parse_decimal(value: str) -> Decimal:
     return result
 
 
-def _parse_date(value: str) -> str:
+def _parse_date(value: str, *, date_order: str | None) -> str:
     value = value.strip()
-    for fmt in (
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%Y-%m-%d",
-    ):
+    formats = ["%Y-%m-%d"]
+    if date_order == "MDY":
+        formats.extend(("%m/%d/%Y", "%m/%d/%y"))
+    elif date_order == "DMY":
+        formats.extend(("%d/%m/%Y", "%d/%m/%y"))
+    for fmt in formats:
         try:
             return datetime.strptime(value, fmt).date().isoformat()
         except ValueError:
             pass
     raise ValueError(f"Kunne ikke tolke Investing-dato: {value}")
+
+
+def _infer_date_order(values: list[str]) -> str | None:
+    evidence: set[str] = set()
+    has_slash_date = False
+    for value in values:
+        parts = value.strip().split("/")
+        if len(parts) != 3:
+            continue
+        has_slash_date = True
+        try:
+            first, second = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if first > 12:
+            evidence.add("DMY")
+        if second > 12:
+            evidence.add("MDY")
+
+    if len(evidence) > 1:
+        raise ValueError("Investing CSV blander amerikansk og europeisk datoformat")
+    if not evidence and has_slash_date:
+        raise ValueError("Investing CSV har tvetydig datoformat")
+    return next(iter(evidence), None)
 
 
 def parse_investing_historical_csv(text: str) -> list[tuple[str, Decimal]]:
@@ -96,14 +119,17 @@ def parse_investing_historical_csv(text: str) -> list[tuple[str, Decimal]]:
     if not {"Date", "Price"}.issubset(fields):
         raise ValueError(f"Investing CSV må inneholde Date og Price. Fant: {reader.fieldnames}")
 
+    raw_rows = [
+        ((row.get("Date") or "").strip(), (row.get("Price") or "").strip())
+        for row in reader
+    ]
+    date_order = _infer_date_order([raw_date for raw_date, _ in raw_rows])
     result: list[tuple[str, Decimal]] = []
     seen: set[str] = set()
-    for row in reader:
-        raw_date = (row.get("Date") or "").strip()
-        raw_price = (row.get("Price") or "").strip()
+    for raw_date, raw_price in raw_rows:
         if not raw_date or not raw_price:
             continue
-        trading_date = _parse_date(raw_date)
+        trading_date = _parse_date(raw_date, date_order=date_order)
         if trading_date in seen:
             raise ValueError(f"Duplikatdato i Investing CSV: {trading_date}")
         seen.add(trading_date)

@@ -65,6 +65,17 @@ def test_investing_parser_accepts_decimal_comma_without_100x_scaling() -> None:
     ]
 
 
+def test_investing_parser_uses_one_date_order_for_ambiguous_rows() -> None:
+    rows = parse_investing_historical_csv(
+        "Date;Price\n01/02/2024;17,20\n19/02/2024;17,35\n"
+    )
+
+    assert rows == [
+        ("2024-02-01", Decimal("17.20")),
+        ("2024-02-19", Decimal("17.35")),
+    ]
+
+
 def test_investing_parser_rejects_implausible_price() -> None:
     with pytest.raises(ValueError, match="Urealistisk OTEC-pris"):
         parse_investing_historical_csv("Date,Price\n08/19/2024,1720\n")
