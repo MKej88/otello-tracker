@@ -4,12 +4,15 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 WORKER_SRC = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
 if str(WORKER_SRC) not in sys.path:
     sys.path.insert(0, str(WORKER_SRC))
 
 import brazil_calendar_expectations as calendar_expectations  # noqa: E402
 from brazil_calendar_expectations import (  # noqa: E402
+    _latest_rows,
     _monthly_expectation,
     _quarter_reference,
     _quarterly_expectation,
@@ -45,6 +48,19 @@ def test_monthly_focus_is_used_for_ipca_reference_month() -> None:
     assert result["event_consensus"] is True
     assert result["provider"] == "BCB Focus"
     assert "08/26" in result["label"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"error": {"message": "Too many requests"}},
+        {"value": None},
+        {"value": [{"Indicador": "IPCA"}, "truncated"]},
+    ],
+)
+def test_focus_rejects_invalid_or_partial_odata_envelope(payload: object) -> None:
+    with pytest.raises(ValueError, match="BCB Focus returnerte"):
+        _latest_rows(payload)
 
 
 def test_copom_uses_focus_expectation_for_exact_meeting() -> None:

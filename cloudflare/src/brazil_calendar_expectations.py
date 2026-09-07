@@ -38,8 +38,12 @@ COPOM_MEETINGS = {
 
 
 def _latest_rows(payload: Any) -> list[dict[str, Any]]:
-    values = payload.get("value") if isinstance(payload, dict) else None
-    return [dict(row) for row in values if isinstance(row, dict)] if isinstance(values, list) else []
+    if not isinstance(payload, dict) or not isinstance(payload.get("value"), list):
+        raise ValueError("BCB Focus returnerte ikke et JSON-objekt med en value-liste")
+    values = payload["value"]
+    if any(not isinstance(row, dict) for row in values):
+        raise ValueError("BCB Focus returnerte en ugyldig rad i value-listen")
+    return [dict(row) for row in values]
 
 
 def _latest_matching(rows: list[dict[str, Any]], predicate) -> dict[str, Any] | None:
