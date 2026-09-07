@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.bemobi.source_status import (
+    _display_status,
     _operational_source_items,
     _result_release_status,
     bemobi_source_status,
@@ -106,6 +107,22 @@ def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Pat
     assert by_key["consensus"]["uses_last_good"] is False
     assert "Kildeverifiserte meglermodeller" in by_key["consensus"]["detail"]
     assert by_key["xp_preview"]["status"] == "WAITING"
+
+
+def test_optional_xp_access_error_is_waiting_not_data_degradation() -> None:
+    status, detail, uses_last_good = _display_status(
+        "xp_preview",
+        {
+            "status": "not_available",
+            "error": "XP BMOB3 reports feilet med HTTP 403",
+        },
+    )
+
+    assert status == "WAITING"
+    assert "valgfrie kontrollen" in detail
+    assert "HTTP 403" in detail
+    assert "Ingen nye estimater er hentet" in detail
+    assert uses_last_good is False
 
 
 def test_result_release_parse_gap_is_ok_when_latest_result_exists() -> None:

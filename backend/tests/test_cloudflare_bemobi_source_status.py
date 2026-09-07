@@ -15,7 +15,24 @@ worker_module = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = worker_module
 SPEC.loader.exec_module(worker_module)
 _operational_source_items = worker_module._operational_source_items
+_display_status = worker_module._display_status
 bemobi_source_status = worker_module.bemobi_source_status
+
+
+def test_optional_xp_access_error_is_waiting_not_data_degradation() -> None:
+    status, detail, uses_last_good = _display_status(
+        "xp_preview",
+        {
+            "status": "not_available",
+            "error": "XP BMOB3 reports feilet med HTTP 403",
+        },
+    )
+
+    assert status == "WAITING"
+    assert "valgfrie kontrollen" in detail
+    assert "HTTP 403" in detail
+    assert "Ingen nye estimater er hentet" in detail
+    assert uses_last_good is False
 
 
 class _CountingRepository:

@@ -77,6 +77,12 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
             return "OK", "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell finnes.", False
         return "OK", reason.replace("_", " ") or "Ingen ny data å behandle.", False
     if status == "not_available":
+        if key == "xp_preview" and error:
+            detail = (
+                "Den valgfrie kontrollen hos XP kunne ikke fullføres. "
+                f"{error} Ingen nye estimater er hentet."
+            )
+            return "WAITING", detail, False
         if key == "xp_preview" and reason in {"no_public_preview_for_next_quarter", "next_quarter_not_initialized"}:
             return "WAITING", "Ingen offentlig XP-preview funnet for neste kvartal.", False
         return "DEGRADED", error or reason.replace("_", " ") or "Kilden var ikke tilgjengelig.", True
