@@ -462,23 +462,27 @@ def _as_date(value: str | None) -> date | None:
         return None
 
 
-async def _latest_series_date(
-    repository, calculation_version: str, nav_scope: str
-) -> str | None:
+async def _preferred_nav_series(repository) -> tuple[str, str]:
     row = await repository.first(
         """
-        SELECT MAX(substr(as_of_at, 1, 10)) AS max_date
+        SELECT
+          MAX(CASE WHEN calculation_version = ? AND nav_scope = 'CORE'
+              THEN substr(as_of_at, 1, 10) END) AS core_date,
+          MAX(CASE WHEN calculation_version = ? AND nav_scope = 'FULL'
+              THEN substr(as_of_at, 1, 10) END) AS full_date
         FROM nav_snapshots
-        WHERE calculation_version = ? AND nav_scope = ?
+        WHERE (calculation_version = ? AND nav_scope = 'CORE')
+           OR (calculation_version = ? AND nav_scope = 'FULL')
         """,
-        (calculation_version, nav_scope),
+        (
+            CORE_CALCULATION_VERSION,
+            FULL_CALCULATION_VERSION,
+            CORE_CALCULATION_VERSION,
+            FULL_CALCULATION_VERSION,
+        ),
     )
-    return row.get("max_date") if row is not None else None
-
-
-async def _preferred_nav_series(repository) -> tuple[str, str]:
-    core_date = await _latest_series_date(repository, CORE_CALCULATION_VERSION, "CORE")
-    full_date = await _latest_series_date(repository, FULL_CALCULATION_VERSION, "FULL")
+    core_date = row.get("core_date") if row is not None else None
+    full_date = row.get("full_date") if row is not None else None
 
     if full_date is not None and core_date == full_date:
         return FULL_CALCULATION_VERSION, "FULL"

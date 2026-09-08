@@ -134,6 +134,39 @@ def test_option_liability_accepts_seven_day_old_inputs_but_rejects_older(
     assert beyond_limit is None
 
 
+def test_option_liability_rejects_stale_share_price_even_with_fresh_fx(
+    tmp_path,
+) -> None:
+    """En løpende valutakurs må ikke skjule at OTEC-kursen har stoppet opp."""
+    database_path = str(tmp_path / "otello.db")
+    init_database(database_path)
+    _seed_market_inputs(database_path)
+
+    with get_connection(database_path) as connection:
+        fx_doc = create_source_document(
+            connection,
+            source_code="ECB",
+            external_id="option-test-fresh-fx",
+            document_type="FX_DATA",
+            title="Fersk USD/NOK for test av gammel aksjekurs",
+            url="https://example.test/fresh-fx",
+        )
+        upsert_fx_rate(
+            connection,
+            base_currency="USD",
+            quote_currency="NOK",
+            observed_at="2026-01-14T14:00:00Z",
+            rate="10.10",
+            source_code="ECB",
+            source_document_id=fx_doc,
+        )
+        connection.commit()
+
+        result = option_liability_for_day(connection, "2026-01-14")
+
+    assert result is None
+
+
 def test_announced_distribution_does_not_reduce_strike_before_payment(
     tmp_path,
 ) -> None:

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import { percentileAssessment } from "./percentileAssessment";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatNumber } from "./uiFormat";
 import { usePollingResource } from "./usePollingResource";
@@ -41,12 +42,6 @@ function signedPp(value?: number | null) {
   if (!finiteNumber(value)) return "–";
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${formatNumber(Math.abs(value), 1)} pp`;
-}
-
-function percentileContext(value?: number | null) {
-  if (!finiteNumber(value)) return "Historisk plassering mangler";
-  const clamped = Math.max(0, Math.min(100, value));
-  return `Rabatten har bare vært større ${formatNumber(100 - clamped, 0)} % av tiden`;
 }
 
 function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onChange: (period: InvestorPeriod) => void }) {
@@ -239,6 +234,10 @@ export default function EstimatedHistoryPage() {
       : discountSpread < -0.05
         ? "Smalere enn periodens median"
         : "På linje med periodens median";
+  const percentile = percentileAssessment(stats?.current_percentile, period.label);
+  const hasValidPercentile = finiteNumber(stats?.current_percentile)
+    && stats.current_percentile >= 0
+    && stats.current_percentile <= 100;
 
   return (
     <div className="investorPage historyV2">
@@ -262,7 +261,7 @@ export default function EstimatedHistoryPage() {
             <article className="card historyKpi"><span className="label">Dagens rabatt</span><strong>{formatNumber(currentDiscount)} %</strong><small>Live · {formatDate(economicNav?.calculated_at)}</small></article>
             <article className="card historyKpi"><span className="label">Median</span><strong>{formatNumber(stats.median_discount_pct)} %</strong><small>{(data.observation_count ?? stats.count).toLocaleString("nb-NO")} dagsobservasjoner</small></article>
             <article className="card historyKpi"><span className="label">Avvik fra median</span><strong>{signedPp(discountSpread)}</strong><small>{discountSpreadText}</small></article>
-            <article className="card historyKpi"><span className="label">Dagens persentil</span><strong>{formatNumber(stats.current_percentile, 0)}. persentil</strong><small>{percentileContext(stats.current_percentile)}</small></article>
+            <article className="card historyKpi"><span className="label">Dagens persentil</span><strong>{hasValidPercentile ? `${formatNumber(stats.current_percentile, 0)}. persentil` : "–"}</strong><small className="historyPercentileAssessment"><b>{percentile.label}</b><span>{percentile.explanation}</span></small></article>
           </section>
 
           <section className="card historyAxisCard">
