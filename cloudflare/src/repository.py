@@ -79,7 +79,8 @@ class D1WriteRepository(D1Repository):
 
     Content-bearing source documents are immutable across hash changes. A changed body
     under the same provider ID is stored as a content-addressed version row so existing
-    facts retain the exact source snapshot they originally referenced.
+    facts retain the exact source snapshot they originally referenced. Retries of
+    identical content also keep the first known publication time.
     """
 
     async def run(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any:
@@ -200,7 +201,7 @@ class D1WriteRepository(D1Repository):
                 """
                 UPDATE source_documents
                 SET document_type=?, title=?, url=?,
-                    published_at=COALESCE(?, published_at),
+                    published_at=COALESCE(published_at, ?),
                     content_sha256=COALESCE(?, content_sha256),
                     metadata_json=?,
                     fetched_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
