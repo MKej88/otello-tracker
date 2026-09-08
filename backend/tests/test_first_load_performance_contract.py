@@ -157,6 +157,15 @@ def test_html_preloads_first_screen_data_before_javascript() -> None:
     assert 'fetchpriority="low"' in source
 
 
+def test_bootstrap_fetch_reuses_the_html_preload() -> None:
+    source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'originalFetch("/api/dashboard/bootstrap")' in source
+    assert 'cache: "no-cache"' not in source
+
+
 def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
     nav_source = (FRONTEND_SRC / "NavPageV2.tsx").read_text(encoding="utf-8")

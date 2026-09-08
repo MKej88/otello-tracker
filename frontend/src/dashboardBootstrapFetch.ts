@@ -176,7 +176,9 @@ function publishRevalidatedComponent(
 
 async function fetchBootstrap(originalFetch: typeof window.fetch): Promise<BootstrapPayload | null> {
   try {
-    const response = await originalFetch("/api/dashboard/bootstrap", { cache: "no-cache" });
+    // Keep this request identical to the HTML fetch preload so the browser can
+    // reuse that response instead of revalidating the same payload a second time.
+    const response = await originalFetch("/api/dashboard/bootstrap");
     if (!response.ok) return null;
     const payload = await response.json() as BootstrapPayload;
     if (!completeBootstrap(payload)) return null;
