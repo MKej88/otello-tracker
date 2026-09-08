@@ -53,6 +53,7 @@ def create_source_document(
     If the provider later serves different content under the same ID, the prior row is
     left untouched and a content-addressed version row is created instead. Facts already
     linked to the old source_document_id therefore keep their original provenance.
+    A known publication time is likewise kept on retries of identical content.
     """
     sid = source_id(connection, source_code)
 
@@ -115,7 +116,7 @@ def create_source_document(
                 """
                 UPDATE source_documents
                 SET document_type = ?, title = ?, url = ?,
-                    published_at = COALESCE(?, published_at),
+                    published_at = COALESCE(published_at, ?),
                     content_sha256 = COALESCE(?, content_sha256),
                     metadata_json = ?,
                     fetched_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
