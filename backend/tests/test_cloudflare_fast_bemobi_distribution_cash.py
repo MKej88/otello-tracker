@@ -14,7 +14,7 @@ def test_fast_refresh_materializes_confirmed_bemobi_cash_before_nav() -> None:
 
     assert sync_position < nav_position
     assert "sync_confirmed_bemobi_distribution_cash(\n            repository,\n            target_date=newsweb_date," in source
-    assert 'await renew_lock("after Bemobi distribution cash")' in source
+    assert 'await renew("after Bemobi distribution cash")' in source
 
 
 def test_fast_refresh_counts_bemobi_cash_changes_and_surfaces_partial_sync() -> None:
