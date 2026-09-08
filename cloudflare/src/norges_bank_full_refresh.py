@@ -142,7 +142,6 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
         raise ValueError("Norges Bank SDMX-JSON mangler serier")
 
     rows: list[tuple[str, str, Decimal]] = []
-    found_bases: set[str] = set()
     dates_by_base: dict[str, set[str]] = {
         currency: set() for currency in FX_BASE_CURRENCIES
     }
@@ -180,12 +179,11 @@ def parse_norges_bank_sdmx_json(payload: bytes | str | dict[str, Any]) -> list[t
             if not rate.is_finite() or rate <= 0:
                 raise ValueError(f"Ugyldig {base}/NOK-kurs: {rate}")
             rows.append((trading_date, base, rate))
-            found_bases.add(base)
             dates_by_base[base].add(trading_date)
 
     if not rows:
         raise ValueError("Norges Bank-returneringen inneholdt ingen AUD/NOK, BRL/NOK eller USD/NOK-rader")
-    missing = sorted(set(FX_BASE_CURRENCIES) - found_bases)
+    missing = [currency for currency, dates in dates_by_base.items() if not dates]
     if missing:
         raise ValueError(f"Norges Bank-returneringen manglet valuta: {', '.join(missing)}")
     incomplete_dates = _missing_currencies_by_date(dates_by_base)

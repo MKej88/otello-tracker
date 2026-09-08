@@ -49,3 +49,39 @@ def test_parser_rejects_partial_trading_date() -> None:
         match=r"ufullstendige valutadatoer: 2026-08-19 mangler USD",
     ):
         parse_norges_bank_sdmx_json(payload)
+
+
+def test_parser_treats_series_without_observations_as_missing() -> None:
+    payload = {
+        "dataSets": [
+            {
+                "series": {
+                    "0:0:0:0": {"observations": {"0": [6.71]}},
+                    "0:1:0:0": {"observations": {"0": [1.82]}},
+                    "0:2:0:0": {"observations": {}},
+                }
+            }
+        ],
+        "structure": {
+            "dimensions": {
+                "series": [
+                    {"id": "FREQ", "values": [{"id": "B"}]},
+                    {
+                        "id": "BASE_CUR",
+                        "values": [{"id": "AUD"}, {"id": "BRL"}, {"id": "USD"}],
+                    },
+                    {"id": "QUOTE_CUR", "values": [{"id": "NOK"}]},
+                    {"id": "TENOR", "values": [{"id": "SP"}]},
+                ],
+                "observation": [
+                    {
+                        "id": "TIME_PERIOD",
+                        "values": [{"id": "2026-08-18"}],
+                    }
+                ],
+            }
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"manglet valuta: USD"):
+        parse_norges_bank_sdmx_json(payload)
