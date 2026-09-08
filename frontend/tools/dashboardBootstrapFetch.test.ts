@@ -51,5 +51,7 @@ test("leverer nettverksoppdatering selv om den blir ferdig før lytteren montere
   });
 
   assert.deepEqual(received, freshPayload.summary);
-  assert.equal(networkRequests[0]?.cache, "no-cache");
+  // Standard cache semantics keep this request compatible with index.html's
+  // fetch preload, while the request still publishes its fresh response.
+  assert.equal(networkRequests[0]?.cache, undefined);
 });
