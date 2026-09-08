@@ -65,13 +65,19 @@ def test_period_operating_cost_spans_report_anchor_resets() -> None:
             document_type TEXT NOT NULL,
             metadata_json TEXT NOT NULL
         );
+        CREATE TABLE sources(
+            id INTEGER PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE
+        );
         CREATE TABLE fx_rates(
             id INTEGER PRIMARY KEY,
             observed_at TEXT NOT NULL,
             base_currency TEXT NOT NULL,
             quote_currency TEXT NOT NULL,
-            rate TEXT NOT NULL
+            rate TEXT NOT NULL,
+            source_id INTEGER NOT NULL REFERENCES sources(id)
         );
+        INSERT INTO sources(id, code) VALUES (1, 'NORGES_BANK');
         """
     )
     connection.executemany(
@@ -101,7 +107,7 @@ def test_period_operating_cost_spans_report_anchor_resets() -> None:
             ),
         )
     connection.executemany(
-        "INSERT INTO fx_rates(observed_at, base_currency, quote_currency, rate) VALUES (?, 'USD', 'NOK', '10')",
+        "INSERT INTO fx_rates(observed_at, base_currency, quote_currency, rate, source_id) VALUES (?, 'USD', 'NOK', '10', 1)",
         [
             ("2025-12-30T12:00:00Z",),
             ("2026-06-29T12:00:00Z",),
