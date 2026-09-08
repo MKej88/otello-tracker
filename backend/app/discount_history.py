@@ -193,6 +193,29 @@ def _apply_buyback_share_adjustments(
     return adjusted_rows
 
 
+def _apply_otec_daily_closes(
+    rows: list[dict[str, Any]], closes: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Replace intraday snapshot prices with the completed session price."""
+    close_by_date = {
+        str(close["trading_date"]): Decimal(str(close["price"]))
+        for close in closes
+        if close.get("price") is not None
+    }
+    corrected: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        close = close_by_date.get(str(row.get("date") or ""))
+        nav_per_share = row.get("nav_per_share_nok")
+        if close is not None and nav_per_share is not None:
+            nav = Decimal(str(nav_per_share))
+            if nav > 0:
+                row["otec_price_nok"] = close
+                row["discount_pct"] = (Decimal("1") - close / nav) * Decimal("100")
+        corrected.append(row)
+    return corrected
+
+
 def _history_point(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "date": str(row["date"]),
@@ -490,11 +513,34 @@ def discount_history(
             "SELECT id,effective_from,total_shares,treasury_shares,outstanding_shares FROM otello_share_counts WHERE effective_from<=? ORDER BY effective_from,id",
             (history["to"],),
         ).fetchall()
+        closes = connection.execute(
+            """WITH candidates AS (
+              SELECT mp.trading_date,mp.price,0 AS priority,mp.id
+              FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
+              JOIN sources s ON s.id=mp.source_id
+              WHERE i.symbol='OTEC' AND mp.price_type='CLOSE' AND s.code='EURONEXT'
+                AND mp.trading_date>=? AND mp.trading_date<=?
+              UNION ALL
+              SELECT ma.trading_date,ma.last_price_nok AS price,1 AS priority,ma.id
+              FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
+              WHERE i.symbol='OTEC' AND ma.last_price_nok IS NOT NULL
+                AND ma.trading_date>=? AND ma.trading_date<=?
+            ), ranked AS (
+              SELECT *,ROW_NUMBER() OVER (
+                PARTITION BY trading_date ORDER BY priority,id DESC
+              ) AS rn FROM candidates
+            )
+            SELECT trading_date,price FROM ranked WHERE rn=1""",
+            (history["from"], history["to"], history["from"], history["to"]),
+        ).fetchall()
         daily_rows = _apply_buyback_share_adjustments(
             [dict(row) for row in rows],
             [dict(row) for row in periods],
             [dict(row) for row in transactions],
             [dict(row) for row in share_counts],
+        )
+        daily_rows = _apply_otec_daily_closes(
+            daily_rows, [dict(row) for row in closes]
         )
 
     statistics = _discount_statistics(daily_rows)
@@ -519,10 +565,10 @@ def discount_history(
             "type": "VALIDATED_NAV_HISTORY",
             "model_scope": history.get("model_scope"),
             "calculation_version": history.get("calculation_version"),
-            "observation_policy": "LATEST_COMPLETE_SNAPSHOT_PER_DATE",
+            "observation_policy": "LATEST_COMPLETE_SNAPSHOT_WITH_SESSION_CLOSE_PER_DATE",
             "share_count_policy": "NEWSWEB_DAILY_RECONCILED_WHEN_EXACT",
             "buyback_adjusted_observation_count": adjusted_observations,
-            "note": "Historiske persentiler bruker siste komplette validerte FULL/CORE NAV per dato. Når NewsWeb-transaksjoner avstemmer hele ukesmeldingen, justeres utestående aksjer på faktiske handelsdatoer og NAV/aksje samt rabatt beregnes på nytt. Perioder som ikke kan avstemmes eksakt beholdes uendret. Dagens økonomiske investor-NAV vises separat.",
+            "note": "Historiske persentiler bruker siste komplette validerte FULL/CORE NAV per dato og OTECs sluttkurs for den fullførte handelsdagen. Når NewsWeb-transaksjoner avstemmer hele ukesmeldingen, justeres utestående aksjer på faktiske handelsdatoer og NAV/aksje samt rabatt beregnes på nytt. Perioder som ikke kan avstemmes eksakt beholdes uendret. Dagens økonomiske investor-NAV vises separat.",
         },
         "statistics": statistics,
         "current_validated": None

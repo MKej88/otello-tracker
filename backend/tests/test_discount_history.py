@@ -10,6 +10,7 @@ from pathlib import Path
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.discount_history import _apply_buyback_share_adjustments as reference_buyback_adjustments
+from app.discount_history import _apply_otec_daily_closes as reference_daily_closes
 from app.discount_history import _discount_statistics as reference_statistics
 from app.discount_history import discount_history as reference_discount_history
 from app.history import seed_curated_history
@@ -21,6 +22,7 @@ if str(CLOUDFLARE) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE))
 
 from src.discount_history import _apply_buyback_share_adjustments as worker_buyback_adjustments  # noqa: E402
+from src.discount_history import _apply_otec_daily_closes as worker_daily_closes  # noqa: E402
 from src.discount_history import _discount_statistics as worker_statistics  # noqa: E402
 from src.discount_history import discount_history as worker_discount_history  # noqa: E402
 
@@ -94,6 +96,32 @@ def test_discount_statistics_use_linear_percentiles_and_midrank() -> None:
     assert expected["premium_observation_count"] == 1
     assert expected["minimum_discount_date"] == "2026-08-10"
     assert expected["maximum_discount_date"] == "2026-08-14"
+
+
+def test_history_replaces_intraday_otec_price_with_session_close() -> None:
+    rows = [
+        {
+            "date": "2026-09-07",
+            "nav_per_share_nok": "24.00",
+            "otec_price_nok": "18.42",
+            "discount_pct": "23.25",
+        },
+        {
+            "date": "2026-09-08",
+            "nav_per_share_nok": "24.00",
+            "otec_price_nok": "18.50",
+            "discount_pct": "22.9166667",
+        },
+    ]
+    closes = [{"trading_date": "2026-09-07", "price": "18.30"}]
+
+    expected = reference_daily_closes(rows, closes)
+    actual = worker_daily_closes(rows, closes)
+
+    assert actual == expected
+    assert expected[0]["otec_price_nok"] == Decimal("18.30")
+    assert expected[0]["discount_pct"] == Decimal("23.7500")
+    assert expected[1] == rows[1]
 
 
 def test_buyback_adjustment_uses_exact_newsweb_trade_dates_and_matches_worker() -> None:
@@ -193,7 +221,10 @@ def test_discount_history_uses_only_latest_complete_snapshot_per_date(tmp_path: 
     assert expected["ready"] is True
     assert expected["raw_count"] == 2
     assert expected["source_snapshot_count"] == 3
-    assert expected["basis"]["observation_policy"] == "LATEST_COMPLETE_SNAPSHOT_PER_DATE"
+    assert (
+        expected["basis"]["observation_policy"]
+        == "LATEST_COMPLETE_SNAPSHOT_WITH_SESSION_CLOSE_PER_DATE"
+    )
     assert expected["basis"]["share_count_policy"] == "NEWSWEB_DAILY_RECONCILED_WHEN_EXACT"
     assert [point["discount_pct"] for point in expected["points"]] == [20.0, 30.0]
     assert expected["statistics"]["median_discount_pct"] == 25.0
