@@ -127,6 +127,24 @@ async def _load_entry(repository, period_key: str) -> dict[str, Any] | None:
     return _decode_entry(row)
 
 
+async def _load_entries(repository) -> dict[str, dict[str, Any]]:
+    cache_keys = tuple(_cache_key(period_key) for period_key in PERIOD_KEYS)
+    placeholders = ",".join("?" for _ in cache_keys)
+    rows = await repository.all(
+        f"SELECT key, value, updated_at FROM runtime_state WHERE key IN ({placeholders})",
+        cache_keys,
+    )
+
+    entries: dict[str, dict[str, Any]] = {}
+    period_by_cache_key = dict(zip(cache_keys, PERIOD_KEYS, strict=True))
+    for row in rows:
+        period_key = period_by_cache_key.get(str(row.get("key") or ""))
+        entry = _decode_entry(row)
+        if period_key is not None and entry is not None:
+            entries[period_key] = entry
+    return entries
+
+
 async def _write_entry(
     repository,
     *,
@@ -282,8 +300,9 @@ async def materialized_nav_period_bundle(repository) -> dict[str, Any]:
     periods: dict[str, Any] = {}
     updated_at_values: list[str] = []
     missing: list[str] = []
+    entries = await _load_entries(repository)
     for period_key in PERIOD_KEYS:
-        entry = await _load_entry(repository, period_key)
+        entry = entries.get(period_key)
         if (
             entry is None
             or entry.get("source_date") != latest_history_date

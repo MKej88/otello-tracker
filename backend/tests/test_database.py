@@ -172,6 +172,39 @@ def test_migrations_are_idempotent_and_seed_reference_data(tmp_path) -> None:
         connection.rollback()
 
 
+def test_source_document_retry_does_not_replace_publication_time(tmp_path) -> None:
+    database_path = str(tmp_path / "otello.db")
+    init_database(database_path)
+
+    with get_connection(database_path) as connection:
+        document_id = create_source_document(
+            connection,
+            source_code="NEWSWEB",
+            external_id="message-123",
+            document_type="REGULATORY_NEWS",
+            title="Otello-melding",
+            url="https://example.test/message-123",
+            published_at="2026-09-08T10:00:00Z",
+            content_sha256="same-content",
+        )
+        retried_id = create_source_document(
+            connection,
+            source_code="NEWSWEB",
+            external_id="message-123",
+            document_type="REGULATORY_NEWS",
+            title="Otello-melding",
+            url="https://example.test/message-123",
+            published_at="2026-09-08T09:00:00Z",
+            content_sha256="same-content",
+        )
+        row = connection.execute(
+            "SELECT published_at FROM source_documents WHERE id=?", (document_id,)
+        ).fetchone()
+
+    assert retried_id == document_id
+    assert row["published_at"] == "2026-09-08T10:00:00Z"
+
+
 def test_existing_0029_database_receives_harmonized_revenue_backfill(tmp_path) -> None:
     database_path = str(tmp_path / "otello.db")
     init_database(database_path)
