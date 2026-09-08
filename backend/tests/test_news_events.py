@@ -2,14 +2,53 @@ import asyncio
 
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
-from app.news_events import _importance, _news_item, _safe_url, news_events_dashboard
+from app.news_events import (
+    _classification,
+    _news_item,
+    _safe_url,
+    news_events_dashboard,
+)
 
 
-def test_importance_is_factual_and_deterministic() -> None:
-    assert _importance("RESULTS", "NONE") == "HIGH"
-    assert _importance("BUYBACK", "NONE") == "MEDIUM"
-    assert _importance("CORPORATE", "NONE") == "LOW"
-    assert _importance("OTHER", "DIRECT") == "MEDIUM"
+def test_board_meeting_without_material_analysis_needs_review() -> None:
+    classification = _classification(
+        "CORPORATE",
+        "NONE",
+        "PARSED",
+        {"cvm_category": "Reunião da Administração"},
+    )
+    assert classification == (
+        "REVIEW",
+        "Dokumentet er ikke ferdig analysert, eller mangler en konkret begrunnelse.",
+        None,
+    )
+
+
+def test_missing_analysis_reason_falls_back_to_review() -> None:
+    classification, _, _ = _classification("JCP", "POTENTIAL", "PARSED", {})
+    assert classification == "REVIEW"
+
+
+def test_explicit_jcp_can_be_confirmed_important() -> None:
+    classification, reason, effect = _classification(
+        "JCP",
+        "DIRECT",
+        "PARSED",
+        {"classification_reason": "CVM metadata explicitly mentions JCP"},
+    )
+    assert classification == "CONFIRMED_IMPORTANT"
+    assert reason == "Dokumentdata identifiserer en konkret JCP-hendelse."
+    assert effect is not None
+
+
+def test_explicit_acquisition_can_be_confirmed_important() -> None:
+    classification, _, _ = _classification(
+        "M_AND_A",
+        "POTENTIAL",
+        "PARSED",
+        {"classification_reason": "CVM subject explicitly describes an acquisition"},
+    )
+    assert classification == "CONFIRMED_IMPORTANT"
 
 
 def test_only_http_sources_are_exposed_as_links() -> None:
@@ -53,13 +92,17 @@ def test_jcp_uses_precise_label_and_exposes_nav_impact() -> None:
             "summary": None,
             "category": "JCP",
             "nav_impact": "DIRECT",
-            "metadata_json": "{}",
+            "processing_status": "PARSED",
+            "metadata_json": (
+                '{"classification_reason":"CVM metadata explicitly mentions JCP"}'
+            ),
         }
     )
 
     assert item["category_label"] == "JCP"
     assert item["nav_impact"] == "DIRECT"
     assert item["importance"] == "HIGH"
+    assert item["classification"] == "CONFIRMED_IMPORTANT"
 
 
 def test_news_events_dashboard_is_safe_on_empty_database(tmp_path) -> None:
@@ -115,3 +158,48 @@ def test_news_uses_document_date_when_news_date_is_missing(tmp_path) -> None:
     result = asyncio.run(news_events_dashboard(database, as_of_date="2026-08-27"))
 
     assert result["news"][0]["published_at"] == "2026-08-26T08:15:00Z"
+
+
+def test_identical_documents_only_create_one_card(tmp_path) -> None:
+    database = str(tmp_path / "deduplicated-news.db")
+    init_database(database)
+    with get_connection(database) as connection:
+        instrument_id = connection.execute("""
+            INSERT INTO instruments(symbol, name, asset_type, currency)
+            VALUES ('BMOB3', 'Bemobi', 'EQUITY', 'BRL')
+            """).lastrowid
+        source_id = connection.execute(
+            "SELECT id FROM sources WHERE code='CVM'"
+        ).fetchone()[0]
+        for sequence in (1, 2):
+            document_id = connection.execute(
+                """
+                INSERT INTO source_documents(
+                    source_id, external_id, document_type, title, published_at,
+                    url, metadata_json
+                ) VALUES (?, ?, 'CVM_IPE_METADATA', 'Board meeting — Minutes',
+                          '2026-08-27', ?, ?)
+                """,
+                (
+                    source_id,
+                    f"meeting-{sequence}",
+                    f"https://example.com/meeting-{sequence}",
+                    '{"logical_key":"same-meeting","is_latest_version":true}',
+                ),
+            ).lastrowid
+            connection.execute(
+                """
+                INSERT INTO company_news(
+                    issuer_instrument_id, source_document_id, headline,
+                    published_at, category, processing_status
+                ) VALUES (?, ?, 'Board meeting — Minutes', '2026-08-27',
+                          'CORPORATE', 'PARSED')
+                """,
+                (instrument_id, document_id),
+            )
+        connection.commit()
+
+    result = asyncio.run(news_events_dashboard(database, as_of_date="2026-08-27"))
+
+    assert len(result["news"]) == 1
+    assert result["news"][0]["classification"] == "INFORMATION"
