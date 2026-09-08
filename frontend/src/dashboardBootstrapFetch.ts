@@ -142,6 +142,15 @@ export function subscribeDashboardRevalidation<T>(
   const wrapped = listener as (value: unknown) => void;
   listeners.add(wrapped);
   revalidationListeners.set(component, listeners);
+
+  // Revalidation can finish between the cached first paint and React mounting
+  // this listener. Hand over the fresh value here as well, so it is never lost
+  // in that short race and left stale until the next polling interval.
+  if (servedFromClientCache.has(component) && revalidatedBootstrap != null) {
+    const value = revalidatedBootstrap[component];
+    if (isObject(value)) listener(value as T);
+  }
+
   return () => {
     listeners.delete(wrapped);
     if (listeners.size === 0) revalidationListeners.delete(component);
@@ -167,7 +176,7 @@ function publishRevalidatedComponent(
 
 async function fetchBootstrap(originalFetch: typeof window.fetch): Promise<BootstrapPayload | null> {
   try {
-    const response = await originalFetch("/api/dashboard/bootstrap");
+    const response = await originalFetch("/api/dashboard/bootstrap", { cache: "no-cache" });
     if (!response.ok) return null;
     const payload = await response.json() as BootstrapPayload;
     if (!completeBootstrap(payload)) return null;
