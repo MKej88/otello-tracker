@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import date, timedelta
 from typing import Any
@@ -21,12 +22,66 @@ CATEGORY_LABELS = {
 }
 
 
-def _importance(category: str, nav_impact: str) -> str:
-    if category in {"RESULTS", "DIVIDEND", "JCP", "M_AND_A", "CAPITAL"}:
-        return "HIGH"
-    if category == "BUYBACK" or nav_impact in {"DIRECT", "POTENTIAL"}:
-        return "MEDIUM"
-    return "LOW"
+MATERIAL_CATEGORIES = {"DIVIDEND", "JCP", "BUYBACK", "M_AND_A", "CAPITAL", "GUIDANCE"}
+REVIEW_STATUSES = {"NEW", "REVIEW_REQUIRED"}
+REASON_LABELS = {
+    "DIVIDEND": "Dokumentdata identifiserer et konkret utbytte.",
+    "JCP": "Dokumentdata identifiserer en konkret JCP-hendelse.",
+    "BUYBACK": "Dokumentdata identifiserer et konkret tilbakekjøp.",
+    "M_AND_A": "Dokumentdata identifiserer en konkret selskapstransaksjon.",
+    "CAPITAL": "Dokumentdata identifiserer en konkret kapitalhendelse.",
+    "GUIDANCE": "Dokumentdata identifiserer en konkret endring i guiding.",
+}
+
+
+def _classification(
+    category: str,
+    nav_impact: str,
+    processing_status: str,
+    metadata: dict[str, Any],
+) -> tuple[str, str, str | None]:
+    """Classify only documented signals, never the filing type by itself."""
+    reason = str(metadata.get("classification_reason") or "").strip()
+    requires_review = metadata.get("requires_review") is True
+    has_concrete_reason = (
+        category in MATERIAL_CATEGORIES
+        and bool(reason)
+        and not requires_review
+        and processing_status not in REVIEW_STATUSES
+    )
+    if has_concrete_reason:
+        case_effect = (
+            "Direkte effekt på verdi eller kontantstrøm er registrert."
+            if nav_impact == "DIRECT"
+            else "Den identifiserte hendelsen kan påvirke verdi, kontantstrøm eller risiko."
+        )
+        return "CONFIRMED_IMPORTANT", REASON_LABELS[category], case_effect
+
+    governance_filing = str(metadata.get("cvm_category") or "").lower() in {
+        "reunião da administração",
+        "assembleia",
+    }
+    if (
+        processing_status in REVIEW_STATUSES
+        or category in MATERIAL_CATEGORIES
+        or governance_filing
+    ):
+        return (
+            "REVIEW",
+            "Dokumentet er ikke ferdig analysert, eller mangler en konkret begrunnelse.",
+            None,
+        )
+    return "INFORMATION", "Ingen materiell endring er identifisert.", None
+
+
+def _importance(classification: str) -> str:
+    """Keep the old API field, but derive it from the stricter classification."""
+    return {
+        "CONFIRMED_IMPORTANT": "HIGH",
+        "POSSIBLY_IMPORTANT": "MEDIUM",
+        "REVIEW": "LOW",
+        "INFORMATION": "LOW",
+    }[classification]
 
 
 def _safe_url(value: Any) -> str | None:
@@ -46,6 +101,10 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     category = str(row.get("category") or "OTHER")
     nav_impact = str(row.get("nav_impact") or "NONE")
     metadata = _decode_payload(row.get("metadata_json"))
+    processing_status = str(row.get("processing_status") or "NEW")
+    classification, reason, case_effect = _classification(
+        category, nav_impact, processing_status, metadata
+    )
     headline = row.get("headline")
     summary = row.get("summary")
     if row.get("symbol") == "BMOB3":
@@ -61,13 +120,35 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "published_at": row.get("published_at"),
         "category": category,
         "category_label": CATEGORY_LABELS.get(category, "Annet"),
-        "importance": _importance(category, nav_impact),
+        "importance": _importance(classification),
+        "classification": classification,
+        "reason": reason,
+        "case_effect": case_effect,
         "nav_impact": nav_impact,
         "summary": summary,
         "source": row.get("source_name") or row.get("source_code"),
         "url": _safe_url(row.get("url")),
         "content_type": "OFFICIAL",
+        "deduplication_key": _deduplication_key(row, metadata),
     }
+
+
+def _deduplication_key(row: dict[str, Any], metadata: dict[str, Any]) -> str:
+    """Group exact/logical duplicates while preserving distinct material events."""
+    logical_key = str(metadata.get("logical_key") or "").strip()
+    if logical_key and row.get("category") not in MATERIAL_CATEGORIES:
+        return f"logical:{logical_key}"
+    content_hash = str(row.get("content_sha256") or "").strip()
+    if content_hash:
+        return f"content:{content_hash}"
+    url = _safe_url(row.get("url"))
+    if url:
+        return f"url:{url}"
+    normalized_headline = re.sub(
+        r"\s+", " ", str(row.get("headline") or "").lower()
+    ).strip()
+    published_date = str(row.get("published_at") or "")[:10]
+    return f"fallback:{row.get('symbol')}:{published_date}:{normalized_headline}"
 
 
 def _event(
@@ -105,13 +186,18 @@ async def news_and_events(
 ) -> dict[str, Any]:
     today = date.fromisoformat(as_of_date) if as_of_date else date.today()
     safe_limit = max(1, min(news_limit, 100))
-    news_rows = await repository.all(
-        """
+    news = []
+    seen_documents: set[str] = set()
+    batch_size = safe_limit * 3
+    offset = 0
+    while len(news) < safe_limit:
+        news_rows = await repository.all(
+            """
         SELECT cn.id, cn.headline,
                COALESCE(cn.published_at, sd.published_at) AS published_at,
-               cn.category, cn.nav_impact,
+               cn.category, cn.nav_impact, cn.processing_status,
                cn.summary, i.symbol, sd.url, s.code AS source_code,
-               s.name AS source_name, sd.metadata_json
+               s.name AS source_name, sd.metadata_json, sd.content_sha256
         FROM company_news cn
         LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
         JOIN source_documents sd ON sd.id=cn.source_document_id
@@ -119,18 +205,25 @@ async def news_and_events(
         WHERE i.symbol IN ('OTEC', 'BMOB3')
           AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
         ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """,
-        (safe_limit * 3,),
-    )
-    news = []
-    for row in news_rows:
-        metadata = _decode_payload(row.get("metadata_json"))
-        if metadata.get("is_latest_version") is False:
-            continue
-        news.append(_news_item(row))
-        if len(news) >= safe_limit:
+            (batch_size, offset),
+        )
+        for row in news_rows:
+            metadata = _decode_payload(row.get("metadata_json"))
+            if metadata.get("is_latest_version") is False:
+                continue
+            item = _news_item(row)
+            deduplication_key = str(item.pop("deduplication_key"))
+            if deduplication_key in seen_documents:
+                continue
+            seen_documents.add(deduplication_key)
+            news.append(item)
+            if len(news) >= safe_limit:
+                break
+        if len(news_rows) < batch_size:
             break
+        offset += batch_size
 
     events: list[dict[str, Any]] = []
     programs = await repository.all(
