@@ -9,7 +9,7 @@ MAIN = ROOT / "frontend" / "src" / "main.tsx"
 APP = ROOT / "frontend" / "src" / "InvestorApp.tsx"
 
 
-def test_investor_navigation_is_grouped_without_changing_views() -> None:
+def test_investor_navigation_contains_grouped_views() -> None:
     views = VIEWS.read_text(encoding="utf-8")
     nav = NAV.read_text(encoding="utf-8")
     styles = STYLES.read_text(encoding="utf-8")
@@ -22,7 +22,10 @@ def test_investor_navigation_is_grouped_without_changing_views() -> None:
     assert 'items: ["Oversikt", "NAV", "NAV-sensitivitet", "Historikk"]' in views
     assert 'items: ["Tilbakekjøpsprogram", "Cash"]' in views
     assert 'items: ["Bemobi", "Konsensus", "BRL/NOK", "Brasil"]' in views
-    assert 'items: ["Nyheter", "Datakvalitet"]' in views
+    assert (
+        'items: ["Nyheter", "Metode og transparens", "Datakvalitet"]' in views
+    )
+    assert '"Metode og transparens": "metode"' in views
     assert "navigationGroups.flatMap" in views
 
     assert "navigationGroups.map" in nav
