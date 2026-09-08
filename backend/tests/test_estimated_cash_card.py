@@ -64,6 +64,30 @@ def test_cash_bridge_filters_residual_and_handles_missing_shares() -> None:
     assert [item["key"] for item in material["movements"]] == ["other_cash"]
 
 
+def test_cash_bridge_shows_small_movements_when_their_sum_is_material() -> None:
+    bridge = build_cash_bridge(
+        anchor_date="2026-06-30",
+        reported_cash_nok=Decimal("100000000"),
+        modeled_cash_nok=Decimal("100000600"),
+        shares_outstanding=1,
+        cash_fx_nok=Decimal("600"),
+    )
+
+    assert bridge["change_since_report_mnok"] == 0.0012
+    assert bridge["movements"] == [
+        {"key": "cash_fx", "label": "Valutaeffekt", "amount_mnok": 0.0006},
+        {
+            "key": "other_cash",
+            "label": "Andre kontantbevegelser",
+            "amount_mnok": 0.0006,
+        },
+    ]
+    assert sum(
+        Decimal(str(item["amount_mnok"])) for item in bridge["movements"]
+    ) == Decimal(str(bridge["change_since_report_mnok"]))
+    assert bridge["reconciles"] is True
+
+
 def test_worker_cash_bridge_has_backend_parity() -> None:
     spec = importlib.util.spec_from_file_location(
         "worker_economic_nav", ROOT / "cloudflare/src/economic_nav.py"
