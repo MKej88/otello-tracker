@@ -253,7 +253,10 @@ async def sync_confirmed_bemobi_distribution_cash(
     actions = await repository.all(
         """
         SELECT ca.id, ca.external_action_id, ca.action_type, ca.ex_date,
-               ca.payment_date, ca.amount_per_share, ca.net_amount_per_share,
+               ca.payment_date,
+               COALESCE(ca.gross_amount_per_share, ca.amount_per_share)
+                   AS amount_per_share,
+               ca.net_amount_per_share,
                ca.withholding_rate, ca.tax_treatment, ca.source_document_id
         FROM corporate_actions ca
         JOIN instruments i ON i.id = ca.issuer_instrument_id
@@ -261,7 +264,7 @@ async def sync_confirmed_bemobi_distribution_cash(
           AND ca.action_type IN ('DIVIDEND', 'JCP')
           AND ca.ex_date IS NOT NULL
           AND ca.payment_date IS NOT NULL
-          AND ca.amount_per_share IS NOT NULL
+          AND COALESCE(ca.gross_amount_per_share, ca.amount_per_share) IS NOT NULL
           AND ca.payment_date <= ?
         ORDER BY ca.payment_date, ca.id
         """,
