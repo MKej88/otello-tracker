@@ -18,6 +18,7 @@ from newsweb_client import (  # noqa: E402
     fetch_attachment,
     fetch_message,
     parse_list_payload,
+    parse_message_payload,
 )
 
 
@@ -78,6 +79,18 @@ class NewsWebStatusHeaderTest(unittest.IsolatedAsyncioTestCase):
             await _post_json("https://example.com", fetcher=fetcher),
             payload,
         )
+
+    async def test_rejects_api_error_even_when_http_request_succeeds(self) -> None:
+        async def fetcher(*args: object, **kwargs: object) -> SimpleNamespace:
+            return _response(
+                {
+                    "header": {"result.val": 1, "http.code": 200},
+                    "data": {"messages": [], "overflow": False},
+                }
+            )
+
+        with self.assertRaisesRegex(ValueError, "NewsWeb API-feil"):
+            await _post_json("https://example.com", fetcher=fetcher)
 
 
 class NewsWebPartialResponseTest(unittest.TestCase):
@@ -169,6 +182,21 @@ class NewsWebPartialResponseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ugyldig kategoriliste"):
             parse_list_payload(payload)
 
+    def test_detailed_message_requires_body(self) -> None:
+        payload = {
+            "header": {"result.val": 0, "http.code": 200},
+            "data": {
+                "message": _message(
+                    127,
+                    "2026-08-30T10:00:00Z",
+                    body=None,
+                )
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "mangler meldingstekst"):
+            parse_message_payload(payload)
+
 
 class NewsWebDiscoveryControlFlowTest(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_reversed_date_range_before_request(self) -> None:
@@ -248,6 +276,37 @@ class NewsWebDiscoveryControlFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([message.message_id for message in messages], [31])
         self.assertEqual(messages[0].correction_for_message_id, 30)
+
+    async def test_does_not_return_partial_results_when_split_request_times_out(
+        self,
+    ) -> None:
+        requested_windows: list[tuple[str, str]] = []
+
+        async def fetcher(url: str, **kwargs: object) -> SimpleNamespace:
+            query = parse_qs(urlparse(url).query)
+            window = (query["fromDate"][0], query["toDate"][0])
+            requested_windows.append(window)
+            if window == ("2026-08-30", "2026-08-31"):
+                raise TimeoutError("NewsWeb svarte ikke")
+            if window == ("2026-08-28", "2026-08-31"):
+                return _list_response([], overflow=True)
+            return _list_response(
+                [_message(40, "2026-08-29T09:00:00Z")], overflow=False
+            )
+
+        with self.assertRaisesRegex(TimeoutError, "NewsWeb svarte ikke"):
+            await discover_otec_messages(
+                "2026-08-28", "2026-08-31", fetcher=fetcher
+            )
+
+        self.assertEqual(
+            requested_windows,
+            [
+                ("2026-08-28", "2026-08-31"),
+                ("2026-08-28", "2026-08-29"),
+                ("2026-08-30", "2026-08-31"),
+            ],
+        )
 
 
 class NewsWebResourceIdentityTest(unittest.IsolatedAsyncioTestCase):
