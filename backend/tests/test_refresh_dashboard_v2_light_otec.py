@@ -1,4 +1,4 @@
-from datetime import date as real_date
+from datetime import UTC, datetime as real_datetime
 
 import app.jobs.refresh_dashboard_v2 as wrapper
 
@@ -10,12 +10,13 @@ def test_daily_wrapper_refreshes_light_otec_before_core_nav(
     order: list[str] = []
     captured_core_kwargs = {}
 
-    class FixedDate(real_date):
+    class FixedDateTime(real_datetime):
         @classmethod
-        def today(cls):
-            return cls(2026, 8, 17)
+        def now(cls, tz=None):
+            instant = cls(2026, 8, 17, 10, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
 
-    monkeypatch.setattr(wrapper, "date", FixedDate)
+    monkeypatch.setattr(wrapper, "datetime", FixedDateTime)
     monkeypatch.setattr(
         wrapper,
         "market_activity_status",
@@ -63,12 +64,13 @@ def test_source_failure_is_recorded_while_core_refresh_continues(
     database = str(tmp_path / "source-failure.db")
     core_was_called = False
 
-    class FixedDate(real_date):
+    class FixedDateTime(real_datetime):
         @classmethod
-        def today(cls):
-            return cls(2026, 8, 17)
+        def now(cls, tz=None):
+            instant = cls(2026, 8, 17, 10, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
 
-    monkeypatch.setattr(wrapper, "date", FixedDate)
+    monkeypatch.setattr(wrapper, "datetime", FixedDateTime)
     monkeypatch.setattr(
         wrapper,
         "market_activity_status",

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.buybacks import (
     activity_check_done,
@@ -49,7 +50,7 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
     """
     init_database(database_path)
     target = kwargs.get("target_date")
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/Oslo")).date()
     target_day = date.fromisoformat(target) if target else today
     requested_live_otec = bool(kwargs.get("fetch_otec_delayed", True))
     requested_b3 = bool(kwargs.get("fetch_b3", True))

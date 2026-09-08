@@ -1,7 +1,71 @@
-from datetime import date as real_date
+from datetime import UTC, date as real_date, datetime as real_datetime
 
 import app.jobs.refresh_dashboard_v2 as refresh_v2
 from app.db.migration_runner import init_database
+
+
+def test_default_target_uses_oslo_date_at_utc_day_boundary(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "oslo-date.db")
+    init_database(database)
+    calls = {}
+
+    class FixedDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = cls(2026, 8, 16, 22, 30, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
+
+    monkeypatch.setattr(refresh_v2, "datetime", FixedDateTime)
+    monkeypatch.setattr(
+        refresh_v2,
+        "market_activity_status",
+        lambda *_args, **_kwargs: {
+            "status": "ok",
+            "count": 600,
+            "to": "2026-08-14",
+        },
+    )
+    monkeypatch.setattr(refresh_v2, "activity_check_done", lambda *_args: True)
+    monkeypatch.setattr(
+        refresh_v2,
+        "refresh_otec_intraday_price",
+        lambda *_args, **_kwargs: calls.setdefault("otec", True) or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        refresh_v2,
+        "refresh_bmob3_official_close",
+        lambda *_args, **kwargs: calls.setdefault("bmob3_target", kwargs["target_date"])
+        or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        refresh_v2,
+        "maybe_finalize_bmob3_eod",
+        lambda *_args, **_kwargs: {"status": "skipped"},
+    )
+    monkeypatch.setattr(
+        refresh_v2,
+        "refresh_bmob3_intraday_price",
+        lambda *_args, **_kwargs: {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        refresh_v2,
+        "sync_current_program_terms",
+        lambda *_args, **_kwargs: {"status": "ok"},
+    )
+
+    def fake_core(_database_path, **kwargs):
+        calls["core_kwargs"] = kwargs
+        return {"status": "ok", "steps": {}, "source_errors": []}
+
+    monkeypatch.setattr(refresh_v2, "run_core_refresh", fake_core)
+
+    refresh_v2.run_refresh(database)
+
+    assert calls["otec"] is True
+    assert calls["bmob3_target"] == "2026-08-17"
+    assert calls["core_kwargs"]["fetch_b3"] is False
 
 
 def test_live_full_refresh_disables_annual_b3_download(tmp_path, monkeypatch) -> None:
@@ -9,12 +73,13 @@ def test_live_full_refresh_disables_annual_b3_download(tmp_path, monkeypatch) ->
     init_database(database)
     calls = {}
 
-    class FixedDate(real_date):
+    class FixedDateTime(real_datetime):
         @classmethod
-        def today(cls):
-            return cls(2026, 8, 17)
+        def now(cls, tz=None):
+            instant = cls(2026, 8, 17, 10, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
 
-    monkeypatch.setattr(refresh_v2, "date", FixedDate)
+    monkeypatch.setattr(refresh_v2, "datetime", FixedDateTime)
     monkeypatch.setattr(
         refresh_v2,
         "market_activity_status",
