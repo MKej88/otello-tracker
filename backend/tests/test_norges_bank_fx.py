@@ -106,6 +106,14 @@ def test_norges_bank_parser_rejects_date_missing_one_currency() -> None:
         parse_norges_bank_sdmx_json(payload)
 
 
+def test_norges_bank_parser_treats_series_without_observations_as_missing() -> None:
+    payload = _sample_payload()
+    payload["dataSets"][0]["series"]["0:2:0:0"]["observations"] = {}
+
+    with pytest.raises(ValueError, match=r"manglet valuta: USD"):
+        parse_norges_bank_sdmx_json(payload)
+
+
 def test_norges_bank_parser_reports_every_missing_currency_by_date() -> None:
     payload = _sample_payload()
     series = payload["dataSets"][0]["series"]
