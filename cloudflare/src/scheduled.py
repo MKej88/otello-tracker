@@ -56,6 +56,10 @@ PHASE = "16.2"
 FAST_LOCK_TTL_SECONDS = 20 * 60
 
 
+async def _skip_lock_renewal(_checkpoint: str) -> None:
+    """Behold samme kallform når kjøringen ikke har en lås å fornye."""
+
+
 def _scheduled_datetime(scheduled_time_ms: Any | None) -> datetime:
     if scheduled_time_ms is None:
         return datetime.now(UTC)
@@ -194,6 +198,7 @@ async def run_fast_refresh(
     errors: list[dict[str, str]] = []
     timings_ms: dict[str, float] = {}
     records_written = 0
+    renew = renew_lock if renew_lock is not None else _skip_lock_renewal
 
     plan = await _safe_async_step(
         "otec_plan",
@@ -268,8 +273,7 @@ async def run_fast_refresh(
     if isinstance(otec_activity, dict):
         records_written += int(otec_activity.get("written") or 0)
 
-    if renew_lock is not None:
-        await renew_lock("after OTEC")
+    await renew("after OTEC")
 
     bmob3_eod = await _safe_async_step(
         "bmob3_eod",
@@ -300,8 +304,7 @@ async def run_fast_refresh(
         if isinstance(bmob3, dict) and bmob3.get("status") == "ok":
             records_written += 1
 
-    if renew_lock is not None:
-        await renew_lock("after B3")
+    await renew("after B3")
 
     newsweb_date = scheduled_at.astimezone(OSLO_TZ).date().isoformat()
     newsweb = await _safe_async_step(
@@ -330,8 +333,7 @@ async def run_fast_refresh(
             "reason": "newsweb_fast_failed",
         }
 
-    if renew_lock is not None:
-        await renew_lock("after NewsWeb")
+    await renew("after NewsWeb")
 
     if archive_bucket is None:
         report_result = {
@@ -368,7 +370,9 @@ async def run_fast_refresh(
 
     interest_result = await _safe_async_step(
         "otello_interest",
-        lambda: sync_interest_income_anchors_from_report_result(repository, report_result),
+        lambda: sync_interest_income_anchors_from_report_result(
+            repository, report_result
+        ),
         steps=steps,
         errors=errors,
         timings_ms=timings_ms,
@@ -377,8 +381,7 @@ async def run_fast_refresh(
         records_written += int(interest_result.get("written") or 0)
         _append_nested_errors("otello_interest", interest_result, errors=errors)
 
-    if renew_lock is not None:
-        await renew_lock("after Otello reports")
+    await renew("after Otello reports")
 
     fx_repair = await _safe_async_step(
         "norges_bank_fx_repair",
@@ -407,8 +410,7 @@ async def run_fast_refresh(
                 }
             )
 
-    if renew_lock is not None:
-        await renew_lock("after Norges Bank FX")
+    await renew("after Norges Bank FX")
 
     life360_repair = await _safe_async_step(
         "life360_lif_repair",
@@ -436,8 +438,7 @@ async def run_fast_refresh(
                 }
             )
 
-    if renew_lock is not None:
-        await renew_lock("after Life360 LIF repair")
+    await renew("after Life360 LIF repair")
 
     bemobi_distribution_cash = await _safe_async_step(
         "bemobi_distribution_cash",
@@ -473,8 +474,7 @@ async def run_fast_refresh(
                 }
             )
 
-    if renew_lock is not None:
-        await renew_lock("after Bemobi distribution cash")
+    await renew("after Bemobi distribution cash")
 
     dirty_nav = await _safe_async_step(
         "dirty_nav",
@@ -495,8 +495,7 @@ async def run_fast_refresh(
                 }
             )
 
-    if renew_lock is not None:
-        await renew_lock("after dirty NAV")
+    await renew("after dirty NAV")
 
     # First-screen cache is a performance optimization, not an ingestion source. Seed it even
     # on no-change/weekend runs when it is missing; otherwise rebuild only when upstream data
@@ -512,8 +511,7 @@ async def run_fast_refresh(
     if hot_snapshot_errors and isinstance(steps.get("dashboard_hot_snapshot"), dict):
         steps["dashboard_hot_snapshot"]["non_critical"] = True
 
-    if renew_lock is not None:
-        await renew_lock("after dashboard snapshot")
+    await renew("after dashboard snapshot")
 
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}
