@@ -264,10 +264,20 @@ def build_cash_bridge(
         ("cash_fx", "Valutaeffekt", cash_fx_nok),
         ("other_cash", "Andre kontantbevegelser", other_cash_nok),
     ]
+    hidden_total_nok = sum(
+        (
+            amount
+            for _key, _label, amount in movements
+            if abs(amount) <= CASH_BRIDGE_TOLERANCE_NOK
+        ),
+        Decimal("0"),
+    )
+    show_small_movements = abs(hidden_total_nok) > CASH_BRIDGE_TOLERANCE_NOK
     visible_movements = [
         {"key": key, "label": label, "amount_mnok": _float(amount / MILLION)}
         for key, label, amount in movements
         if abs(amount) > CASH_BRIDGE_TOLERANCE_NOK
+        or (show_small_movements and amount != 0)
     ]
     change_nok = estimated_cash_nok - reported_cash_nok
     visible_total = sum(
