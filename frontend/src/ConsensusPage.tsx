@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
+import DataClassification from "./DataClassification";
+import TransparencyNotice from "./TransparencyNotice";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -309,9 +311,10 @@ export default function ConsensusPage() {
 
   return (
     <div className="consensusPage consensusPageV2">
+      <TransparencyNotice />
       <section className="card consensusHero consensusHeroV2">
         <div>
-          <span className="label">BEMOBI / KONSENSUS</span>
+          <span className="label">BEMOBI / KONSENSUS</span>{" "}<DataClassification type="estimated" />
           <h2>Hva forventer markedet?</h2>
           <p>Kursmål, neste kvartals forventninger, historisk beat/miss og hvordan meglerestimater endres etter resultat.</p>
         </div>

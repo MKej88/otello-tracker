@@ -4,6 +4,8 @@ import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatNumber } from "./uiFormat";
 import { usePollingResource } from "./usePollingResource";
+import DataClassification from "./DataClassification";
+import TransparencyNotice from "./TransparencyNotice";
 
 type Point = { date: string; nav_per_share?: number | null; otec_price?: number | null; discount_pct?: number | null };
 type Statistics = {
@@ -240,9 +242,10 @@ export default function EstimatedHistoryPage() {
 
   return (
     <div className="investorPage historyV2">
+      <TransparencyNotice />
       <section className="card historyV2Header">
         <div>
-          <span className="label">HISTORIKK</span>
+          <span className="label">HISTORIKK</span>{" "}<DataClassification type="calculated" />
           <h2>Rabatt til NAV</h2>
           <p>Basert på historiske NAV-beregninger, markedsdata og valutakurser. Kun datoer med godt nok datagrunnlag brukes.</p>
         </div>

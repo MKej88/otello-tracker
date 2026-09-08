@@ -10,6 +10,7 @@ export type View =
   | "Brasil"
   | "Konsensus"
   | "Nyheter"
+  | "Metode og transparens"
   | "Datakvalitet";
 
 export type NavigationGroup = {
@@ -32,7 +33,7 @@ export const navigationGroups: NavigationGroup[] = [
   },
   {
     label: "Informasjon",
-    items: ["Nyheter", "Datakvalitet"],
+    items: ["Nyheter", "Metode og transparens", "Datakvalitet"],
   },
 ];
 
@@ -50,6 +51,7 @@ export const viewSlugs: Record<View, string> = {
   Brasil: "brasil",
   Konsensus: "konsensus",
   Nyheter: "nyheter",
+  "Metode og transparens": "metode",
   Datakvalitet: "datakvalitet",
 };
 
@@ -65,6 +67,7 @@ export const viewTitles: Record<View, string> = {
   Brasil: "Brasil",
   Konsensus: "Konsensus",
   Nyheter: "Nyheter og hendelser",
+  "Metode og transparens": "Metode og transparens",
   Datakvalitet: "Datakvalitet",
 };
 

@@ -157,6 +157,19 @@ bakoverkompatible fordi de ikke rulles tilbake sammen med Worker.
 Nettsiden leveres med vanlige sikkerhetsheadere. Hemmeligheter skal ligge i
 GitHub eller Cloudflare, aldri i Git.
 
+## Transparens i brukergrensesnittet
+
+Den korte transparenserklæringen vedlikeholdes i den globale footeren i
+`frontend/src/InvestorApp.tsx`. Den fullstendige teksten ligger på siden
+**Metode og transparens** i `frontend/src/MethodologyPage.tsx`, som er
+tilgjengelig på `#metode`.
+
+Analysevisninger bruker `frontend/src/TransparencyNotice.tsx` for å opplyse om
+økonomisk interesse. Tall kan merkes med `frontend/src/DataClassification.tsx`:
+`reported` gir «Rapportert», `calculated` gir «Beregnet» og `estimated` gir
+«Estimert». Merkingen er kun en presentasjon av datatypen og endrer ikke
+beregningene.
+
 ## Videre dokumentasjon
 
 - [`docs/architecture.md`](docs/architecture.md) – produksjonsarkitektur

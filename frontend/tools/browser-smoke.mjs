@@ -247,6 +247,14 @@ async function main() {
     throw new Error(`Aktiv meny er ikke tilgjengelig markert: ${JSON.stringify(accessibility)}`);
   }
 
+  const transparency = await session.evaluate(`(() => ({
+    footerText: document.querySelector('.siteFooter')?.textContent ?? '',
+    footerHref: document.querySelector('.siteFooter a')?.getAttribute('href'),
+  }))()`);
+  if (!transparency.footerText.includes("ikke personlig investeringsrådgivning") || transparency.footerHref !== "#metode") {
+    throw new Error(`Global transparensfooter mangler eller har feil lenke: ${JSON.stringify(transparency)}`);
+  }
+
   await session.send("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,
@@ -270,10 +278,26 @@ async function main() {
   await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
+  const disclosure = await session.evaluate("document.querySelector('.transparencyNotice')?.textContent ?? ''");
+  if (!disclosure.includes("eier aksjer i Otello Corporation ASA") || !disclosure.includes("Les mer om metode og transparens")) {
+    throw new Error(`Interesseopplysningen mangler korrekt tekst: ${JSON.stringify(disclosure)}`);
+  }
   await clickView(session, "Nyheter", "Nyheter og hendelser", ".newsEventsPage");
+  await clickView(session, "Metode og transparens", "Metode og transparens", ".methodologyPage");
+  const methodology = await session.evaluate(`(() => ({
+    hash: location.hash,
+    identity: document.body.innerText.includes('OtelloTracker er utviklet og drevet av Mads Kristensen.'),
+    labels: [...document.querySelectorAll('.methodologyPage .dataClassification')].map((item) => item.textContent?.trim()),
+  }))()`);
+  if (methodology.hash !== "#metode" || !methodology.identity) {
+    throw new Error(`Metodesiden eller internruten er feil: ${JSON.stringify(methodology)}`);
+  }
+  if (JSON.stringify(methodology.labels) !== JSON.stringify(["Rapportert", "Beregnet", "Estimert"])) {
+    throw new Error(`Dataklassifiseringene er feil: ${JSON.stringify(methodology.labels)}`);
+  }
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
-  console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
+  console.log("Browser-smoke bestått, inkludert transparensfooter, disclosures, dataklassifisering og metodeside.");
   session.close();
 }
 

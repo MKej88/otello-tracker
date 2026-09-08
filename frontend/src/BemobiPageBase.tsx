@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import ResourceNotice from "./ResourceNotice";
+import DataClassification from "./DataClassification";
+import TransparencyNotice from "./TransparencyNotice";
 import "./bemobi-page.css";
 
 type ValuationScenario = {
@@ -306,6 +308,7 @@ export default function BemobiPageBase() {
 
   return (
     <div className="bemobiPage bemobiPageClean">
+      <TransparencyNotice />
       <section className="card bemobiCleanHero">
         <div>
           <span className="label">BEMOBI</span>
@@ -471,6 +474,7 @@ export default function BemobiPageBase() {
           <div>
             <span className="label">KVARTALSUTVIKLING</span>
             <h2>Siste fire rapporterte kvartaler</h2>
+            <DataClassification type="reported" />
           </div>
         </div>
         <div className="bemobiQuarterTableWrap">

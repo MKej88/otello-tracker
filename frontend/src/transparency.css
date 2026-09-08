@@ -1,0 +1,74 @@
+.siteFooter {
+  margin-top: 32px;
+  padding-top: 18px;
+  border-top: 1px solid var(--ot-border-soft);
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.siteFooter p { max-width: 960px; margin: 0 0 5px; }
+.siteFooter a,
+.transparencyNotice a { color: var(--ot-text-secondary); text-underline-offset: 3px; }
+.siteFooter a:hover,
+.transparencyNotice a:hover { color: var(--ot-text); }
+
+.transparencyNotice {
+  padding: 10px 12px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: var(--ot-surface-muted);
+  color: var(--ot-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.transparencyNotice strong { color: var(--ot-text-secondary); }
+
+.dataClassification {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid var(--ot-border-strong);
+  border-radius: 999px;
+  background: var(--ot-surface-raised);
+  color: var(--ot-text-secondary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.dataClassification--calculated { border-color: var(--ot-accent-border); }
+.dataClassification--estimated { border-style: dashed; }
+
+.methodologyIntro,
+.methodologySection { max-width: 960px; }
+.methodologyIntro h2 { margin-top: 7px; font-size: clamp(24px, 4vw, 34px); }
+.methodologyIntro p,
+.methodologySection p {
+  color: var(--ot-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.methodologyIntro p { max-width: 720px; margin-bottom: 0; }
+.methodologySection h2 { font-size: 19px; }
+.methodologySection p:last-child { margin-bottom: 0; }
+.methodologyConflict {
+  border-color: var(--ot-accent-border);
+  box-shadow: inset 3px 0 0 var(--ot-accent);
+}
+.classificationGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.classificationGrid > div {
+  padding: 14px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 10px;
+  background: var(--ot-surface-muted);
+}
+.classificationGrid p { margin: 10px 0 0; font-size: 12px; }
+
+@media (max-width: 700px) {
+  .classificationGrid { grid-template-columns: 1fr; }
+  .siteFooter { margin-top: 24px; }
+}

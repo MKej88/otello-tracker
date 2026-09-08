@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
+import DataClassification from "./DataClassification";
+import TransparencyNotice from "./TransparencyNotice";
 
 const REFRESH_MS = 2 * 60 * 1000;
 
@@ -536,9 +538,10 @@ export default function NavPageV2() {
 
   return (
     <div className="investorPage navV2">
+      <TransparencyNotice />
       <section className="estimatedHero card">
         <div>
-          <span className="label">NAV</span>
+          <span className="label">NAV</span>{" "}<DataClassification type="calculated" />
           <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : "Laster …"}</h2>
           <p>
             Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.{" "}

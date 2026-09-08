@@ -16,6 +16,7 @@ const loadBrazilPage = () => import("./BrazilPage");
 const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
 const loadNewsEventsPage = () => import("./NewsEventsPage");
+const loadMethodologyPage = () => import("./MethodologyPage");
 
 const NavPageV2 = lazy(loadNavPage);
 const NavSensitivityPage = lazy(loadNavSensitivityPage);
@@ -28,6 +29,7 @@ const BrazilPage = lazy(loadBrazilPage);
 const ConsensusPage = lazy(loadConsensusPage);
 const DataQualityPage = lazy(loadDataQualityPage);
 const NewsEventsPage = lazy(loadNewsEventsPage);
+const MethodologyPage = lazy(loadMethodologyPage);
 
 function ViewFallback() {
   return <section className="card viewFallback"><span className="label">VISNING</span><strong>Laster modul …</strong></section>;
@@ -97,6 +99,7 @@ function preload(view: View) {
     void loadNewsEventsPage();
     preloadJson("/api/news-events");
   }
+  if (view === "Metode og transparens") void loadMethodologyPage();
 }
 
 function ActiveView({ view }: { view: View }) {
@@ -113,6 +116,7 @@ function ActiveView({ view }: { view: View }) {
   if (view === "Brasil") return <BrazilPage />;
   if (view === "Konsensus") return <ConsensusPage />;
   if (view === "Nyheter") return <NewsEventsPage />;
+  if (view === "Metode og transparens") return <MethodologyPage />;
   return <DataQualityPage />;
 }
 
@@ -162,6 +166,16 @@ export default function InvestorApp() {
           <Suspense fallback={<ViewFallback />}>
             <ActiveView view={activeView} />
           </Suspense>
+          <footer className="siteFooter">
+            <p>
+              OtelloTracker er et uavhengig analyse- og informasjonsverktøy for
+              Otello Corporation ASA og Bemobi Mobile Tech S.A. Innholdet består
+              av offentlig tilgjengelige data, egne beregninger og estimater,
+              og er ikke personlig investeringsrådgivning. Personen bak
+              OtelloTracker har en økonomisk interesse i Otello Corporation ASA.
+            </p>
+            <a href="#metode">Metode og transparens</a>
+          </footer>
         </main>
       </div>
     </>

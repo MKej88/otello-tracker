@@ -7,6 +7,7 @@ import "./otello-theme.css";
 import "./investor-v2.css";
 import "./navigation-groups.css";
 import "./history-context.css";
+import "./transparency.css";
 
 installDashboardBootstrapFetch();
 

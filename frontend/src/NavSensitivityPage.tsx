@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 
 import { preloadJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
+import DataClassification from "./DataClassification";
+import TransparencyNotice from "./TransparencyNotice";
 import "./nav-sensitivity.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -477,9 +479,10 @@ export default function NavSensitivityPage() {
 
   return (
     <div className="investorPage sensitivityPage">
+      <TransparencyNotice />
       <section className="card sensitivityIntro">
         <div>
-          <span className="label">NAV-SENSITIVITET</span>
+          <span className="label">NAV-SENSITIVITET</span>{" "}<DataClassification type="estimated" />
           <h2>Hva er Otello verdt ved ulike Bemobi-kurser og BRL/NOK?</h2>
           <p>
             Kun Bemobi-kurs og BRL/NOK varierer. Øvrige NAV-komponenter holdes på dagens investor-NAV,
