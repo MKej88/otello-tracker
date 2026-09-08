@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
+from app.economic_nav import _nearest_fx as nearest_economic_nav_fx
 from app.nav.cash_curve import _nearest_fx as nearest_cash_fx
 from app.nav.daily_nav import _nearest_fx
 from app.nav.other_net_assets import _nearest_fx as nearest_other_net_assets_fx
@@ -76,6 +77,7 @@ def test_all_nav_components_use_same_source_priority(tmp_path: Path) -> None:
             _nearest_fx(connection, "BRL", "2026-08-18"),
             nearest_cash_fx(connection, "BRL", "2026-08-18"),
             nearest_other_net_assets_fx(connection, "BRL", "2026-08-18"),
+            nearest_economic_nav_fx(connection, "BRL", "2026-08-18"),
         )
 
         assert all(selected is not None for selected in selections)
