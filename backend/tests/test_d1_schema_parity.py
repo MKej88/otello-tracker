@@ -30,6 +30,9 @@ D1_ESTIMATED_NAV_HISTORY = (
 D1_ESTIMATED_NAV_HISTORY_RETRY_QUEUE = (
     ROOT / "cloudflare" / "migrations" / "0032_estimated_nav_history_retry_queue.sql"
 )
+D1_BEMOBI_TRANSLATIONS = (
+    ROOT / "cloudflare" / "migrations" / "0033_bemobi_norwegian_translations.sql"
+)
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -57,6 +60,7 @@ def _connect_d1_shape() -> sqlite3.Connection:
     connection.executescript(D1_PATENT_PROCEEDS.read_text(encoding="utf-8"))
     connection.executescript(D1_ESTIMATED_NAV_HISTORY.read_text(encoding="utf-8"))
     connection.executescript(D1_ESTIMATED_NAV_HISTORY_RETRY_QUEUE.read_text(encoding="utf-8"))
+    connection.executescript(D1_BEMOBI_TRANSLATIONS.read_text(encoding="utf-8"))
     return connection
 
 

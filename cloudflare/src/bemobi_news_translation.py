@@ -3,27 +3,27 @@ from __future__ import annotations
 from typing import Any
 
 _CVM_TERMS = {
-    "assembleia": "Shareholders' meeting",
-    "ata": "Minutes",
-    "aviso aos acionistas": "Notice to shareholders",
-    "calendário de eventos corporativos": "Corporate events calendar",
-    "comunicado ao mercado": "Notice to the market",
-    "dados econômico-financeiros": "Financial information",
-    "demonstrações financeiras anuais completas": "Annual financial statements",
-    "demonstrações financeiras intermediárias": "Interim financial statements",
-    "fato relevante": "Material fact",
-    "reunião da administração": "Board meeting",
-    "relatório proventos": "Distribution report",
+    "assembleia": "Generalforsamling",
+    "ata": "Protokoll",
+    "aviso aos acionistas": "Melding til aksjonærene",
+    "calendário de eventos corporativos": "Finansiell kalender",
+    "comunicado ao mercado": "Markedsmelding",
+    "dados econômico-financeiros": "Finansiell informasjon",
+    "demonstrações financeiras anuais completas": "Årsregnskap",
+    "demonstrações financeiras intermediárias": "Delårsregnskap",
+    "fato relevante": "Vesentlig melding",
+    "reunião da administração": "Styremøte",
+    "relatório proventos": "Distribusjonsrapport",
 }
 
 _SUBJECT_TERMS = {
-    "apresentação de resultados": "Earnings presentation",
-    "aumento de capital": "Capital increase",
-    "cancelamento de ações": "Cancellation of shares",
-    "dividendos": "Dividends",
-    "juros sobre capital próprio": "Interest on equity",
-    "programa de recompra de ações": "Share buyback program",
-    "redução de capital": "Capital reduction",
+    "apresentação de resultados": "Resultatpresentasjon",
+    "aumento de capital": "Kapitalforhøyelse",
+    "cancelamento de ações": "Sletting av aksjer",
+    "dividendos": "Utbytte",
+    "juros sobre capital próprio": "Renter på egenkapital (JCP)",
+    "programa de recompra de ações": "Tilbakekjøpsprogram for aksjer",
+    "redução de capital": "Kapitalnedsettelse",
 }
 
 
@@ -47,7 +47,7 @@ def translate_bemobi_news(
     summary: Any,
     metadata: dict[str, Any],
 ) -> tuple[str, str | None]:
-    """Return an English, metadata-based rendering of a Bemobi CVM filing."""
+    """Returner norsk metadata-fallback når dokumentanalyse ikke er klar."""
     category = _translate_term(metadata.get("cvm_category"), _CVM_TERMS)
     document_type = _translate_term(metadata.get("cvm_type"), _CVM_TERMS)
     species = _translate_term(metadata.get("cvm_species"), _CVM_TERMS)
@@ -61,10 +61,12 @@ def translate_bemobi_news(
             if detail and detail != filing_type
             else filing_type
         )
-        summary_parts = [f"Filing type: {filing_type}"]
+        summary_parts = [f"Dokumenttype: {filing_type}"]
         if subject:
-            summary_parts.append(f"Subject: {subject}")
-        summary_parts.append("See the official CVM filing for full details.")
+            summary_parts.append(f"Emne: {subject}")
+        summary_parts.append(
+            "Se det offisielle CVM-dokumentet for fullstendige detaljer."
+        )
         return translated_headline, " | ".join(summary_parts)
 
-    return str(headline or "Bemobi announcement"), str(summary) if summary else None
+    return str(headline or "Bemobi-melding"), str(summary) if summary else None

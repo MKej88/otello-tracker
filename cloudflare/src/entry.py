@@ -178,6 +178,11 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             refresh_bmob3_close,
         )
         from bemobi_web_refresh_runtime import refresh_bemobi_web
+        from bemobi_document_translation import (
+            DEFAULT_WORKERS_AI_MODEL,
+            WorkersAIProvider,
+            process_pending_translations,
+        )
         from cvm_full_refresh import refresh_bemobi_cvm
         from full_refresh import (
             MAX_HISTORY_MATERIALIZATION_BATCHES,
@@ -422,6 +427,36 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             except Exception as exc:
                 source_results["cvm"] = error_result(exc)
             await renew_lock("after CVM")
+
+            ai_binding = getattr(self.env, "AI", None)
+            if ai_binding is not None:
+                @step.do(
+                    "translate new Bemobi documents",
+                    config={"retries": {"limit": 1, "delay": "2 minutes"}, "timeout": "20 minutes"},
+                )
+                async def bemobi_translation_step():
+                    repository = PerformanceD1WriteRepository(self.env.DB)
+                    provider = WorkersAIProvider(
+                        ai=ai_binding,
+                        model=str(
+                            getattr(
+                                self.env,
+                                "BEMOBI_TRANSLATION_MODEL",
+                                DEFAULT_WORKERS_AI_MODEL,
+                            )
+                        ),
+                    )
+                    return await process_pending_translations(repository, self.env.SOURCE_ARCHIVE, provider)
+
+                try:
+                    source_results["bemobi_translation"] = await bemobi_translation_step()
+                except Exception as exc:
+                    source_results["bemobi_translation"] = error_result(exc)
+            else:
+                source_results["bemobi_translation"] = {
+                    "status": "skipped",
+                    "reason": "workers_ai_binding_not_configured",
+                }
 
             @step.do(
                 "refresh Bemobi investor web facts",

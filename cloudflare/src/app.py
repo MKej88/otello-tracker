@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 
 from dashboard_hot_snapshot import (
     canonical_otec_quote,
@@ -342,3 +342,34 @@ async def get_news_events(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
+
+
+@app.get("/api/bemobi-translations/{news_id}.pdf")
+async def get_bemobi_translation(news_id: int, request: Request) -> Response:
+    from bemobi_document_translation import is_safe_translated_key
+
+    row = await _repository(request).first(
+        """SELECT sd.translated_pdf_key, sd.translation_status
+           FROM company_news cn JOIN source_documents sd ON sd.id=cn.source_document_id
+           JOIN instruments i ON i.id=cn.issuer_instrument_id
+           WHERE cn.id=? AND i.symbol='BMOB3' LIMIT 1""",
+        (news_id,),
+    )
+    key = str(row.get("translated_pdf_key") or "") if row else ""
+    if not row or row.get("translation_status") != "READY" or not is_safe_translated_key(key):
+        raise HTTPException(status_code=404, detail="Norsk oversettelse er ikke tilgjengelig")
+    env = request.scope.get("env")
+    bucket = getattr(env, "SOURCE_ARCHIVE", None) if env is not None else None
+    if bucket is None:
+        raise HTTPException(status_code=503, detail="Dokumentlager er ikke tilgjengelig")
+    stored = await bucket.get(key)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Norsk oversettelse er ikke tilgjengelig")
+    payload = await stored.arrayBuffer()
+    converter = getattr(payload, "to_py", None)
+    content = bytes(converter()) if callable(converter) else bytes(payload)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="bemobi-norsk.pdf"'},
+    )

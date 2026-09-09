@@ -28,6 +28,9 @@ type NewsItem = {
   summary?: string | null;
   source?: string | null;
   url?: string | null;
+  original_url?: string | null;
+  translation_status?: "PENDING" | "PROCESSING" | "READY" | "FAILED" | "NOT_REQUIRED" | null;
+  translated_pdf_url?: string | null;
 };
 
 type EventItem = {
@@ -73,8 +76,10 @@ function SourceLink({ url, source }: { url?: string | null; source?: string | nu
 function NewsSourceMeta({ item }: { item: NewsItem }) {
   return (
     <span className="newsSourceMeta">
-      Offisiell ·{" "}
-      <SourceLink source={item.source} url={item.url} />
+      {item.translated_pdf_url && <><a className="newsSourceLink" href={item.translated_pdf_url} target="_blank" rel="noreferrer">Les norsk oversettelse ↗</a>{" · "}</>}
+      {item.translation_status === "PROCESSING" || item.translation_status === "PENDING" ? <span>Norsk oversettelse behandles … · </span> : null}
+      {item.translation_status === "FAILED" ? <span>Norsk oversettelse er foreløpig ikke tilgjengelig. · </span> : null}
+      Offisiell · <SourceLink source="Original PDF" url={item.original_url ?? item.url} />
     </span>
   );
 }
@@ -227,7 +232,7 @@ export default function NewsEventsPage() {
                   <h3>{item.headline}</h3>
                   {item.case_effect && <strong className="caseEffect">{item.case_effect}</strong>}
                   <p>{item.reason}</p>
-                  {item.summary && <p>{item.summary}</p>}
+                  {item.summary && <><strong className="newsSummaryLabel">Kort fortalt</strong><p>{item.summary}</p></>}
                   <div className="newsCardFooter newsCardFooterCompact">
                     <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
                     <NewsSourceMeta item={item} />
@@ -267,7 +272,7 @@ export default function NewsEventsPage() {
                     <ClassificationBadge classification={item.classification} />
                   </div>
                   <h3>{item.headline}</h3>
-                  {item.summary && <p>{item.summary}</p>}
+                  {item.summary && <><strong className="newsSummaryLabel">Kort fortalt</strong><p>{item.summary}</p></>}
                   <div className="newsCardFooter newsCardFooterCompact">
                     <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
                     <NewsSourceMeta item={item} />
