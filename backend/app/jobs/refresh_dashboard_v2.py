@@ -165,6 +165,7 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         }
 
     core_kwargs = dict(kwargs)
+    core_kwargs["target_date"] = target_day.isoformat()
     core_kwargs["fetch_otec_delayed"] = False
     # Live/current BMOB3 is now handled above with a tiny quote response plus daily
     # COTAHIST. Historical targets retain the annual source for explicit backfills.
