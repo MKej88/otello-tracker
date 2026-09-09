@@ -21,6 +21,7 @@ ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0030_patent_proceeds.sql",
     MIGRATIONS / "0031_materialized_estimated_nav_history.sql",
     MIGRATIONS / "0032_estimated_nav_history_retry_queue.sql",
+    MIGRATIONS / "0033_bemobi_norwegian_translations.sql",
 )
 
 sys.path.insert(0, str(BACKEND))

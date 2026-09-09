@@ -46,6 +46,9 @@ D1_PATENT_PROCEEDS = ROOT / "cloudflare" / "migrations" / "0030_patent_proceeds.
 D1_ESTIMATED_NAV_HISTORY = (
     ROOT / "cloudflare" / "migrations" / "0031_materialized_estimated_nav_history.sql"
 )
+D1_BEMOBI_TRANSLATIONS = (
+    ROOT / "cloudflare" / "migrations" / "0033_bemobi_norwegian_translations.sql"
+)
 D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
@@ -86,6 +89,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_NAV_SNAPSHOT_UPDATED_AT.read_text(encoding="utf-8"))
         connection.executescript(D1_PATENT_PROCEEDS.read_text(encoding="utf-8"))
         connection.executescript(D1_ESTIMATED_NAV_HISTORY.read_text(encoding="utf-8"))
+        connection.executescript(D1_BEMOBI_TRANSLATIONS.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
