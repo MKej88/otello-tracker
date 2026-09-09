@@ -22,6 +22,9 @@ _VALUE_RE = re.compile(
     r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b|\b\d[\d.,]*\b",
     re.IGNORECASE,
 )
+_RETRYABLE_EXTERNAL_ERROR_RE = re.compile(
+    r"(?:rate[ -]?limit|HTTP (?:408|429|5\d\d)\b)", re.IGNORECASE
+)
 
 
 class TranslationProvider(Protocol):
@@ -126,6 +129,13 @@ def translated_object_key(content_hash: str) -> str:
 
 def is_safe_translated_key(key: str) -> bool:
     return _SAFE_KEY.fullmatch(key) is not None
+
+
+def _is_retryable_external_error(error: Exception) -> bool:
+    return isinstance(error, (ConnectionError, TimeoutError)) or (
+        isinstance(error, RuntimeError)
+        and _RETRYABLE_EXTERNAL_ERROR_RE.search(str(error)) is not None
+    )
 
 
 def _pdf_escape(text: str) -> bytes:
@@ -344,12 +354,20 @@ async def process_pending_translations(
             completed += 1
         except Exception as exc:
             reason = str(exc)[:300]
-            await repository.run(
-                """UPDATE source_documents SET extraction_status=COALESCE(extraction_status,'FAILED'),
-                   translation_status='FAILED', summary_status='FAILED', translation_error=?,
-                   translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""",
-                (reason, document_id),
-            )
+            if _is_retryable_external_error(exc):
+                await repository.run(
+                    """UPDATE source_documents SET extraction_status=COALESCE(extraction_status,'PENDING'),
+                       translation_status='PENDING', summary_status='PENDING', translation_error=?,
+                       translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""",
+                    (reason, document_id),
+                )
+            else:
+                await repository.run(
+                    """UPDATE source_documents SET extraction_status=COALESCE(extraction_status,'FAILED'),
+                       translation_status='FAILED', summary_status='FAILED', translation_error=?,
+                       translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""",
+                    (reason, document_id),
+                )
             print(
                 f"bemobi_translation failed document_id={document_id} reason={reason}"
             )
