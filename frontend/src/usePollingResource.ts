@@ -4,6 +4,7 @@ import {
   getCachedDashboardComponentForUrl,
   subscribeDashboardRevalidation,
 } from "./dashboardBootstrapFetch";
+import { subscribePageResumeRefresh } from "./pageResumeRefresh";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -28,7 +29,7 @@ export function usePollingResource<T>(
     let firstLoad = true;
     let controller: AbortController | null = null;
 
-    const load = async () => {
+    const load = async (forceFresh = false) => {
       if (inFlight) return;
       inFlight = true;
       const currentController = new AbortController();
@@ -36,10 +37,13 @@ export function usePollingResource<T>(
 
       try {
         let result: T;
-        if (firstLoad && usePreloadedInitial) {
+        if (firstLoad && usePreloadedInitial && !forceFresh) {
           result = await fetchPreloadedJson<T>(url);
         } else {
-          const response = await fetch(url, { signal: currentController.signal });
+          const response = await fetch(url, {
+            signal: currentController.signal,
+            cache: forceFresh ? "no-store" : "default",
+          });
           if (!response.ok) {
             throw new Error(`Polling API-feil: ${response.status}`);
           }
@@ -68,9 +72,13 @@ export function usePollingResource<T>(
       setLastUpdatedAt(new Date());
     });
     const timer = window.setInterval(() => { void load(); }, intervalMs);
+    const unsubscribePageResume = subscribePageResumeRefresh(() => {
+      void load(true);
+    });
     return () => {
       active = false;
       window.clearInterval(timer);
+      unsubscribePageResume();
       unsubscribeRevalidation?.();
       controller?.abort();
     };
