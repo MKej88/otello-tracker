@@ -16,6 +16,7 @@ MAX_PDF_BYTES = 30 * 1024 * 1024
 MAX_CHUNK_CHARACTERS = 12_000
 TRANSLATOR_VERSION = "bemobi-nb-v1"
 DEFAULT_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+STALE_PROCESSING_HOURS = 6
 _SAFE_KEY = re.compile(r"^translated/bemobi/[0-9a-f]{64}/bemobi-norsk\.pdf$")
 _VALUE_RE = re.compile(
     r"(?:R\$|BRL)\s*[\d.,]+|\d+(?:[.,]\d+)?\s*%|"
@@ -233,16 +234,26 @@ async def process_pending_translations(
     rows = await repository.all(
         """SELECT sd.id, sd.url, sd.title, sd.published_at, sd.content_sha256
            FROM source_documents sd JOIN sources s ON s.id=sd.source_id
-           WHERE s.code IN ('CVM','BEMOBI_IR') AND sd.translation_status='PENDING'
+           WHERE s.code IN ('CVM','BEMOBI_IR')
+             AND (sd.translation_status='PENDING'
+                  OR (sd.translation_status='PROCESSING'
+                      AND (sd.translation_processed_at IS NULL
+                           OR sd.translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now',?))))
            ORDER BY sd.id LIMIT ?""",
-        (max(1, min(limit, 20)),),
+        (f"-{STALE_PROCESSING_HOURS} hours", max(1, min(limit, 20))),
     )
     completed = failed = 0
     for row in rows:
         document_id = int(row["id"])
         claimed = await repository.run(
-            "UPDATE source_documents SET translation_status='PROCESSING' WHERE id=? AND translation_status='PENDING'",
-            (document_id,),
+            """UPDATE source_documents
+               SET translation_status='PROCESSING',
+                   translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               WHERE id=? AND (translation_status='PENDING'
+                    OR (translation_status='PROCESSING'
+                        AND (translation_processed_at IS NULL
+                             OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now',?))))""",
+            (document_id, f"-{STALE_PROCESSING_HOURS} hours"),
         )
         if (
             getattr(claimed, "meta", None) is not None

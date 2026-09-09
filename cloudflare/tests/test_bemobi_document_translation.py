@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sqlite3
 import sys
 import unittest
 from pathlib import Path
@@ -139,6 +140,51 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
 
 
 class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_stale_processing_document_is_selected_but_recent_one_is_not(
+        self,
+    ) -> None:
+        class Repository:
+            def __init__(self) -> None:
+                self.connection = sqlite3.connect(":memory:")
+                self.connection.row_factory = sqlite3.Row
+                self.connection.executescript("""
+                    CREATE TABLE sources (id INTEGER PRIMARY KEY, code TEXT);
+                    CREATE TABLE source_documents (
+                        id INTEGER PRIMARY KEY,
+                        source_id INTEGER,
+                        url TEXT,
+                        title TEXT,
+                        published_at TEXT,
+                        content_sha256 TEXT,
+                        translation_status TEXT,
+                        translation_processed_at TEXT
+                    );
+                    INSERT INTO sources VALUES (1, 'CVM');
+                    INSERT INTO source_documents VALUES (
+                        1, 1, 'https://example.com/old.pdf', 'Gammel', NULL, NULL,
+                        'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours')
+                    );
+                    INSERT INTO source_documents VALUES (
+                        2, 1, 'https://example.com/new.pdf', 'Ny', NULL, NULL,
+                        'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                    );
+                    """)
+
+            async def all(self, query: str, parameters: tuple[object, ...]):
+                return [
+                    dict(row)
+                    for row in self.connection.execute(query, parameters).fetchall()
+                ]
+
+            async def run(self, query: str, parameters: tuple[object, ...]):
+                return SimpleNamespace(meta=SimpleNamespace(changes=0))
+
+        result = await process_pending_translations(
+            Repository(), SimpleNamespace(), FakeWorkersAI({"response": "ubrukt"})
+        )
+
+        self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 0})
+
     async def test_rate_limit_keeps_document_pending_for_next_run(self) -> None:
         class Repository:
             def __init__(self) -> None:
