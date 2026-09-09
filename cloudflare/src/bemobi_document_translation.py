@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import inspect
 import json
 import re
 from dataclasses import dataclass
@@ -9,11 +10,12 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from pypdf import PdfReader
 
-from bounded_response import read_response_bytes, read_response_text
+from bounded_response import read_response_bytes
 
 MAX_PDF_BYTES = 30 * 1024 * 1024
 MAX_CHUNK_CHARACTERS = 12_000
 TRANSLATOR_VERSION = "bemobi-nb-v1"
+DEFAULT_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 _SAFE_KEY = re.compile(r"^translated/bemobi/[0-9a-f]{64}/bemobi-norsk\.pdf$")
 _VALUE_RE = re.compile(
     r"(?:R\$|BRL)\s*[\d.,]+|\d+(?:[.,]\d+)?\s*%|"
@@ -29,47 +31,37 @@ class TranslationProvider(Protocol):
 
 
 @dataclass(frozen=True)
-class OpenAICompatibleProvider:
-    """Liten, isolert adapter for et OpenAI-kompatibelt chat-endepunkt."""
+class WorkersAIProvider:
+    """Adapter for den native Workers AI-bindingen i Cloudflare-runtime."""
 
-    api_key: str
+    ai: Any
     model: str
-    endpoint: str = "https://api.openai.com/v1/chat/completions"
-    fetcher: Callable[..., Awaitable[Any]] | None = None
 
     async def complete(self, instruction: str, text: str) -> str:
-        fetcher = self.fetcher
-        if fetcher is None:
-            from workers import fetch
-
-            fetcher = fetch
-        response = await fetcher(
-            self.endpoint,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
+        result = self.ai.run(
+            self.model,
+            {
+                "messages": [
+                    {"role": "system", "content": instruction},
+                    {"role": "user", "content": text},
+                ],
+                "temperature": 0,
+                "max_tokens": 4096,
             },
-            body=json.dumps(
-                {
-                    "model": self.model,
-                    "temperature": 0,
-                    "messages": [
-                        {"role": "system", "content": instruction},
-                        {"role": "user", "content": text},
-                    ],
-                }
-            ),
         )
-        if not bool(getattr(response, "ok", False)):
-            raise RuntimeError(
-                f"oversettelsestjenesten svarte HTTP {getattr(response, 'status', 'ukjent')}"
-            )
-        raw = await read_response_text(
-            response, max_bytes=2 * 1024 * 1024, label="oversettelsestjeneste"
-        )
-        payload = json.loads(raw)
-        return str(payload["choices"][0]["message"]["content"]).strip()
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, dict):
+            response = result.get("response")
+        else:
+            response = getattr(result, "response", None)
+            to_py = getattr(response, "to_py", None)
+            if callable(to_py):
+                response = to_py()
+        text_response = str(response or "").strip()
+        if not text_response:
+            raise RuntimeError("Workers AI returnerte et tomt eller ugyldig svar")
+        return text_response
 
 
 def detect_language(text: str) -> str:

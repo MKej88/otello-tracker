@@ -11,6 +11,8 @@ SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
 from bemobi_document_translation import (  # noqa: E402
+    DEFAULT_WORKERS_AI_MODEL,
+    WorkersAIProvider,
     detect_language,
     is_safe_translated_key,
     queue_translation_backfill,
@@ -79,6 +81,58 @@ class TranslationUtilitiesTest(unittest.TestCase):
             is_safe_translated_key(f"translated/bemobi/{digest}/bemobi-norsk.pdf")
         )
         self.assertFalse(is_safe_translated_key("translated/bemobi/../../secret"))
+
+
+class FakeWorkersAI:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def run(self, model: str, inputs: dict[str, object]) -> object:
+        self.calls.append((model, inputs))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
+class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_native_workers_ai_binding_is_used_without_api_key(self) -> None:
+        ai = FakeWorkersAI({"response": "Norsk oversettelse"})
+        provider = WorkersAIProvider(ai=ai, model=DEFAULT_WORKERS_AI_MODEL)
+
+        result = await provider.complete("Oversett til norsk", "Texto português")
+
+        self.assertEqual(result, "Norsk oversettelse")
+        self.assertEqual(ai.calls[0][0], "@cf/meta/llama-3.1-8b-instruct")
+        messages = ai.calls[0][1]["messages"]
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[1]["content"], "Texto português")
+        self.assertNotIn("api_key", provider.__dataclass_fields__)
+
+    async def test_summary_json_is_returned_unchanged(self) -> None:
+        summary = '{"title":"Styreprotokoll","summary":"Kort fortalt: Vedtak."}'
+        provider = WorkersAIProvider(
+            ai=FakeWorkersAI({"response": summary}), model=DEFAULT_WORKERS_AI_MODEL
+        )
+
+        self.assertEqual(await provider.complete("Oppsummer", "Dokument"), summary)
+
+    async def test_rate_limit_is_propagated_to_document_error_handling(self) -> None:
+        provider = WorkersAIProvider(
+            ai=FakeWorkersAI(RuntimeError("rate limit")),
+            model=DEFAULT_WORKERS_AI_MODEL,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "rate limit"):
+            await provider.complete("Oversett", "Dokument")
+
+    async def test_invalid_workers_ai_response_fails_clearly(self) -> None:
+        provider = WorkersAIProvider(
+            ai=FakeWorkersAI({"unexpected": "value"}), model=DEFAULT_WORKERS_AI_MODEL
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "tomt eller ugyldig"):
+            await provider.complete("Oversett", "Dokument")
 
 
 class FakeRepository:

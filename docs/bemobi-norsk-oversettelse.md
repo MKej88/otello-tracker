@@ -10,15 +10,13 @@ at OCR er nødvendig; det kjøres ikke kostbar OCR på PDF-er som allerede har t
 
 ## Produksjonsoppsett
 
-Ingen ny Cloudflare-ressurs er nødvendig. Kjør migrasjon `0033`, og sett secret:
-
-```bash
-cd cloudflare
-npx wrangler secret put BEMOBI_TRANSLATION_API_KEY
-```
-
-Sett eventuelt `BEMOBI_TRANSLATION_MODEL` og `BEMOBI_TRANSLATION_ENDPOINT` som
-Worker-variabler. Uten secret fortsetter all nyhetsinnhenting normalt, mens
+Kjør migrasjon `0033`. Worker-konfigurasjonen binder Cloudflare Workers AI som
+`AI`; det kreves ingen separat API-nøkkel eller ekstern oversettelsestjeneste.
+Standardmodellen er `@cf/meta/llama-3.1-8b-instruct`, som er en flerspråklig
+instruksjonsmodell med god margin til dokumentdelene på maksimalt 12 000 tegn.
+Workers AI-priser, gratiskvote og modelltilgang kan endres hos Cloudflare.
+Modellen kan derfor overstyres med Worker-variabelen `BEMOBI_TRANSLATION_MODEL`.
+Hvis AI-bindingen mangler, fortsetter all vanlig nyhetsinnhenting mens
 oversettelsessteget hoppes over.
 
 ## Kontrollert backfill
