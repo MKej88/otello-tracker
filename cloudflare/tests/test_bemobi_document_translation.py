@@ -4,6 +4,8 @@ import io
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from pypdf import PdfReader
 
@@ -15,6 +17,7 @@ from bemobi_document_translation import (  # noqa: E402
     WorkersAIProvider,
     detect_language,
     is_safe_translated_key,
+    process_pending_translations,
     queue_translation_backfill,
     render_norwegian_pdf,
     stable_chunks,
@@ -133,6 +136,58 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "tomt eller ugyldig"):
             await provider.complete("Oversett", "Dokument")
+
+
+class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rate_limit_keeps_document_pending_for_next_run(self) -> None:
+        class Repository:
+            def __init__(self) -> None:
+                self.updates: list[tuple[str, tuple[object, ...]]] = []
+
+            async def all(self, query: str, parameters: tuple[object, ...]):
+                return [
+                    {
+                        "id": 9,
+                        "url": "https://example.com/document.pdf",
+                        "title": "Dokument",
+                        "published_at": "2026-09-09",
+                        "content_sha256": None,
+                    }
+                ]
+
+            async def first(self, query: str, parameters: tuple[object, ...]):
+                return None
+
+            async def run(self, query: str, parameters: tuple[object, ...]):
+                self.updates.append((query, parameters))
+                return SimpleNamespace(meta=SimpleNamespace(changes=1))
+
+        async def fetcher(*args: object, **kwargs: object) -> SimpleNamespace:
+            async def array_buffer() -> bytes:
+                return b"%PDF test"
+
+            return SimpleNamespace(ok=True, headers={}, arrayBuffer=array_buffer)
+
+        repository = Repository()
+        provider = WorkersAIProvider(
+            ai=FakeWorkersAI(RuntimeError("rate limit")),
+            model=DEFAULT_WORKERS_AI_MODEL,
+        )
+        with patch(
+            "bemobi_document_translation.extract_pdf_text",
+            return_value="A companhia e os acionistas " * 10,
+        ):
+            result = await process_pending_translations(
+                repository,
+                SimpleNamespace(),
+                provider,
+                fetcher=fetcher,
+            )
+
+        self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 1})
+        final_query, final_parameters = repository.updates[-1]
+        self.assertIn("translation_status='PENDING'", final_query)
+        self.assertEqual(final_parameters, ("rate limit", 9))
 
 
 class FakeRepository:
