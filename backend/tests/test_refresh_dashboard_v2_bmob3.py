@@ -65,6 +65,7 @@ def test_default_target_uses_oslo_date_at_utc_day_boundary(
 
     assert calls["otec"] is True
     assert calls["bmob3_target"] == "2026-08-17"
+    assert calls["core_kwargs"]["target_date"] == "2026-08-17"
     assert calls["core_kwargs"]["fetch_b3"] is False
 
 
