@@ -58,4 +58,5 @@ def test_cash_navigation_reuses_requests_started_before_module_load() -> None:
     assert "/api/nav/daily-cash" not in cash_preload
     assert 'import { fetchPreloadedJson } from "./navigationDataPreload"' in page_source
     assert "const request = initial ? fetchPreloadedJson : fetchJson" in page_source
-    assert "void load(true)" in page_source
+    assert "void loadCore(true)" in page_source
+    assert "void loadBuyback(true)" in page_source
