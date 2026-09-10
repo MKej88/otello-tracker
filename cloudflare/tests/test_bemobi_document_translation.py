@@ -18,6 +18,7 @@ from bemobi_document_translation import (  # noqa: E402
     WorkersAIProvider,
     detect_language,
     is_safe_translated_key,
+    parse_summary_response,
     process_pending_translations,
     queue_translation_backfill,
     render_norwegian_pdf,
@@ -85,6 +86,23 @@ class TranslationUtilitiesTest(unittest.TestCase):
             is_safe_translated_key(f"translated/bemobi/{digest}/bemobi-norsk.pdf")
         )
         self.assertFalse(is_safe_translated_key("translated/bemobi/../../secret"))
+
+    def test_summary_rejects_changed_field_types(self) -> None:
+        with self.assertRaisesRegex(ValueError, "gyldig title-felt"):
+            parse_summary_response(
+                '{"title":["Styreprotokoll"],"summary":"Kort fortalt: Vedtak."}'
+            )
+
+        with self.assertRaisesRegex(ValueError, "gyldig summary-felt"):
+            parse_summary_response('{"title":"Styreprotokoll","summary":null}')
+
+    def test_summary_accepts_non_empty_string_fields(self) -> None:
+        self.assertEqual(
+            parse_summary_response(
+                '{"title":" Styreprotokoll ","summary":" Kort fortalt: Vedtak. "}'
+            ),
+            ("Styreprotokoll", "Kort fortalt: Vedtak."),
+        )
 
 
 class FakeWorkersAI:
