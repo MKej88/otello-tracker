@@ -117,15 +117,14 @@ async def _read_state(repository: Any, key: str) -> dict[str, Any] | None:
     return payload
 
 
-async def _write_annual_point(
-    repository: Any,
+def _annual_point_statement(
     indicator: str,
     year: str,
     point: dict[str, Any],
     *,
     source: str,
     source_url: str | None,
-) -> None:
+) -> tuple[str, tuple[Any, ...]]:
     """Atomically merge one annual point unless the cache has a newer survey."""
     updated_at = _now_iso()
     survey_date = str(point.get("survey_date") or "")[:10]
@@ -136,7 +135,7 @@ async def _write_annual_point(
         "survey_date": survey_date,
     }
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    await repository.run(
+    return (
         """
         INSERT INTO runtime_state(key, value, updated_at)
         VALUES (?, ?, ?)
@@ -207,31 +206,38 @@ async def persist_annual_focus(
             focus_payload.get("source_url"),
         )
     )
+    statements = []
     for batch, source, source_url in batches:
-        await _persist_annual_points(repository, batch, source=source, source_url=source_url)
+        statements.extend(
+            _annual_point_statements(batch, source=source, source_url=source_url)
+        )
+    if statements:
+        await repository.run_batch(statements)
 
 
-async def _persist_annual_points(
-    repository: Any,
+def _annual_point_statements(
     values: dict[str, Any],
     *,
     source: str,
     source_url: str | None,
-) -> None:
+) -> list[tuple[str, tuple[Any, ...]]]:
+    statements = []
     for indicator, by_year in values.items():
         if not isinstance(by_year, dict):
             continue
         for year, point in by_year.items():
             if not isinstance(point, dict) or point.get("median") is None:
                 continue
-            await _write_annual_point(
-                repository,
-                str(indicator),
-                str(year),
-                dict(point),
-                source=source,
-                source_url=source_url,
+            statements.append(
+                _annual_point_statement(
+                    str(indicator),
+                    str(year),
+                    dict(point),
+                    source=source,
+                    source_url=source_url,
+                )
             )
+    return statements
 
 
 async def resolve_annual_focus(

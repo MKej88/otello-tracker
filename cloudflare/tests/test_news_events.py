@@ -7,7 +7,7 @@ from pathlib import Path
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from news_events import _company_name, news_and_events  # noqa: E402
+from news_events import _company_name, _news_item, news_and_events  # noqa: E402
 
 
 class CompanyNameTest(unittest.TestCase):
@@ -18,6 +18,45 @@ class CompanyNameTest(unittest.TestCase):
     def test_rejects_companies_outside_dashboard(self) -> None:
         self.assertIsNone(_company_name("LIF"))
         self.assertIsNone(_company_name(None))
+
+    def test_ready_translation_is_exposed_but_original_is_preserved(self) -> None:
+        item = _news_item(
+            {
+                "id": 7,
+                "symbol": "BMOB3",
+                "headline": "Ata",
+                "category": "OTHER",
+                "nav_impact": "NONE",
+                "processing_status": "PARSED",
+                "url": "https://cvm.example/original.pdf",
+                "translation_status": "READY",
+                "summary_status": "READY",
+                "norwegian_title": "Styreprotokoll",
+                "norwegian_summary": "Kort fortalt: Ingen materiell endring.",
+                "translated_pdf_key": f"translated/bemobi/{'a' * 64}/bemobi-norsk.pdf",
+            }
+        )
+        self.assertEqual(item["headline"], "Styreprotokoll")
+        self.assertEqual(item["original_url"], "https://cvm.example/original.pdf")
+        self.assertEqual(item["translated_pdf_url"], "/api/bemobi-translations/7.pdf")
+
+    def test_processing_or_failed_translation_never_gets_pdf_link(self) -> None:
+        for status in ("PROCESSING", "FAILED"):
+            item = _news_item(
+                {
+                    "id": 8,
+                    "symbol": "BMOB3",
+                    "headline": "Ata",
+                    "category": "OTHER",
+                    "nav_impact": "NONE",
+                    "processing_status": "PARSED",
+                    "url": "https://cvm.example/original.pdf",
+                    "translation_status": status,
+                    "translated_pdf_key": f"translated/bemobi/{'a' * 64}/bemobi-norsk.pdf",
+                }
+            )
+            self.assertIsNone(item["translated_pdf_url"])
+            self.assertEqual(item["original_url"], "https://cvm.example/original.pdf")
 
 
 class FakeNewsRepository:

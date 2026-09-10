@@ -422,6 +422,11 @@ async def _upsert_record(repository, record: CVMIPERecord, *, is_latest_version:
         "financial_effect_applied": False,
         "workflow": "cloudflare_full_refresh",
     }
+    source_id = await repository.source_id("CVM")
+    existing = await repository.first(
+        "SELECT id FROM source_documents WHERE source_id=? AND external_id=? LIMIT 1",
+        (source_id, record.external_id),
+    )
     document_id = await repository.create_source_document(
         source_code="CVM",
         external_id=record.external_id,
@@ -432,6 +437,14 @@ async def _upsert_record(repository, record: CVMIPERecord, *, is_latest_version:
         content_sha256=_row_hash(record),
         metadata=metadata,
     )
+    if existing is None and is_latest_version:
+        await repository.run(
+            """UPDATE source_documents
+               SET translation_status='PENDING', extraction_status='PENDING',
+                   summary_status='PENDING' WHERE id=?""",
+            (document_id,),
+        )
+        print(f"bemobi_translation queued document_id={document_id}")
     issuer_id = await repository.instrument_id("BMOB3")
     parts = [f"Categoria: {record.category}"]
     if record.document_type:

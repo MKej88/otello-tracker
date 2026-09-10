@@ -119,11 +119,19 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
     headline = row.get("headline")
     summary = row.get("summary")
     if row.get("symbol") == "BMOB3":
-        headline, summary = translate_bemobi_news(
-            headline=headline,
-            summary=summary,
-            metadata=metadata,
-        )
+        if row.get("summary_status") == "READY":
+            headline = row.get("norwegian_title") or headline
+            summary = row.get("norwegian_summary") or summary
+        else:
+            headline, summary = translate_bemobi_news(
+                headline=headline, summary=summary, metadata=metadata
+            )
+    translation_status = row.get("translation_status")
+    translated_url = (
+        f"/api/bemobi-translations/{int(row['id'])}.pdf"
+        if translation_status == "READY" and row.get("translated_pdf_key")
+        else None
+    )
     return {
         "id": int(row["id"]),
         "company": "Bemobi" if row.get("symbol") == "BMOB3" else "Otello",
@@ -139,6 +147,9 @@ def _news_item(row: dict[str, Any]) -> dict[str, Any]:
         "summary": summary,
         "source": row.get("source_name") or row.get("source_code"),
         "url": _safe_url(row.get("url")),
+        "original_url": _safe_url(row.get("url")),
+        "translation_status": translation_status,
+        "translated_pdf_url": translated_url,
         "content_type": "OFFICIAL",
         "deduplication_key": _deduplication_key(row, metadata),
     }
@@ -206,7 +217,9 @@ async def news_and_events(
                    COALESCE(cn.published_at, sd.published_at) AS published_at,
                    cn.category, cn.nav_impact, cn.processing_status,
                    cn.summary, i.symbol, sd.url, s.code AS source_code,
-                   s.name AS source_name, sd.metadata_json, sd.content_sha256
+                   s.name AS source_name, sd.metadata_json, sd.content_sha256,
+                   sd.translation_status, sd.summary_status, sd.norwegian_title,
+                   sd.norwegian_summary, sd.translated_pdf_key
             FROM company_news cn
             LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
             JOIN source_documents sd ON sd.id=cn.source_document_id

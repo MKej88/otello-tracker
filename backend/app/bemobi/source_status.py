@@ -41,6 +41,28 @@ _SOURCE_DEFINITIONS = (
     _SourceDefinition("xp_preview", ("NEXT_QUARTER",), "XP", "XP", "Forhåndsestimat neste kvartal"),
 )
 
+_SKIPPED_DETAILS = {
+    ("result_release", "latest_result_already_ingested"): (
+        "Ingen ny rapport; siste offentlige rapport er allerede innlest."
+    ),
+    ("consensus", "source_specific_public_broker_models"): (
+        "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell "
+        "finnes."
+    ),
+}
+_NOT_AVAILABLE_RESULTS = {
+    ("xp_preview", "no_public_preview_for_next_quarter"): (
+        "WAITING",
+        "Ingen offentlig XP-preview funnet for neste kvartal.",
+        False,
+    ),
+    ("xp_preview", "next_quarter_not_initialized"): (
+        "WAITING",
+        "Ingen offentlig XP-preview funnet for neste kvartal.",
+        False,
+    ),
+}
+
 
 def _sub_result(metadata: dict[str, Any], key: str) -> dict[str, Any]:
     result = metadata.get("result")
@@ -57,11 +79,10 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
     if status in {"ok", "success"}:
         return "OK", "Siste kontroll fullført uten feil.", False
     if status == "skipped":
-        if key == "result_release" and reason == "latest_result_already_ingested":
-            return "OK", "Ingen ny rapport; siste offentlige rapport er allerede innlest.", False
-        if key == "consensus" and reason == "source_specific_public_broker_models":
-            return "OK", "Kildeverifiserte meglermodeller beholdes til en nyere offentlig modell finnes.", False
-        return "OK", reason.replace("_", " ") or "Ingen ny data å behandle.", False
+        detail = _SKIPPED_DETAILS.get(
+            (key, reason), reason.replace("_", " ") or "Ingen ny data å behandle."
+        )
+        return "OK", detail, False
     if status == "not_available":
         if key == "xp_preview" and error:
             detail = (
@@ -69,8 +90,9 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
                 f"{error} Ingen nye estimater er hentet."
             )
             return "WAITING", detail, False
-        if key == "xp_preview" and reason in {"no_public_preview_for_next_quarter", "next_quarter_not_initialized"}:
-            return "WAITING", "Ingen offentlig XP-preview funnet for neste kvartal.", False
+        known_result = _NOT_AVAILABLE_RESULTS.get((key, reason))
+        if known_result is not None:
+            return known_result
         return "DEGRADED", error or reason.replace("_", " ") or "Kilden var ikke tilgjengelig.", True
     if status == "partial":
         return "DEGRADED", "Deler av innhentingen feilet; siste gode data beholdes.", True

@@ -162,13 +162,12 @@ export default function CashPage() {
   useEffect(() => {
     let active = true;
 
-    const load = async (initial = false) => {
+    const loadCore = async (initial = false) => {
       const request = initial ? fetchPreloadedJson : fetchJson;
-      const [summaryResult, bemobiResult, economicResult, buybackResult] = await Promise.allSettled([
+      const [summaryResult, bemobiResult, economicResult] = await Promise.allSettled([
         request<Summary>("/api/dashboard/summary"),
         request<BemobiDashboard>("/api/bemobi/dashboard"),
         request<EconomicDashboard>("/api/dashboard/economic"),
-        request<BuybackDashboard>("/api/buybacks/dashboard"),
       ]);
 
       if (!active) return;
@@ -179,18 +178,34 @@ export default function CashPage() {
       }
       if (bemobiResult.status === "fulfilled") setBemobi(bemobiResult.value);
       if (economicResult.status === "fulfilled") setEconomic(economicResult.value);
-      if (buybackResult.status === "fulfilled") setBuyback(buybackResult.value);
 
       setCoreFailed(
         summaryResult.status === "rejected" ||
         bemobiResult.status === "rejected" ||
         economicResult.status === "rejected",
       );
-      setPartialFailed(buybackResult.status === "rejected");
     };
 
-    void load(true);
-    const timer = window.setInterval(() => { void load(); }, AUTO_REFRESH_MS);
+    const loadBuyback = async (initial = false) => {
+      const request = initial ? fetchPreloadedJson : fetchJson;
+      try {
+        const result = await request<BuybackDashboard>("/api/buybacks/dashboard");
+        if (!active) return;
+        setBuyback(result);
+        setPartialFailed(false);
+      } catch {
+        if (active) setPartialFailed(true);
+      }
+    };
+
+    // Buyback-data enriches kalkulatoren, men er ikke nødvendig for å vise
+    // kontantbeholdningen. Ikke la dette endepunktet forsinke kjerneinnholdet.
+    void loadCore(true);
+    void loadBuyback(true);
+    const timer = window.setInterval(() => {
+      void loadCore();
+      void loadBuyback();
+    }, AUTO_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
