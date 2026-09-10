@@ -38,12 +38,11 @@ function preload(view: View) {
     void loadNavPage();
     preloadJson("/api/dashboard/economic");
     preloadJson("/api/buybacks/dashboard");
-    preloadNavPeriodBundle(Object.fromEntries(
-      investorPeriods().map((period) => [period.key, discountHistoryUrl(period)]),
-    ));
-    // Keep the first-period preload explicit; it reuses the bundle promise and also
-    // preserves a direct fallback if the nightly materialization has not run yet.
-    preloadJson(discountHistoryUrl(investorPeriods()[0]));
+    const periods = investorPeriods();
+    preloadNavPeriodBundle(
+      Object.fromEntries(periods.map((period) => [period.key, discountHistoryUrl(period)])),
+      periods[0].key,
+    );
   }
   if (view === "NAV-sensitivitet") {
     void loadNavSensitivityPage();

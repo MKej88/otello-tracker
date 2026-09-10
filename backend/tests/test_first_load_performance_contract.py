@@ -181,7 +181,8 @@ def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     )
     brazil_source = (FRONTEND_SRC / "BrazilPage.tsx").read_text(encoding="utf-8")
 
-    assert "preloadJson(discountHistoryUrl(investorPeriods()[0]))" in app_source
+    assert "preloadNavPeriodBundle(" in app_source
+    assert "periods[0].key" in app_source
     assert "preloadJson(discountHistoryUrl(investorPeriods()[4]))" in app_source
     assert "preload(initialView)" in app_source
     assert "preload(view)" in app_source

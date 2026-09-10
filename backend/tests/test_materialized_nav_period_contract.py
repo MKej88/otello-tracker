@@ -33,9 +33,11 @@ def test_nav_page_preloads_all_materialized_periods_with_one_bundle_request() ->
     )
     api_source = (CLOUDFLARE_SRC / "app.py").read_text(encoding="utf-8")
 
-    assert "preloadNavPeriodBundle(Object.fromEntries(" in app_source
-    assert "investorPeriods().map((period) => [period.key, discountHistoryUrl(period)])" in app_source
+    assert "preloadNavPeriodBundle(" in app_source
+    assert "periods[0].key" in app_source
+    assert "periods.map((period) => [period.key, discountHistoryUrl(period)])" in app_source
     assert 'NAV_PERIOD_BUNDLE_URL = "/api/dashboard/nav-periods"' in preload_source
+    assert "initialRequest.then(() => startJsonRequest(NAV_PERIOD_BUNDLE_URL))" in preload_source
     assert "const payload = { estimated };" in preload_source
     assert '@app.get("/api/dashboard/nav-periods")' in api_source
     assert "materialized_nav_period_bundle" in api_source
