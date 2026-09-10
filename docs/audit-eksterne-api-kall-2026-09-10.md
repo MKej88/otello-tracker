@@ -17,7 +17,7 @@ pagination, retries og rate limits. Eksisterende tester, størrelsesgrenser,
 statusmarkering, databasekontrakter og kallende kode ble brukt for aktivt å
 forsøke å motbevise kandidatene.
 
-## Bekreftet feil og rettelse
+## Bekreftede feil og rettelser
 
 ### Workers AI kunne få en ugyldig oppsummering lagret som klar
 
@@ -56,6 +56,39 @@ Vurdering før rettelsen:
 4. Koden ble ikke stående og opprettet ingen ekstra retry-løkke.
 5. Den ugyldige oppsummeringen ble markert som `READY`.
 
+### BCB Focus leste tidligere bare første side
+
+**Klassifisering:** CONFIRMED BUG. **Confidence: 96 %.**
+
+BCB Focus bruker OData-pagination. En realistisk første respons når grensen på
+1 200 rader nås er:
+
+```json
+{
+  "value": [{"Indicador":"Selic","Mediana":14.5}],
+  "@odata.nextLink":"https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativaMercadoMensais?$skip=1200"
+}
+```
+
+Tidligere ble bare `value` fra denne første responsen sendt videre. Rader på
+neste side manglet derfor ved matching mot hendelser, og en forventning kunne
+bli presentert som utilgjengelig selv om leverandøren hadde returnert den.
+Verken parseren eller kallende kode fulgte `@odata.nextLink`.
+
+Rettelsen følger neste-side-lenken, samler radene før matching og stopper
+kontrollert ved ugyldig lenke, lenke til et annet domene, gjentatt lenke eller
+mer enn 20 sider. Regresjonstesten gjenskaper en respons over to sider og
+bekrefter at raden fra side to blir tilgjengelig.
+
+Vurdering før rettelsen:
+
+1. Situasjonen ble ikke håndtert korrekt.
+2. Kallet feilet ikke kontrollert; den avkortede responsen så gyldig ut.
+3. Eksisterende lagrede data ble ikke overskrevet, men tilgjengelige
+   forventninger kunne feilaktig presenteres som manglende.
+4. Koden ble ikke stående og hadde ingen retry-løkke.
+5. En delvis innhenting kunne bli markert som vellykket.
+
 ## Øvrige resultater
 
 - Transportfeil, 429 og 5xx stopper den aktuelle jobben eller blir isolert som
@@ -66,9 +99,8 @@ Vurdering før rettelsen:
   lagrede verdier eller falsk ferskhetsstatus ble bekreftet.
 - NewsWeb håndterer avkorting med avgrenset splitting og deduplisering.
   Dags- og årsarkivene er filbaserte og har ikke API-pagination.
-- BCB Focus har fortsatt `$top=1200` uten å følge en eventuell neste-side-lenke.
-  Dagens korte, filtrerte vinduer viser ikke faktisk avkorting. Dette er en
-  **PLAUSIBLE RISK**, ikke en bekreftet produksjonsfeil.
+- BCB Focus bruker fortsatt `$top=1200`, men følger nå leverandørens
+  `@odata.nextLink` med grenser mot pagination-loop og urimelig mange sider.
 - Enkelte klienter mangler lokal retry eller bruk av `Retry-After`, men feiler
   kontrollert og prøves igjen ved senere planlagt kjøring. Dette er en
   **IMPROVEMENT**, ikke en dokumentert feil.
@@ -77,5 +109,5 @@ Vurdering før rettelsen:
 
 Eksterne tjenester ble ikke med vilje belastet eller provosert til feil.
 Feilresponsene ble i stedet gjenskapt lokalt. Leverandørkontrakter, botvern og
-Workers AI-feilformater kan endres. Focus-pagination bør vurderes på nytt dersom
-søkevinduene eller antallet indikatorer økes.
+Workers AI-feilformater kan endres. Grensen på 20 Focus-sider bør vurderes på
+nytt dersom søkevinduene eller antallet indikatorer økes vesentlig.
