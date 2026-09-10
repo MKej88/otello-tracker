@@ -6,6 +6,7 @@ from dashboard_hot_snapshot import (
     canonical_otec_quote,
     dashboard_bootstrap_payload,
     dashboard_hot_component,
+    dashboard_hot_components,
     sync_otec_price,
 )
 from performance_repository import PerformanceD1Repository, PerformanceD1WriteRepository
@@ -111,10 +112,9 @@ async def get_dashboard_bootstrap(request: Request) -> dict:
 @app.get("/api/dashboard/summary")
 async def get_dashboard_summary(request: Request) -> dict:
     repository = _repository(request)
-    cached = await dashboard_hot_component(repository, "summary")
+    cached, quotes = await dashboard_hot_components(repository, "summary", "quotes")
     if cached is not None:
-        quotes = await dashboard_hot_component(repository, "quotes") or {}
-        return sync_otec_price(cached, canonical_otec_quote(quotes))
+        return sync_otec_price(cached, canonical_otec_quote(quotes or {}))
     from dashboard_service import dashboard_summary, enrich_dashboard_summary
 
     summary = await dashboard_summary(repository)
@@ -142,11 +142,10 @@ async def get_runtime_status(request: Request) -> dict:
 @app.get("/api/dashboard/economic")
 async def get_economic_nav(request: Request) -> dict:
     repository = _repository(request)
-    cached = await dashboard_hot_component(repository, "economic")
+    cached, quotes = await dashboard_hot_components(repository, "economic", "quotes")
     if cached is not None:
-        quotes = await dashboard_hot_component(repository, "quotes") or {}
         return sync_otec_price(
-            cached, canonical_otec_quote(quotes), economic=True
+            cached, canonical_otec_quote(quotes or {}), economic=True
         )
     from economic_nav_investor import economic_nav_summary
 

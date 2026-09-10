@@ -19,10 +19,12 @@ import dashboard_hot_snapshot as hot  # noqa: E402
 class FakeRepository:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, str]] = {}
+        self.reads = 0
         self.writes = 0
 
     async def first(self, sql: str, parameters: tuple = ()):
         assert "runtime_state" in sql
+        self.reads += 1
         key = str(parameters[0])
         row = self.rows.get(key)
         return dict(row) if row is not None else None
@@ -162,6 +164,31 @@ def test_hot_snapshot_builds_and_round_trips_exact_components(monkeypatch) -> No
     for component in ("summary", "economic", "quotes", "buyback", "events"):
         value = asyncio.run(hot.dashboard_hot_component(repository, component))
         assert value == snapshot[component]
+
+
+def test_hot_components_share_one_snapshot_read() -> None:
+    repository = FakeRepository()
+    existing = {
+        "version": hot.SNAPSHOT_VERSION,
+        "generated_at": current_timestamp(),
+        "summary": {"ready": True},
+        "economic": {"ready": True},
+        "quotes": {"ready": True},
+        "buyback": {"ready": True},
+        "events": {"ready": True, "events": [], "calendar": []},
+    }
+    repository.rows[hot.STATE_KEY] = {
+        "value": json.dumps(existing),
+        "updated_at": existing["generated_at"],
+    }
+
+    summary, quotes = asyncio.run(
+        hot.dashboard_hot_components(repository, "summary", "quotes")
+    )
+
+    assert summary == existing["summary"]
+    assert quotes == existing["quotes"]
+    assert repository.reads == 1
 
 
 def test_existing_snapshot_skips_expensive_rebuild_when_not_forced(monkeypatch) -> None:

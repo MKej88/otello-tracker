@@ -9,6 +9,7 @@ from brazil_dashboard import _decimal, _fetch_json, _float, _normalize
 
 FOCUS_BASE = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata"
 QUARTERLY_LOOKBACK_DAYS = 180
+MAX_FOCUS_PAGES = 20
 
 MONTHS = {
     "jan": 1,
@@ -140,8 +141,32 @@ async def _fetch_endpoint(
         "$filter": " and ".join(filters),
     }
     url = f"{FOCUS_BASE}/{endpoint}?{urllib.parse.urlencode(params)}"
-    payload = await _fetch_json(url, fetcher=fetcher)
-    return _latest_rows(payload)
+    rows: list[dict[str, Any]] = []
+    visited: set[str] = set()
+    base = urllib.parse.urlsplit(FOCUS_BASE)
+    for _ in range(MAX_FOCUS_PAGES):
+        if url in visited:
+            raise ValueError("BCB Focus returnerte en pagination-loop")
+        visited.add(url)
+
+        payload = await _fetch_json(url, fetcher=fetcher)
+        rows.extend(_latest_rows(payload))
+        next_link = payload.get("@odata.nextLink")
+        if next_link is None:
+            return rows
+        if not isinstance(next_link, str) or not next_link.strip():
+            raise ValueError("BCB Focus returnerte en ugyldig neste side")
+
+        url = urllib.parse.urljoin(url, next_link.strip())
+        parsed = urllib.parse.urlsplit(url)
+        if (
+            parsed.scheme != base.scheme
+            or parsed.netloc != base.netloc
+            or not parsed.path.startswith(base.path + "/")
+        ):
+            raise ValueError("BCB Focus returnerte en ugyldig URL for neste side")
+
+    raise ValueError("BCB Focus returnerte for mange sider")
 
 
 def _monthly_expectation(event: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:

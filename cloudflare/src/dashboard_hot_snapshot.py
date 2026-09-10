@@ -374,6 +374,24 @@ async def dashboard_hot_component(
     return value if isinstance(value, dict) else None
 
 
+async def dashboard_hot_components(
+    repository: Any, *components: str
+) -> tuple[dict[str, Any] | None, ...]:
+    """Return several cached components through one D1 snapshot read."""
+    unknown = set(components) - _COMPONENTS
+    if unknown:
+        raise ValueError(
+            "Unknown dashboard hot-snapshot component: " + sorted(unknown)[0]
+        )
+    payload = await load_dashboard_hot_snapshot(repository)
+    if payload is None:
+        return (None,) * len(components)
+    return tuple(
+        value if isinstance(value := payload.get(component), dict) else None
+        for component in components
+    )
+
+
 async def refresh_dashboard_hot_snapshot(
     repository: Any,
     *,
