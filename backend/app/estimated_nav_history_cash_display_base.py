@@ -318,6 +318,36 @@ def _apply_period_interest_income_split(
     return result
 
 
+def _replace_composition_if_reconciled(
+    current: dict[str, Any],
+    previous: list[dict[str, Any]],
+    replacement: list[dict[str, Any]],
+    *,
+    status_key: str,
+    failure_reason: str,
+) -> bool:
+    """Replace a NAV composition only when its total remains unchanged."""
+    previous_total_nok = sum(
+        (_decimal(item.get("amount_mnok")) * MILLION for item in previous),
+        Decimal("0"),
+    )
+    replacement_total_nok = sum(
+        (_decimal(item.get("amount_mnok")) * MILLION for item in replacement),
+        Decimal("0"),
+    )
+    difference_nok = previous_total_nok - replacement_total_nok
+    if abs(difference_nok) > TOLERANCE_NOK:
+        current[status_key] = {
+            "ready": False,
+            "reason": failure_reason,
+            "residual_nok": float(difference_nok),
+        }
+        return False
+
+    current["composition"] = replacement
+    return True
+
+
 def _apply_bemobi_paid_split(
     result: dict[str, Any],
     cash_breakdown: dict[str, Any],
@@ -345,10 +375,6 @@ def _apply_bemobi_paid_split(
         }
         return result
 
-    old_total_nok = sum(
-        (_decimal(item.get("amount_mnok")) * MILLION for item in composition),
-        Decimal("0"),
-    )
     other_cash_nok = _decimal(other_cash.get("amount_mnok")) * MILLION
     residual_cash_nok = other_cash_nok - bemobi_paid_nok
 
@@ -419,19 +445,15 @@ def _apply_bemobi_paid_split(
         }
     )
 
-    new_total_nok = sum(
-        (_decimal(item.get("amount_mnok")) * MILLION for item in new_components),
-        Decimal("0"),
-    )
-    if abs(old_total_nok - new_total_nok) > TOLERANCE_NOK:
-        current["bemobi_paid_cash_split_status"] = {
-            "ready": False,
-            "reason": "bemobi_paid_split_does_not_reconcile",
-            "residual_nok": float(old_total_nok - new_total_nok),
-        }
+    if not _replace_composition_if_reconciled(
+        current,
+        composition,
+        new_components,
+        status_key="bemobi_paid_cash_split_status",
+        failure_reason="bemobi_paid_split_does_not_reconcile",
+    ):
         return result
 
-    current["composition"] = new_components
     current["bemobi_paid_cash_split_status"] = {
         "ready": True,
         "gross_mnok": float(gross_nok / MILLION),
@@ -467,10 +489,6 @@ def _apply_bemobi_receivable_split(
         }
         return result
 
-    old_total_nok = sum(
-        (_decimal(item.get("amount_mnok")) * MILLION for item in composition),
-        Decimal("0"),
-    )
     fx = _component(composition, "fx_since_report")
     fx_nok = _decimal((fx or {}).get("amount_mnok")) * MILLION
     residual_fx_nok = fx_nok - receivable_nok
@@ -535,19 +553,15 @@ def _apply_bemobi_receivable_split(
             }
         )
 
-    new_total_nok = sum(
-        (_decimal(item.get("amount_mnok")) * MILLION for item in new_components),
-        Decimal("0"),
-    )
-    if abs(old_total_nok - new_total_nok) > TOLERANCE_NOK:
-        current["bemobi_receivable_split_status"] = {
-            "ready": False,
-            "reason": "bemobi_receivable_split_does_not_reconcile",
-            "residual_nok": float(old_total_nok - new_total_nok),
-        }
+    if not _replace_composition_if_reconciled(
+        current,
+        composition,
+        new_components,
+        status_key="bemobi_receivable_split_status",
+        failure_reason="bemobi_receivable_split_does_not_reconcile",
+    ):
         return result
 
-    current["composition"] = new_components
     current["bemobi_receivable_split_status"] = {
         "ready": True,
         "amount_mnok": float(receivable_nok / MILLION),
