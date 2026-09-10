@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
 import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
+import OverviewPage from "./OverviewPage";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
 import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 
-const loadOverviewPage = () => import("./OverviewPage");
 const loadNavPage = () => import("./NavPageV2");
 const loadNavSensitivityPage = () => import("./NavSensitivityPage");
 const loadHistoryPage = () => import("./EstimatedHistoryPage");
@@ -17,7 +17,6 @@ const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
 const loadNewsEventsPage = () => import("./NewsEventsPage");
 
-const OverviewPage = lazy(loadOverviewPage);
 const NavPageV2 = lazy(loadNavPage);
 const NavSensitivityPage = lazy(loadNavSensitivityPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
@@ -35,9 +34,6 @@ function ViewFallback() {
 }
 
 function preload(view: View) {
-  if (view === "Oversikt") {
-    void loadOverviewPage();
-  }
   if (view === "NAV") {
     void loadNavPage();
     preloadJson("/api/dashboard/economic");
