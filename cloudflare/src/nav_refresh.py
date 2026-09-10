@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -342,12 +343,16 @@ async def _cash_for_date(repository, as_of_date: str) -> dict[str, Any] | None:
 
 
 async def calculate_core_nav(repository, as_of_date: str) -> dict[str, Any]:
-    bmob3 = await _preferred_price(repository, "BMOB3", as_of_date)
-    otec = await _preferred_price(repository, "OTEC", as_of_date)
-    brl_nok = await _nearest_fx(repository, "BRL", as_of_date)
-    holding = await _holding(repository, as_of_date)
-    shares = await _share_count(repository, as_of_date)
-    cash = await _cash_for_date(repository, as_of_date)
+    # These inputs are independent, read-only D1 lookups. Running them together avoids
+    # paying six consecutive network round trips on every CORE NAV calculation.
+    bmob3, otec, brl_nok, holding, shares, cash = await asyncio.gather(
+        _preferred_price(repository, "BMOB3", as_of_date),
+        _preferred_price(repository, "OTEC", as_of_date),
+        _nearest_fx(repository, "BRL", as_of_date),
+        _holding(repository, as_of_date),
+        _share_count(repository, as_of_date),
+        _cash_for_date(repository, as_of_date),
+    )
     required = {
         "BMOB3 market price": bmob3,
         "OTEC market price": otec,
