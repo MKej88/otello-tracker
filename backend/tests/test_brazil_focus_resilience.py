@@ -68,6 +68,11 @@ class FakeRepository:
             self.state[str(key)] = {"value": str(value), "updated_at": str(updated_at)}
         return {"success": True}
 
+    async def run_batch(self, statements):
+        for sql, params in statements:
+            await self.run(sql, params)
+        return {"success": True}
+
 
 def _live_focus(survey_date: str = "2026-08-28") -> dict:
     return {
@@ -85,6 +90,28 @@ def _live_focus(survey_date: str = "2026-08-28") -> dict:
         "source": "Banco Central do Brasil / Focus",
         "source_url": "https://example.test/focus",
     }
+
+
+def test_annual_focus_persistence_batches_all_point_writes() -> None:
+    class CountingRepository(FakeRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batch_calls = 0
+            self.statements_in_batch = 0
+
+        async def run_batch(self, statements):
+            self.batch_calls += 1
+            self.statements_in_batch += len(statements)
+            return await super().run_batch(statements)
+
+    repo = CountingRepository()
+
+    asyncio.run(resolve_annual_focus(repo, _live_focus(), as_of_date="2026-08-29"))
+
+    # Eight bootstrap points and four live points still execute in their original
+    # order, but cross the D1 boundary together instead of in 12 serial requests.
+    assert repo.batch_calls == 1
+    assert repo.statements_in_batch == 12
 
 
 def test_published_focus_bootstrap_prevents_blank_table_on_first_olinda_failure() -> None:
