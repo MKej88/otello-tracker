@@ -500,6 +500,10 @@ def collect_bemobi_cvm_news(
     for year in selected_years:
         try:
             records = parse_cvm_ipe_archive(download_cvm_ipe_year(year, timeout=timeout), year=year)
+            if not records:
+                raise ValueError(
+                    f"CVM IPE {year} inneholdt ingen Bemobi-rader"
+                )
             discovered += len(records)
             relevant_records = [record for record in records if _is_relevant(record)]
             relevant += len(relevant_records)
