@@ -223,6 +223,20 @@ _TRANSLATE_INSTRUCTION = """Oversett hele portugisiske dokumentdelen til norsk b
 _SUMMARY_INSTRUCTION = """Skriv på norsk bokmål en faktabasert investorsammendrag på 2–5 korte setninger, innledet med «Kort fortalt:». Ta bare med hendelser, beløp, datoer og Otello-effekt som dokumentet gir dekning for. Skill tydelig mellom fakta, beregning og tolkning. Ikke klassifiser vesentlighet og ikke finn på tall. Returner JSON med strengfeltene title og summary."""
 
 
+def parse_summary_response(payload: str) -> tuple[str, str]:
+    summary = json.loads(payload)
+    if not isinstance(summary, dict):
+        raise ValueError("Workers AI-oppsummeringen er ikke et JSON-objekt")
+
+    title = summary.get("title")
+    norwegian_summary = summary.get("summary")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("Workers AI-oppsummeringen mangler et gyldig title-felt")
+    if not isinstance(norwegian_summary, str) or not norwegian_summary.strip():
+        raise ValueError("Workers AI-oppsummeringen mangler et gyldig summary-felt")
+    return title.strip(), norwegian_summary.strip()
+
+
 async def process_pending_translations(
     repository: Any,
     bucket: Any,
@@ -336,9 +350,7 @@ async def process_pending_translations(
             if missing:
                 raise ValueError(f"verdikontroll feilet ({len(missing)} mangler)")
             summary_raw = await provider.complete(_SUMMARY_INSTRUCTION, text)
-            summary = json.loads(summary_raw)
-            title = str(summary["title"]).strip()
-            norwegian_summary = str(summary["summary"]).strip()
+            title, norwegian_summary = parse_summary_response(summary_raw)
             key = translated_object_key(content_hash)
             pdf = render_norwegian_pdf(
                 title, str(row.get("published_at") or ""), full_translation
