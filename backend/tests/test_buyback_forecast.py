@@ -229,3 +229,27 @@ def test_price_cap_blocks_point_estimate_but_keeps_scenario_range(tmp_path) -> N
     assert result["estimate"]["low_shares"] == 0
     assert result["estimate"]["high_shares"] > 0
     assert result["estimate"]["confidence"] == "LOW"
+
+
+def test_completed_program_does_not_forecast_more_buybacks(tmp_path) -> None:
+    """Et fullt utnyttet program skal ikke vise et nytt kjøpsestimat."""
+    database = str(tmp_path / "forecast-completed.db")
+    init_database(database)
+    seed_otec_activity_history(database)
+    _seed_current_program(database)
+    with get_connection(database) as connection:
+        connection.execute(
+            """
+            UPDATE buybacks
+            SET cumulative_program_shares = 2192046
+            WHERE id = (SELECT MAX(id) FROM buybacks)
+            """
+        )
+        connection.commit()
+
+    result = buyback_forecast(database, as_of_date="2026-08-17")
+
+    assert result["ready"] is False
+    assert result["status"] == "PROGRAM_EXHAUSTED"
+    assert result["program"]["cumulative_shares"] == 2_192_046
+    assert result["program"]["remaining_shares"] == 0
