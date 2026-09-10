@@ -63,6 +63,47 @@ def test_focus_rejects_invalid_or_partial_odata_envelope(payload: object) -> Non
         _latest_rows(payload)
 
 
+def test_focus_endpoint_follows_odata_pagination() -> None:
+    calls: list[str] = []
+    second_url = (
+        f"{calendar_expectations.FOCUS_BASE}/ExpectativaMercadoMensais?$skip=1200"
+    )
+
+    async def fetcher(url: str, **_kwargs: object):
+        calls.append(url)
+        payload = (
+            {
+                "value": [{"Indicador": "Selic", "Mediana": 14.5}],
+                "@odata.nextLink": second_url,
+            }
+            if len(calls) == 1
+            else {"value": [{"Indicador": "IPCA", "Mediana": 0.31}]}
+        )
+
+        class Response:
+            ok = True
+            status = 200
+
+            async def text(self) -> str:
+                import json
+
+                return json.dumps(payload)
+
+        return Response()
+
+    rows = asyncio.run(
+        calendar_expectations._fetch_endpoint(
+            "ExpectativaMercadoMensais",
+            start_date="2026-08-20",
+            end_date="2026-09-10",
+            fetcher=fetcher,
+        )
+    )
+
+    assert calls[1] == second_url
+    assert [row["Indicador"] for row in rows] == ["Selic", "IPCA"]
+
+
 def test_copom_uses_focus_expectation_for_exact_meeting() -> None:
     event = {
         "date": "2026-09-16",
