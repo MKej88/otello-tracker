@@ -82,7 +82,9 @@ async def _norges_bank_rates_for_window(
     return applicable
 
 
-async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: str) -> dict[str, int]:
+async def _normalize_fx_derived_cash(
+    repository, *, start_date: str, end_date: str
+) -> dict[str, int]:
     """Revalue stored original-currency cash facts with direct Norges Bank NOK rates.
 
     The original currency amount remains the economic fact. Only the derived NOK amount
@@ -107,19 +109,22 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
             repository, start_date=start_date, end_date=end_date
         )
         rates_loaded = True
+    updates: list[tuple[str, tuple[Any, ...]]] = []
     anchor_updates = 0
     for anchor in anchors:
         fx = rates.get((str(anchor["reported_currency"]), str(anchor["as_of_date"])))
         if fx is None:
             continue
         amount_nok = Decimal(str(anchor["reported_amount"])) * Decimal(str(fx["rate"]))
-        await repository.run(
-            """
-            UPDATE cash_anchors
-            SET amount_nok=?, fx_rate_to_nok=?
-            WHERE id=?
-            """,
-            (format(amount_nok, "f"), str(fx["rate"]), int(anchor["id"])),
+        updates.append(
+            (
+                """
+                UPDATE cash_anchors
+                SET amount_nok=?, fx_rate_to_nok=?
+                WHERE id=?
+                """,
+                (format(amount_nok, "f"), str(fx["rate"]), int(anchor["id"])),
+            )
         )
         anchor_updates += 1
 
@@ -144,15 +149,24 @@ async def _normalize_fx_derived_cash(repository, *, start_date: str, end_date: s
         if fx is None:
             continue
         amount_nok = Decimal(str(movement["amount_original"])) * Decimal(str(fx["rate"]))
-        await repository.run(
-            """
-            UPDATE cash_movements
-            SET amount_nok=?, fx_rate_to_nok=?
-            WHERE id=?
-            """,
-            (format(amount_nok, "f"), str(fx["rate"]), int(movement["id"])),
+        updates.append(
+            (
+                """
+                UPDATE cash_movements
+                SET amount_nok=?, fx_rate_to_nok=?
+                WHERE id=?
+                """,
+                (
+                    format(amount_nok, "f"),
+                    str(fx["rate"]),
+                    int(movement["id"]),
+                ),
+            )
         )
         movement_updates += 1
+
+    if updates:
+        await repository.run_batch(updates)
 
     return {
         "cash_anchors_updated": anchor_updates,

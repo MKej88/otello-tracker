@@ -10,6 +10,7 @@ class _Repository:
         self.rows_per_table = rows_per_table
         self.reads = 0
         self.writes: list[tuple[str, tuple]] = []
+        self.batch_calls = 0
 
     async def all(self, sql: str, parameters: tuple = ()) -> list[dict]:
         self.reads += 1
@@ -50,8 +51,9 @@ class _Repository:
             ]
         raise AssertionError(f"Uventet spørring: {sql}")
 
-    async def run(self, sql: str, parameters: tuple = ()) -> None:
-        self.writes.append((sql, parameters))
+    async def run_batch(self, statements: list[tuple[str, tuple]]) -> None:
+        self.batch_calls += 1
+        self.writes.extend(statements)
 
 
 def test_cash_normalization_loads_fx_rates_once_and_preserves_lookback() -> None:
@@ -70,6 +72,7 @@ def test_cash_normalization_loads_fx_rates_once_and_preserves_lookback() -> None
         "cash_movements_updated": 100,
     }
     assert repository.reads == 3
+    assert repository.batch_calls == 1
     assert len(repository.writes) == 200
     assert {parameters[0] for _, parameters in repository.writes} == {
         "5.70",
