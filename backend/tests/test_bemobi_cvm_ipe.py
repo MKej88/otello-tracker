@@ -213,6 +213,25 @@ def test_cvm_collector_archives_versions_but_lists_latest_only(tmp_path, monkeyp
         assert bodies == 0
 
 
+def test_cvm_collector_does_not_mark_header_only_archive_as_success(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "cvm-empty-archive.db")
+    init_database(database)
+    monkeypatch.setattr(
+        "app.bemobi.cvm_ipe.download_cvm_ipe_year",
+        lambda year, timeout=45: _archive([]),
+    )
+
+    result = collect_bemobi_cvm_news(database, years=[2026])
+
+    assert result["successful_years"] == []
+    assert result["archived"] == 0
+    assert result["errors"] == [
+        {"year": 2026, "error": "CVM IPE 2026 inneholdt ingen Bemobi-rader"}
+    ]
+
+
 def test_refresh_years_backfill_missing_history_and_keep_rolling_years(tmp_path) -> None:
     database = str(tmp_path / "years.db")
     init_database(database)

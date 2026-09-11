@@ -44,10 +44,21 @@ function startJsonRequest(url: string): Promise<unknown> {
  * Each existing period URL is seeded with the same payload shape NavPageV2 already consumes.
  * If the nightly bundle is unavailable during rollout, fall back to the existing endpoint.
  */
-export function preloadNavPeriodBundle(periodUrls: Record<string, string>): void {
-  const bundleRequest = startJsonRequest(NAV_PERIOD_BUNDLE_URL);
+export function preloadNavPeriodBundle(
+  periodUrls: Record<string, string>,
+  initialPeriodKey: string,
+): void {
+  const initialUrl = periodUrls[initialPeriodKey];
+  const initialRequest = initialUrl == null
+    ? Promise.resolve()
+    : startJsonRequest(initialUrl).then(() => undefined, () => undefined);
+
+  // The first period is visible immediately. Let its smaller response finish
+  // before the all-period bundle uses bandwidth for tabs the user has not opened.
+  const bundleRequest = initialRequest.then(() => startJsonRequest(NAV_PERIOD_BUNDLE_URL));
 
   for (const [periodKey, url] of Object.entries(periodUrls)) {
+    if (periodKey === initialPeriodKey) continue;
     const cached = resolvedJson.get(url);
     if (cached && cached.expiresAt > Date.now()) continue;
     if (pendingJson.has(url)) continue;

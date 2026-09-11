@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -232,6 +233,73 @@ def test_market_quote_details_returns_issue_83_fields(tmp_path) -> None:
     assert otec["volume"]["relative_3m"] == pytest.approx(
         otec["volume"]["latest"] / otec["volume"]["average_3m"]
     )
+
+
+def test_partial_bmob3_quote_keeps_optional_market_fields_available(tmp_path) -> None:
+    database = str(tmp_path / "partial-bmob3-quote.db")
+    init_database(database)
+
+    with get_connection(database) as connection:
+        upsert_market_price(
+            connection,
+            symbol="BMOB3",
+            observed_at="2026-09-10T14:00:00Z",
+            trading_date="2026-09-10",
+            price_type="LAST",
+            price="24.50",
+            currency="BRL",
+            source_code="B3",
+            quality="DIRECT",
+            metadata={"open_price": None, "volume_shares": "not-a-number"},
+        )
+        connection.commit()
+
+    quote = market_quote_details(database)["symbols"]["BMOB3"]
+
+    assert quote["ready"] is True
+    assert quote["last"] == 24.5
+    assert quote["last_close"] == {
+        "price": None,
+        "date": None,
+        "source": None,
+        "basis": None,
+    }
+    assert quote["changes"] == {
+        "daily_pct": None,
+        "month_pct": None,
+        "three_month_pct": None,
+    }
+    assert quote["volume"]["latest"] is None
+    assert quote["volume"]["average_sessions"] == 0
+    assert quote["volume"]["relative_3m"] is None
+
+
+def test_bmob3_volume_average_is_limited_to_latest_63_sessions(tmp_path) -> None:
+    database = str(tmp_path / "bmob3-volume-window.db")
+    init_database(database)
+
+    with get_connection(database) as connection:
+        for offset in range(64):
+            day = date(2026, 9, 10) - timedelta(days=offset)
+            upsert_market_price(
+                connection,
+                symbol="BMOB3",
+                observed_at=f"{day.isoformat()}T20:00:00Z",
+                trading_date=day.isoformat(),
+                price_type="CLOSE",
+                price="24.50",
+                currency="BRL",
+                source_code="B3",
+                quality="DIRECT",
+                metadata={"quantity_shares": 100 if offset < 63 else 100_000},
+            )
+        connection.commit()
+
+    volume = market_quote_details(database)["symbols"]["BMOB3"]["volume"]
+
+    assert volume["latest"] == 100
+    assert volume["average_sessions"] == 63
+    assert volume["average_3m"] == 100
 
 
 def test_otec_card_prefers_latest_trade_and_keeps_previous_day_close(tmp_path) -> None:

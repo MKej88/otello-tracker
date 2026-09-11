@@ -132,30 +132,6 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _job_due(
-    database_path: str,
-    job_name: str,
-    interval_seconds: int,
-    now: datetime,
-) -> bool:
-    init_database(database_path)
-    with get_connection(database_path) as connection:
-        row = connection.execute(
-            """
-            SELECT finished_at
-            FROM job_runs
-            WHERE job_name=? AND status IN ('SUCCESS','PARTIAL') AND finished_at IS NOT NULL
-            ORDER BY finished_at DESC, id DESC LIMIT 1
-            """,
-            (job_name,),
-        ).fetchone()
-    if row is None:
-        return True
-    return (
-        now.astimezone(UTC) - _parse_timestamp(row["finished_at"])
-    ).total_seconds() >= interval_seconds
-
-
 def _job_result_status(result: dict[str, Any]) -> str:
     status = str(result.get("status", "")).lower()
     if status in {"ok", "ready", "success"}:
@@ -336,30 +312,26 @@ def run_maintenance_if_due(
     now_fn: Callable[[], datetime] | None = None,
 ) -> list[dict[str, Any]]:
     clock = now_fn or (lambda: datetime.now(UTC))
-    now = clock()
     records: list[dict[str, Any]] = []
 
-    if _job_due(
-        config.database_path, "full_refresh", config.full_interval_seconds, now
-    ):
-        record = _run_managed_job(
-            config.database_path,
+    jobs = (
+        (
             "full_refresh",
+            config.full_interval_seconds,
             lambda: full_refresh_fn(config.database_path),
-            interval_seconds=config.full_interval_seconds,
-            now_fn=clock,
-        )
-        if record is not None:
-            records.append(record)
-
-    if _job_due(
-        config.database_path, "database_backup", config.backup_interval_seconds, now
-    ):
+        ),
+        (
+            "database_backup",
+            config.backup_interval_seconds,
+            lambda: backup_fn(config.database_path, backup_dir=config.backup_dir),
+        ),
+    )
+    for job_name, interval_seconds, function in jobs:
         record = _run_managed_job(
             config.database_path,
-            "database_backup",
-            lambda: backup_fn(config.database_path, backup_dir=config.backup_dir),
-            interval_seconds=config.backup_interval_seconds,
+            job_name,
+            function,
+            interval_seconds=interval_seconds,
             now_fn=clock,
         )
         if record is not None:

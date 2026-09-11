@@ -140,6 +140,11 @@ def _share_count_driver(
     }
 
 
+def _weekly_buyback_crosses_start(row: dict[str, Any], start_date: str) -> bool:
+    match = _BUYBACK_PERIOD_RE.search(str(row.get("description") or ""))
+    return bool(match and match.group(1) <= start_date < str(row.get("movement_date")))
+
+
 def _cash_breakdown(
     connection, *, start_date: str, current_date: str
 ) -> dict[str, Any]:
@@ -172,8 +177,7 @@ def _cash_breakdown(
                 daily_totals.get(identifier, Decimal("0")) + amount
             )
         elif movement_type == "OTELLO_BUYBACK":
-            match = _BUYBACK_PERIOD_RE.search(str(row.get("description") or ""))
-            if match and match.group(1) <= start_date < str(row.get("movement_date")):
+            if _weekly_buyback_crosses_start(row, start_date):
                 continue
             weekly_totals[identifier] = (
                 weekly_totals.get(identifier, Decimal("0")) + amount
@@ -218,8 +222,7 @@ def _cash_breakdown(
             if buyback_id is not None and int(buyback_id) in daily_buyback_ids:
                 weekly_superseded += 1
                 continue
-            match = _BUYBACK_PERIOD_RE.search(description)
-            if match and match.group(1) <= start_date < str(row.get("movement_date")):
+            if _weekly_buyback_crosses_start(row, start_date):
                 cross_start_weekly_excluded += 1
                 continue
             buyback_cash += amount

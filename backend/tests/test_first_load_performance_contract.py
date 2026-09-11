@@ -157,6 +157,13 @@ def test_html_preloads_first_screen_data_before_javascript() -> None:
     assert 'fetchpriority="low"' in source
 
 
+def test_default_view_is_available_without_a_module_request_waterfall() -> None:
+    source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+
+    assert 'import OverviewPage from "./OverviewPage";' in source
+    assert 'import("./OverviewPage")' not in source
+
+
 def test_bootstrap_fetch_reuses_the_html_preload() -> None:
     source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(
         encoding="utf-8"
@@ -174,7 +181,8 @@ def test_navigation_starts_history_data_before_route_is_mounted() -> None:
     )
     brazil_source = (FRONTEND_SRC / "BrazilPage.tsx").read_text(encoding="utf-8")
 
-    assert "preloadJson(discountHistoryUrl(investorPeriods()[0]))" in app_source
+    assert "preloadNavPeriodBundle(" in app_source
+    assert "periods[0].key" in app_source
     assert "preloadJson(discountHistoryUrl(investorPeriods()[4]))" in app_source
     assert "preload(initialView)" in app_source
     assert "preload(view)" in app_source

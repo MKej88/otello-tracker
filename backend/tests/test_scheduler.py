@@ -132,6 +132,69 @@ def test_scheduler_can_delay_first_run_and_keeps_start_to_start_cadence(capsys) 
     assert output.count('"event": "refresh_complete"') == 2
 
 
+def test_scheduler_uses_minimum_delay_when_refresh_exceeds_interval() -> None:
+    config = SchedulerConfig("/data/test.db", interval_seconds=600, run_on_start=True)
+    sleeps: list[float] = []
+    monotonic_values = iter([100.0, 750.0, 800.0])
+
+    def refresh(_database_path: str):
+        return {"status": "ok"}
+
+    run_scheduler(
+        config,
+        refresh_fn=refresh,
+        sleep_fn=sleeps.append,
+        monotonic_fn=lambda: next(monotonic_values),
+        max_cycles=2,
+    )
+
+    assert sleeps == [1.0]
+
+
+def test_scheduler_continues_after_persistence_and_maintenance_failures(
+    capsys,
+) -> None:
+    config = SchedulerConfig("/data/test.db", interval_seconds=600, run_on_start=True)
+    refresh_calls = 0
+    persistence_calls = 0
+    maintenance_calls = 0
+
+    def refresh(_database_path: str):
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return {"status": "ok"}
+
+    def persist(_database_path: str, _record: dict) -> None:
+        nonlocal persistence_calls
+        persistence_calls += 1
+        if persistence_calls == 1:
+            raise OSError("database temporarily locked")
+
+    def maintenance(_config: SchedulerConfig) -> list[dict]:
+        nonlocal maintenance_calls
+        maintenance_calls += 1
+        if maintenance_calls == 1:
+            raise TimeoutError("maintenance timed out")
+        return []
+
+    run_scheduler(
+        config,
+        refresh_fn=refresh,
+        sleep_fn=lambda _seconds: None,
+        monotonic_fn=lambda: 100.0,
+        max_cycles=2,
+        persist_fn=persist,
+        maintenance_fn=maintenance,
+    )
+
+    assert refresh_calls == 2
+    assert persistence_calls == 2
+    assert maintenance_calls == 2
+    output = capsys.readouterr().out
+    assert '"event": "job_persistence_failed"' in output
+    assert '"event": "maintenance_dispatch_failed"' in output
+
+
 def test_daily_maintenance_runs_once_and_is_persisted(tmp_path) -> None:
     database = str(tmp_path / "scheduler.db")
     backup_dir = str(tmp_path / "backups")

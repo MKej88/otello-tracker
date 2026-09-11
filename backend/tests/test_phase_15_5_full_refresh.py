@@ -16,6 +16,7 @@ CLOUDFLARE_SRC = ROOT / "cloudflare" / "src"
 if str(CLOUDFLARE_SRC) not in sys.path:
     sys.path.insert(0, str(CLOUDFLARE_SRC))
 
+import cvm_full_refresh as worker_cvm_refresh  # noqa: E402
 import newsweb_reconciliation as nw_reconcile  # noqa: E402
 from b3_full_refresh import (  # noqa: E402
     backfill_bmob3_volume_history,
@@ -300,6 +301,34 @@ def test_cvm_parser_filters_bemobi_and_classifies_results_without_nav_effect() -
     assert category == "RESULTS"
     assert review is False
     assert "result" in reason.lower()
+
+
+def test_worker_cvm_refresh_rejects_header_only_archive(monkeypatch) -> None:
+    headers_only = _cvm_payload()
+    with zipfile.ZipFile(io.BytesIO(headers_only)) as archive:
+        header = archive.read(archive.namelist()[0]).decode("utf-8").splitlines()[0]
+    payload = _zip_text("ipe_cia_aberta_2026.csv", header + "\n", encoding="utf-8")
+
+    async def fake_years_due(_repository, *, target_date):
+        return [2026]
+
+    async def fake_download(_year, *, fetcher=None):
+        return payload
+
+    monkeypatch.setattr(worker_cvm_refresh, "years_due", fake_years_due)
+    monkeypatch.setattr(worker_cvm_refresh, "_download_year", fake_download)
+
+    result = asyncio.run(
+        worker_cvm_refresh.refresh_bemobi_cvm(
+            object(), target_date="2026-08-20", fetcher=object()
+        )
+    )
+
+    assert result["status"] == "error"
+    assert result["successful_years"] == []
+    assert result["errors"] == [
+        {"year": 2026, "error": "CVM IPE 2026 inneholdt ingen Bemobi-rader"}
+    ]
 
 
 def test_newsweb_reconciliation_forces_full_overlap_revalidation(monkeypatch) -> None:

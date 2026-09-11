@@ -513,6 +513,10 @@ async def refresh_bemobi_cvm(
         try:
             payload = await _download_year(year, fetcher=fetcher)
             records = parse_cvm_ipe_archive(payload, year=year)
+            if not records:
+                raise ValueError(
+                    f"CVM IPE {year} inneholdt ingen Bemobi-rader"
+                )
             discovered += len(records)
             relevant_records = [record for record in records if _is_relevant(record)]
             relevant += len(relevant_records)
