@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from brazil_dashboard import FOCUS_STALE_AFTER_DAYS
+
 ANNUAL_STATE_KEY = "brazil_focus_annual_v1"
 EVENT_STATE_KEY = "brazil_focus_event_expectations_v1"
 BOOTSTRAP_REFERENCE_DATE = "2026-08-21"
@@ -59,9 +61,31 @@ def _valid_values(values: Any) -> bool:
         return False
     return any(
         isinstance(by_year, dict)
-        and any(isinstance(point, dict) and point.get("median") is not None for point in by_year.values())
+        and any(
+            isinstance(point, dict) and point.get("median") is not None
+            for point in by_year.values()
+        )
         for by_year in values.values()
     )
+
+
+def _complete_snapshot_date(values: Any, current_year: int) -> str | None:
+    dates: set[str] = set()
+    if not isinstance(values, dict):
+        return None
+    for indicator in ("selic", "ipca", "gdp"):
+        by_year = values.get(indicator)
+        if not isinstance(by_year, dict):
+            return None
+        for year in (current_year, current_year + 1):
+            point = by_year.get(str(year))
+            if not isinstance(point, dict) or point.get("median") is None:
+                return None
+            survey_date = str(point.get("survey_date") or "")[:10]
+            if not survey_date:
+                return None
+            dates.add(survey_date)
+    return dates.pop() if len(dates) == 1 else None
 
 
 def _merge_missing_annual_values(
@@ -134,7 +158,9 @@ def _annual_point_statement(
         "source_url": source_url,
         "survey_date": survey_date,
     }
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     return (
         """
         INSERT INTO runtime_state(key, value, updated_at)
@@ -160,7 +186,9 @@ async def _write_event_expectation(
     """Atomically add one event unless the cache already has a newer survey."""
     updated_at = _now_iso()
     payload = {"expectations": {key: expectation}}
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     # Each upsert carries exactly one event. This lets SQLite serialize the
     # read/compare/merge at the write boundary while json_patch preserves every
     # unrelated event written by concurrent dashboard requests.
@@ -198,7 +226,9 @@ async def persist_annual_focus(
     # while filling gaps in an empty or previously partial cache.
     batches = []
     if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
-        batches.append((_BOOTSTRAP_VALUES, "Banco Central do Brasil / Focus", BOOTSTRAP_SOURCE_URL))
+        batches.append(
+            (_BOOTSTRAP_VALUES, "Banco Central do Brasil / Focus", BOOTSTRAP_SOURCE_URL)
+        )
     batches.append(
         (
             values,
@@ -246,41 +276,29 @@ async def resolve_annual_focus(
     *,
     as_of_date: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if isinstance(live_focus, dict) and live_focus.get("ready") and _valid_values(live_focus.get("values")):
+    if (
+        isinstance(live_focus, dict)
+        and live_focus.get("ready")
+        and _valid_values(live_focus.get("values"))
+    ):
         await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
-        try:
-            cached = await _read_state(repository, ANNUAL_STATE_KEY)
-        except Exception:  # noqa: BLE001 - cache completion must not hide valid live data
-            cached = None
-        completion_values = cached.get("values") if cached else None
-        if completion_values is None and as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
-            completion_values = _BOOTSTRAP_VALUES
-        result["values"] = _merge_missing_annual_values(
-            live_focus["values"],
-            completion_values,
-            as_of_date=as_of_date,
-        )
         result["fallback"] = False
         result["data_source"] = "BCB_OLINDA_LIVE"
         return result, {"ready": True, "fallback": False, "survey_date": survey_date}
 
     cached = await _read_state(repository, ANNUAL_STATE_KEY)
+    current_year = int(as_of_date[:4])
     if cached and _valid_values(cached.get("values")):
-        survey_date = _latest_survey_date(cached.get("values"))
+        survey_date = _complete_snapshot_date(cached.get("values"), current_year)
         if not survey_date or survey_date <= as_of_date:
             cached_values = cached["values"]
-            if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
-                # A sequence of per-point writes can be interrupted after only
-                # part of the bootstrap or live response has reached D1. Complete
-                # that partial snapshot for this response while keeping every
-                # cached point authoritative over the published seed.
-                cached_values = _merge_missing_annual_values(
-                    cached_values,
-                    _BOOTSTRAP_VALUES,
-                    as_of_date=as_of_date,
-                )
+            if survey_date is None:
+                cached_values = None
+        else:
+            cached_values = None
+        if cached_values is not None:
             result = {
                 "ready": True,
                 "values": cached_values,
@@ -293,6 +311,21 @@ async def resolve_annual_focus(
                     "BCB Olinda svarte ikke. Viser siste gode Focus-data som er lagret i trackeren. "
                     f"Siste måling: {survey_date or 'ukjent'}."
                 ),
+                "focus_meta": {
+                    "ref_date": survey_date,
+                    "current_year": current_year,
+                    "next_year": current_year + 1,
+                    "latest_available_ref_date": survey_date,
+                    "age_days": (
+                        datetime.fromisoformat(as_of_date).date()
+                        - datetime.fromisoformat(survey_date).date()
+                    ).days,
+                    "stale": (
+                        datetime.fromisoformat(as_of_date).date()
+                        - datetime.fromisoformat(survey_date).date()
+                    ).days
+                    > FOCUS_STALE_AFTER_DAYS,
+                },
             }
             return result, {
                 "ready": True,
@@ -316,6 +349,22 @@ async def resolve_annual_focus(
                 f"Viser publisert Focus fra {BOOTSTRAP_REFERENCE_DATE} "
                 f"(publisert {BOOTSTRAP_PUBLICATION_DATE}) som nød-fallback."
             ),
+            "focus_meta": {
+                "ref_date": BOOTSTRAP_REFERENCE_DATE,
+                "publication_date": BOOTSTRAP_PUBLICATION_DATE,
+                "current_year": current_year,
+                "next_year": current_year + 1,
+                "latest_available_ref_date": BOOTSTRAP_REFERENCE_DATE,
+                "age_days": (
+                    datetime.fromisoformat(as_of_date).date()
+                    - datetime.fromisoformat(BOOTSTRAP_REFERENCE_DATE).date()
+                ).days,
+                "stale": (
+                    datetime.fromisoformat(as_of_date).date()
+                    - datetime.fromisoformat(BOOTSTRAP_REFERENCE_DATE).date()
+                ).days
+                > FOCUS_STALE_AFTER_DAYS,
+            },
         }
         return result, {
             "ready": True,
@@ -324,7 +373,11 @@ async def resolve_annual_focus(
             "survey_date": BOOTSTRAP_REFERENCE_DATE,
         }
 
-    result = dict(live_focus) if isinstance(live_focus, dict) else {"ready": False, "values": {}}
+    result = (
+        dict(live_focus)
+        if isinstance(live_focus, dict)
+        else {"ready": False, "values": {}}
+    )
     return result, {"ready": False, "fallback": False}
 
 
@@ -338,7 +391,9 @@ def _event_key(event: dict[str, Any]) -> str:
     )
 
 
-async def persist_event_expectations(repository: Any, events: list[dict[str, Any]]) -> None:
+async def persist_event_expectations(
+    repository: Any, events: list[dict[str, Any]]
+) -> None:
     for event in events:
         expectation = event.get("expectation")
         if not isinstance(expectation, dict) or not expectation.get("event_consensus"):
@@ -365,8 +420,14 @@ async def apply_cached_event_expectations(
             output.append(event)
             continue
         expectation = stored.get(_event_key(event))
-        survey_date = str(expectation.get("survey_date") or "") if isinstance(expectation, dict) else ""
-        if isinstance(expectation, dict) and (not survey_date or survey_date <= as_of_date):
+        survey_date = (
+            str(expectation.get("survey_date") or "")
+            if isinstance(expectation, dict)
+            else ""
+        )
+        if isinstance(expectation, dict) and (
+            not survey_date or survey_date <= as_of_date
+        ):
             restored_expectation = dict(expectation)
             restored_expectation["fallback_cached"] = True
             event["expectation"] = restored_expectation

@@ -170,7 +170,12 @@ async def _load_sgs_series(
     return _series_payload(key, rows[-18:], source_url=url)
 
 
-def _focus_indicator_key(value: Any) -> str | None:
+FOCUS_REQUIRED_KEYS = ("selic", "ipca", "gdp")
+FOCUS_STALE_AFTER_DAYS = 21
+
+
+def normalize_focus_indicator(value: Any) -> str | None:
+    """Map source labels to the stable indicator names exposed by our API."""
     normalized = _normalize(value)
     if normalized == "ipca":
         return "ipca"
@@ -183,6 +188,9 @@ def _focus_indicator_key(value: Any) -> str | None:
     return None
 
 
+_focus_indicator_key = normalize_focus_indicator
+
+
 def _focus_year(value: Any) -> int | None:
     raw = str(value or "").strip()
     if len(raw) >= 4 and raw[:4].isdigit():
@@ -190,50 +198,86 @@ def _focus_year(value: Any) -> int | None:
     return None
 
 
-def parse_focus_rows(payload: Any, *, as_of_date: str) -> dict[str, Any]:
+def _focus_snapshot_is_complete(values: dict[str, Any], years: tuple[int, int]) -> bool:
+    return all(
+        isinstance(values.get(key), dict)
+        and all(
+            isinstance(values[key].get(str(year)), dict)
+            and values[key][str(year)].get("median") is not None
+            for year in years
+        )
+        for key in FOCUS_REQUIRED_KEYS
+    )
+
+
+def parse_focus_snapshot(
+    payload: Any, *, as_of_date: str, current_year: int | None = None
+) -> dict[str, Any]:
+    """Return the newest complete single-date Focus snapshot."""
     values = payload.get("value") if isinstance(payload, dict) else None
     if not isinstance(values, list):
         raise ValueError("BCB Focus returnerte ikke value-listen")
     as_of = date.fromisoformat(as_of_date)
-    wanted_years = {as_of.year, as_of.year + 1}
-    candidates: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    year = current_year if current_year is not None else as_of.year
+    wanted_years = (year, year + 1)
+    snapshots: dict[str, dict[str, Any]] = {}
+    latest_available_date: str | None = None
     for raw in values:
         if not isinstance(raw, dict):
             continue
         survey_date = str(raw.get("Data") or "")[:10]
         if survey_date and survey_date > as_of_date:
             continue
-        key = _focus_indicator_key(raw.get("Indicador"))
-        year = _focus_year(raw.get("DataReferencia"))
-        if key is None or year not in wanted_years:
+        if survey_date:
+            latest_available_date = max(latest_available_date or survey_date, survey_date)
+        key = normalize_focus_indicator(raw.get("Indicador"))
+        focus_year = _focus_year(raw.get("DataReferencia"))
+        if key is None or focus_year not in wanted_years:
             continue
         median = _decimal(raw.get("Mediana"))
         if median is None:
             continue
-        candidates.setdefault((key, year), []).append(raw)
-
-    result: dict[str, Any] = {}
-    for (key, year), rows in candidates.items():
-        rows.sort(key=lambda item: str(item.get("Data") or ""), reverse=True)
-        latest = rows[0]
-        result.setdefault(key, {})[str(year)] = {
-            "median": _float(_decimal(latest.get("Mediana"))),
-            "mean": _float(_decimal(latest.get("Media"))),
-            "min": _float(_decimal(latest.get("Minimo"))),
-            "max": _float(_decimal(latest.get("Maximo"))),
-            "respondents": int(latest.get("numeroRespondentes") or 0),
-            "survey_date": str(latest.get("Data") or "")[:10],
+        if not survey_date:
+            continue
+        snapshot = snapshots.setdefault(survey_date, {})
+        snapshot.setdefault(key, {})[str(focus_year)] = {
+            "median": _float(median),
+            "mean": _float(_decimal(raw.get("Media"))),
+            "min": _float(_decimal(raw.get("Minimo"))),
+            "max": _float(_decimal(raw.get("Maximo"))),
+            "respondents": int(raw.get("numeroRespondentes") or 0),
+            "survey_date": survey_date,
         }
-    return result
+    years = (year, year + 1)
+    for survey_date in sorted(snapshots, reverse=True):
+        snapshot = snapshots[survey_date]
+        if _focus_snapshot_is_complete(snapshot, years):
+            age_days = (as_of - date.fromisoformat(survey_date)).days
+            return {
+                "ref_date": survey_date,
+                "values": snapshot,
+                "current_year": year,
+                "next_year": year + 1,
+                "latest_available_ref_date": latest_available_date,
+                "age_days": age_days,
+                "stale": age_days > FOCUS_STALE_AFTER_DAYS,
+            }
+    raise ValueError("BCB Focus mangler et komplett snapshot for begge år")
+
+
+def parse_focus_rows(payload: Any, *, as_of_date: str) -> dict[str, Any]:
+    """Compatibility wrapper returning only canonical snapshot values."""
+    return parse_focus_snapshot(payload, as_of_date=as_of_date)["values"]
 
 
 async def _load_focus(
     as_of_date: str,
     *,
+    current_year: int | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
-    start = (as_of - timedelta(days=21)).isoformat()
+    start = (as_of - timedelta(days=120)).isoformat()
     indicators = ["IPCA", "Selic", "PIB Total", "Câmbio"]
     indicator_filter = " or ".join(f"Indicador eq '{item}'" for item in indicators)
     params = {
@@ -244,10 +288,12 @@ async def _load_focus(
     }
     url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
     payload = await _fetch_json(url, fetcher=fetcher)
-    values = parse_focus_rows(payload, as_of_date=as_of_date)
+    snapshot = parse_focus_snapshot(payload, as_of_date=as_of_date, current_year=current_year)
+    values = snapshot["values"]
     return {
         "ready": bool(values),
         "values": values,
+        "focus_meta": {key: value for key, value in snapshot.items() if key != "values"},
         "source": "Banco Central do Brasil / Focus",
         "source_url": BCB_FOCUS_URL,
         "note": "Focus er årsforventninger, ikke konsensus for den enkelte publisering.",

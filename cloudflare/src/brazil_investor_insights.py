@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 
 import brazil_dashboard as base
 
-FOCUS_KEYS = ("selic", "ipca", "gdp", "usd_brl")
+FOCUS_KEYS = ("selic", "ipca", "gdp")
 
 
 def _finite(value: Any) -> float | None:
@@ -49,7 +49,11 @@ def _comparison_points(
             "current": current_value,
             "previous": previous_value,
             "change": change,
-            "change_bp": change * 100 if change is not None and key in {"selic", "ipca"} else None,
+            "change_bp": (
+                change * 100
+                if change is not None and key in {"selic", "ipca"}
+                else None
+            ),
             "current_survey_date": (current or {}).get("survey_date"),
             "previous_survey_date": (previous or {}).get("survey_date"),
         }
@@ -71,29 +75,51 @@ async def build_focus_trend(
     """
     current_values = (
         current_focus.get("values")
-        if isinstance(current_focus, dict) and isinstance(current_focus.get("values"), dict)
+        if isinstance(current_focus, dict)
+        and isinstance(current_focus.get("values"), dict)
         else {}
     )
-    target = date.fromisoformat(as_of_date)
+    fallback_target = date.fromisoformat(as_of_date)
+    meta = current_focus.get("focus_meta") if isinstance(current_focus, dict) else None
+    current_ref_date = (
+        str(meta.get("ref_date"))
+        if isinstance(meta, dict) and meta.get("ref_date")
+        else as_of_date
+    )
+    target = date.fromisoformat(current_ref_date)
+    current_year = (
+        int(meta.get("current_year"))
+        if isinstance(meta, dict) and meta.get("current_year") is not None
+        else fallback_target.year
+    )
     comparison_dates = {
         "7d": (target - timedelta(days=7)).isoformat(),
         "30d": (target - timedelta(days=30)).isoformat(),
     }
 
-    async def load(label: str, target_date: str) -> tuple[str, str, dict[str, Any] | None, str | None]:
+    async def load(
+        label: str, target_date: str
+    ) -> tuple[str, str, dict[str, Any] | None, str | None]:
         try:
-            payload = await base._load_focus(target_date, fetcher=fetcher)
+            payload = await base._load_focus(
+                target_date, current_year=current_year, fetcher=fetcher
+            )
             values = payload.get("values") if isinstance(payload, dict) else None
             if not isinstance(values, dict) or not values:
                 raise ValueError("BCB Focus mangler historiske forventninger")
-            return label, target_date, values, None
+            historical_meta = payload.get("focus_meta") or {}
+            return (
+                label,
+                str(historical_meta.get("ref_date") or target_date),
+                values,
+                None,
+            )
         except Exception as exc:  # noqa: BLE001 - comparisons are independent
             return label, target_date, None, f"{type(exc).__name__}: {exc}"
 
     loaded = await asyncio.gather(
         *(load(label, target_date) for label, target_date in comparison_dates.items())
     )
-    current_year = target.year
     next_year = current_year + 1
     comparison_years = (current_year, next_year)
     comparisons: dict[str, Any] = {}
@@ -115,6 +141,7 @@ async def build_focus_trend(
         comparisons[label] = {
             "ready": True,
             "target_date": target_date,
+            "ref_date": target_date,
             # Keep the legacy next-year shape for callers that have not migrated yet.
             "points": points_by_year[str(next_year)],
             "points_by_year": points_by_year,
@@ -128,6 +155,7 @@ async def build_focus_trend(
             "comparison_years": list(comparison_years),
             "comparisons": comparisons,
             "source": "Banco Central do Brasil / Focus",
+            "current_ref_date": current_ref_date,
         },
         {
             "ready": ready,
@@ -137,7 +165,9 @@ async def build_focus_trend(
     )
 
 
-def _tone_from_change(value: float | None, *, positive_when_lower: bool, threshold: float) -> str:
+def _tone_from_change(
+    value: float | None, *, positive_when_lower: bool, threshold: float
+) -> str:
     if value is None or abs(value) < threshold:
         return "neutral"
     improved = value < 0 if positive_when_lower else value > 0
@@ -195,11 +225,17 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
     focus = result.get("focus") if isinstance(result.get("focus"), dict) else {}
     values = focus.get("values") if isinstance(focus.get("values"), dict) else {}
     as_of = str(result.get("as_of_date") or "")
-    year = int(as_of[:4]) if len(as_of) >= 4 and as_of[:4].isdigit() else date.today().year
+    year = (
+        int(as_of[:4]) if len(as_of) >= 4 and as_of[:4].isdigit() else date.today().year
+    )
 
     selic_now = _metric_value(metrics, "selic")
-    selic_current_year = _finite((_focus_point(values, "selic", year) or {}).get("median"))
-    selic_next_year = _finite((_focus_point(values, "selic", year + 1) or {}).get("median"))
+    selic_current_year = _finite(
+        (_focus_point(values, "selic", year) or {}).get("median")
+    )
+    selic_next_year = _finite(
+        (_focus_point(values, "selic", year + 1) or {}).get("median")
+    )
     expected_easing_current_year_bp = (
         (selic_current_year - selic_now) * 100
         if selic_now is not None and selic_current_year is not None
@@ -226,7 +262,9 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
             rate_tone = "positive"
         elif expected_easing_bp >= 50:
             rate_tone = "negative"
-    inflation_tone = _tone_from_change(ipca_30d, positive_when_lower=True, threshold=0.05)
+    inflation_tone = _tone_from_change(
+        ipca_30d, positive_when_lower=True, threshold=0.05
+    )
     if rate_tone == "neutral" and inflation_tone != "neutral":
         rate_tone = inflation_tone
 
@@ -246,7 +284,9 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
         activity_tone = "neutral"
 
     brl_change_1m = _metric_value(metrics, "brl_nok", "change_1m_pct")
-    currency_tone = _tone_from_change(brl_change_1m, positive_when_lower=False, threshold=1.0)
+    currency_tone = _tone_from_change(
+        brl_change_1m, positive_when_lower=False, threshold=1.0
+    )
 
     score = sum(_tone_score(tone) for tone in (rate_tone, activity_tone, currency_tone))
     if score >= 2:
@@ -268,9 +308,13 @@ def build_investor_summary(result: dict[str, Any], focus_trend: Any) -> dict[str
         rate_summary = f"Focus peker mot {abs(expected_easing_bp):.0f} bp {direction} rente enn i dag neste år."
 
     if activity_tone == "positive":
-        activity_summary = "Både samlet aktivitet og tjenester viser positiv siste månedsutvikling."
+        activity_summary = (
+            "Både samlet aktivitet og tjenester viser positiv siste månedsutvikling."
+        )
     elif activity_tone == "negative":
-        activity_summary = "Både samlet aktivitet og tjenester viser negativ siste månedsutvikling."
+        activity_summary = (
+            "Både samlet aktivitet og tjenester viser negativ siste månedsutvikling."
+        )
     else:
         activity_summary = "Aktivitetssignalene er blandede eller omtrent flate."
 
