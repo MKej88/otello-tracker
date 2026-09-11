@@ -102,7 +102,10 @@ async def build_focus_trend(
     ) -> tuple[str, str, dict[str, Any] | None, str | None]:
         try:
             payload = await base._load_focus(
-                target_date, current_year=current_year, fetcher=fetcher
+                target_date,
+                current_year=current_year,
+                require_complete=True,
+                fetcher=fetcher,
             )
             values = payload.get("values") if isinstance(payload, dict) else None
             if not isinstance(values, dict) or not values:

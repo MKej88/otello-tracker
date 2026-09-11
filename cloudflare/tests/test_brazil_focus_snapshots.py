@@ -104,7 +104,11 @@ def test_trend_uses_current_ref_date_and_latest_snapshot_on_or_before_30d() -> N
     available = rows("2026-08-07", 2026) + rows("2026-07-31", 2026)
 
     async def fake_load(
-        as_of_date: str, *, current_year: int | None = None, fetcher: Any = None
+        as_of_date: str,
+        *,
+        current_year: int | None = None,
+        require_complete: bool = False,
+        fetcher: Any = None,
     ) -> dict[str, Any]:
         snapshot = parse_focus_snapshot(
             {"value": available}, as_of_date=as_of_date, current_year=current_year

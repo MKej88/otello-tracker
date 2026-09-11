@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
-
-from brazil_dashboard import FOCUS_STALE_AFTER_DAYS
 
 ANNUAL_STATE_KEY = "brazil_focus_annual_v1"
 EVENT_STATE_KEY = "brazil_focus_event_expectations_v1"
 BOOTSTRAP_REFERENCE_DATE = "2026-08-21"
 BOOTSTRAP_PUBLICATION_DATE = "2026-08-24"
 BOOTSTRAP_SOURCE_URL = "https://www.bcb.gov.br/publicacoes/focus/21082026"
+FOCUS_STALE_AFTER_DAYS = 21
 
 # Emergency bootstrap from the latest published BCB Focus report available when this
 # fallback was introduced. It is only used if Olinda is unavailable and no newer
@@ -56,6 +55,30 @@ def _latest_survey_date(values: Any) -> str | None:
     return max(dates) if dates else None
 
 
+def _focus_meta(
+    values: Any,
+    *,
+    as_of_date: str,
+    publication_date: str | None = None,
+) -> dict[str, Any] | None:
+    ref_date = _latest_survey_date(values)
+    if ref_date is None:
+        return None
+    current_year = date.fromisoformat(as_of_date).year
+    age_days = (date.fromisoformat(as_of_date) - date.fromisoformat(ref_date)).days
+    result: dict[str, Any] = {
+        "ref_date": ref_date,
+        "current_year": current_year,
+        "next_year": current_year + 1,
+        "latest_available_ref_date": ref_date,
+        "age_days": age_days,
+        "stale": age_days > FOCUS_STALE_AFTER_DAYS,
+    }
+    if publication_date is not None:
+        result["publication_date"] = publication_date
+    return result
+
+
 def _valid_values(values: Any) -> bool:
     if not isinstance(values, dict) or not values:
         return False
@@ -67,25 +90,6 @@ def _valid_values(values: Any) -> bool:
         )
         for by_year in values.values()
     )
-
-
-def _complete_snapshot_date(values: Any, current_year: int) -> str | None:
-    dates: set[str] = set()
-    if not isinstance(values, dict):
-        return None
-    for indicator in ("selic", "ipca", "gdp"):
-        by_year = values.get(indicator)
-        if not isinstance(by_year, dict):
-            return None
-        for year in (current_year, current_year + 1):
-            point = by_year.get(str(year))
-            if not isinstance(point, dict) or point.get("median") is None:
-                return None
-            survey_date = str(point.get("survey_date") or "")[:10]
-            if not survey_date:
-                return None
-            dates.add(survey_date)
-    return dates.pop() if len(dates) == 1 else None
 
 
 def _merge_missing_annual_values(
@@ -284,21 +288,40 @@ async def resolve_annual_focus(
         await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
+        try:
+            cached = await _read_state(repository, ANNUAL_STATE_KEY)
+        except (
+            Exception
+        ):  # noqa: BLE001 - cache completion must not hide valid live data
+            cached = None
+        completion_values = cached.get("values") if cached else None
+        if completion_values is None and as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
+            completion_values = _BOOTSTRAP_VALUES
+        result["values"] = _merge_missing_annual_values(
+            live_focus["values"],
+            completion_values,
+            as_of_date=as_of_date,
+        )
+        result["focus_meta"] = _focus_meta(result["values"], as_of_date=as_of_date)
         result["fallback"] = False
         result["data_source"] = "BCB_OLINDA_LIVE"
         return result, {"ready": True, "fallback": False, "survey_date": survey_date}
 
     cached = await _read_state(repository, ANNUAL_STATE_KEY)
-    current_year = int(as_of_date[:4])
     if cached and _valid_values(cached.get("values")):
-        survey_date = _complete_snapshot_date(cached.get("values"), current_year)
+        survey_date = _latest_survey_date(cached.get("values"))
         if not survey_date or survey_date <= as_of_date:
             cached_values = cached["values"]
-            if survey_date is None:
-                cached_values = None
-        else:
-            cached_values = None
-        if cached_values is not None:
+            if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
+                # A sequence of per-point writes can be interrupted after only
+                # part of the bootstrap or live response has reached D1. Complete
+                # that partial snapshot for this response while keeping every
+                # cached point authoritative over the published seed.
+                cached_values = _merge_missing_annual_values(
+                    cached_values,
+                    _BOOTSTRAP_VALUES,
+                    as_of_date=as_of_date,
+                )
             result = {
                 "ready": True,
                 "values": cached_values,
@@ -311,21 +334,7 @@ async def resolve_annual_focus(
                     "BCB Olinda svarte ikke. Viser siste gode Focus-data som er lagret i trackeren. "
                     f"Siste måling: {survey_date or 'ukjent'}."
                 ),
-                "focus_meta": {
-                    "ref_date": survey_date,
-                    "current_year": current_year,
-                    "next_year": current_year + 1,
-                    "latest_available_ref_date": survey_date,
-                    "age_days": (
-                        datetime.fromisoformat(as_of_date).date()
-                        - datetime.fromisoformat(survey_date).date()
-                    ).days,
-                    "stale": (
-                        datetime.fromisoformat(as_of_date).date()
-                        - datetime.fromisoformat(survey_date).date()
-                    ).days
-                    > FOCUS_STALE_AFTER_DAYS,
-                },
+                "focus_meta": _focus_meta(cached_values, as_of_date=as_of_date),
             }
             return result, {
                 "ready": True,
@@ -349,22 +358,11 @@ async def resolve_annual_focus(
                 f"Viser publisert Focus fra {BOOTSTRAP_REFERENCE_DATE} "
                 f"(publisert {BOOTSTRAP_PUBLICATION_DATE}) som nød-fallback."
             ),
-            "focus_meta": {
-                "ref_date": BOOTSTRAP_REFERENCE_DATE,
-                "publication_date": BOOTSTRAP_PUBLICATION_DATE,
-                "current_year": current_year,
-                "next_year": current_year + 1,
-                "latest_available_ref_date": BOOTSTRAP_REFERENCE_DATE,
-                "age_days": (
-                    datetime.fromisoformat(as_of_date).date()
-                    - datetime.fromisoformat(BOOTSTRAP_REFERENCE_DATE).date()
-                ).days,
-                "stale": (
-                    datetime.fromisoformat(as_of_date).date()
-                    - datetime.fromisoformat(BOOTSTRAP_REFERENCE_DATE).date()
-                ).days
-                > FOCUS_STALE_AFTER_DAYS,
-            },
+            "focus_meta": _focus_meta(
+                _BOOTSTRAP_VALUES,
+                as_of_date=as_of_date,
+                publication_date=BOOTSTRAP_PUBLICATION_DATE,
+            ),
         }
         return result, {
             "ready": True,

@@ -266,14 +266,52 @@ def parse_focus_snapshot(
 
 
 def parse_focus_rows(payload: Any, *, as_of_date: str) -> dict[str, Any]:
-    """Compatibility wrapper returning only canonical snapshot values."""
-    return parse_focus_snapshot(payload, as_of_date=as_of_date)["values"]
+    """Parse available Focus points for backwards-compatible callers.
+
+    Complete dashboard snapshots use :func:`parse_focus_snapshot`.  This parser
+    intentionally retains the earlier partial-result contract used by resilience
+    and low-level callers.
+    """
+    values = payload.get("value") if isinstance(payload, dict) else None
+    if not isinstance(values, list):
+        raise ValueError("BCB Focus returnerte ikke value-listen")
+    as_of = date.fromisoformat(as_of_date)
+    wanted_years = {as_of.year, as_of.year + 1}
+    candidates: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for raw in values:
+        if not isinstance(raw, dict):
+            continue
+        survey_date = str(raw.get("Data") or "")[:10]
+        if survey_date and survey_date > as_of_date:
+            continue
+        key = normalize_focus_indicator(raw.get("Indicador"))
+        focus_year = _focus_year(raw.get("DataReferencia"))
+        if key is None or focus_year not in wanted_years:
+            continue
+        if _decimal(raw.get("Mediana")) is None:
+            continue
+        candidates.setdefault((key, focus_year), []).append(raw)
+
+    result: dict[str, Any] = {}
+    for (key, focus_year), rows in candidates.items():
+        rows.sort(key=lambda item: str(item.get("Data") or ""), reverse=True)
+        latest = rows[0]
+        result.setdefault(key, {})[str(focus_year)] = {
+            "median": _float(_decimal(latest.get("Mediana"))),
+            "mean": _float(_decimal(latest.get("Media"))),
+            "min": _float(_decimal(latest.get("Minimo"))),
+            "max": _float(_decimal(latest.get("Maximo"))),
+            "respondents": int(latest.get("numeroRespondentes") or 0),
+            "survey_date": str(latest.get("Data") or "")[:10],
+        }
+    return result
 
 
 async def _load_focus(
     as_of_date: str,
     *,
     current_year: int | None = None,
+    require_complete: bool = False,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
@@ -288,7 +326,21 @@ async def _load_focus(
     }
     url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
     payload = await _fetch_json(url, fetcher=fetcher)
-    snapshot = parse_focus_snapshot(payload, as_of_date=as_of_date, current_year=current_year)
+    try:
+        snapshot = parse_focus_snapshot(
+            payload, as_of_date=as_of_date, current_year=current_year
+        )
+    except ValueError:
+        if require_complete or current_year is not None:
+            raise
+        values = parse_focus_rows(payload, as_of_date=as_of_date)
+        return {
+            "ready": bool(values),
+            "values": values,
+            "source": "Banco Central do Brasil / Focus",
+            "source_url": BCB_FOCUS_URL,
+            "note": "Focus er årsforventninger, ikke konsensus for den enkelte publisering.",
+        }
     values = snapshot["values"]
     return {
         "ready": bool(values),
@@ -625,7 +677,9 @@ async def brazil_dashboard(
             source_status[key] = {"ready": True, "date": result.get("date")}
 
     try:
-        focus_result = await _load_focus(target_date, fetcher=fetcher)
+        focus_result = await _load_focus(
+            target_date, require_complete=True, fetcher=fetcher
+        )
         focus = focus_result.get("values") or {}
         source_status["focus"] = {"ready": bool(focus), "source": focus_result.get("source")}
     except Exception as exc:
