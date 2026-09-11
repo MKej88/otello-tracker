@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 ANNUAL_STATE_KEY = "brazil_focus_annual_v1"
@@ -9,6 +9,7 @@ EVENT_STATE_KEY = "brazil_focus_event_expectations_v1"
 BOOTSTRAP_REFERENCE_DATE = "2026-08-21"
 BOOTSTRAP_PUBLICATION_DATE = "2026-08-24"
 BOOTSTRAP_SOURCE_URL = "https://www.bcb.gov.br/publicacoes/focus/21082026"
+FOCUS_STALE_AFTER_DAYS = 21
 
 # Emergency bootstrap from the latest published BCB Focus report available when this
 # fallback was introduced. It is only used if Olinda is unavailable and no newer
@@ -54,12 +55,39 @@ def _latest_survey_date(values: Any) -> str | None:
     return max(dates) if dates else None
 
 
+def _focus_meta(
+    values: Any,
+    *,
+    as_of_date: str,
+    publication_date: str | None = None,
+) -> dict[str, Any] | None:
+    ref_date = _latest_survey_date(values)
+    if ref_date is None:
+        return None
+    current_year = date.fromisoformat(as_of_date).year
+    age_days = (date.fromisoformat(as_of_date) - date.fromisoformat(ref_date)).days
+    result: dict[str, Any] = {
+        "ref_date": ref_date,
+        "current_year": current_year,
+        "next_year": current_year + 1,
+        "latest_available_ref_date": ref_date,
+        "age_days": age_days,
+        "stale": age_days > FOCUS_STALE_AFTER_DAYS,
+    }
+    if publication_date is not None:
+        result["publication_date"] = publication_date
+    return result
+
+
 def _valid_values(values: Any) -> bool:
     if not isinstance(values, dict) or not values:
         return False
     return any(
         isinstance(by_year, dict)
-        and any(isinstance(point, dict) and point.get("median") is not None for point in by_year.values())
+        and any(
+            isinstance(point, dict) and point.get("median") is not None
+            for point in by_year.values()
+        )
         for by_year in values.values()
     )
 
@@ -134,7 +162,9 @@ def _annual_point_statement(
         "source_url": source_url,
         "survey_date": survey_date,
     }
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     return (
         """
         INSERT INTO runtime_state(key, value, updated_at)
@@ -160,7 +190,9 @@ async def _write_event_expectation(
     """Atomically add one event unless the cache already has a newer survey."""
     updated_at = _now_iso()
     payload = {"expectations": {key: expectation}}
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     # Each upsert carries exactly one event. This lets SQLite serialize the
     # read/compare/merge at the write boundary while json_patch preserves every
     # unrelated event written by concurrent dashboard requests.
@@ -198,7 +230,9 @@ async def persist_annual_focus(
     # while filling gaps in an empty or previously partial cache.
     batches = []
     if as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
-        batches.append((_BOOTSTRAP_VALUES, "Banco Central do Brasil / Focus", BOOTSTRAP_SOURCE_URL))
+        batches.append(
+            (_BOOTSTRAP_VALUES, "Banco Central do Brasil / Focus", BOOTSTRAP_SOURCE_URL)
+        )
     batches.append(
         (
             values,
@@ -246,13 +280,19 @@ async def resolve_annual_focus(
     *,
     as_of_date: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if isinstance(live_focus, dict) and live_focus.get("ready") and _valid_values(live_focus.get("values")):
+    if (
+        isinstance(live_focus, dict)
+        and live_focus.get("ready")
+        and _valid_values(live_focus.get("values"))
+    ):
         await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
         try:
             cached = await _read_state(repository, ANNUAL_STATE_KEY)
-        except Exception:  # noqa: BLE001 - cache completion must not hide valid live data
+        except (
+            Exception
+        ):  # noqa: BLE001 - cache completion must not hide valid live data
             cached = None
         completion_values = cached.get("values") if cached else None
         if completion_values is None and as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
@@ -262,6 +302,7 @@ async def resolve_annual_focus(
             completion_values,
             as_of_date=as_of_date,
         )
+        result["focus_meta"] = _focus_meta(result["values"], as_of_date=as_of_date)
         result["fallback"] = False
         result["data_source"] = "BCB_OLINDA_LIVE"
         return result, {"ready": True, "fallback": False, "survey_date": survey_date}
@@ -293,6 +334,7 @@ async def resolve_annual_focus(
                     "BCB Olinda svarte ikke. Viser siste gode Focus-data som er lagret i trackeren. "
                     f"Siste måling: {survey_date or 'ukjent'}."
                 ),
+                "focus_meta": _focus_meta(cached_values, as_of_date=as_of_date),
             }
             return result, {
                 "ready": True,
@@ -316,6 +358,11 @@ async def resolve_annual_focus(
                 f"Viser publisert Focus fra {BOOTSTRAP_REFERENCE_DATE} "
                 f"(publisert {BOOTSTRAP_PUBLICATION_DATE}) som nød-fallback."
             ),
+            "focus_meta": _focus_meta(
+                _BOOTSTRAP_VALUES,
+                as_of_date=as_of_date,
+                publication_date=BOOTSTRAP_PUBLICATION_DATE,
+            ),
         }
         return result, {
             "ready": True,
@@ -324,7 +371,11 @@ async def resolve_annual_focus(
             "survey_date": BOOTSTRAP_REFERENCE_DATE,
         }
 
-    result = dict(live_focus) if isinstance(live_focus, dict) else {"ready": False, "values": {}}
+    result = (
+        dict(live_focus)
+        if isinstance(live_focus, dict)
+        else {"ready": False, "values": {}}
+    )
     return result, {"ready": False, "fallback": False}
 
 
@@ -338,7 +389,9 @@ def _event_key(event: dict[str, Any]) -> str:
     )
 
 
-async def persist_event_expectations(repository: Any, events: list[dict[str, Any]]) -> None:
+async def persist_event_expectations(
+    repository: Any, events: list[dict[str, Any]]
+) -> None:
     for event in events:
         expectation = event.get("expectation")
         if not isinstance(expectation, dict) or not expectation.get("event_consensus"):
@@ -365,8 +418,14 @@ async def apply_cached_event_expectations(
             output.append(event)
             continue
         expectation = stored.get(_event_key(event))
-        survey_date = str(expectation.get("survey_date") or "") if isinstance(expectation, dict) else ""
-        if isinstance(expectation, dict) and (not survey_date or survey_date <= as_of_date):
+        survey_date = (
+            str(expectation.get("survey_date") or "")
+            if isinstance(expectation, dict)
+            else ""
+        )
+        if isinstance(expectation, dict) and (
+            not survey_date or survey_date <= as_of_date
+        ):
             restored_expectation = dict(expectation)
             restored_expectation["fallback_cached"] = True
             event["expectation"] = restored_expectation

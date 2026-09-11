@@ -45,6 +45,7 @@ type FocusTrend = {
   comparisons?: Record<string, {
     ready?: boolean;
     target_date?: string;
+    ref_date?: string;
     points?: Record<string, FocusTrendPoint>;
     points_by_year?: Record<string, Record<string, FocusTrendPoint>>;
   }>;
@@ -119,6 +120,15 @@ type BrazilPayload = {
     source?: string;
     source_url?: string;
     note?: string;
+    focus_meta?: {
+      ref_date?: string;
+      publication_date?: string;
+      current_year?: number;
+      next_year?: number;
+      latest_available_ref_date?: string;
+      age_days?: number;
+      stale?: boolean;
+    };
   };
   focus_trend?: FocusTrend;
   investor_summary?: InvestorSummary;
@@ -308,8 +318,7 @@ function MetricCard({ metric }: { metric?: Metric }) {
   );
 }
 
-function FocusTable({ focus, asOfDate }: { focus?: FocusValues; asOfDate?: string }) {
-  const year = Number(asOfDate?.slice(0, 4) || new Date().getFullYear());
+function FocusTable({ focus, year }: { focus?: FocusValues; year: number }) {
   const rows = [
     { key: "selic", unit: "%" },
     { key: "ipca", unit: "%" },
@@ -388,8 +397,10 @@ export default function BrazilPage() {
   const ratePath = summary?.rate_path;
   const calendar = data.calendar ?? [];
   const nextEvents = calendar.slice(0, 3);
-  const currentYear = Number(data.as_of_date.slice(0, 4));
-  const nextYear = currentYear + 1;
+  const currentYear = data.focus?.focus_meta?.current_year ?? Number(data.as_of_date.slice(0, 4));
+  const nextYear = data.focus?.focus_meta?.next_year ?? currentYear + 1;
+  const currentFocusDate = data.focus?.focus_meta?.ref_date;
+  const comparisonFocusDate = data.focus_trend?.comparisons?.["30d"]?.ref_date;
   const selicCurrent30d = trendPoint(data, "30d", "selic", currentYear);
   const selicNext30d = trendPoint(data, "30d", "selic", nextYear);
   const ipcaCurrent30d = trendPoint(data, "30d", "ipca", currentYear);
@@ -472,7 +483,7 @@ export default function BrazilPage() {
       <section className="card brazilChangeCard">
         <div className="sectionHeading compactHeading">
           <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
-          <small>Tabellen viser hvordan markedets medianforventninger har flyttet seg sammenlignet med rundt 30 dager tidligere.</small>
+          <small>{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Tabellen viser endringen mot siste komplette snapshot rundt 30 dager tidligere."}</small>
         </div>
         <div className="brazilChangeLayout">
           <div className="brazilChangeTableWrap">
@@ -534,7 +545,8 @@ export default function BrazilPage() {
           <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>Forventninger til rente, inflasjon, vekst og valuta</strong></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
-            <FocusTable focus={data.focus?.values} asOfDate={data.as_of_date} />
+            {currentFocusDate ? <p><small>Focus {dateLabel(currentFocusDate)}</small></p> : null}
+            <FocusTable focus={data.focus?.values} year={currentYear} />
             <p><small>Kilde: Banco Central do Brasil – Focus-undersøkelsen.</small></p>
           </div>
         </details>
