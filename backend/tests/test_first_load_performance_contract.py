@@ -142,15 +142,21 @@ def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
     assert 'fetch("/api/market/quotes")' not in quotes
 
 
-def test_html_only_preloads_first_screen_data_for_overview() -> None:
+def test_html_preloads_first_screen_data_for_direct_routes() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     preload_start = source.index("const firstScreenRequests")
     script_start = source.index('type="module"')
 
     assert preload_start < script_start
-    assert '!location.hash || location.hash.toLowerCase() === "#oversikt"' in source
+    assert "routeRequests[location.hash.toLowerCase()]" in source
     assert '["/api/dashboard/bootstrap", "high"]' in source
     assert "discount-history?days=365&max_points=72" in source
+    assert '"#nav": [' in source
+    assert '["/api/dashboard/discount-history?days=31&max_points=72", "high"]' in source
+    assert '["/api/dashboard/economic", "high"]' in source
+    assert '"#bemobi": [' in source
+    assert '["/api/bemobi/dashboard", "high"]' in source
+    assert '"#nyheter": [["/api/news-events", "high"]]' in source
     assert 'link.rel = "preload"' in source
     assert 'link.as = "fetch"' in source
     assert 'link.crossOrigin = "anonymous"' in source
