@@ -63,6 +63,65 @@ def test_parse_rejects_wrong_symbol_and_invalid_price() -> None:
         raise AssertionError("zero price should fail")
 
 
+def test_parse_accepts_quote_when_optional_market_fields_are_missing() -> None:
+    """En delvis B3-respons med gyldig pris skal fortsatt kunne brukes."""
+    payload = json.dumps(
+        {
+            "BizSts": {"cd": "OK"},
+            "Msg": {"dtTm": "2026-08-17 11:45:03"},
+            "Trad": [{"scty": {"symb": "BMOB3", "SctyQtn": {"curPrc": 22.59}}}],
+        }
+    )
+
+    quote = feed.parse_bmob3_web_quote(payload)
+
+    assert quote.price == Decimal("22.59")
+    assert quote.open_price is None
+    assert quote.min_price is None
+    assert quote.max_price is None
+    assert quote.average_price is None
+    assert quote.price_change_pct is None
+    assert quote.total_trades is None
+    assert quote.description is None
+    assert quote.market_name is None
+
+
+def test_download_retries_after_timeout_and_returns_next_valid_response(
+    monkeypatch,
+) -> None:
+    """Et kort nettverksavbrudd skal ikke gjøre hele markedssyklusen mislykket."""
+    payload = _payload()
+    calls: list[int] = []
+
+    class Response:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            assert size == feed.MAX_QUOTE_BYTES + 1
+            return payload
+
+    def fake_urlopen(_request, *, timeout: int):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise TimeoutError("midlertidig timeout")
+        return Response()
+
+    monkeypatch.setattr(feed, "urlopen", fake_urlopen)
+    monkeypatch.setattr(feed.time, "sleep", lambda _seconds: None)
+
+    url, downloaded = feed.download_bmob3_web_quote(timeout=7, attempts=2)
+
+    assert url == feed.B3_QUOTE_URL
+    assert downloaded == payload
+    assert calls == [7, 7]
+
+
 def test_intraday_refresh_persists_delayed_last(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "bmob3.db")
     init_database(database)
