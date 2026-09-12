@@ -93,6 +93,41 @@ def _eod_is_authoritative(result: Any) -> bool:
     )
 
 
+def _fast_refresh_records_written(steps: dict[str, Any]) -> int:
+    """Count writes from the recorded step results after a fast refresh."""
+
+    def result(name: str) -> dict[str, Any]:
+        value = steps.get(name)
+        return value if isinstance(value, dict) else {}
+
+    total = sum(
+        int(result(step_name).get(field_name) or 0)
+        for step_name, field_name in (
+            ("otec_activity", "written"),
+            ("newsweb_history", "archived"),
+            ("newsweb_buybacks", "ingested"),
+            ("otello_reports", "applied"),
+            ("otello_interest", "written"),
+            ("life360_lif_repair", "rows_written"),
+            ("bemobi_distribution_cash", "rows_written"),
+            ("bemobi_distribution_cash", "rows_updated"),
+        )
+    )
+    total += sum(
+        1
+        for step_name in ("otec_eod", "bmob3_eod", "bmob3_delayed")
+        if result(step_name).get("status") == "ok"
+    )
+    total += int(bool(result("otec_delayed").get("found")))
+
+    fx_repair = result("norges_bank_fx_repair")
+    if fx_repair.get("repaired"):
+        total += int(fx_repair.get("rows_written") or 0)
+
+    total += len(result("dirty_nav").get("dirty_layers") or [])
+    return total
+
+
 async def _safe_async_step(
     name: str,
     fn: Callable[[], Awaitable[Any]],
@@ -197,7 +232,6 @@ async def run_fast_refresh(
     steps: dict[str, Any] = {}
     errors: list[dict[str, str]] = []
     timings_ms: dict[str, float] = {}
-    records_written = 0
     renew = renew_lock if renew_lock is not None else _skip_lock_renewal
 
     plan = await _safe_async_step(
@@ -219,11 +253,8 @@ async def run_fast_refresh(
             errors=errors,
             timings_ms=timings_ms,
         )
-        if isinstance(otec, dict) and otec.get("found"):
-            records_written += 1
-
         if isinstance(otec, dict) and otec.get("status") in {"ok", "no_trade"}:
-            otec_eod = await _safe_async_step(
+            await _safe_async_step(
                 "otec_eod",
                 lambda: maybe_finalize_otec_eod(
                     repository=repository,
@@ -234,8 +265,6 @@ async def run_fast_refresh(
                 errors=errors,
                 timings_ms=timings_ms,
             )
-            if isinstance(otec_eod, dict) and otec_eod.get("status") == "ok":
-                records_written += 1
         else:
             steps["otec_eod"] = {
                 "status": "skipped",
@@ -263,16 +292,13 @@ async def run_fast_refresh(
         timings_ms["otec_delayed"] = 0.0
         timings_ms["otec_eod"] = 0.0
 
-    otec_activity = await _safe_async_step(
+    await _safe_async_step(
         "otec_activity",
         lambda: refresh_otec_daily_activity(repository, now=scheduled_at),
         steps=steps,
         errors=errors,
         timings_ms=timings_ms,
     )
-    if isinstance(otec_activity, dict):
-        records_written += int(otec_activity.get("written") or 0)
-
     await renew("after OTEC")
 
     bmob3_eod = await _safe_async_step(
@@ -282,9 +308,6 @@ async def run_fast_refresh(
         errors=errors,
         timings_ms=timings_ms,
     )
-    if isinstance(bmob3_eod, dict) and bmob3_eod.get("status") == "ok":
-        records_written += 1
-
     if _eod_is_authoritative(bmob3_eod):
         steps["bmob3_delayed"] = {
             "status": "skipped",
@@ -292,7 +315,7 @@ async def run_fast_refresh(
         }
         timings_ms["bmob3_delayed"] = 0.0
     else:
-        bmob3 = await _safe_async_step(
+        await _safe_async_step(
             "bmob3_delayed",
             lambda: refresh_bmob3_intraday_price(
                 repository=repository, now=scheduled_at
@@ -301,8 +324,6 @@ async def run_fast_refresh(
             errors=errors,
             timings_ms=timings_ms,
         )
-        if isinstance(bmob3, dict) and bmob3.get("status") == "ok":
-            records_written += 1
 
     await renew("after B3")
 
@@ -319,8 +340,6 @@ async def run_fast_refresh(
         news_buybacks = newsweb.get("buybacks") or {}
         steps["newsweb_history"] = news_history
         steps["newsweb_buybacks"] = news_buybacks
-        records_written += int(news_history.get("archived") or 0)
-        records_written += int(news_buybacks.get("ingested") or 0)
         _append_nested_errors("newsweb_history", news_history, errors=errors)
         _append_nested_errors("newsweb_buybacks", news_buybacks, errors=errors)
     else:
@@ -355,7 +374,6 @@ async def run_fast_refresh(
             timings_ms=timings_ms,
         )
         if isinstance(report_result, dict):
-            records_written += int(report_result.get("applied") or 0)
             if int(report_result.get("review_required") or 0) > 0:
                 errors.append(
                     {
@@ -378,7 +396,6 @@ async def run_fast_refresh(
         timings_ms=timings_ms,
     )
     if isinstance(interest_result, dict):
-        records_written += int(interest_result.get("written") or 0)
         _append_nested_errors("otello_interest", interest_result, errors=errors)
 
     await renew("after Otello reports")
@@ -395,8 +412,6 @@ async def run_fast_refresh(
         timings_ms=timings_ms,
     )
     if isinstance(fx_repair, dict):
-        if fx_repair.get("repaired"):
-            records_written += int(fx_repair.get("rows_written") or 0)
         if fx_repair.get("status") == "partial":
             errors.append(
                 {
@@ -425,7 +440,6 @@ async def run_fast_refresh(
         timings_ms=timings_ms,
     )
     if isinstance(life360_repair, dict):
-        records_written += int(life360_repair.get("rows_written") or 0)
         if life360_repair.get("status") == "partial":
             errors.append(
                 {
@@ -451,8 +465,6 @@ async def run_fast_refresh(
         timings_ms=timings_ms,
     )
     if isinstance(bemobi_distribution_cash, dict):
-        records_written += int(bemobi_distribution_cash.get("rows_written") or 0)
-        records_written += int(bemobi_distribution_cash.get("rows_updated") or 0)
         if bemobi_distribution_cash.get("status") == "partial":
             skipped = bemobi_distribution_cash.get("skipped") or []
             reasons = sorted(
@@ -484,7 +496,6 @@ async def run_fast_refresh(
         timings_ms=timings_ms,
     )
     if isinstance(dirty_nav, dict):
-        records_written += len(dirty_nav.get("dirty_layers") or [])
         if dirty_nav.get("status") == "partial":
             errors.append(
                 {
@@ -496,6 +507,8 @@ async def run_fast_refresh(
             )
 
     await renew("after dirty NAV")
+
+    records_written = _fast_refresh_records_written(steps)
 
     # First-screen cache is a performance optimization, not an ingestion source. Seed it even
     # on no-change/weekend runs when it is missing; otherwise rebuild only when upstream data
