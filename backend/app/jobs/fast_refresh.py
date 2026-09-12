@@ -36,6 +36,7 @@ from app.nav import (
 )
 from app.nav.intraday import rebuild_core_nav_for_date
 from app.newsweb import (
+    NewsWebMessage,
     collect_newsweb_buybacks,
     collect_newsweb_history,
     sync_newsweb_daily_buyback_cash,
@@ -234,9 +235,12 @@ def run_fast_refresh(
             "reason": "already_checked_or_not_live_weekday",
         }
 
+    newsweb_message_cache: dict[int, NewsWebMessage] = {}
     history = _safe_step(
         "newsweb_history",
-        lambda: collect_newsweb_history(database_path, to_date=end),
+        lambda: collect_newsweb_history(
+            database_path, to_date=end, message_cache=newsweb_message_cache
+        ),
         errors,
     )
     steps["newsweb_history"] = history
@@ -250,7 +254,9 @@ def run_fast_refresh(
 
     buybacks = _safe_step(
         "newsweb_buybacks",
-        lambda: collect_newsweb_buybacks(database_path, to_date=end),
+        lambda: collect_newsweb_buybacks(
+            database_path, to_date=end, message_cache=newsweb_message_cache
+        ),
         errors,
     )
     steps["newsweb_buybacks"] = buybacks

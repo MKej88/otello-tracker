@@ -109,8 +109,12 @@ def test_fast_refresh_uses_oslo_date_after_utc_midnight_boundary(
     assert calls["bmob3_intraday"] is True
     assert calls["otec_eod_kwargs"] == {"target_date": "2026-08-18", "now": now}
     assert calls["bmob3_eod_kwargs"] == {"now": now}
-    assert calls["history_kwargs"] == {"to_date": "2026-08-18"}
-    assert calls["buyback_kwargs"] == {"to_date": "2026-08-18"}
+    history_kwargs = calls["history_kwargs"]
+    buyback_kwargs = calls["buyback_kwargs"]
+    assert history_kwargs["to_date"] == "2026-08-18"
+    assert buyback_kwargs["to_date"] == "2026-08-18"
+    assert isinstance(history_kwargs["message_cache"], dict)
+    assert buyback_kwargs["message_cache"] is history_kwargs["message_cache"]
     assert calls["core_nav_kwargs"] == {
         "start_date": "2026-08-18",
         "end_date": "2026-08-18",
