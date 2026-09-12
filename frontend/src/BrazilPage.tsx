@@ -120,6 +120,7 @@ type BrazilPayload = {
     source?: string;
     source_url?: string;
     note?: string;
+    fallback?: boolean;
     focus_meta?: {
       ref_date?: string;
       publication_date?: string;
@@ -546,6 +547,7 @@ export default function BrazilPage() {
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
             {currentFocusDate ? <p><small>Focus {dateLabel(currentFocusDate)}</small></p> : null}
+            {data.focus?.focus_meta?.stale ? <p className="sourceWarn"><small>Obs: Tallene er eldre enn tre uker{data.focus.fallback ? " fordi nye Focus-tall ikke kunne hentes fra sentralbanken. Siste lagrede reservekopi vises." : "."}</small></p> : null}
             <FocusTable focus={data.focus?.values} year={currentYear} />
             <p><small>Kilde: Banco Central do Brasil – Focus-undersøkelsen.</small></p>
           </div>
