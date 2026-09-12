@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -136,10 +137,12 @@ async def _cash_fx_revaluation(
             },
         }
 
-    anchor_usd = await _nearest_fx(repository, "USD", cash_anchor_date)
-    anchor_brl = await _nearest_fx(repository, "BRL", cash_anchor_date)
-    current_usd = await _nearest_fx(repository, "USD", as_of_date)
-    current_brl = await _nearest_fx(repository, "BRL", as_of_date)
+    anchor_usd, anchor_brl, current_usd, current_brl = await asyncio.gather(
+        _nearest_fx(repository, "USD", cash_anchor_date),
+        _nearest_fx(repository, "BRL", cash_anchor_date),
+        _nearest_fx(repository, "USD", as_of_date),
+        _nearest_fx(repository, "BRL", as_of_date),
+    )
     if any(item is None for item in (anchor_usd, anchor_brl, current_usd, current_brl)):
         return {
             "ready": False,

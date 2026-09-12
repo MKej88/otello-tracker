@@ -9,6 +9,20 @@ from app.db.repository import decimal_text
 AMOUNT_TOLERANCE_NOK = Decimal("1")
 
 
+def _should_report_gap(
+    *,
+    missing_shares: int,
+    missing_amount: Decimal | None,
+    trade_date: str,
+    since_date: str | None,
+) -> bool:
+    amount_mismatch = (
+        missing_amount is not None and abs(missing_amount) > AMOUNT_TOLERANCE_NOK
+    )
+    is_after_anchor = since_date is None or trade_date > since_date
+    return (missing_shares != 0 or amount_mismatch) and is_after_anchor
+
+
 def buyback_coverage_gaps(
     database_path: str | None = None,
     *,
@@ -58,28 +72,28 @@ def buyback_coverage_gaps(
                     if cumulative_amount is not None
                     else None
                 )
-                amount_mismatch = (
-                    missing_amount is not None
-                    and abs(missing_amount) > AMOUNT_TOLERANCE_NOK
-                )
-                if missing_shares != 0 or amount_mismatch:
-                    if since_date is None or current["trade_date"] > since_date:
-                        gaps.append(
-                            {
-                                "gap_type": "PREFIX",
-                                "program": program_name,
-                                "after_date": None,
-                                "before_date": current["trade_date"],
-                                "missing_shares": missing_shares,
-                                "missing_amount_nok": (
-                                    decimal_text(missing_amount)
-                                    if missing_amount is not None
-                                    else None
-                                ),
-                                "current_week_shares": current_shares,
-                                "current_cumulative_shares": current_cumulative,
-                            }
-                        )
+                if _should_report_gap(
+                    missing_shares=missing_shares,
+                    missing_amount=missing_amount,
+                    trade_date=current["trade_date"],
+                    since_date=since_date,
+                ):
+                    gaps.append(
+                        {
+                            "gap_type": "PREFIX",
+                            "program": program_name,
+                            "after_date": None,
+                            "before_date": current["trade_date"],
+                            "missing_shares": missing_shares,
+                            "missing_amount_nok": (
+                                decimal_text(missing_amount)
+                                if missing_amount is not None
+                                else None
+                            ),
+                            "current_week_shares": current_shares,
+                            "current_cumulative_shares": current_cumulative,
+                        }
+                    )
                 previous = current
                 continue
 
@@ -92,30 +106,30 @@ def buyback_coverage_gaps(
                 expected_amount = Decimal(prev_amount) + current_amount
                 missing_amount = cumulative_amount - expected_amount
             missing_shares = current_cumulative - expected_shares
-            amount_mismatch = (
-                missing_amount is not None
-                and abs(missing_amount) > AMOUNT_TOLERANCE_NOK
-            )
-            if missing_shares != 0 or amount_mismatch:
-                if since_date is None or current["trade_date"] > since_date:
-                    gaps.append(
-                        {
-                            "gap_type": "INTERNAL",
-                            "program": program_name,
-                            "after_date": previous["trade_date"],
-                            "before_date": current["trade_date"],
-                            "missing_shares": missing_shares,
-                            "missing_amount_nok": (
-                                decimal_text(missing_amount)
-                                if missing_amount is not None
-                                else None
-                            ),
-                            "previous_cumulative_shares": int(
-                                previous["cumulative_program_shares"]
-                            ),
-                            "current_week_shares": current_shares,
-                            "current_cumulative_shares": current_cumulative,
-                        }
-                    )
+            if _should_report_gap(
+                missing_shares=missing_shares,
+                missing_amount=missing_amount,
+                trade_date=current["trade_date"],
+                since_date=since_date,
+            ):
+                gaps.append(
+                    {
+                        "gap_type": "INTERNAL",
+                        "program": program_name,
+                        "after_date": previous["trade_date"],
+                        "before_date": current["trade_date"],
+                        "missing_shares": missing_shares,
+                        "missing_amount_nok": (
+                            decimal_text(missing_amount)
+                            if missing_amount is not None
+                            else None
+                        ),
+                        "previous_cumulative_shares": int(
+                            previous["cumulative_program_shares"]
+                        ),
+                        "current_week_shares": current_shares,
+                        "current_cumulative_shares": current_cumulative,
+                    }
+                )
             previous = current
     return gaps
