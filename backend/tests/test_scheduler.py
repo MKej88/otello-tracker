@@ -397,6 +397,57 @@ def test_failed_maintenance_is_retried_on_the_next_dispatch(tmp_path) -> None:
     ]
 
 
+def test_full_refresh_timeout_does_not_prevent_database_backup(tmp_path) -> None:
+    """A source timeout must not remove the independent database safety net."""
+    database = str(tmp_path / "scheduler-failure-isolation.db")
+    config = SchedulerConfig(
+        database,
+        1800,
+        True,
+        full_interval_seconds=86400,
+        backup_interval_seconds=86400,
+    )
+    fixed = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    backup_calls = 0
+
+    def full_refresh(_path: str):
+        raise TimeoutError("upstream timed out")
+
+    def backup(path: str, *, backup_dir: str | None = None):
+        nonlocal backup_calls
+        assert path == database
+        assert backup_dir is None
+        backup_calls += 1
+        return {
+            "status": "ok",
+            "backup_path": "backup.db",
+            "size_bytes": 1,
+            "integrity_check": "ok",
+        }
+
+    records = run_maintenance_if_due(
+        config,
+        full_refresh_fn=full_refresh,
+        backup_fn=backup,
+        now_fn=lambda: fixed,
+    )
+
+    assert backup_calls == 1
+    assert [(record["job_name"], record["status"]) for record in records] == [
+        ("full_refresh", "failed"),
+        ("database_backup", "success"),
+    ]
+
+    with get_connection(database) as connection:
+        rows = connection.execute(
+            "SELECT job_name, status FROM job_runs ORDER BY id"
+        ).fetchall()
+    assert [(row["job_name"], row["status"]) for row in rows] == [
+        ("full_refresh", "FAILED"),
+        ("database_backup", "SUCCESS"),
+    ]
+
+
 def test_not_ready_maintenance_is_failed_and_retried(tmp_path) -> None:
     database = str(tmp_path / "scheduler-not-ready.db")
     config = SchedulerConfig(
