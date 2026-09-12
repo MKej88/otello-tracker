@@ -77,6 +77,64 @@ def test_cumulative_values_expose_missing_week(tmp_path) -> None:
     assert gaps[0]["before_date"] == "2026-04-30"
 
 
+def test_first_observation_exposes_prefix_gap_unless_excluded_by_date(tmp_path) -> None:
+    database = str(tmp_path / "prefix-coverage.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    ingest_buyback_status(
+        parsed=_status(
+            end="2026-04-17",
+            shares=100,
+            amount="1000",
+            cumulative_shares=125,
+            cumulative_amount="1250",
+            treasury=125,
+        ),
+        url="https://example.invalid/first-observed-week",
+        published_at="2026-04-17T20:00:00Z",
+        database_path=database,
+        source_code="EURONEXT",
+    )
+
+    assert buyback_coverage_gaps(database) == [
+        {
+            "gap_type": "PREFIX",
+            "program": "otec-buyback-2026-02-09",
+            "after_date": None,
+            "before_date": "2026-04-17",
+            "missing_shares": 25,
+            "missing_amount_nok": "250",
+            "current_week_shares": 100,
+            "current_cumulative_shares": 125,
+        }
+    ]
+    assert buyback_coverage_gaps(database, since_date="2026-04-17") == []
+
+
+def test_one_krone_amount_rounding_difference_is_not_a_gap(tmp_path) -> None:
+    database = str(tmp_path / "rounding-coverage.db")
+    init_database(database)
+    seed_curated_history(database)
+
+    ingest_buyback_status(
+        parsed=_status(
+            end="2026-04-17",
+            shares=100,
+            amount="1000",
+            cumulative_shares=100,
+            cumulative_amount="1001",
+            treasury=100,
+        ),
+        url="https://example.invalid/rounded-total",
+        published_at="2026-04-17T20:00:00Z",
+        database_path=database,
+        source_code="EURONEXT",
+    )
+
+    assert buyback_coverage_gaps(database) == []
+
+
 def test_coverage_reads_all_programs_with_one_query(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "coverage-query-count.db")
     init_database(database)
