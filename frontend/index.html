@@ -4,23 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#07101f" />
-    <!-- Bare Oversikt trenger disse svarene. Direkte inngang til andre hash-ruter
-         skal ikke konkurrere med sin egen modul og sine egne datarequests. -->
+    <!-- Start datahenting mens inngangsbunten lastes. Ellers må direkte hash-ruter
+         vente på både React og sin kode-splittede modul før første API-kall starter. -->
     <script>
-      if (!location.hash || location.hash.toLowerCase() === "#oversikt") {
-        const firstScreenRequests = [
+      const routeRequests = {
+        "": [
           ["/api/dashboard/bootstrap", "high"],
           ["/api/dashboard/discount-history?days=365&max_points=72", "low"],
-        ];
-        for (const [href, fetchPriority] of firstScreenRequests) {
-          const link = document.createElement("link");
-          link.rel = "preload";
-          link.href = href;
-          link.as = "fetch";
-          link.crossOrigin = "anonymous";
-          link.fetchPriority = fetchPriority;
-          document.head.append(link);
-        }
+        ],
+        "#oversikt": [
+          ["/api/dashboard/bootstrap", "high"],
+          ["/api/dashboard/discount-history?days=365&max_points=72", "low"],
+        ],
+        "#nav": [
+          ["/api/dashboard/discount-history?days=31&max_points=72", "high"],
+          ["/api/dashboard/economic", "high"],
+          ["/api/buybacks/dashboard", "low"],
+        ],
+        "#nav-sensitivitet": [
+          ["/api/dashboard/summary", "high"],
+          ["/api/dashboard/economic", "high"],
+        ],
+        "#historikk": [
+          ["/api/dashboard/discount-history?days=365&max_points=72", "high"],
+          ["/api/dashboard/economic", "low"],
+        ],
+        "#tilbakekjop": [["/api/buybacks/dashboard", "high"]],
+        "#cash": [
+          ["/api/dashboard/summary", "high"],
+          ["/api/bemobi/dashboard", "high"],
+          ["/api/dashboard/economic", "high"],
+          ["/api/buybacks/dashboard", "low"],
+        ],
+        "#bemobi": [
+          ["/api/bemobi/dashboard", "high"],
+          ["/api/bemobi/consensus", "low"],
+        ],
+        "#brl-nok": [["/api/fx/dashboard", "high"]],
+        "#brasil": [["/api/brazil/dashboard", "high"]],
+        "#konsensus": [["/api/bemobi/consensus", "high"]],
+        "#nyheter": [["/api/news-events", "high"]],
+        "#datakvalitet": [
+          ["/api/dashboard/runtime-status", "high"],
+          ["/api/dashboard/report-status", "high"],
+          ["/api/bemobi/source-status", "low"],
+        ],
+      };
+      const firstScreenRequests = routeRequests[location.hash.toLowerCase()] ?? [];
+      for (const [href, fetchPriority] of firstScreenRequests) {
+        const link = document.createElement("link");
+        link.rel = "preload";
+        link.href = href;
+        link.as = "fetch";
+        link.crossOrigin = "anonymous";
+        link.fetchPriority = fetchPriority;
+        document.head.append(link);
       }
     </script>
     <title>Otello NAV-oversikt</title>
