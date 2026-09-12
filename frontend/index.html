@@ -4,22 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#07101f" />
-    <!-- Hent data til førstesiden mens JavaScript-pakken lastes ned. -->
-    <link
-      rel="preload"
-      href="/api/dashboard/bootstrap"
-      as="fetch"
-      crossorigin="anonymous"
-      fetchpriority="high"
-    />
-    <!-- Medianrabatten er ikke del av bootstrap, men vises i det viktigste NAV-kortet. -->
-    <link
-      rel="preload"
-      href="/api/dashboard/discount-history?days=365&amp;max_points=72"
-      as="fetch"
-      crossorigin="anonymous"
-      fetchpriority="low"
-    />
+    <!-- Bare Oversikt trenger disse svarene. Direkte inngang til andre hash-ruter
+         skal ikke konkurrere med sin egen modul og sine egne datarequests. -->
+    <script>
+      if (!location.hash || location.hash.toLowerCase() === "#oversikt") {
+        const firstScreenRequests = [
+          ["/api/dashboard/bootstrap", "high"],
+          ["/api/dashboard/discount-history?days=365&max_points=72", "low"],
+        ];
+        for (const [href, fetchPriority] of firstScreenRequests) {
+          const link = document.createElement("link");
+          link.rel = "preload";
+          link.href = href;
+          link.as = "fetch";
+          link.crossOrigin = "anonymous";
+          link.fetchPriority = fetchPriority;
+          document.head.append(link);
+        }
+      }
+    </script>
     <title>Otello NAV-oversikt</title>
   </head>
   <body>
