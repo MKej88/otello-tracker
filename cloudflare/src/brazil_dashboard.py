@@ -316,13 +316,22 @@ async def _load_focus(
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
     start = (as_of - timedelta(days=120)).isoformat()
+    years = (current_year or as_of.year, (current_year or as_of.year) + 1)
     indicators = ["IPCA", "Selic", "PIB Total", "Câmbio"]
     indicator_filter = " or ".join(f"Indicador eq '{item}'" for item in indicators)
+    year_filter = " or ".join(f"DataReferencia eq '{year}'" for year in years)
     params = {
         "$format": "json",
         "$top": "800",
+        "$select": (
+            "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,"
+            "numeroRespondentes"
+        ),
         "$orderby": "Data desc",
-        "$filter": f"Data ge '{start}' and Data le '{as_of_date}' and ({indicator_filter})",
+        "$filter": (
+            f"Data ge '{start}' and Data le '{as_of_date}' "
+            f"and ({indicator_filter}) and ({year_filter})"
+        ),
     }
     url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
     payload = await _fetch_json(url, fetcher=fetcher)

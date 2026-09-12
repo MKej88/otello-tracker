@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -11,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from brazil_dashboard import (  # noqa: E402
+    _load_focus,
     normalize_focus_indicator,
     parse_focus_snapshot,
 )
@@ -171,3 +174,29 @@ def test_incomplete_historical_snapshot_falls_back_further() -> None:
 
     assert snapshot["ref_date"] == "2026-07-29"
     assert snapshot["values"]["selic"]["2027"]["median"] is not None
+
+
+def test_focus_request_only_fetches_the_two_relevant_years() -> None:
+    requested_url = ""
+
+    class Response:
+        ok = True
+        status = 200
+
+        async def text(self) -> str:
+            return json.dumps({"value": rows("2026-09-04", 2026)})
+
+    async def fetcher(url: str, **kwargs: Any) -> Response:
+        nonlocal requested_url
+        requested_url = url
+        return Response()
+
+    result = asyncio.run(_load_focus("2026-09-12", fetcher=fetcher))
+    query = parse_qs(urlparse(requested_url).query)
+
+    assert result["focus_meta"]["ref_date"] == "2026-09-04"
+    assert "DataReferencia eq '2026'" in query["$filter"][0]
+    assert "DataReferencia eq '2027'" in query["$filter"][0]
+    assert query["$select"] == [
+        "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,numeroRespondentes"
+    ]
