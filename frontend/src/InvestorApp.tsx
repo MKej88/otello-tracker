@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
 import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
 import OverviewPage from "./OverviewPage";
+import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
 import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 
@@ -34,6 +35,10 @@ function ViewFallback() {
 }
 
 function preload(view: View) {
+  if (view === "Oversikt") {
+    installDashboardBootstrapFetch();
+    preloadJson("/api/dashboard/discount-history?days=365&max_points=72");
+  }
   if (view === "NAV") {
     void loadNavPage();
     preloadJson("/api/dashboard/economic");

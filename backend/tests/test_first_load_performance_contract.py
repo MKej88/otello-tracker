@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import ast
+import base64
+import hashlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -139,22 +142,34 @@ def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
     assert 'fetch("/api/market/quotes")' not in quotes
 
 
-def test_html_preloads_first_screen_data_before_javascript() -> None:
+def test_html_only_preloads_first_screen_data_for_overview() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
-    preload_start = source.index('rel="preload"')
+    preload_start = source.index("const firstScreenRequests")
     script_start = source.index('type="module"')
 
     assert preload_start < script_start
-    assert 'href="/api/dashboard/bootstrap"' in source
-    assert 'as="fetch"' in source
-    assert 'crossorigin="anonymous"' in source
-    assert 'fetchpriority="high"' in source
-    assert (
-        'href="/api/dashboard/discount-history?days=365&amp;max_points=72"'
-        in source
-    )
+    assert '!location.hash || location.hash.toLowerCase() === "#oversikt"' in source
+    assert '["/api/dashboard/bootstrap", "high"]' in source
+    assert "discount-history?days=365&max_points=72" in source
+    assert 'link.rel = "preload"' in source
+    assert 'link.as = "fetch"' in source
+    assert 'link.crossOrigin = "anonymous"' in source
     assert source.index("discount-history") < script_start
-    assert 'fetchpriority="low"' in source
+
+
+def test_inline_preload_script_is_allowed_by_content_security_policy() -> None:
+    source = FRONTEND_INDEX.read_text(encoding="utf-8")
+    match = re.search(r"<script>\n([\s\S]*?)</script>", source)
+    assert match is not None
+    digest = base64.b64encode(
+        hashlib.sha256(match.group(1).encode("utf-8")).digest()
+    ).decode("ascii")
+
+    for config_path in (
+        ROOT / "frontend" / "public" / "_headers",
+        ROOT / "frontend" / "nginx.conf",
+    ):
+        assert f"'sha256-{digest}'" in config_path.read_text(encoding="utf-8")
 
 
 def test_default_view_is_available_without_a_module_request_waterfall() -> None:
@@ -162,6 +177,15 @@ def test_default_view_is_available_without_a_module_request_waterfall() -> None:
 
     assert 'import OverviewPage from "./OverviewPage";' in source
     assert 'import("./OverviewPage")' not in source
+
+
+def test_overview_requests_only_start_when_overview_is_preloaded() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    main_source = (FRONTEND_SRC / "main.tsx").read_text(encoding="utf-8")
+
+    assert "installDashboardBootstrapFetch();" in app_source
+    assert "discount-history?days=365&max_points=72" in app_source
+    assert "installDashboardBootstrapFetch" not in main_source
 
 
 def test_bootstrap_fetch_reuses_the_html_preload() -> None:
