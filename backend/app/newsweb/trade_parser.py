@@ -84,7 +84,7 @@ def _economic_tuple(tokens: list[str], normalized: str) -> tuple[int, Decimal, D
     return selected_pool[0]
 
 
-def _parse_trade_line(line: str) -> BuybackTrade | None:
+def _normalize_buy_line(line: str) -> str | None:
     normalized = " ".join(line.replace("\u00a0", " ").split())
     if not normalized:
         return None
@@ -92,14 +92,18 @@ def _parse_trade_line(line: str) -> BuybackTrade | None:
         raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
     if not normalized.upper().startswith("B OTEC "):
         return None
+    return normalized
 
-    date_match = _DATE_RE.search(normalized)
-    time_match = _TIME_RE.search(normalized)
-    if date_match is None or time_match is None:
-        return None
 
+def _build_trade(
+    normalized: str,
+    *,
+    trade_date: str,
+    trade_time: str,
+    metadata_matches: list[re.Match[str]],
+) -> BuybackTrade | None:
     payload = normalized
-    for match in sorted((date_match, time_match), key=lambda item: item.start(), reverse=True):
+    for match in sorted(metadata_matches, key=lambda item: item.start(), reverse=True):
         payload = payload[: match.start()] + " " + payload[match.end() :]
     tokens = " ".join(payload.split())[len("B OTEC ") :].split()
     economic = _economic_tuple(tokens, normalized)
@@ -107,11 +111,29 @@ def _parse_trade_line(line: str) -> BuybackTrade | None:
         return None
     shares, price, amount = economic
     return BuybackTrade(
-        trade_date=_date(date_match.group(0)),
-        trade_time=time_match.group(0),
+        trade_date=trade_date,
+        trade_time=trade_time,
         shares=shares,
         price_nok=price,
         amount_nok=amount,
+    )
+
+
+def _parse_trade_line(line: str) -> BuybackTrade | None:
+    normalized = _normalize_buy_line(line)
+    if normalized is None:
+        return None
+
+    date_match = _DATE_RE.search(normalized)
+    time_match = _TIME_RE.search(normalized)
+    if date_match is None or time_match is None:
+        return None
+
+    return _build_trade(
+        normalized,
+        trade_date=_date(date_match.group(0)),
+        trade_time=time_match.group(0),
+        metadata_matches=[date_match, time_match],
     )
 
 
@@ -122,32 +144,19 @@ def _parse_undated_duplicate_time_line(line: str) -> BuybackTrade | None:
     ``_recover_single_missing_trade_date`` when the canonical weekly period and the
     ExecBuy totals make the missing date unique.
     """
-    normalized = " ".join(line.replace("\u00a0", " ").split())
-    if not normalized:
-        return None
-    if _SELL_RE.match(normalized):
-        raise ValueError("NewsWeb buyback-vedlegg inneholder OTEC-salg; krever kontroll")
-    if not normalized.upper().startswith("B OTEC ") or _DATE_RE.search(normalized):
+    normalized = _normalize_buy_line(line)
+    if normalized is None or _DATE_RE.search(normalized):
         return None
 
     time_matches = list(_TIME_RE.finditer(normalized))
     if len(time_matches) != 2 or time_matches[0].group(0) != time_matches[1].group(0):
         return None
 
-    payload = normalized
-    for match in reversed(time_matches):
-        payload = payload[: match.start()] + " " + payload[match.end() :]
-    tokens = " ".join(payload.split())[len("B OTEC ") :].split()
-    economic = _economic_tuple(tokens, normalized)
-    if economic is None:
-        return None
-    shares, price, amount = economic
-    return BuybackTrade(
+    return _build_trade(
+        normalized,
         trade_date="",
         trade_time=time_matches[0].group(0),
-        shares=shares,
-        price_nok=price,
-        amount_nok=amount,
+        metadata_matches=time_matches,
     )
 
 
