@@ -59,42 +59,50 @@ async def _save_scan_cursor(repository, cursor: str | None) -> str | None:
     return cursor
 
 
-async def _write_point(repository, day: str, point: dict[str, Any]) -> None:
-    await repository.run(
-        """INSERT INTO estimated_nav_history_points (date, calculation_version,
-           nav_total_mnok, nav_per_share_nok, otec_price_nok, discount_pct,
-           shares_outstanding, accounting_nav_per_share_nok, composition_json,
-           reconciliation_residual_mnok, quality, calculated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID',
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-           ON CONFLICT(date, calculation_version) DO UPDATE SET
-           nav_total_mnok=excluded.nav_total_mnok, nav_per_share_nok=excluded.nav_per_share_nok,
-           otec_price_nok=excluded.otec_price_nok, discount_pct=excluded.discount_pct,
-           shares_outstanding=excluded.shares_outstanding,
-           accounting_nav_per_share_nok=excluded.accounting_nav_per_share_nok,
-           composition_json=excluded.composition_json,
-           reconciliation_residual_mnok=excluded.reconciliation_residual_mnok,
-           quality='VALID', calculated_at=excluded.calculated_at""",
-        (
-            day,
-            ESTIMATED_NAV_CALCULATION_VERSION,
-            point["nav_total_mnok"],
-            point["nav_per_share"],
-            point["otec_price"],
-            point["discount_pct"],
-            point["shares_outstanding"],
-            point["accounting_nav_per_share"],
-            json.dumps(point["composition"], ensure_ascii=False, sort_keys=True),
-            point["reconciliation_residual_mnok"],
-        ),
-    )
-
-
-async def _remove_retry(repository, day: str) -> None:
-    await repository.run(
-        """DELETE FROM estimated_nav_history_retry_queue
-           WHERE date=? AND calculation_version=?""",
-        (day, ESTIMATED_NAV_CALCULATION_VERSION),
+async def _write_point_and_remove_retry(
+    repository, day: str, point: dict[str, Any]
+) -> None:
+    """Persist one successful day with one atomic D1 round trip."""
+    await repository.run_batch(
+        [
+            (
+                """INSERT INTO estimated_nav_history_points (date, calculation_version,
+                   nav_total_mnok, nav_per_share_nok, otec_price_nok, discount_pct,
+                   shares_outstanding, accounting_nav_per_share_nok, composition_json,
+                   reconciliation_residual_mnok, quality, calculated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID',
+                           strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                   ON CONFLICT(date, calculation_version) DO UPDATE SET
+                   nav_total_mnok=excluded.nav_total_mnok,
+                   nav_per_share_nok=excluded.nav_per_share_nok,
+                   otec_price_nok=excluded.otec_price_nok,
+                   discount_pct=excluded.discount_pct,
+                   shares_outstanding=excluded.shares_outstanding,
+                   accounting_nav_per_share_nok=excluded.accounting_nav_per_share_nok,
+                   composition_json=excluded.composition_json,
+                   reconciliation_residual_mnok=excluded.reconciliation_residual_mnok,
+                   quality='VALID', calculated_at=excluded.calculated_at""",
+                (
+                    day,
+                    ESTIMATED_NAV_CALCULATION_VERSION,
+                    point["nav_total_mnok"],
+                    point["nav_per_share"],
+                    point["otec_price"],
+                    point["discount_pct"],
+                    point["shares_outstanding"],
+                    point["accounting_nav_per_share"],
+                    json.dumps(
+                        point["composition"], ensure_ascii=False, sort_keys=True
+                    ),
+                    point["reconciliation_residual_mnok"],
+                ),
+            ),
+            (
+                """DELETE FROM estimated_nav_history_retry_queue
+                   WHERE date=? AND calculation_version=?""",
+                (day, ESTIMATED_NAV_CALCULATION_VERSION),
+            ),
+        ]
     )
 
 
@@ -156,8 +164,7 @@ async def _retry_due_failures(
         day = str(row["date"])
         point = await _estimated_point(repository, day)
         if point.get("ready"):
-            await _write_point(repository, day, point)
-            await _remove_retry(repository, day)
+            await _write_point_and_remove_retry(repository, day, point)
             written += 1
             continue
         reason = point.get("reason")
@@ -245,8 +252,7 @@ async def materialize_estimated_nav_history_batch(
             failures.append({"date": day, "reason": reason})
             await _queue_failure(repository, day, reason)
             continue
-        await _write_point(repository, day, point)
-        await _remove_retry(repository, day)
+        await _write_point_and_remove_retry(repository, day, point)
         written += 1
 
     persisted_cursor_after = await _save_scan_cursor(repository, next_cursor)
