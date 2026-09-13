@@ -315,8 +315,6 @@ jobs:
           curl "${curl_retry[@]}" \
             "$base/api/bemobi/source-status?${q}" -o /tmp/otello-bemobi-source-status.json
           curl "${curl_retry[@]}" \
-            "$base/api/brazil/dashboard?${q}" -o /tmp/otello-brazil-dashboard.json
-          curl "${curl_retry[@]}" \
             "$base/api/news-events?${q}" -o /tmp/otello-news-events.json
           curl "${curl_retry[@]}" \
             "$base/api/market/quotes?${q}" -o /tmp/otello-quotes.json
@@ -344,7 +342,6 @@ jobs:
           bemobi_dashboard = json.loads(Path('/tmp/otello-bemobi-dashboard.json').read_text())
           bemobi_consensus = json.loads(Path('/tmp/otello-bemobi-consensus.json').read_text())
           bemobi_source_status = json.loads(Path('/tmp/otello-bemobi-source-status.json').read_text())
-          brazil_dashboard = json.loads(Path('/tmp/otello-brazil-dashboard.json').read_text())
           quotes = json.loads(Path('/tmp/otello-quotes.json').read_text())
 
           bootstrap_summary = bootstrap.get('summary') or {}
@@ -358,27 +355,6 @@ jobs:
           assert health.get('status') == 'ok', health
           assert health.get('environment') == 'cloudflare', health
           assert health.get('revision') == os.environ['EXPECTED_SHA'], health
-
-          assert brazil_dashboard.get('ready') is True, brazil_dashboard
-          focus = brazil_dashboard.get('focus') or {}
-          assert focus.get('ready') is True, focus
-          assert isinstance(focus.get('values'), dict) and focus['values'], focus
-          focus_meta = focus.get('focus_meta') or {}
-          assert isinstance(focus_meta.get('current_year'), int), focus_meta
-          assert isinstance(focus_meta.get('next_year'), int), focus_meta
-          if focus.get('fallback') is True or focus_meta.get('stale') is True:
-              print(
-                  '::warning::Brazil Focus bruker reserve eller gamle data: '
-                  f"data_source={focus.get('data_source')} "
-                  f"ref_date={focus_meta.get('ref_date')} "
-                  f"age_days={focus_meta.get('age_days')}"
-              )
-          else:
-              print(
-                  'Brazil Focus live: '
-                  f"ref_date={focus_meta.get('ref_date')} "
-                  f"data_source={focus.get('data_source')}"
-              )
 
           assert bootstrap_summary.get('ready') is True, bootstrap
           assert bootstrap_economic.get('ready') is True, bootstrap

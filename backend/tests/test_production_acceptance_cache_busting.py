@@ -44,8 +44,11 @@ def test_production_acceptance_retries_all_temporary_cloudflare_errors() -> None
 
     assert "curl_retry=(" in step
     assert "--retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 360" in step
-    assert '"$base/api/brazil/dashboard?${q}"' in step
-    assert step.count('curl "${curl_retry[@]}"') == 18
+    # Brasil-endepunktet henter flere eksterne BCB-kilder og kan derfor bruke
+    # lenger tid enn selve utrullingen. Det overvåkes separat og skal ikke kunne
+    # rulle tilbake en frisk Worker når en tredjepart er treg.
+    assert '"$base/api/brazil/dashboard?${q}"' not in step
+    assert step.count('curl "${curl_retry[@]}"') == 17
 
 
 def test_production_acceptance_validates_bootstrap_payload() -> None:
