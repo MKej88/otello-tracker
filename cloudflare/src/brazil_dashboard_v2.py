@@ -35,7 +35,9 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
                 event["market_consensus"] = {
                     "available": True,
                     "ingested": True,
-                    "coverage": "INVESTING_EVENT_CACHED" if fallback_cached else "INVESTING_EVENT",
+                    "coverage": "INVESTING_EVENT_CACHED"
+                    if fallback_cached
+                    else "INVESTING_EVENT",
                     "provider": provider,
                     "note": (
                         "Siste gode hendelseskonsensus fra Investing.com-cache; live-kilden var ikke "
@@ -48,7 +50,9 @@ def _annotate_market_consensus(events: list[dict[str, Any]]) -> list[dict[str, A
                 event["market_consensus"] = {
                     "available": True,
                     "ingested": True,
-                    "coverage": "BCB_FOCUS_EVENT_CACHED" if fallback_cached else "BCB_FOCUS_EVENT",
+                    "coverage": "BCB_FOCUS_EVENT_CACHED"
+                    if fallback_cached
+                    else "BCB_FOCUS_EVENT",
                     "provider": provider,
                     "note": (
                         "Sist gode hendelsesnære Focus-median fra banker, forvaltere og andre "
@@ -124,13 +128,17 @@ def _fill_annual_focus_proxies(
     return output
 
 
-def _recompute_focus_signals(result: dict[str, Any], focus_values: dict[str, Any], target_year: int) -> None:
+def _recompute_focus_signals(
+    result: dict[str, Any], focus_values: dict[str, Any], target_year: int
+) -> None:
     metrics = result.get("metrics")
     if not isinstance(metrics, dict):
         return
     for key, metric in metrics.items():
         if isinstance(metric, dict):
-            metric["signal"] = base._metric_signal(str(key), metric, focus_values, target_year)
+            metric["signal"] = base._metric_signal(
+                str(key), metric, focus_values, target_year
+            )
 
 
 def _append_investing_source(result: dict[str, Any]) -> None:
@@ -138,7 +146,10 @@ def _append_investing_source(result: dict[str, Any]) -> None:
     if not isinstance(sources, list):
         sources = []
         result["sources"] = sources
-    if any(isinstance(item, dict) and item.get("name") == "Investing.com" for item in sources):
+    if any(
+        isinstance(item, dict) and item.get("name") == "Investing.com"
+        for item in sources
+    ):
         return
     sources.append(
         {
@@ -216,7 +227,11 @@ async def brazil_dashboard(
     # and a published Focus bootstrap instead of blanking the whole table on an outage.
     try:
         source_status = result.setdefault("source_status", {})
-        live_status = source_status.get("focus") if isinstance(source_status.get("focus"), dict) else {}
+        live_status = (
+            source_status.get("focus")
+            if isinstance(source_status.get("focus"), dict)
+            else {}
+        )
         focus, resilience_status = await resolve_annual_focus(
             repository,
             result.get("focus"),
@@ -234,7 +249,9 @@ async def brazil_dashboard(
             resilience_status["age_days"] = focus_meta.get("age_days")
         result["focus"] = focus
         source_status["focus"] = resilience_status
-        focus_values = focus.get("values") if isinstance(focus.get("values"), dict) else {}
+        focus_values = (
+            focus.get("values") if isinstance(focus.get("values"), dict) else {}
+        )
         _recompute_focus_signals(result, focus_values, int(target_date[:4]))
     except Exception as exc:
         result.setdefault("source_status", {})["focus_resilience"] = {
@@ -255,7 +272,9 @@ async def brazil_dashboard(
         result["investor_summary"] = build_investor_summary(result, focus_trend)
     except Exception as exc:
         result["focus_trend"] = {"ready": False, "comparisons": {}}
-        result["investor_summary"] = build_investor_summary(result, result["focus_trend"])
+        result["investor_summary"] = build_investor_summary(
+            result, result["focus_trend"]
+        )
         result.setdefault("source_status", {})["focus_trend"] = {
             "ready": False,
             "error": f"{type(exc).__name__}: {exc}",
@@ -317,10 +336,14 @@ async def brazil_dashboard(
             status["cache_restore_error"] = f"{type(exc).__name__}: {exc}"
 
         status["cached_restored"] = restored
-        status["fallback"] = bool(restored and not status.get("ready") and not investing_status.get("ready"))
+        status["fallback"] = bool(
+            restored and not status.get("ready") and not investing_status.get("ready")
+        )
         result["calendar"] = _annotate_market_consensus(enriched)
         result.setdefault("source_status", {})["focus_event_expectations"] = status
-        result.setdefault("source_status", {})["investing_event_expectations"] = investing_status
+        result.setdefault("source_status", {})["investing_event_expectations"] = (
+            investing_status
+        )
         if investing_status.get("pages_ready"):
             _append_investing_source(result)
 
@@ -360,7 +383,9 @@ async def brazil_dashboard(
         }
         if restore_error:
             fallback_status["cache_restore_error"] = restore_error
-        result.setdefault("source_status", {})["focus_event_expectations"] = fallback_status
+        result.setdefault("source_status", {})["focus_event_expectations"] = (
+            fallback_status
+        )
 
     try:
         latest_release = await _resolve_latest_high_macro(

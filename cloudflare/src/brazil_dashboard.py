@@ -21,7 +21,12 @@ SERIES = {
     "selic": {"code": 432, "label": "Selic", "unit": "% p.a.", "mode": "level"},
     "ipca_12m": {"code": 13522, "label": "IPCA 12 mnd.", "unit": "%", "mode": "level"},
     "ibc_br": {"code": 24364, "label": "IBC-Br", "unit": "% m/m", "mode": "mom"},
-    "ibc_services": {"code": 29605, "label": "IBC-Br tjenester", "unit": "% m/m", "mode": "mom"},
+    "ibc_services": {
+        "code": 29605,
+        "label": "IBC-Br tjenester",
+        "unit": "% m/m",
+        "mode": "mom",
+    },
 }
 
 
@@ -32,6 +37,7 @@ def _default_as_of_date(now: datetime | None = None) -> date:
         current = current.replace(tzinfo=UTC)
     return current.astimezone(BRAZIL_TZ).date()
 
+
 IBGE_CALENDAR_URL = "https://www.ibge.gov.br/calendario/conjunturais.html"
 BCB_COPOM_URL = "https://www.bcb.gov.br/controleinflacao/copom"
 BCB_IBC_URL = "https://www.bcb.gov.br/estatisticas/calendario_indicadores"
@@ -41,7 +47,8 @@ BCB_FOCUS_URL = "https://dadosabertos.bcb.gov.br/dataset/expectativas-mercado"
 def _normalize(value: Any) -> str:
     text = str(value or "").strip().lower()
     return "".join(
-        ch for ch in unicodedata.normalize("NFKD", text)
+        ch
+        for ch in unicodedata.normalize("NFKD", text)
         if not unicodedata.combining(ch)
     )
 
@@ -83,9 +90,12 @@ class UpstreamJsonError(RuntimeError):
 
 def _safe_response_excerpt(payload: bytes) -> str:
     """Return a short, single-line excerpt without reflecting request data."""
-    return payload[:ERROR_RESPONSE_BYTES].decode("utf-8", errors="replace").replace(
-        "\n", " "
-    ).replace("\r", " ")
+    return (
+        payload[:ERROR_RESPONSE_BYTES]
+        .decode("utf-8", errors="replace")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
 
 
 async def _fetch_json(
@@ -154,7 +164,9 @@ def _parse_sgs_rows(payload: Any) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: str(row["date"]))
 
 
-def _series_payload(key: str, rows: list[dict[str, Any]], *, source_url: str | None = None) -> dict[str, Any]:
+def _series_payload(
+    key: str, rows: list[dict[str, Any]], *, source_url: str | None = None
+) -> dict[str, Any]:
     meta = SERIES[key]
     current = rows[-1]
     previous = rows[-2] if len(rows) > 1 else None
@@ -179,7 +191,7 @@ def _series_payload(key: str, rows: list[dict[str, Any]], *, source_url: str | N
         "previous_value": _float(previous_display),
         "change": _float(change),
         "series": [
-            {"date": str(row["date"]), "value": _float(Decimal(str(row["value"]))) }
+            {"date": str(row["date"]), "value": _float(Decimal(str(row["value"])))}
             for row in rows
         ],
         "source": "Banco Central do Brasil / SGS",
@@ -198,11 +210,13 @@ async def _load_sgs_series(
     # A single bounded window covers 18 monthly observations as well as the
     # more frequent Selic series without allowing observations after `end`.
     start = end - timedelta(days=570)
-    params = urllib.parse.urlencode({
-        "formato": "json",
-        "dataInicial": start.strftime("%d/%m/%Y"),
-        "dataFinal": end.strftime("%d/%m/%Y"),
-    })
+    params = urllib.parse.urlencode(
+        {
+            "formato": "json",
+            "dataInicial": start.strftime("%d/%m/%Y"),
+            "dataFinal": end.strftime("%d/%m/%Y"),
+        }
+    )
     url = f"{SGS_URL.format(code=meta['code'])}?{params}"
     payload = await _fetch_json(url, fetcher=fetcher)
     rows = [row for row in _parse_sgs_rows(payload) if str(row["date"]) <= as_of_date]
@@ -270,7 +284,9 @@ def parse_focus_snapshot(
         if survey_date and survey_date > as_of_date:
             continue
         if survey_date:
-            latest_available_date = max(latest_available_date or survey_date, survey_date)
+            latest_available_date = max(
+                latest_available_date or survey_date, survey_date
+            )
         key = normalize_focus_indicator(raw.get("Indicador"))
         focus_year = _focus_year(raw.get("DataReferencia"))
         if key is None or focus_year not in wanted_years:
@@ -420,7 +436,9 @@ async def _load_focus(
     return {
         "ready": bool(values),
         "values": values,
-        "focus_meta": {key: value for key, value in snapshot.items() if key != "values"},
+        "focus_meta": {
+            key: value for key, value in snapshot.items() if key != "values"
+        },
         "source": "Banco Central do Brasil / Focus",
         "source_url": BCB_FOCUS_URL,
         "note": "Focus er årsforventninger, ikke konsensus for den enkelte publisering.",
@@ -466,56 +484,177 @@ def _calendar_seed() -> list[dict[str, Any]]:
     # begrenset til hendelser med klar relevans for Bemobi/renter/BRL.
     raw = [
         ("2026-09-01", "BNP Q2", "gdp", "IBGE", IBGE_CALENDAR_URL, "2026 Q2"),
-        ("2026-09-10", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "jul. 2026"),
+        (
+            "2026-09-10",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "jul. 2026",
+        ),
         ("2026-09-11", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
-        ("2026-09-15", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "jul. 2026"),
+        (
+            "2026-09-15",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "jul. 2026",
+        ),
         ("2026-09-16", "Copom rentebeslutning", "copom", "BCB", BCB_COPOM_URL, None),
         ("2026-09-16", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "jul. 2026"),
         ("2026-09-25", "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
-        ("2026-09-29", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
+        (
+            "2026-09-29",
+            "Arbeidsledighet (PNAD)",
+            "labor",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "aug. 2026",
+        ),
         ("2026-10-09", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
-        ("2026-10-14", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
-        ("2026-10-15", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
+        (
+            "2026-10-14",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "aug. 2026",
+        ),
+        (
+            "2026-10-15",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "aug. 2026",
+        ),
         ("2026-10-16", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "aug. 2026"),
         ("2026-10-23", "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
-        ("2026-10-30", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
+        (
+            "2026-10-30",
+            "Arbeidsledighet (PNAD)",
+            "labor",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "sep. 2026",
+        ),
         ("2026-11-04", "Copom rentebeslutning", "copom", "BCB", BCB_COPOM_URL, None),
-        ("2026-11-11", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
+        (
+            "2026-11-11",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "sep. 2026",
+        ),
         ("2026-11-12", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
-        ("2026-11-13", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
+        (
+            "2026-11-13",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "sep. 2026",
+        ),
         ("2026-11-16", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "sep. 2026"),
-        ("2026-11-27", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
+        (
+            "2026-11-27",
+            "Arbeidsledighet (PNAD)",
+            "labor",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "okt. 2026",
+        ),
         ("2026-12-02", "BNP Q3", "gdp", "IBGE", IBGE_CALENDAR_URL, "2026 Q3"),
-        ("2026-12-08", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
+        (
+            "2026-12-08",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "okt. 2026",
+        ),
         ("2026-12-09", "Copom rentebeslutning", "copom", "BCB", BCB_COPOM_URL, None),
-        ("2026-12-10", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
+        (
+            "2026-12-10",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "okt. 2026",
+        ),
         ("2026-12-11", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "nov. 2026"),
         ("2026-12-11", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "okt. 2026"),
         ("2026-12-23", "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL, "des. 2026"),
-        ("2026-12-29", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "nov. 2026"),
+        (
+            "2026-12-29",
+            "Arbeidsledighet (PNAD)",
+            "labor",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "nov. 2026",
+        ),
         ("2027-01-12", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "des. 2026"),
-        ("2027-01-13", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "nov. 2026"),
-        ("2027-01-15", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "nov. 2026"),
+        (
+            "2027-01-13",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "nov. 2026",
+        ),
+        (
+            "2027-01-15",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "nov. 2026",
+        ),
         ("2027-01-18", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "nov. 2026"),
         ("2027-01-27", "Copom rentebeslutning", "copom", "BCB", BCB_COPOM_URL, None),
-        ("2027-01-29", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "des. 2026"),
-        ("2027-02-16", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "des. 2026"),
-        ("2027-02-17", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "des. 2026"),
+        (
+            "2027-01-29",
+            "Arbeidsledighet (PNAD)",
+            "labor",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "des. 2026",
+        ),
+        (
+            "2027-02-16",
+            "Tjenesteaktivitet (PMS)",
+            "services",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "des. 2026",
+        ),
+        (
+            "2027-02-17",
+            "Detaljhandel (PMC)",
+            "retail",
+            "IBGE",
+            IBGE_CALENDAR_URL,
+            "des. 2026",
+        ),
         ("2027-02-18", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "des. 2026"),
     ]
     result = []
     for event_date, name, kind, source, source_url, reference in raw:
         importance, impact = _impact(kind)
-        result.append({
-            "date": event_date,
-            "name": name,
-            "kind": kind,
-            "source": source,
-            "source_url": source_url,
-            "reference": reference,
-            "importance": importance,
-            "bemobi_impact": impact,
-        })
+        result.append(
+            {
+                "date": event_date,
+                "name": name,
+                "kind": kind,
+                "source": source,
+                "source_url": source_url,
+                "reference": reference,
+                "importance": importance,
+                "bemobi_impact": impact,
+            }
+        )
     return result
 
 
@@ -550,22 +689,26 @@ def _rolling_calendar(start: date, end: date) -> list[dict[str, Any]]:
             if not (start <= event_day <= end):
                 continue
             importance, impact = _impact(kind)
-            rows.append({
-                "date": event_day.isoformat(),
-                "name": name,
-                "kind": kind,
-                "source": source,
-                "source_url": source_url,
-                "reference": None,
-                "importance": importance,
-                "bemobi_impact": impact,
-                "date_status": "estimated",
-            })
+            rows.append(
+                {
+                    "date": event_day.isoformat(),
+                    "name": name,
+                    "kind": kind,
+                    "source": source,
+                    "source_url": source_url,
+                    "reference": None,
+                    "importance": importance,
+                    "bemobi_impact": impact,
+                    "date_status": "estimated",
+                }
+            )
         month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
     return rows
 
 
-def _focus_expectation_for_event(event: dict[str, Any], focus: dict[str, Any], year: int) -> dict[str, Any] | None:
+def _focus_expectation_for_event(
+    event: dict[str, Any], focus: dict[str, Any], year: int
+) -> dict[str, Any] | None:
     key = {
         "copom": "selic",
         "inflation": "ipca",
@@ -608,7 +751,9 @@ def calendar_events(*, as_of_date: str, focus: dict[str, Any]) -> list[dict[str,
         if not (start <= event_day <= horizon):
             continue
         event = dict(raw)
-        event["expectation"] = _focus_expectation_for_event(event, focus, event_day.year)
+        event["expectation"] = _focus_expectation_for_event(
+            event, focus, event_day.year
+        )
         events.append(event)
     events.sort(key=lambda item: (str(item["date"]), str(item["name"])))
     return events
@@ -694,13 +839,17 @@ async def _brl_nok(repository, as_of_date: str) -> dict[str, Any]:
         "value": _float(current),
         "change_1m_pct": _float(change_pct),
         "series": series,
-        "source": "Norges Bank" if row.get("source_code") == "NORGES_BANK" else str(row.get("source_code") or "FX"),
+        "source": "Norges Bank"
+        if row.get("source_code") == "NORGES_BANK"
+        else str(row.get("source_code") or "FX"),
         "source_url": "https://data.norges-bank.no/api/data/EXR/B.BRL.NOK.SP",
         "bemobi_impact": "Sterkere BRL mot NOK øker Otellos Bemobi-verdi direkte målt i NOK.",
     }
 
 
-def _metric_signal(key: str, metric: dict[str, Any], focus: dict[str, Any], year: int) -> dict[str, str]:
+def _metric_signal(
+    key: str, metric: dict[str, Any], focus: dict[str, Any], year: int
+) -> dict[str, str]:
     value = metric.get("value")
     if value is None:
         return {"tone": "neutral", "label": "Datagrunnlag mangler"}
@@ -711,7 +860,9 @@ def _metric_signal(key: str, metric: dict[str, Any], focus: dict[str, Any], year
             return {"tone": "neutral", "label": "Direkte NAV-driver"}
         return {
             "tone": "positive" if Decimal(str(change)) >= 0 else "negative",
-            "label": "Positiv NAV-valuta" if Decimal(str(change)) >= 0 else "Negativ NAV-valuta",
+            "label": "Positiv NAV-valuta"
+            if Decimal(str(change)) >= 0
+            else "Negativ NAV-valuta",
         }
     if key == "selic":
         expected = ((focus.get("selic") or {}).get(str(year)) or {}).get("median")
@@ -740,13 +891,18 @@ async def brazil_dashboard(
     target = date.fromisoformat(as_of_date) if as_of_date else _default_as_of_date()
     target_date = target.isoformat()
 
-    tasks = [_load_sgs_series(key, as_of_date=target_date, fetcher=fetcher) for key in SERIES]
+    tasks = [
+        _load_sgs_series(key, as_of_date=target_date, fetcher=fetcher) for key in SERIES
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     metrics: dict[str, Any] = {}
     source_status: dict[str, Any] = {}
     for key, result in zip(SERIES, results):
         if isinstance(result, Exception):
-            source_status[key] = {"ready": False, "error": f"{type(result).__name__}: {result}"}
+            source_status[key] = {
+                "ready": False,
+                "error": f"{type(result).__name__}: {result}",
+            }
         else:
             metrics[key] = result
             source_status[key] = {"ready": True, "date": result.get("date")}
@@ -786,18 +942,30 @@ async def brazil_dashboard(
     fx = await _brl_nok(repository, target_date)
     if fx.get("ready"):
         metrics["brl_nok"] = fx
-    source_status["brl_nok"] = {"ready": bool(fx.get("ready")), "date": fx.get("date"), "reason": fx.get("reason")}
+    source_status["brl_nok"] = {
+        "ready": bool(fx.get("ready")),
+        "date": fx.get("date"),
+        "reason": fx.get("reason"),
+    }
 
     for key, metric in metrics.items():
         metric["signal"] = _metric_signal(key, metric, focus, target.year)
         if key == "selic":
-            metric["bemobi_impact"] = "Lavere Selic reduserer avkastningskravet og kan gi multippel-ekspansjon i BMOB3."
+            metric["bemobi_impact"] = (
+                "Lavere Selic reduserer avkastningskravet og kan gi multippel-ekspansjon i BMOB3."
+            )
         elif key == "ipca_12m":
-            metric["bemobi_impact"] = "Lavere inflasjon gir mer rom for rentekutt og er normalt positivt for brasilianske vekstaksjer."
+            metric["bemobi_impact"] = (
+                "Lavere inflasjon gir mer rom for rentekutt og er normalt positivt for brasilianske vekstaksjer."
+            )
         elif key == "ibc_br":
-            metric["bemobi_impact"] = "Bedre bred økonomisk aktivitet støtter volum og etterspørsel, men for sterk vekst kan holde rentene høye."
+            metric["bemobi_impact"] = (
+                "Bedre bred økonomisk aktivitet støtter volum og etterspørsel, men for sterk vekst kan holde rentene høye."
+            )
         elif key == "ibc_services":
-            metric["bemobi_impact"] = "Tjenesteaktivitet er særlig relevant for Bemobis digitale tjeneste- og betalingsøkosystem."
+            metric["bemobi_impact"] = (
+                "Tjenesteaktivitet er særlig relevant for Bemobis digitale tjeneste- og betalingsøkosystem."
+            )
 
     calendar = calendar_events(as_of_date=target_date, focus=focus)
     return {
@@ -810,7 +978,10 @@ async def brazil_dashboard(
         "calendar_note": "Bekreftede datoer kommer fra IBGE/BCB. Rader merket estimated er en rullerende forhåndsvisning og må bekreftes i den lenkede offisielle kalenderen. Forventning-feltet bruker BCB Focus som års-/retningsproxy og er ikke konsensus for den enkelte publisering.",
         "source_status": source_status,
         "sources": [
-            {"name": "Banco Central do Brasil – SGS", "url": "https://dadosabertos.bcb.gov.br/"},
+            {
+                "name": "Banco Central do Brasil – SGS",
+                "url": "https://dadosabertos.bcb.gov.br/",
+            },
             {"name": "Banco Central do Brasil – Focus", "url": BCB_FOCUS_URL},
             {"name": "Banco Central do Brasil – kalender", "url": BCB_COPOM_URL},
             {"name": "IBGE – indikator-kalender", "url": IBGE_CALENDAR_URL},

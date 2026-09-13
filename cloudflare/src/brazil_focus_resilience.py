@@ -294,9 +294,7 @@ async def resolve_annual_focus(
         result = dict(live_focus)
         try:
             cached = await _read_state(repository, ANNUAL_STATE_KEY)
-        except (
-            Exception
-        ):  # noqa: BLE001 - cache completion must not hide valid live data
+        except Exception:  # noqa: BLE001 - cache completion must not hide valid live data
             cached = None
         completion_values = cached.get("values") if cached else None
         if completion_values is None and as_of_date >= BOOTSTRAP_PUBLICATION_DATE:
