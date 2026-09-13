@@ -22,10 +22,11 @@ def test_investor_navigation_is_split_into_a_small_component() -> None:
 def test_navigation_only_preloads_after_intentional_hover() -> None:
     navigation = read_frontend("InvestorNavigation.tsx")
 
-    assert "HOVER_PRELOAD_DELAY_MS = 120" in navigation
+    assert "INTENT_PRELOAD_DELAY_MS = 120" in navigation
     assert "onMouseEnter={() => scheduleHoverPreload(item)}" in navigation
     assert "onMouseLeave={cancelHoverPreload}" in navigation
-    assert "onFocus={() => onPreload(item)}" in navigation
+    assert "onFocus={() => scheduleHoverPreload(item)}" in navigation
+    assert "onBlur={cancelHoverPreload}" in navigation
 
 
 def test_views_support_deep_links_and_update_the_browser_title() -> None:

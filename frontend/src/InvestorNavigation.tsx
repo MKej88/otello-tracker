@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { navigationGroups, type View } from "./investorViews";
 
-const HOVER_PRELOAD_DELAY_MS = 120;
+const INTENT_PRELOAD_DELAY_MS = 120;
 
 type InvestorNavigationProps = {
   activeView: View;
@@ -27,7 +27,7 @@ export default function InvestorNavigation({
     hoverTimer.current = window.setTimeout(() => {
       onPreload(view);
       hoverTimer.current = null;
-    }, HOVER_PRELOAD_DELAY_MS);
+    }, INTENT_PRELOAD_DELAY_MS);
   }
 
   useEffect(() => cancelHoverPreload, []);
@@ -52,7 +52,8 @@ export default function InvestorNavigation({
                     cancelHoverPreload();
                     onSelect(item);
                   }}
-                  onFocus={() => onPreload(item)}
+                  onBlur={cancelHoverPreload}
+                  onFocus={() => scheduleHoverPreload(item)}
                   onMouseEnter={() => scheduleHoverPreload(item)}
                   onMouseLeave={cancelHoverPreload}
                   type="button"
