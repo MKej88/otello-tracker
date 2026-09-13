@@ -13,13 +13,20 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from brazil_dashboard import (  # noqa: E402
+    UpstreamJsonError,
     _load_focus,
     normalize_focus_indicator,
     parse_focus_snapshot,
 )
 from brazil_investor_insights import build_focus_trend  # noqa: E402
+from brazil_focus_resilience import resolve_annual_focus  # noqa: E402
 
-LABELS = {"selic": "Selic", "ipca": "IPCA", "gdp": "PIB Total"}
+LABELS = {
+    "selic": "Selic",
+    "ipca": "IPCA",
+    "gdp": "PIB Total",
+    "usd_brl": "Câmbio",
+}
 
 
 def rows(
@@ -35,7 +42,12 @@ def rows(
                     "Indicador": label,
                     "DataReferencia": str(year),
                     "Data": ref_date,
-                    "Mediana": {"selic": 12.5, "ipca": 4.4, "gdp": 2.1}[indicator]
+                    "Mediana": {
+                        "selic": 12.5,
+                        "ipca": 4.4,
+                        "gdp": 2.1,
+                        "usd_brl": 5.2,
+                    }[indicator]
                     + (year - first_year) / 10,
                     "Media": 1,
                     "Minimo": 1,
@@ -177,7 +189,7 @@ def test_incomplete_historical_snapshot_falls_back_further() -> None:
 
 
 def test_focus_request_only_fetches_the_two_relevant_years() -> None:
-    requested_url = ""
+    requested_urls: list[str] = []
 
     class Response:
         ok = True
@@ -187,16 +199,142 @@ def test_focus_request_only_fetches_the_two_relevant_years() -> None:
             return json.dumps({"value": rows("2026-09-04", 2026)})
 
     async def fetcher(url: str, **kwargs: Any) -> Response:
-        nonlocal requested_url
-        requested_url = url
+        requested_urls.append(url)
         return Response()
 
     result = asyncio.run(_load_focus("2026-09-12", fetcher=fetcher))
-    query = parse_qs(urlparse(requested_url).query)
-
     assert result["focus_meta"]["ref_date"] == "2026-09-04"
-    assert "DataReferencia eq '2026'" in query["$filter"][0]
-    assert "DataReferencia eq '2027'" in query["$filter"][0]
-    assert query["$select"] == [
-        "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,numeroRespondentes"
-    ]
+    assert len(requested_urls) == 4
+    for requested_url in requested_urls:
+        query = parse_qs(urlparse(requested_url).query)
+        assert "DataReferencia eq '2026'" in query["$filter"][0]
+        assert "DataReferencia eq '2027'" in query["$filter"][0]
+        assert "baseCalculo eq 0" in query["$filter"][0]
+        assert query["$top"] == ["150"]
+        assert query["$select"] == [
+            "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,numeroRespondentes"
+        ]
+
+
+class ErrorResponse:
+    def __init__(self, status: int, body: str) -> None:
+        self.ok = False
+        self.status = status
+        self.body_text = body
+
+    async def text(self) -> str:
+        return self.body_text
+
+
+def test_focus_http_403_is_diagnostic_and_not_retried() -> None:
+    calls = 0
+
+    async def fetcher(url: str, **kwargs: Any) -> ErrorResponse:
+        nonlocal calls
+        calls += 1
+        return ErrorResponse(403, "request forbidden by upstream")
+
+    try:
+        asyncio.run(_load_focus("2026-09-12", fetcher=fetcher))
+    except UpstreamJsonError as exc:
+        assert exc.kind == "upstream_http_error"
+        assert exc.http_status == 403
+        assert "request forbidden" in str(exc)
+    else:
+        raise AssertionError("403 skulle ha feilet")
+    assert calls == 4
+
+
+def test_focus_retries_429_and_5xx_before_success() -> None:
+    attempts: dict[str, int] = {}
+
+    class Response:
+        ok = True
+        status = 200
+
+        async def text(self) -> str:
+            return json.dumps({"value": rows("2026-09-04", 2026)})
+
+    async def fetcher(url: str, **kwargs: Any) -> Any:
+        indicator = parse_qs(urlparse(url).query)["$filter"][0].split("'")[1]
+        attempts[indicator] = attempts.get(indicator, 0) + 1
+        if attempts[indicator] == 1:
+            return ErrorResponse(429 if indicator == "IPCA" else 503, "temporary")
+        return Response()
+
+    result = asyncio.run(_load_focus("2026-09-12", fetcher=fetcher))
+
+    assert result["ready"] is True
+    assert set(attempts.values()) == {2}
+
+
+def test_focus_invalid_json_is_distinguished_from_http_error() -> None:
+    class Response:
+        ok = True
+        status = 200
+
+        async def text(self) -> str:
+            return "not-json"
+
+    async def fetcher(url: str, **kwargs: Any) -> Response:
+        return Response()
+
+    try:
+        asyncio.run(_load_focus("2026-09-12", fetcher=fetcher))
+    except UpstreamJsonError as exc:
+        assert exc.kind == "invalid_json"
+        assert exc.http_status == 200
+    else:
+        raise AssertionError("Ugyldig JSON skulle ha feilet")
+
+
+class FocusRepository:
+    def __init__(self, cached: dict[str, Any] | None = None) -> None:
+        self.cached = cached
+        self.writes = 0
+
+    async def first(self, query: str, params: tuple[Any, ...]) -> Any:
+        if self.cached is None:
+            return None
+        return {"value": json.dumps(self.cached), "updated_at": "2026-09-01T00:00:00Z"}
+
+    async def run_batch(self, statements: Any) -> None:
+        self.writes += 1
+
+
+def test_d1_last_good_precedes_bootstrap_and_live_replaces_both() -> None:
+    cached_values = parse_focus_snapshot(
+        {"value": rows("2026-09-04", 2026)}, as_of_date="2026-09-12"
+    )["values"]
+    repository = FocusRepository(
+        {"values": cached_values, "source": "Banco Central do Brasil / Focus"}
+    )
+
+    cached, cached_status = asyncio.run(
+        resolve_annual_focus(repository, None, as_of_date="2026-09-12")
+    )
+    assert cached["data_source"] == "LAST_GOOD_D1_CACHE"
+    assert cached_status["fallback_source"] == "LAST_GOOD_D1_CACHE"
+
+    live = {
+        "ready": True,
+        "values": parse_focus_snapshot(
+            {"value": rows("2026-09-11", 2026)}, as_of_date="2026-09-12"
+        )["values"],
+    }
+    resolved, live_status = asyncio.run(
+        resolve_annual_focus(repository, live, as_of_date="2026-09-12")
+    )
+    assert resolved["data_source"] == "BCB_OLINDA_LIVE"
+    assert resolved["fallback"] is False
+    assert live_status["live_ready"] if "live_ready" in live_status else True
+    assert repository.writes == 1
+
+
+def test_bootstrap_is_only_used_without_live_or_d1() -> None:
+    resolved, status = asyncio.run(
+        resolve_annual_focus(FocusRepository(), None, as_of_date="2026-09-12")
+    )
+
+    assert resolved["data_source"] == "PUBLISHED_FOCUS_BOOTSTRAP"
+    assert status["fallback_source"] == "PUBLISHED_FOCUS_BOOTSTRAP"

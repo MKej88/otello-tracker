@@ -137,10 +137,10 @@ async def _read_state(repository: Any, key: str) -> dict[str, Any] | None:
         return None
     try:
         payload = json.loads(str(row.get("value") or ""))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("D1 Focus-cache inneholder ugyldig JSON") from exc
     if not isinstance(payload, dict):
-        return None
+        raise ValueError("D1 Focus-cache inneholder ikke et JSON-objekt")
     payload.setdefault("cached_at", row.get("updated_at"))
     return payload
 
@@ -285,7 +285,11 @@ async def resolve_annual_focus(
         and live_focus.get("ready")
         and _valid_values(live_focus.get("values"))
     ):
-        await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
+        cache_error = None
+        try:
+            await persist_annual_focus(repository, live_focus, as_of_date=as_of_date)
+        except Exception as exc:  # noqa: BLE001 - live data remains authoritative
+            cache_error = f"{type(exc).__name__}: {exc}"
         survey_date = _latest_survey_date(live_focus.get("values"))
         result = dict(live_focus)
         try:
@@ -305,9 +309,23 @@ async def resolve_annual_focus(
         result["focus_meta"] = _focus_meta(result["values"], as_of_date=as_of_date)
         result["fallback"] = False
         result["data_source"] = "BCB_OLINDA_LIVE"
-        return result, {"ready": True, "fallback": False, "survey_date": survey_date}
+        status = {
+            "ready": True,
+            "fallback": False,
+            "fallback_source": None,
+            "survey_date": survey_date,
+            "age_days": (result.get("focus_meta") or {}).get("age_days"),
+        }
+        if cache_error:
+            status["cache_error"] = cache_error
+        return result, status
 
-    cached = await _read_state(repository, ANNUAL_STATE_KEY)
+    cache_error = None
+    try:
+        cached = await _read_state(repository, ANNUAL_STATE_KEY)
+    except Exception as exc:  # noqa: BLE001 - bootstrap is the final reserve
+        cached = None
+        cache_error = f"{type(exc).__name__}: {exc}"
     if cached and _valid_values(cached.get("values")):
         survey_date = _latest_survey_date(cached.get("values"))
         if not survey_date or survey_date <= as_of_date:
@@ -336,12 +354,16 @@ async def resolve_annual_focus(
                 ),
                 "focus_meta": _focus_meta(cached_values, as_of_date=as_of_date),
             }
-            return result, {
+            status = {
                 "ready": True,
                 "fallback": True,
                 "fallback_source": "LAST_GOOD_D1_CACHE",
                 "survey_date": survey_date,
+                "age_days": (result.get("focus_meta") or {}).get("age_days"),
             }
+            if cache_error:
+                status["cache_error"] = cache_error
+            return result, status
 
     # The survey reference date predates publication; historical responses must not
     # expose the report until it was publicly available.
@@ -364,12 +386,16 @@ async def resolve_annual_focus(
                 publication_date=BOOTSTRAP_PUBLICATION_DATE,
             ),
         }
-        return result, {
+        status = {
             "ready": True,
             "fallback": True,
             "fallback_source": "PUBLISHED_FOCUS_BOOTSTRAP",
             "survey_date": BOOTSTRAP_REFERENCE_DATE,
+            "age_days": (result.get("focus_meta") or {}).get("age_days"),
         }
+        if cache_error:
+            status["cache_error"] = cache_error
+        return result, status
 
     result = (
         dict(live_focus)
