@@ -223,8 +223,14 @@ def test_partial_cache_after_interrupted_write_is_completed_by_bootstrap() -> No
             return await super().run(sql, params)
 
     repo = InterruptingRepository()
-    with pytest.raises(RuntimeError, match="transient D1 write failure"):
-        asyncio.run(resolve_annual_focus(repo, _live_focus(), as_of_date="2026-08-29"))
+    live, live_status = asyncio.run(
+        resolve_annual_focus(repo, _live_focus(), as_of_date="2026-08-29")
+    )
+
+    assert live["data_source"] == "BCB_OLINDA_LIVE"
+    assert live_status["cache_error"] == (
+        "RuntimeError: transient D1 write failure"
+    )
 
     repo.interrupt_writes = False
     fallback, status = asyncio.run(

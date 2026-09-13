@@ -225,6 +225,13 @@ async def brazil_dashboard(
         resilience_status["live_ready"] = bool(live_status.get("ready"))
         if live_status.get("error"):
             resilience_status["live_error"] = live_status.get("error")
+        for diagnostic_key in ("error_kind", "http_status", "response_excerpt"):
+            if live_status.get(diagnostic_key) is not None:
+                resilience_status[diagnostic_key] = live_status[diagnostic_key]
+        focus_meta = focus.get("focus_meta") if isinstance(focus, dict) else None
+        if isinstance(focus_meta, dict):
+            resilience_status["survey_date"] = focus_meta.get("ref_date")
+            resilience_status["age_days"] = focus_meta.get("age_days")
         result["focus"] = focus
         source_status["focus"] = resilience_status
         focus_values = focus.get("values") if isinstance(focus.get("values"), dict) else {}

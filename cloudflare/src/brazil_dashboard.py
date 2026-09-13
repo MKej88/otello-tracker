@@ -14,6 +14,7 @@ from bounded_response import read_response_bytes
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
 FOCUS_URL = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+ERROR_RESPONSE_BYTES = 512
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 SERIES = {
@@ -63,6 +64,30 @@ def _float(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
 
 
+class UpstreamJsonError(RuntimeError):
+    """A diagnostic-safe error returned by an upstream JSON service."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str,
+        http_status: int | None = None,
+        response_excerpt: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.http_status = http_status
+        self.response_excerpt = response_excerpt
+
+
+def _safe_response_excerpt(payload: bytes) -> str:
+    """Return a short, single-line excerpt without reflecting request data."""
+    return payload[:ERROR_RESPONSE_BYTES].decode("utf-8", errors="replace").replace(
+        "\n", " "
+    ).replace("\r", " ")
+
+
 async def _fetch_json(
     url: str,
     *,
@@ -79,14 +104,30 @@ async def _fetch_json(
             "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
         },
     )
-    if not bool(getattr(response, "ok", False)):
-        raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')} for {url}")
     payload = await read_response_bytes(
         response,
         max_bytes=MAX_RESPONSE_BYTES,
         label="Brazil macro JSON",
     )
-    return json.loads(payload.decode("utf-8-sig"))
+    status = getattr(response, "status", None)
+    if not bool(getattr(response, "ok", False)):
+        excerpt = _safe_response_excerpt(payload)
+        raise UpstreamJsonError(
+            f"Upstream HTTP {status if status is not None else 'unknown'}"
+            + (f": {excerpt}" if excerpt else ""),
+            kind="upstream_http_error",
+            http_status=status if isinstance(status, int) else None,
+            response_excerpt=excerpt or None,
+        )
+    try:
+        return json.loads(payload.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UpstreamJsonError(
+            f"Upstream returnerte ugyldig JSON: {type(exc).__name__}",
+            kind="invalid_json",
+            http_status=status if isinstance(status, int) else None,
+            response_excerpt=_safe_response_excerpt(payload) or None,
+        ) from exc
 
 
 def _parse_sgs_rows(payload: Any) -> list[dict[str, Any]]:
@@ -170,7 +211,7 @@ async def _load_sgs_series(
     return _series_payload(key, rows[-18:], source_url=url)
 
 
-FOCUS_REQUIRED_KEYS = ("selic", "ipca", "gdp")
+FOCUS_REQUIRED_KEYS = ("selic", "ipca", "gdp", "usd_brl")
 FOCUS_STALE_AFTER_DAYS = 21
 
 
@@ -249,6 +290,8 @@ def parse_focus_snapshot(
             "survey_date": survey_date,
         }
     years = (year, year + 1)
+    if not snapshots:
+        raise ValueError("BCB Focus svarte gyldig, men uten relevante rader")
     for survey_date in sorted(snapshots, reverse=True):
         snapshot = snapshots[survey_date]
         if _focus_snapshot_is_complete(snapshot, years):
@@ -315,26 +358,49 @@ async def _load_focus(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
-    start = (as_of - timedelta(days=120)).isoformat()
+    start = (as_of - timedelta(days=60)).isoformat()
     years = (current_year or as_of.year, (current_year or as_of.year) + 1)
     indicators = ["IPCA", "Selic", "PIB Total", "Câmbio"]
-    indicator_filter = " or ".join(f"Indicador eq '{item}'" for item in indicators)
     year_filter = " or ".join(f"DataReferencia eq '{year}'" for year in years)
-    params = {
-        "$format": "json",
-        "$top": "800",
-        "$select": (
-            "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,"
-            "numeroRespondentes"
-        ),
-        "$orderby": "Data desc",
-        "$filter": (
-            f"Data ge '{start}' and Data le '{as_of_date}' "
-            f"and ({indicator_filter}) and ({year_filter})"
-        ),
-    }
-    url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
-    payload = await _fetch_json(url, fetcher=fetcher)
+
+    async def load_indicator(indicator: str) -> list[Any]:
+        params = {
+            "$format": "json",
+            "$top": "150",
+            "$select": (
+                "Indicador,DataReferencia,Data,Mediana,Media,Minimo,Maximo,"
+                "numeroRespondentes"
+            ),
+            "$orderby": "Data desc",
+            "$filter": (
+                f"Indicador eq '{indicator}' and ({year_filter}) "
+                f"and baseCalculo eq 0 and Data ge '{start}' "
+                f"and Data le '{as_of_date}'"
+            ),
+        }
+        url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
+        for attempt in range(3):
+            try:
+                response_payload = await _fetch_json(url, fetcher=fetcher)
+                rows = (
+                    response_payload.get("value")
+                    if isinstance(response_payload, dict)
+                    else None
+                )
+                if not isinstance(rows, list):
+                    raise ValueError("BCB Focus returnerte ikke value-listen")
+                return rows
+            except UpstreamJsonError as exc:
+                retryable = exc.http_status == 429 or (
+                    exc.http_status is not None and exc.http_status >= 500
+                )
+                if not retryable or attempt == 2:
+                    raise
+                await asyncio.sleep(0.25 * (2**attempt))
+        return []  # pragma: no cover - loop always returns or raises
+
+    batches = await asyncio.gather(*(load_indicator(item) for item in indicators))
+    payload = {"value": [row for batch in batches for row in batch]}
     try:
         snapshot = parse_focus_snapshot(
             payload, as_of_date=as_of_date, current_year=current_year
@@ -690,7 +756,12 @@ async def brazil_dashboard(
             target_date, require_complete=True, fetcher=fetcher
         )
         focus = focus_result.get("values") or {}
-        source_status["focus"] = {"ready": bool(focus), "source": focus_result.get("source")}
+        source_status["focus"] = {
+            "ready": bool(focus),
+            "source": focus_result.get("source"),
+            "survey_date": (focus_result.get("focus_meta") or {}).get("ref_date"),
+            "age_days": (focus_result.get("focus_meta") or {}).get("age_days"),
+        }
     except Exception as exc:
         focus_result = {
             "ready": False,
@@ -700,7 +771,17 @@ async def brazil_dashboard(
             "note": "Focus kunne ikke hentes. De øvrige offisielle makrotallene vises fortsatt.",
         }
         focus = {}
-        source_status["focus"] = {"ready": False, "error": f"{type(exc).__name__}: {exc}"}
+        source_status["focus"] = {
+            "ready": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "error_kind": getattr(exc, "kind", "focus_processing_error"),
+        }
+        http_status = getattr(exc, "http_status", None)
+        if http_status is not None:
+            source_status["focus"]["http_status"] = http_status
+        response_excerpt = getattr(exc, "response_excerpt", None)
+        if response_excerpt:
+            source_status["focus"]["response_excerpt"] = response_excerpt
 
     fx = await _brl_nok(repository, target_date)
     if fx.get("ready"):

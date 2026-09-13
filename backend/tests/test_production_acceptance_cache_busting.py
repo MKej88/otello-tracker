@@ -44,7 +44,8 @@ def test_production_acceptance_retries_all_temporary_cloudflare_errors() -> None
 
     assert "curl_retry=(" in step
     assert "--retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 360" in step
-    assert step.count('curl "${curl_retry[@]}"') == 17
+    assert '"$base/api/brazil/dashboard?${q}"' in step
+    assert step.count('curl "${curl_retry[@]}"') == 18
 
 
 def test_production_acceptance_validates_bootstrap_payload() -> None:
