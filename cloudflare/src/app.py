@@ -84,8 +84,7 @@ def _write_repository(request: Request) -> PerformanceD1WriteRepository:
     return PerformanceD1WriteRepository(database)
 
 
-@app.get("/api/health")
-async def health(request: Request) -> dict[str, str]:
+async def _health_payload(request: Request) -> dict[str, str]:
     repository = _repository(request)
     try:
         row = await repository.first("SELECT 1 AS ok")
@@ -102,6 +101,20 @@ async def health(request: Request) -> dict[str, str]:
         "version": API_VERSION,
         "revision": revision,
     }
+
+
+@app.get("/api/health")
+async def health(request: Request) -> dict[str, str]:
+    return await _health_payload(request)
+
+
+@app.get("/api/health/revision/{expected_revision}")
+async def health_revision(request: Request, expected_revision: str) -> dict[str, str]:
+    """Expose health on a revision-specific URL that cannot reuse an older cache key."""
+    payload = await _health_payload(request)
+    if payload["revision"] != expected_revision:
+        raise HTTPException(status_code=409, detail="Worker revision is not active")
+    return payload
 
 
 @app.get("/api/dashboard/bootstrap")

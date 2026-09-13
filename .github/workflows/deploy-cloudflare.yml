@@ -247,7 +247,8 @@ jobs:
           revision_ready=0
           for attempt in $(seq 1 60); do
             if curl --fail --show-error --silent \
-              "$base/api/health?${q}&revision_probe=${attempt}" \
+              -H 'Cache-Control: no-cache, no-store' \
+              "$base/api/health/revision/$EXPECTED_SHA?${q}&revision_probe=${attempt}" \
               -o /tmp/otello-health.json; then
               active_revision="$(python - <<'PY'
           import json

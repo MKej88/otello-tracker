@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
+WORKER_APP = ROOT / "cloudflare" / "src" / "app.py"
 
 
 def _acceptance_step() -> str:
@@ -32,11 +33,21 @@ def test_production_acceptance_waits_for_exact_worker_revision() -> None:
 
     assert "revision_ready=0" in step
     assert "for attempt in $(seq 1 60)" in step
+    assert 'Cache-Control: no-cache, no-store' in step
+    assert '"$base/api/health/revision/$EXPECTED_SHA?' in step
     assert "revision_probe=${attempt}" in step
     assert "payload.get('revision') or ''" in step
     assert 'if [ "$active_revision" = "$EXPECTED_SHA" ]' in step
     assert "Custom domain did not serve expected Worker revision" in step
     assert "health.get('revision') == os.environ['EXPECTED_SHA']" in step
+
+
+def test_worker_exposes_revision_specific_uncached_health_probe() -> None:
+    source = WORKER_APP.read_text(encoding="utf-8")
+
+    assert '@app.get("/api/health/revision/{expected_revision}")' in source
+    assert 'payload["revision"] != expected_revision' in source
+    assert 'status_code=409, detail="Worker revision is not active"' in source
 
 
 def test_production_acceptance_retries_all_temporary_cloudflare_errors() -> None:
