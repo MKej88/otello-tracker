@@ -39,15 +39,16 @@ def test_bemobi_consensus_builds_targets_broker_multiples_and_beat_miss(tmp_path
     assert coverage["hold_count"] == 1
     assert coverage["sell_count"] == 0
     assert coverage["buy_pct"] == 75.0
-    assert coverage["average_target_brl"] == 30.95
+    assert coverage["average_target_brl"] == 31.325
     assert coverage["high_target_brl"] == 35.0
     assert coverage["low_target_brl"] == 24.0
-    assert coverage["checked_date"] == "2026-08-19"
-    assert abs(coverage["upside_to_average_pct"] - 35.74561403508772) < 1e-12
+    assert coverage["checked_date"] == "2026-09-14"
+    assert abs(coverage["upside_to_average_pct"] - 37.39035087719298) < 1e-12
 
     analysts = result["analysts"]
     assert [item["institution"] for item in analysts] == ["BTG Pactual", "Itaú BBA", "Morgan Stanley", "XP"]
-    assert analysts[-1]["target_price_brl"] == 31.0
+    assert analysts[-1]["target_price_brl"] == 32.5
+    assert analysts[-1]["last_update"] == "2026-09-14"
 
     broker = result["broker_estimates"]
     assert broker["source"] == "XP"
@@ -137,6 +138,7 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     assert "source_name = 'XP'" in xp_migration
     assert '"revenue_mbrl":936.0' in xp_migration
     assert '"revenue_mbrl":1074.0' in xp_migration
+    assert '"target_price_brl":32.5' in xp_migration
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
