@@ -39,40 +39,45 @@ def test_bemobi_consensus_builds_targets_broker_multiples_and_beat_miss(tmp_path
     assert coverage["hold_count"] == 1
     assert coverage["sell_count"] == 0
     assert coverage["buy_pct"] == 75.0
-    assert coverage["average_target_brl"] == 30.95
+    assert coverage["average_target_brl"] == 31.325
     assert coverage["high_target_brl"] == 35.0
     assert coverage["low_target_brl"] == 24.0
-    assert coverage["checked_date"] == "2026-08-19"
-    assert abs(coverage["upside_to_average_pct"] - 35.74561403508772) < 1e-12
+    assert coverage["checked_date"] == "2026-09-14"
+    assert abs(coverage["upside_to_average_pct"] - 37.39035087719298) < 1e-12
 
     analysts = result["analysts"]
     assert [item["institution"] for item in analysts] == ["BTG Pactual", "Itaú BBA", "Morgan Stanley", "XP"]
-    assert analysts[-1]["target_price_brl"] == 31.0
+    assert analysts[-1]["target_price_brl"] == 32.5
+    assert analysts[-1]["last_update"] == "2026-09-14"
 
     broker = result["broker_estimates"]
-    assert broker["source"] == "BTG Pactual"
-    assert broker["published_date"] == "2026-05-12"
+    assert broker["source"] == "XP"
+    assert broker["published_date"] == "2026-09-14"
     assert broker["broker_count"] == 1
     years = broker["years"]
     assert [item["year"] for item in years] == [2026, 2027]
-    assert years[0]["revenue_mbrl"] == 814.0
-    assert years[0]["ebitda_mbrl"] == 267.0
-    assert years[0]["net_income_mbrl"] == 173.0
-    assert years[0]["eps_brl"] == 2.1
-    assert years[0]["net_debt_mbrl"] == -343.0
+    assert years[0]["revenue_mbrl"] == 936.0
+    assert years[0]["ebitda_mbrl"] == 322.0
+    assert years[0]["net_income_mbrl"] == 166.0
+    assert years[0].get("eps_brl") is None
+    assert years[0].get("net_debt_mbrl") is None
     assert years[0]["ev_ebit"] is None
     assert abs(years[0]["market_cap_mbrl"] - 1951.8713376) < 1e-9
-    assert abs(years[0]["enterprise_value_mbrl"] - 1608.8713376) < 1e-9
-    assert abs(years[0]["pe"] - 11.282493280924855) < 1e-12
-    assert abs(years[0]["ev_ebitda"] - 6.02573534681648) < 1e-12
-    assert abs(years[0]["earnings_yield_pct"] - 8.863289125025982) < 1e-12
+    assert years[0]["enterprise_value_mbrl"] is None
+    assert abs(years[0]["pe"] - 11.758261069879518) < 1e-12
+    assert years[0]["ev_ebitda"] is None
+    assert abs(years[0]["earnings_yield_pct"] - 8.504658929215683) < 1e-12
 
-    assert years[1]["revenue_mbrl"] == 916.0
-    assert years[1]["ebitda_mbrl"] == 308.0
-    assert years[1]["net_income_mbrl"] == 189.0
-    assert years[1]["net_debt_mbrl"] == -322.0
-    assert abs(years[1]["pe"] - 10.327361574603175) < 1e-12
-    assert abs(years[1]["ev_ebitda"] - 5.291790057142857) < 1e-12
+    assert years[1]["revenue_mbrl"] == 1074.0
+    assert years[1]["ebitda_mbrl"] == 378.0
+    assert years[1]["net_income_mbrl"] == 194.0
+    assert years[1].get("net_debt_mbrl") is None
+    assert abs(years[1]["pe"] - 10.06119246185567) < 1e-12
+    assert years[1]["ev_ebitda"] is None
+
+    assert result["reference_model"]["broker"] == "XP"
+    assert result["reference_model"]["target_price_brl"] == 32.5
+    assert result["reference_model"]["target_period"] == "YE2027"
 
     assert result["next_quarter"]["period"] == "3Q26"
     assert result["next_quarter"]["status"] == "WAITING_FOR_PUBLIC_ESTIMATES"
@@ -95,7 +100,7 @@ def test_bemobi_consensus_does_not_mix_models_from_different_brokers(tmp_path, m
                 fact_type, fact_key, as_of_date, published_date, payload_json,
                 source_name, source_url, quality
             ) VALUES (
-                'FORWARD_CONSENSUS', '2028', '2026-08-30', '2026-08-30',
+                'FORWARD_CONSENSUS', '2028', '2026-09-15', '2026-09-15',
                 '{"year": 2028, "revenue_mbrl": 1000}', 'Another Broker',
                 'https://example.com/model', 'PUBLIC_BROKER_MODEL'
             )
@@ -115,7 +120,8 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     backend_app = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     worker_app = (ROOT / "cloudflare/src/app.py").read_text(encoding="utf-8")
     worker_service = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
-    migration = (ROOT / "cloudflare/migrations/0028_replace_aggregator_with_btg_model.sql").read_text(encoding="utf-8")
+    baseline_migration = (ROOT / "cloudflare/migrations/0028_replace_aggregator_with_btg_model.sql").read_text(encoding="utf-8")
+    xp_migration = (ROOT / "cloudflare/migrations/0034_replace_btg_with_xp_model.sql").read_text(encoding="utf-8")
     frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
     history_panel = (ROOT / "frontend/src/ConsensusHistoryPanel.tsx").read_text(encoding="utf-8")
@@ -126,9 +132,13 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     assert "latest_bemobi_fact" in worker_service
     assert 'load_bemobi_facts(repository, "FORWARD_CONSENSUS")' in worker_service
     assert '"broker_estimates"' in worker_service
-    assert "BTG Pactual" in migration
-    assert "PUBLIC_BROKER_MODEL" in migration
-    assert "lower(source_name) = 'marketscreener'" in migration.lower()
+    assert "BTG Pactual" in baseline_migration
+    assert "PUBLIC_BROKER_MODEL" in baseline_migration
+    assert "lower(source_name) = 'marketscreener'" in baseline_migration.lower()
+    assert "source_name = 'XP'" in xp_migration
+    assert '"revenue_mbrl":936.0' in xp_migration
+    assert '"revenue_mbrl":1074.0' in xp_migration
+    assert '"target_price_brl":32.5' in xp_migration
     assert '{ label: "Konsensus", enabled: true }' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page

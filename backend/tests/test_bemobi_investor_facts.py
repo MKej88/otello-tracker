@@ -27,7 +27,7 @@ def test_bemobi_investor_facts_are_seeded_with_provenance(tmp_path: Path) -> Non
             """
         ).fetchall()
 
-    assert len(rows) == 18
+    assert len(rows) == 19
     counts = Counter(row["fact_type"] for row in rows)
     assert counts == {
         "RESULT": 1,
@@ -37,7 +37,7 @@ def test_bemobi_investor_facts_are_seeded_with_provenance(tmp_path: Path) -> Non
         "ANALYST": 4,
         "FORWARD_CONSENSUS": 2,
         "BEAT_MISS": 3,
-        "REFERENCE_MODEL": 1,
+        "REFERENCE_MODEL": 2,
         "NEXT_QUARTER": 1,
     }
 

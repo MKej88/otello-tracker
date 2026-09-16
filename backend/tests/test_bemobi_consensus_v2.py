@@ -18,15 +18,16 @@ if str(CLOUDFLARE_SRC) not in sys.path:
 from bemobi_web_refresh_v2 import _ensure_consensus_event  # noqa: E402
 
 
-def test_consensus_history_migration_replaces_aggregator_with_broker_baseline(tmp_path) -> None:
+def test_consensus_history_keeps_btg_baseline_and_adds_xp_model(tmp_path) -> None:
     database = str(tmp_path / "consensus-v2.db")
     applied = init_database(database)
 
     assert "0031" in applied
+    assert "0037" in applied
     status = database_status(database)
     assert status["latest_migration"] == applied[-1]
     assert status["table_counts"]["bemobi_consensus_events"] == 3
-    assert status["table_counts"]["bemobi_forward_consensus_snapshots"] == 1
+    assert status["table_counts"]["bemobi_forward_consensus_snapshots"] == 2
 
     with get_connection(database) as connection:
         periods = [
@@ -35,9 +36,13 @@ def test_consensus_history_migration_replaces_aggregator_with_broker_baseline(tm
                 "SELECT period FROM bemobi_consensus_events ORDER BY result_date"
             ).fetchall()
         ]
-        baseline = connection.execute(
-            "SELECT source_name, observed_date, payload_json FROM bemobi_forward_consensus_snapshots"
-        ).fetchone()
+        snapshots = connection.execute(
+            """
+            SELECT source_name, observed_date, payload_json
+            FROM bemobi_forward_consensus_snapshots
+            ORDER BY observed_date
+            """
+        ).fetchall()
         retired = connection.execute(
             "SELECT is_active FROM sources WHERE code='MARKETSCREENER'"
         ).fetchone()
@@ -46,12 +51,19 @@ def test_consensus_history_migration_replaces_aggregator_with_broker_baseline(tm
         ).fetchone()["count"]
 
     assert periods == ["3Q25", "4Q25", "2Q26"]
-    assert baseline["source_name"] == "BTG Pactual"
-    assert baseline["observed_date"] == "2026-05-12"
-    years = json.loads(baseline["payload_json"])["years"]
-    assert [item["year"] for item in years] == [2026, 2027]
-    assert years[0]["ebitda_mbrl"] == 267.0
-    assert years[1]["revenue_mbrl"] == 916.0
+    assert snapshots[0]["source_name"] == "BTG Pactual"
+    assert snapshots[0]["observed_date"] == "2026-05-12"
+    btg_years = json.loads(snapshots[0]["payload_json"])["years"]
+    assert btg_years[0]["ebitda_mbrl"] == 267.0
+    assert btg_years[1]["revenue_mbrl"] == 916.0
+
+    assert snapshots[1]["source_name"] == "XP"
+    assert snapshots[1]["observed_date"] == "2026-09-14"
+    xp_years = json.loads(snapshots[1]["payload_json"])["years"]
+    assert xp_years[0]["revenue_mbrl"] == 936.0
+    assert xp_years[0]["ebitda_mbrl"] == 322.0
+    assert xp_years[1]["revenue_mbrl"] == 1074.0
+    assert xp_years[1]["ebitda_mbrl"] == 378.0
     assert retired is None or retired["is_active"] == 0
     assert legacy_facts == 0
 
@@ -63,19 +75,15 @@ def test_forward_revision_tracker_compares_last_two_same_broker_snapshots(tmp_pa
         "years": [
             {
                 "year": 2026,
-                "revenue_mbrl": 814.0,
-                "ebitda_mbrl": 280.0,
-                "net_income_mbrl": 173.0,
-                "eps_brl": 2.10,
-                "net_debt_mbrl": -343.0,
+                "revenue_mbrl": 936.0,
+                "ebitda_mbrl": 330.0,
+                "net_income_mbrl": 166.0,
             },
             {
                 "year": 2027,
-                "revenue_mbrl": 916.0,
-                "ebitda_mbrl": 308.0,
-                "net_income_mbrl": 189.0,
-                "eps_brl": 2.20,
-                "net_debt_mbrl": -322.0,
+                "revenue_mbrl": 1074.0,
+                "ebitda_mbrl": 378.0,
+                "net_income_mbrl": 194.0,
             },
         ]
     }
@@ -85,7 +93,7 @@ def test_forward_revision_tracker_compares_last_two_same_broker_snapshots(tmp_pa
             INSERT INTO bemobi_forward_consensus_snapshots(
                 source_name, observed_date, payload_json, content_hash,
                 source_url, quality
-            ) VALUES ('BTG Pactual','2026-08-20',?,'changed','https://example.test','TEST')
+            ) VALUES ('XP','2026-09-20',?,'changed','https://example.test','TEST')
             """,
             (json.dumps(second_payload, sort_keys=True, separators=(",", ":")),),
         )
@@ -95,14 +103,14 @@ def test_forward_revision_tracker_compares_last_two_same_broker_snapshots(tmp_pa
     tracker = history["forward_revision_tracker"]
     assert tracker["comparison_ready"] is True
     assert tracker["same_source_snapshots"] == 2
-    assert tracker["baseline_date"] == "2026-05-12"
-    assert tracker["latest_date"] == "2026-08-20"
+    assert tracker["baseline_date"] == "2026-09-14"
+    assert tracker["latest_date"] == "2026-09-20"
     changes = tracker["latest_changes"]
     assert len(changes) == 1
     assert changes[0]["year"] == 2026
     assert changes[0]["metric"] == "ebitda_mbrl"
-    assert changes[0]["before"] == 267.0
-    assert changes[0]["after"] == 280.0
+    assert changes[0]["before"] == 322.0
+    assert changes[0]["after"] == 330.0
 
 
 def test_history_metadata_is_not_hardcoded_in_python_anymore() -> None:

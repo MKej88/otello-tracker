@@ -103,7 +103,7 @@ def test_source_status_exposes_source_specific_broker_model_status(tmp_path: Pat
     assert by_key["ir"]["status"] == "OK"
     assert by_key["result_release"]["status"] == "OK"
     assert by_key["consensus"]["status"] == "OK"
-    assert by_key["consensus"]["source"] == "BTG Pactual"
+    assert by_key["consensus"]["source"] == "XP"
     assert by_key["consensus"]["uses_last_good"] is False
     assert "Kildeverifiserte meglermodeller" in by_key["consensus"]["detail"]
     assert by_key["xp_preview"]["status"] == "WAITING"
