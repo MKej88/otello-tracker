@@ -94,10 +94,10 @@ def test_history_links_2q26_beat_miss_to_bmob3_market_reaction(tmp_path) -> None
     assert abs(reaction["reaction_5d_pct"] - 25.0) < 1e-12
 
     revision = event["model_revision"]
-    assert revision["status"] == "WAITING_FOR_PUBLIC_POST_REPORT_MODEL"
+    assert revision["status"] == "PUBLIC_UPDATE"
     assert revision["target_before_brl"] == 31.0
-    assert revision["target_after_brl"] is None
-    assert revision["target_revision_pct"] is None
+    assert revision["target_after_brl"] == 32.5
+    assert abs(revision["target_revision_pct"] - (32.5 / 31.0 - 1) * 100) < 1e-12
 
 
 def test_4q25_public_model_revision_keeps_paytime_caveat(tmp_path) -> None:
