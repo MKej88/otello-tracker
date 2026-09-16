@@ -20,6 +20,17 @@ SET as_of_date = '2026-09-14',
 WHERE fact_type = 'FORWARD_CONSENSUS'
   AND fact_key = '2027';
 
+UPDATE bemobi_investor_facts
+SET as_of_date = '2026-09-14',
+    published_date = '2026-09-14',
+    payload_json = '{"institution":"XP","analyst":"Bernardo Guttmann","rating":"BUY","target_price_brl":32.5,"last_update":"2026-09-14"}',
+    source_name = 'XP',
+    source_url = 'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-crescimento-perfil-defensivo-alocacao-de-capital-valuation-compra/',
+    quality = 'PUBLIC_BROKER_MODEL',
+    notes = 'XP løftet kursmålet fra R$31,0 til R$32,5 i modelloppdateringen publisert 14.09.2026.'
+WHERE fact_type = 'ANALYST'
+  AND fact_key = 'XP';
+
 INSERT INTO bemobi_investor_facts(
     fact_type, fact_key, as_of_date, published_date, payload_json,
     source_name, source_url, quality, notes
