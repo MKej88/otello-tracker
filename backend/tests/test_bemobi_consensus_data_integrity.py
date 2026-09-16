@@ -11,11 +11,11 @@ def test_broker_model_migration_retires_legacy_aggregator_data(tmp_path) -> None
     # Recreate a pre-0031 state containing a newer legacy aggregator observation.
     with get_connection(database) as connection:
         connection.execute(
-            "DELETE FROM bemobi_investor_facts "
-            "WHERE fact_type='FORWARD_CONSENSUS' AND source_name='BTG Pactual'"
+            "DELETE FROM bemobi_investor_facts WHERE fact_type='FORWARD_CONSENSUS'"
         )
         connection.execute(
-            "DELETE FROM bemobi_forward_consensus_snapshots WHERE source_name='BTG Pactual'"
+            "DELETE FROM bemobi_forward_consensus_snapshots "
+            "WHERE source_name IN ('BTG Pactual', 'XP')"
         )
         connection.execute(
             """
