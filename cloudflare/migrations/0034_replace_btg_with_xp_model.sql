@@ -28,7 +28,7 @@ INSERT INTO bemobi_investor_facts(
     'XP-2026-09-14',
     '2026-09-14',
     '2026-09-14',
-    '{"broker":"XP","rating":"BUY","target_price_brl":32.5,"published_date":"2026-09-14","target_period":"YE2027","pe_2027_reported":11.6,"ev_ebitda_2027_reported":5.6,"dividend_yield_pct_approx":9.0,"source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-crescimento-profil-defensivo-alocacao-de-capital-valuation-compra/","note":"XP løftet kursmålet fra R$31,0 til R$32,5 for utgangen av 2027 og gjentok kjøpsanbefalingen."}',
+    '{"broker":"XP","rating":"BUY","target_price_brl":32.5,"published_date":"2026-09-14","target_period":"YE2027","pe_2027_reported":11.6,"ev_ebitda_2027_reported":5.6,"dividend_yield_pct_approx":9.0,"source_url":"https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-crescimento-perfil-defensivo-alocacao-de-capital-valuation-compra/","note":"XP løftet kursmålet fra R$31,0 til R$32,5 for utgangen av 2027 og gjentok kjøpsanbefalingen."}',
     'XP',
     'https://conteudos.xpi.com.br/acoes/relatorios/bemobi-bmob3-crescimento-perfil-defensivo-alocacao-de-capital-valuation-compra/',
     'PUBLIC_BROKER_MODEL',
