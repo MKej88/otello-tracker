@@ -18,6 +18,7 @@ except ImportError:
 
 NORGES_BANK_EXR_BASE = "https://data.norges-bank.no/api/data/EXR/B.AUD+BRL+USD.NOK.SP"
 FX_BASE_CURRENCIES = ("AUD", "BRL", "USD")
+REQUIRED_CURRENT_FX_CURRENCIES = ("BRL", "USD")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 NORGES_BANK_HISTORY_YEARS = 10
 HISTORY_EDGE_TOLERANCE_DAYS = 7
@@ -256,6 +257,27 @@ async def _norges_bank_coverage(
     return complete, coverage, required_start
 
 
+async def _required_fx_available_for_date(
+    repository,
+    *,
+    target_date: str,
+) -> bool:
+    rows = await repository.all(
+        """
+        SELECT DISTINCT fr.base_currency
+        FROM fx_rates fr
+        JOIN sources s ON s.id=fr.source_id
+        WHERE fr.quote_currency='NOK'
+          AND fr.base_currency IN ('BRL','USD')
+          AND substr(fr.observed_at,1,10)=?
+          AND s.code='NORGES_BANK'
+        """,
+        (target_date,),
+    )
+    available = {str(row["base_currency"]) for row in rows}
+    return available == set(REQUIRED_CURRENT_FX_CURRENCIES)
+
+
 async def _write_fx_rows(
     repository,
     rows: list[tuple[str, str, Decimal]],
@@ -324,6 +346,28 @@ async def refresh_norges_bank_fx(
                 target_date=target_date,
             )
             history_backfill = history_resume_pending
+            if await _required_fx_available_for_date(
+                repository,
+                target_date=target_date,
+            ):
+                return {
+                    "status": "ok",
+                    "provider": "Norges Bank",
+                    "skipped": True,
+                    "reason": "required_target_fx_already_present",
+                    "from": target_date,
+                    "to": target_date,
+                    "rows_written": 0,
+                    "write_batches": 0,
+                    "source_document_id": None,
+                    "content_sha256": None,
+                    "r2_archive": None,
+                    "history_years": NORGES_BANK_HISTORY_YEARS,
+                    "history_start_required": required_history_start,
+                    "history_backfill": history_backfill,
+                    "history_resume_pending": history_resume_pending,
+                    "auto_fx_backtest_history": history_backfill,
+                }
 
     start = (target - timedelta(days=max(7, lookback_days))).isoformat()
     url = build_norges_bank_url(start, target_date)
