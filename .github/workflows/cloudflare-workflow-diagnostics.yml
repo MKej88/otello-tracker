@@ -164,7 +164,7 @@ jobs:
           ]
 
           if result.get("error"):
-              lines.extend(["", "## Overordnet feil", "", clean(result["error"])])
+              lines.extend(["", "## Overordnet feil", "", clean(result["error"], 2000)])
 
           lines.extend([
               "",
@@ -184,9 +184,9 @@ jobs:
                   if attempt.get("success") is False:
                       failure_count += 1
                   if attempt.get("error"):
-                      errors.append(clean(attempt["error"], 300))
+                      errors.append(clean(attempt["error"], 2000))
               if step.get("error"):
-                  errors.append(clean(step["error"], 300))
+                  errors.append(clean(step["error"], 2000))
 
               success = step.get("success")
               outcome = (
@@ -548,7 +548,7 @@ jobs:
                   f"| {cell(row.get('job_name'), 80)} | {cell(row.get('status'), 30)} | "
                   f"{cell(row.get('started_at'), 60)} | {cell(row.get('finished_at'), 60)} | "
                   f"{cell(row.get('records_written'), 30)} | {cell(target, 20)} | "
-                  f"{cell(row.get('error_message'), 300)} |"
+                  f"{cell(row.get('error_message'), 2000)} |"
               )
 
           lines.extend([
@@ -563,7 +563,7 @@ jobs:
               lines.append(
                   f"| {cell(label, 80)} | {cell(row.get('status'), 30)} | "
                   f"{cell(row.get('checked_at'), 60)} | {cell(row.get('latency_ms'), 30)} | "
-                  f"{cell(row.get('error_message'), 300)} |"
+                  f"{cell(row.get('error_message'), 2000)} |"
               )
 
           lines.extend([
