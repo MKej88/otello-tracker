@@ -42,3 +42,20 @@ def test_backup_rejects_missing_or_non_filesystem_database(tmp_path) -> None:
         backup_database(str(tmp_path / "missing.db"))
     with pytest.raises(ValueError):
         backup_database(":memory:")
+
+
+def test_backup_retry_in_same_second_preserves_existing_snapshot(tmp_path) -> None:
+    """A retry must never overwrite a snapshot that may be the last good copy."""
+    database = str(tmp_path / "otello.db")
+    backup_dir = tmp_path / "backups"
+    timestamp = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+    init_database(database)
+
+    first = backup_database(database, backup_dir=str(backup_dir), now=timestamp)
+    existing_contents = (backup_dir / "otello-20260817T120000Z.db").read_bytes()
+
+    with pytest.raises(FileExistsError, match="Backup already exists"):
+        backup_database(database, backup_dir=str(backup_dir), now=timestamp)
+
+    assert (backup_dir / "otello-20260817T120000Z.db").read_bytes() == existing_contents
+    assert first["size_bytes"] == len(existing_contents)

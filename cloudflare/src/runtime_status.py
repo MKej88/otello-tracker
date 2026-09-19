@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -121,7 +122,9 @@ def _expected_between_reports(details: dict[str, Any]) -> bool:
     """Return True when lower-quality flags only describe normal between-report estimates."""
     data_status = str(details.get("data_status") or "").upper()
     cash_quality = str(details.get("cash_quality") or "").upper()
-    cash_calibration_quality = str(details.get("cash_calibration_quality") or "").upper()
+    cash_calibration_quality = str(
+        details.get("cash_calibration_quality") or ""
+    ).upper()
     share_count_quality = str(details.get("share_count_quality") or "").upper()
     ona_quality = str(details.get("ona_quality") or "").upper()
     receivable_quality = str(details.get("receivable_quality") or "").upper()
@@ -153,7 +156,9 @@ def _expected_between_reports(details: dict[str, Any]) -> bool:
 def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
     """Expose actionable NAV-quality issues, not normal estimates between reports."""
     data_status = str(details.get("data_status") or "").upper()
-    cash_calibration_quality = str(details.get("cash_calibration_quality") or "").upper()
+    cash_calibration_quality = str(
+        details.get("cash_calibration_quality") or ""
+    ).upper()
     receivable_quality = str(details.get("receivable_quality") or "").upper()
     notes = str(details.get("quality_notes") or "").lower()
 
@@ -379,14 +384,26 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
     )
     full_components = _json_object(full.get("components_json"))
     core_components = _json_object((core or {}).get("components_json"))
-    cash = core_components.get("cash") if isinstance(core_components.get("cash"), dict) else {}
-    otec = core_components.get("otec") if isinstance(core_components.get("otec"), dict) else {}
+    cash = (
+        core_components.get("cash")
+        if isinstance(core_components.get("cash"), dict)
+        else {}
+    )
+    otec = (
+        core_components.get("otec")
+        if isinstance(core_components.get("otec"), dict)
+        else {}
+    )
     ona = (
         full_components.get("other_net_assets")
         if isinstance(full_components.get("other_net_assets"), dict)
         else {}
     )
-    option = ona.get("option_liability") if isinstance(ona.get("option_liability"), dict) else {}
+    option = (
+        ona.get("option_liability")
+        if isinstance(ona.get("option_liability"), dict)
+        else {}
+    )
     data_status = str(full.get("status") or "UNKNOWN").upper()
     details = {
         "data_status": data_status,
@@ -415,13 +432,23 @@ async def runtime_status_summary(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    full_row = await _latest_job(repository, FULL_JOB)
-    fast_row = await _latest_job(repository, FAST_JOB)
-    writer_lock = await _writer_lock(repository)
-    norges_bank_health = await _latest_norges_bank_health(repository)
-    fx = await norges_bank_fx_coverage(repository)
-    hot_snapshot = await dashboard_hot_snapshot_status(repository, now=current)
-    dashboard_quality = await _current_dashboard_quality(repository)
+    (
+        full_row,
+        fast_row,
+        writer_lock,
+        norges_bank_health,
+        fx,
+        hot_snapshot,
+        dashboard_quality,
+    ) = await asyncio.gather(
+        _latest_job(repository, FULL_JOB),
+        _latest_job(repository, FAST_JOB),
+        _writer_lock(repository),
+        _latest_norges_bank_health(repository),
+        norges_bank_fx_coverage(repository),
+        dashboard_hot_snapshot_status(repository, now=current),
+        _current_dashboard_quality(repository),
+    )
 
     full = _job_payload(
         full_row,
