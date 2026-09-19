@@ -28,6 +28,7 @@ test("leverer nettverksoppdatering selv om den blir ferdig før lytteren montere
       removeItem: (key: string) => storage.delete(key),
     },
     setTimeout,
+    clearTimeout,
     fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
       networkRequests.push(init ?? {});
       return Response.json(freshPayload);

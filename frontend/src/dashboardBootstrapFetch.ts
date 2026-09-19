@@ -31,6 +31,7 @@ const COMPONENT_BY_PATH: Record<string, BootstrapComponent> = {
 const CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v3";
 const CLIENT_CACHE_VERSION = 3;
 const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const BOOTSTRAP_HEDGE_MS = 750;
 
 let installed = false;
 let bootstrapPromise: Promise<BootstrapPayload | null> | null = null;
@@ -199,6 +200,38 @@ function syntheticResponse(payload: object, source: "HIT" | "CLIENT_CACHE"): Res
   });
 }
 
+async function fetchComponentWithBootstrapFallback(
+  component: BootstrapComponent,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  originalFetch: typeof window.fetch,
+): Promise<Response> {
+  let fallbackRequest: Promise<Response> | null = null;
+  const startFallback = () => {
+    fallbackRequest ??= originalFetch(input, init);
+    return fallbackRequest;
+  };
+
+  let fallbackTimer: number | undefined;
+  const hedgedFallback = new Promise<Response>((resolve, reject) => {
+    fallbackTimer = window.setTimeout(() => {
+      void startFallback().then(resolve, reject);
+    }, BOOTSTRAP_HEDGE_MS);
+  });
+  const bootstrapResult = bootstrapPromise!.then((payload) => {
+    const componentPayload = payload?.[component];
+    return isObject(componentPayload)
+      ? syntheticResponse(componentPayload, "HIT")
+      : startFallback();
+  });
+
+  try {
+    return await Promise.race([bootstrapResult, hedgedFallback]);
+  } finally {
+    if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+  }
+}
+
 /**
  * Coalesce the first dashboard requests into one bootstrap request.
  * A bounded last-good browser copy makes repeat first paint independent of Worker cold start;
@@ -237,13 +270,15 @@ export function installDashboardBootstrapFetch(): void {
       return syntheticResponse(cachedComponent, "CLIENT_CACHE");
     }
 
-    const payload = await bootstrapPromise;
-    const componentPayload = payload?.[component];
-    if (!isObject(componentPayload)) {
-      return originalFetch(input, init);
+    const response = await fetchComponentWithBootstrapFallback(
+      component,
+      input,
+      init,
+      originalFetch,
+    );
+    if (response.headers.get("X-Otello-Bootstrap") === "HIT") {
+      servedFromBootstrap.add(component);
     }
-
-    servedFromBootstrap.add(component);
-    return syntheticResponse(componentPayload, "HIT");
+    return response;
   };
 }
