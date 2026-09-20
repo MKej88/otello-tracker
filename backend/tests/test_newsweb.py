@@ -8,8 +8,14 @@ from app.db.migration_runner import init_database
 from app.db.repository import create_source_document
 from app.nav.cash_curve import _known_movements
 from app.newsweb.cash_sync import sync_newsweb_daily_buyback_cash
-from app.newsweb.client import _post_json, parse_list_payload, parse_message_payload
-from app.newsweb.enrichment import validate_daily_buybacks
+from app.newsweb.client import (
+    NewsWebAttachment,
+    NewsWebMessage,
+    _post_json,
+    parse_list_payload,
+    parse_message_payload,
+)
+from app.newsweb.enrichment import _store_daily_rows, validate_daily_buybacks
 from app.newsweb.trade_parser import (
     DailyBuybackTransaction,
     parse_buyback_transaction_text,
@@ -86,6 +92,110 @@ def test_newsweb_transaction_text_aggregates_exact_daily_trades() -> None:
     assert validation["shares"] == 300
     assert validation["amount_nok"] == "5180.00"
     assert validation["quality"] == "CONFIRMED"
+
+
+def test_corrected_attachment_removes_obsolete_daily_date(tmp_path) -> None:
+    database = str(tmp_path / "corrected-attachment.db")
+    init_database(database)
+    message = NewsWebMessage(
+        message_id=1,
+        news_id=1,
+        title="Otello Corporation share buyback program status",
+        body="body",
+        issuer_id=7759,
+        issuer_sign="OTEC",
+        issuer_name="Otello Corporation ASA",
+        published_at="2025-07-04T15:00:00Z",
+        markets=("XOSL",),
+        category_ids=(),
+        attachments=(NewsWebAttachment(2, "transactions.pdf"),),
+        corrected_by_message_id=0,
+        correction_for_message_id=0,
+        client_announcement_id=None,
+    )
+    attachment = message.attachments[0]
+
+    with get_connection(database) as connection:
+        document_id = create_source_document(
+            connection,
+            source_code="NEWSWEB",
+            external_id="corrected-attachment-test",
+            document_type="BUYBACK_TRANSACTION_ATTACHMENT",
+            title=attachment.name,
+            url="https://example.invalid/attachment/2",
+        )
+        program_id = connection.execute(
+            """
+            INSERT INTO buyback_programs(
+                external_program_id, announced_at, max_shares, source_document_id
+            ) VALUES ('corrected-test', '2025-06-15T00:00:00Z', 1000, ?)
+            """,
+            (document_id,),
+        ).lastrowid
+        buyback_id = connection.execute(
+            """
+            INSERT INTO buybacks(
+                program_id, trade_date, shares, avg_price_nok, amount_nok,
+                source_document_id
+            ) VALUES (?, '2025-07-04', 300, '17.27', '5180', ?)
+            """,
+            (program_id, document_id),
+        ).lastrowid
+        connection.commit()
+
+    original = [
+        DailyBuybackTransaction(
+            "2025-06-30", 300, Decimal("17.2666667"), Decimal("5180"), 3
+        )
+    ]
+    corrected = [
+        DailyBuybackTransaction(
+            "2025-07-01", 300, Decimal("17.2666667"), Decimal("5180"), 3
+        )
+    ]
+    validation = {"quality": "CONFIRMED"}
+    _store_daily_rows(
+        database,
+        weekly_buyback_id=int(buyback_id),
+        attachment_document_id=document_id,
+        message=message,
+        attachment=attachment,
+        daily=original,
+        validation=validation,
+    )
+
+    _store_daily_rows(
+        database,
+        weekly_buyback_id=int(buyback_id),
+        attachment_document_id=document_id,
+        message=message,
+        attachment=attachment,
+        daily=corrected,
+        validation=validation,
+    )
+    sync_newsweb_daily_buyback_cash(database, weekly_buyback_id=int(buyback_id))
+
+    with get_connection(database) as connection:
+        rows = connection.execute(
+            """
+            SELECT trade_date, shares FROM buyback_daily_transactions
+            WHERE weekly_buyback_id=? ORDER BY trade_date
+            """,
+            (buyback_id,),
+        ).fetchall()
+        cash_rows = connection.execute(
+            """
+            SELECT movement_date, amount_nok FROM cash_movements
+            WHERE buyback_id=? AND movement_type='OTELLO_BUYBACK_DAILY'
+            """,
+            (buyback_id,),
+        ).fetchall()
+    assert [(row["trade_date"], row["shares"]) for row in rows] == [
+        ("2025-07-01", 300)
+    ]
+    assert [(row["movement_date"], row["amount_nok"]) for row in cash_rows] == [
+        ("2025-07-01", "-5180")
+    ]
 
 
 def test_newsweb_parser_rejects_sell_or_broken_execbuy() -> None:

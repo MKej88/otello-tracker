@@ -215,6 +215,7 @@ def _store_daily_rows(
     validation: dict[str, Any],
 ) -> int:
     written = 0
+    incoming_dates = {item.trade_date for item in daily}
     with get_connection(database_path) as connection:
         for item in daily:
             metadata = {
@@ -271,6 +272,15 @@ def _store_daily_rows(
                     ),
                 )
                 written += 1
+        placeholders = ",".join("?" for _ in incoming_dates)
+        connection.execute(
+            f"""
+            DELETE FROM buyback_daily_transactions
+            WHERE weekly_buyback_id=?
+              AND trade_date NOT IN ({placeholders})
+            """,
+            (weekly_buyback_id, *sorted(incoming_dates)),
+        )
         connection.commit()
     return written
 
