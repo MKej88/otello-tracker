@@ -13,9 +13,14 @@ Den aktive investorvisningen består av:
 
 - **Oversikt** – nøkkeltall for OTEC, NAV, rabatt og investeringene;
 - **NAV** – estimert økonomisk NAV og forklaring av endringene;
+- **NAV-sensitivitet** – scenarioer for hvordan Bemobi-kurs og BRL/NOK påvirker
+  NAV, rabatt og oppside;
 - **Historikk** – historisk NAV-rabatt for valgte perioder;
 - **Tilbakekjøpsprogram** – gjennomførte kjøp, fremdrift og estimater;
+- **Cash** – kontantbeholdning, kapitalallokering og estimerte utdelinger fra
+  Bemobi;
 - **Bemobi** – kurs, eierandel, regnskapstall og operasjonelle nøkkeltall;
+- **BRL/NOK** – valutautvikling, drivere og beregnet effekt på NAV;
 - **Brasil** – renter, inflasjon, valuta og markedssignaler som er relevante for
   Bemobi;
 - **Konsensus** – offentlige analytikerestimater for Bemobi;
@@ -92,7 +97,8 @@ Praktiske driftsrutiner står i [`docs/runbook.md`](docs/runbook.md).
 
 ## API
 
-Cloudflare-API-et har versjon **0.13.1**. De aktive endepunktene er:
+Cloudflare-API-et har versjon **0.13.2**. De aktive endepunktene som brukes av
+investorvisningen er:
 
 ```text
 GET /api/health
@@ -105,17 +111,24 @@ GET /api/dashboard/waterfall
 GET /api/dashboard/fx-backtest
 GET /api/dashboard/history
 GET /api/dashboard/discount-history
+GET /api/dashboard/nav-periods
+GET /api/fx/dashboard
 GET /api/market/quotes
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
+GET /api/buybacks/overview-status
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
 GET /api/bemobi/source-status
+GET /api/overview/events
 GET /api/brazil/dashboard
 GET /api/news-events
 ```
 
-Den lokale referanse-API-en i `backend/` har versjon **0.12.0**. Den brukes til
+Bemobi-dokumenter kan i tillegg ha en norsk PDF-oversettelse tilgjengelig via
+`GET /api/bemobi-translations/{news_id}.pdf`.
+
+Den lokale referanse-API-en i `backend/` har versjon **0.12.1**. Den brukes til
 å teste finansielle beregninger og er ikke en kopi av hele produksjonsmiljøet.
 
 ## Lokal bruk med bare Python
@@ -145,6 +158,22 @@ Dette er den anbefalte lokale arbeidsmåten når bare Python er tilgjengelig. De
 ferdige React-nettsiden og en lokal Cloudflare Worker kan ikke bygges med Python
 alene; de krever også Node.js 22 og npm. Det er ikke nødvendig for å arbeide med
 eller teste Python-beregningene.
+
+## Lokal bruk av nettsiden
+
+Start først referanse-API-et som beskrevet over. I et nytt terminalvindu kan du
+deretter starte nettsiden med Node.js **22.12 eller nyere i 22-serien**:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Åpne `http://localhost:3000`. Vite videresender lokale `/api`-kall til
+referanse-API-et på `http://localhost:8000`. Fordi referanse-API-et ikke er en
+full kopi av produksjonen, kan enkelte produksjonsdata eller statusfelt mangle
+lokalt.
 
 ## Deploy og sikkerhet
 
