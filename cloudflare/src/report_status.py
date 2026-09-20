@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from decimal import Decimal
 from typing import Any
@@ -134,8 +135,10 @@ async def _report_nav_state(repository, report_date: str) -> dict[str, Any] | No
 
 
 async def report_status_summary(repository) -> dict[str, Any]:
-    report = await _latest_report_document(repository)
-    latest_news = await _latest_result_news(repository)
+    report, latest_news = await asyncio.gather(
+        _latest_report_document(repository),
+        _latest_result_news(repository),
+    )
     if report is None:
         status = latest_news.get("processing_status") if latest_news else "WAITING"
         message = (
@@ -168,14 +171,31 @@ async def report_status_summary(repository) -> dict[str, Any]:
         message_id = int(metadata.get("message_id")) if metadata.get("message_id") is not None else None
     except (TypeError, ValueError):
         message_id = None
-    news = await _news_for_message(repository, message_id) or latest_news
-
     report_date = str(facts.get("report_date") or "")[:10] or None
-    previous_cash = await _previous_cash_anchor(repository, report_date) if report_date else None
-    previous_ona = await _previous_ona_anchor(repository, report_date) if report_date else None
-    current_cost = await _latest_cost_anchor(repository, report_date, before=False) if report_date else None
-    previous_cost = await _latest_cost_anchor(repository, report_date, before=True) if report_date else None
-    nav_state = await _report_nav_state(repository, report_date) if report_date else None
+    if report_date:
+        (
+            matched_news,
+            previous_cash,
+            previous_ona,
+            current_cost,
+            previous_cost,
+            nav_state,
+        ) = await asyncio.gather(
+            _news_for_message(repository, message_id),
+            _previous_cash_anchor(repository, report_date),
+            _previous_ona_anchor(repository, report_date),
+            _latest_cost_anchor(repository, report_date, before=False),
+            _latest_cost_anchor(repository, report_date, before=True),
+            _report_nav_state(repository, report_date),
+        )
+    else:
+        matched_news = await _news_for_message(repository, message_id)
+        previous_cash = None
+        previous_ona = None
+        current_cost = None
+        previous_cost = None
+        nav_state = None
+    news = matched_news or latest_news
 
     current_cost_meta = _metadata(current_cost.get("metadata_json")) if current_cost else {}
     previous_cost_meta = _metadata(previous_cost.get("metadata_json")) if previous_cost else {}
