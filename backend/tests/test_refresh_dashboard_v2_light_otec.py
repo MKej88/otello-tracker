@@ -102,3 +102,59 @@ def test_source_failure_is_recorded_while_core_refresh_continues(
     assert result["source_errors"] == [
         {"step": "otec_delayed", "error": "kilden svarer ikke"}
     ]
+
+
+def test_buyback_program_failure_is_recorded_without_losing_core_result(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "program-terms-failure.db")
+
+    class FixedDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = cls(2026, 8, 17, 10, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
+
+    monkeypatch.setattr(wrapper, "datetime", FixedDateTime)
+    monkeypatch.setattr(
+        wrapper,
+        "market_activity_status",
+        lambda *_args, **_kwargs: {
+            "status": "ok",
+            "count": 600,
+            "to": "2026-08-14",
+        },
+    )
+    monkeypatch.setattr(wrapper, "activity_check_done", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        wrapper,
+        "run_core_refresh",
+        lambda *_args, **_kwargs: {
+            "status": "ok",
+            "steps": {"core": {"status": "ok"}},
+            "source_errors": [],
+        },
+    )
+
+    def failed_program_terms(*_args, **_kwargs):
+        raise RuntimeError("programvilkår er utilgjengelige")
+
+    monkeypatch.setattr(wrapper, "sync_current_program_terms", failed_program_terms)
+
+    result = wrapper.run_refresh(
+        database,
+        target_date="2026-08-17",
+        fetch_otec_delayed=False,
+        fetch_b3=False,
+        fetch_buybacks=True,
+    )
+
+    assert result["status"] == "degraded"
+    assert result["steps"]["core"] == {"status": "ok"}
+    assert result["steps"]["buyback_program_terms"] is None
+    assert result["source_errors"] == [
+        {
+            "step": "buyback_program_terms",
+            "error": "programvilkår er utilgjengelige",
+        }
+    ]
