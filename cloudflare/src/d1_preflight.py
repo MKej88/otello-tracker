@@ -111,34 +111,33 @@ async def _fx_coverage(repository, base: str) -> dict[str, Any]:
 async def _cash_anchor_fx_gaps(repository) -> list[dict[str, Any]]:
     anchors = await repository.all(
         """
-        SELECT as_of_date, reported_currency
-        FROM cash_anchors
-        WHERE anchor_type='REPORTED' AND reported_currency <> 'NOK'
-        ORDER BY as_of_date
-        """
+        SELECT ca.as_of_date, ca.reported_currency
+        FROM cash_anchors ca
+        WHERE ca.anchor_type='REPORTED'
+          AND ca.reported_currency <> 'NOK'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM fx_rates fx
+              WHERE fx.base_currency=ca.reported_currency
+                AND fx.quote_currency='NOK'
+                AND substr(fx.observed_at,1,10)
+                    BETWEEN date(ca.as_of_date, ?) AND ca.as_of_date
+          )
+        ORDER BY ca.as_of_date
+        """,
+        (f"-{CASH_FX_LOOKBACK_DAYS} days",),
     )
     gaps: list[dict[str, Any]] = []
     for anchor in anchors:
         anchor_day = date.fromisoformat(str(anchor["as_of_date"]))
         floor = (anchor_day - timedelta(days=CASH_FX_LOOKBACK_DAYS)).isoformat()
-        fx = await repository.first(
-            """
-            SELECT substr(observed_at,1,10) AS rate_date
-            FROM fx_rates
-            WHERE base_currency=? AND quote_currency='NOK'
-              AND substr(observed_at,1,10) BETWEEN ? AND ?
-            ORDER BY observed_at DESC LIMIT 1
-            """,
-            (anchor["reported_currency"], floor, anchor["as_of_date"]),
+        gaps.append(
+            {
+                "anchor_date": anchor["as_of_date"],
+                "currency": anchor["reported_currency"],
+                "required_window": [floor, anchor["as_of_date"]],
+            }
         )
-        if fx is None:
-            gaps.append(
-                {
-                    "anchor_date": anchor["as_of_date"],
-                    "currency": anchor["reported_currency"],
-                    "required_window": [floor, anchor["as_of_date"]],
-                }
-            )
     return gaps
 
 
