@@ -152,6 +152,64 @@ def test_acquire_replaces_expired_lock_and_closes_only_older_writer_jobs() -> No
     assert running_jobs[1]["finished_at"] is None
 
 
+def test_acquire_recovers_unexpired_lock_with_stale_heartbeat() -> None:
+    running_jobs = [
+        {
+            "job_name": FAST_REFRESH_JOB_NAME,
+            "status": "RUNNING",
+            "started_at": "2026-09-10T11:00:00Z",
+            "finished_at": None,
+            "error_message": None,
+        }
+    ]
+    repository = LockRepository(
+        "fast:abandoned|2026-09-10T15:00:00Z",
+        updated_at="2026-09-10T11:29:59Z",
+        running_jobs=running_jobs,
+    )
+
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="full:replacement",
+            ttl_seconds=600,
+            now=datetime(2026, 9, 10, 12, 0, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["token"] == "full:replacement|2026-09-10T12:10:00Z"
+    assert running_jobs[0]["status"] == "FAILED"
+    assert running_jobs[0]["finished_at"] == "2026-09-10T12:00:00Z"
+    assert running_jobs[0]["error_message"] == ORPHANED_REFRESH_REASON
+
+
+def test_acquired_lock_survives_orphan_reconciliation_failure() -> None:
+    class FailingReconciliationRepository(LockRepository):
+        async def run(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            if "UPDATE job_runs" in sql:
+                raise RuntimeError("job_runs is temporarily unavailable")
+            await super().run(sql, parameters)
+
+    repository = FailingReconciliationRepository(None)
+
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:new",
+            ttl_seconds=600,
+            now=datetime(2026, 9, 10, 12, 0, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["token"] == "fast:new|2026-09-10T12:10:00Z"
+    assert result["orphan_reconciliation_error"] == (
+        "RuntimeError: job_runs is temporarily unavailable"
+    )
+    assert repository.value == result["token"]
+
+
 def test_renew_does_not_overwrite_a_lock_taken_over_by_another_writer() -> None:
     stale_token = "fast:old|2026-09-10T12:00:00Z"
     current_token = "full:new|2026-09-10T13:00:00Z"
