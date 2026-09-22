@@ -30,8 +30,12 @@ from app.marketdata.otec_feed import (
 )
 
 
-def _record_error(result: dict[str, Any], step: str, exc: Exception) -> None:
-    result.setdefault("source_errors", []).append({"step": step, "error": str(exc)})
+def _merge_errors(
+    result: dict[str, Any], errors: list[dict[str, str]]
+) -> None:
+    if not errors:
+        return
+    result.setdefault("source_errors", []).extend(errors)
     if result.get("status") == "ok":
         result["status"] = "degraded"
 
@@ -174,20 +178,19 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
 
     result = run_core_refresh(database_path, **core_kwargs)
     result.setdefault("steps", {}).update(pre_steps)
-    if pre_errors:
-        result.setdefault("source_errors", []).extend(pre_errors)
-        if result.get("status") == "ok":
-            result["status"] = "degraded"
+    _merge_errors(result, pre_errors)
 
     if kwargs.get("fetch_buybacks", True):
-        try:
-            result["steps"]["buyback_program_terms"] = sync_current_program_terms(
+        program_term_errors: list[dict[str, str]] = []
+        result["steps"]["buyback_program_terms"] = _safe_step(
+            "buyback_program_terms",
+            lambda: sync_current_program_terms(
                 database_path,
                 to_date=target_day.isoformat(),
-            )
-        except Exception as exc:
-            _record_error(result, "buyback_program_terms", exc)
-            result["steps"]["buyback_program_terms"] = None
+            ),
+            program_term_errors,
+        )
+        _merge_errors(result, program_term_errors)
     else:
         result["steps"]["buyback_program_terms"] = {"skipped": True}
 
