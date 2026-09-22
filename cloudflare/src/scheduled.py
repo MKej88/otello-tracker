@@ -140,6 +140,21 @@ async def _safe_async_step(
     try:
         result = await fn()
         steps[name] = result
+        if isinstance(result, dict) and str(result.get("status") or "").lower() in {
+            "error",
+            "failed",
+        }:
+            errors.append(
+                {
+                    "step": name,
+                    "error": str(
+                        result.get("error")
+                        or result.get("reason")
+                        or f"{name} returnerte status {result.get('status')}"
+                    )[:1000],
+                    "error_type": str(result.get("error_type") or "StepResultError"),
+                }
+            )
         return result
     except Exception as exc:
         error = {
