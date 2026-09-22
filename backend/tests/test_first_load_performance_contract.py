@@ -156,6 +156,9 @@ def test_html_preloads_first_screen_data_for_direct_routes() -> None:
     assert '["/api/dashboard/economic", "high"]' in source
     assert '"#bemobi": [' in source
     assert '["/api/bemobi/dashboard", "high"]' in source
+    assert '"#brl-nok": [' in source
+    assert '["/api/fx/dashboard", "high"]' in source
+    assert '["/api/dashboard/summary", "low"]' in source
     assert '"#nyheter": [["/api/news-events", "high"]]' in source
     assert 'link.rel = "preload"' in source
     assert 'link.as = "fetch"' in source
