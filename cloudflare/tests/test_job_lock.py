@@ -108,6 +108,27 @@ def test_acquire_does_not_replace_an_active_lock_from_another_writer() -> None:
     assert repository.value == "full:existing|2026-09-10T13:00:00Z"
 
 
+def test_acquire_retry_by_same_owner_refreshes_its_active_lock() -> None:
+    repository = LockRepository(
+        "full:workflow-instance|2026-09-10T13:00:00Z",
+        updated_at="2026-09-10T11:59:00Z",
+    )
+
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="full:workflow-instance",
+            ttl_seconds=600,
+            now=datetime(2026, 9, 10, 12, 5, tzinfo=UTC),
+        )
+    )
+
+    assert result["acquired"] is True
+    assert result["token"] == "full:workflow-instance|2026-09-10T12:15:00Z"
+    assert result["held_by"] == "full:workflow-instance"
+    assert repository.value == result["token"]
+
+
 def test_acquire_replaces_expired_lock_and_closes_only_older_writer_jobs() -> None:
     running_jobs = [
         {
