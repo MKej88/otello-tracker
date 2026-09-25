@@ -119,16 +119,7 @@ type Dashboard = {
   };
 };
 
-type BemobiDashboard = {
-  ready?: boolean;
-  otello?: {
-    shares?: number | null;
-    ownership_pct?: number | null;
-  };
-};
-
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
-const BEMOBI_REFRESH_MS = 30 * 60 * 1000;
 const integer = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 0 });
 
 function value(input: number | string | null | undefined, digits = 1) {
@@ -254,7 +245,6 @@ function forecastPeriodLabel(week?: ForecastWeek) {
 export default function BuybackPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [failed, setFailed] = useState(false);
-  const [bemobi, setBemobi] = useState<BemobiDashboard | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -272,25 +262,6 @@ export default function BuybackPage() {
     };
     load();
     const timer = window.setInterval(load, AUTO_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      fetchPreloadedJson<BemobiDashboard>("/api/bemobi/dashboard")
-        .then((result) => {
-          if (active) setBemobi(result);
-        })
-        .catch(() => {
-          // Bemobi-eksponering er et supplement og skal aldri blokkere buyback-siden.
-        });
-    };
-    load();
-    const timer = window.setInterval(load, BEMOBI_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -322,13 +293,6 @@ export default function BuybackPage() {
     ?? finiteNumber(latest?.cumulative_program_amount_nok);
   const programVwap = finiteNumber(program?.vwap_nok)
     ?? finiteNumber(program?.average_purchase_price_nok);
-  const bemobiShares = bemobi?.ready === false ? null : bemobi?.otello?.shares;
-  const bemobiPerThousandOtec = bemobiShares != null
-    && Number.isFinite(bemobiShares)
-    && shares?.outstanding_shares != null
-    && shares.outstanding_shares > 0
-      ? bemobiShares / shares.outstanding_shares * 1000
-      : null;
   const navEffect = data?.nav_effect?.per_share_nok;
   const navEffectPct = data?.nav_effect?.pct;
   const grossShareEffect = program?.share_count_nav_effect_per_share_nok;
