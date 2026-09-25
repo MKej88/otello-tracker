@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import brazil_dashboard as brazil_base
 from brazil_focus_resilience import apply_cached_event_expectations
+from bemobi_agenda import agenda_events, merge_agenda_events
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
 
@@ -204,7 +205,9 @@ async def _company_events(repository: Any, *, today: date) -> list[dict[str, Any
                 )
             )
 
-    events.sort(key=lambda item: (str(item["date"]), str(item["id"])))
+    events = merge_agenda_events(
+        events, await agenda_events(repository, as_of_date=today_iso)
+    )
     return events[:40]
 
 

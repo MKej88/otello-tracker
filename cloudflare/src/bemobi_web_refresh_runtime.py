@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable
 from bemobi_cvm_post_result import refresh_cvm_financials_after_new_result
 from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
 from bemobi_ir_refresh import sync_bemobi_ir
+from bemobi_agenda import refresh_agenda
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
     BEMOBI_OWNERSHIP_URL,
@@ -296,6 +297,7 @@ async def refresh_bemobi_web(
             }
         )
 
+    agenda = await refresh_agenda(repository, target_date=target_date, fetcher=fetcher)
     result_release_degraded = result.get("status") == "not_available"
     distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
     non_blocking_degraded = (
@@ -307,6 +309,7 @@ async def refresh_bemobi_web(
         + int(post_result_cvm.get("rows_written") or 0)
         + int(distribution_cash.get("rows_written") or 0)
         + int(distribution_cash.get("rows_updated") or 0)
+        + int(agenda.get("rows_written") or 0)
     )
     return {
         "status": "partial"
@@ -314,6 +317,7 @@ async def refresh_bemobi_web(
         else "ok",
         "rows_written": rows_written,
         "ir": ir,
+        "agenda": agenda,
         "distribution_cash": distribution_cash,
         "result_release": result,
         "post_result_cvm_financials": post_result_cvm,
