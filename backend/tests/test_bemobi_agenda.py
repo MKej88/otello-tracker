@@ -62,6 +62,15 @@ def test_bootstrap_is_not_visible_before_observation():
     assert asyncio.run(agenda_events(Repository(), as_of_date="2026-09-24")) == []
 
 
+def test_agenda_cache_read_failure_is_not_hidden_by_bootstrap():
+    class FailingRepository(Repository):
+        async def first(self, sql, params=()):
+            raise RuntimeError("D1 unavailable")
+
+    with pytest.raises(RuntimeError, match="D1 unavailable"):
+        asyncio.run(agenda_events(FailingRepository(), as_of_date="2026-09-25"))
+
+
 def test_refresh_replaces_rescheduled_events_and_can_clear_cancelled_events():
     repo = Repository()
     class Response:

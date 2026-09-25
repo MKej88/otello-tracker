@@ -110,13 +110,10 @@ async def refresh_agenda(repository, *, target_date: str, fetcher=None) -> dict[
 
 async def agenda_events(repository, *, as_of_date: str) -> list[dict[str, Any]]:
     events = parse_agenda(BOOTSTRAP_ROWS) if as_of_date >= BOOTSTRAP_DATE else []
-    try:
-        row = await repository.first("SELECT value FROM runtime_state WHERE key=?", (STATE_KEY,))
-        cached = json.loads(str(row.get("value") or "{}")) if row else {}
-        if isinstance(cached.get("events"), list) and str(cached.get("observed_date") or "9999") <= as_of_date:
-            events = cached["events"]
-    except Exception:
-        pass
+    row = await repository.first("SELECT value FROM runtime_state WHERE key=?", (STATE_KEY,))
+    cached = json.loads(str(row.get("value") or "{}")) if row else {}
+    if isinstance(cached.get("events"), list) and str(cached.get("observed_date") or "9999") <= as_of_date:
+        events = cached["events"]
     return [event for event in events if event["date"] >= as_of_date]
 
 
