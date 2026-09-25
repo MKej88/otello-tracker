@@ -193,6 +193,45 @@ def _normalize_latest_numeric_fields(payload: dict[str, Any] | None) -> None:
         payload["avg_price_nok"] = round(float(average_price), 13)
 
 
+def _resolve_share_count(share_count, latest: dict[str, Any] | None):
+    """Combine the reported share count with a newer buyback balance."""
+    if share_count is None and latest is None:
+        return None
+
+    total = int(share_count["total_shares"]) if share_count is not None else None
+    reported_treasury = (
+        int(share_count["treasury_shares"]) if share_count is not None else None
+    )
+    latest_treasury = (
+        int(latest["treasury_shares_after"])
+        if latest is not None and latest.get("treasury_shares_after") is not None
+        else None
+    )
+    use_latest = latest_treasury is not None and (
+        share_count is None
+        or str(latest.get("trade_date") or "") >= str(share_count["effective_from"])
+    )
+    treasury = latest_treasury if use_latest else reported_treasury
+    outstanding = (
+        total - treasury
+        if total is not None and treasury is not None
+        else (
+            int(share_count["outstanding_shares"]) if share_count is not None else None
+        )
+    )
+    return {
+        "total_shares": total,
+        "treasury_shares": treasury,
+        "outstanding_shares": outstanding,
+        "effective_from": (
+            latest.get("trade_date")
+            if use_latest and latest
+            else (share_count["effective_from"] if share_count is not None else None)
+        ),
+        "treasury_source": "LATEST_BUYBACK" if use_latest else "SHARE_COUNT",
+    }
+
+
 def _nav_effect(nav_snapshot, latest, shares) -> dict[str, float | None]:
     if nav_snapshot is None or latest is None or shares is None:
         return {"per_share_nok": None, "pct": None}
@@ -306,46 +345,7 @@ def buyback_dashboard(
     if latest_payload is not None:
         latest_payload.update(latest_metrics)
 
-    shares = None
-    if share_count is not None or latest_payload is not None:
-        total = int(share_count["total_shares"]) if share_count is not None else None
-        reported_treasury = (
-            int(share_count["treasury_shares"]) if share_count is not None else None
-        )
-        latest_treasury = (
-            int(latest_payload["treasury_shares_after"])
-            if latest_payload is not None
-            and latest_payload.get("treasury_shares_after") is not None
-            else None
-        )
-        use_latest = latest_treasury is not None and (
-            share_count is None
-            or str(latest_payload.get("trade_date") or "")
-            >= str(share_count["effective_from"])
-        )
-        treasury = latest_treasury if use_latest else reported_treasury
-        outstanding = (
-            total - treasury
-            if total is not None and treasury is not None
-            else (
-                int(share_count["outstanding_shares"])
-                if share_count is not None
-                else None
-            )
-        )
-        shares = {
-            "total_shares": total,
-            "treasury_shares": treasury,
-            "outstanding_shares": outstanding,
-            "effective_from": (
-                latest_payload.get("trade_date")
-                if use_latest and latest_payload
-                else (
-                    share_count["effective_from"] if share_count is not None else None
-                )
-            ),
-            "treasury_source": "LATEST_BUYBACK" if use_latest else "SHARE_COUNT",
-        }
+    shares = _resolve_share_count(share_count, latest_payload)
 
     program = forecast.get("program") or (latest_payload or {})
     max_shares = int(program.get("max_shares") or 0)
