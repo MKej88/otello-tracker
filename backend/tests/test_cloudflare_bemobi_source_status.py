@@ -79,7 +79,8 @@ def test_operational_sources_are_loaded_in_one_query() -> None:
 
 class _SourceStatusRepository:
     def __init__(self) -> None:
-        self.fact_parameters: list[tuple[str, ...]] = []
+        self.queries = 0
+        self.fact_parameters: tuple[str | None, ...] = ()
 
     async def first(
         self,
@@ -87,11 +88,16 @@ class _SourceStatusRepository:
         parameters: tuple[str, ...] = (),
     ) -> dict | None:
         if "FROM source_health" in sql:
+            self.queries += 1
             return None
-        self.fact_parameters.append(parameters)
-        return None
+        raise AssertionError(f"Uventet first-spørring: {sql}")
 
-    async def all(self, sql: str, parameters: tuple[str, ...]) -> list[dict]:
+    async def all(self, sql: str, parameters: tuple[str | None, ...]) -> list[dict]:
+        self.queries += 1
+        if "WITH source_definitions" in sql:
+            self.fact_parameters = parameters
+            return []
+        assert "WHERE s.code IN" in sql
         return []
 
 
@@ -119,9 +125,11 @@ def test_investor_sources_keep_definition_order_queries_and_labels() -> None:
         "Offentlige meglerhus",
         "XP",
     ]
-    assert repository.fact_parameters == [
-        ("OWNERSHIP", "ANALYST"),
-        ("RESULT",),
-        ("FORWARD_CONSENSUS",),
-        ("NEXT_QUARTER", "XP"),
-    ]
+    assert repository.queries == 3
+    assert repository.fact_parameters == (
+        "ir", "OWNERSHIP", None,
+        "ir", "ANALYST", None,
+        "result_release", "RESULT", None,
+        "consensus", "FORWARD_CONSENSUS", None,
+        "xp_preview", "NEXT_QUARTER", "XP",
+    )
