@@ -136,24 +136,39 @@ def _result_release_status(
     return status, detail, uses_last_good
 
 
-async def _latest_fact(repository, fact_types: tuple[str, ...], *, source_name: str | None = None) -> dict[str, Any] | None:
-    placeholders = ",".join("?" for _ in fact_types)
-    parameters: list[Any] = list(fact_types)
-    source_clause = ""
-    if source_name is not None:
-        source_clause = " AND source_name = ?"
-        parameters.append(source_name)
-    return await repository.first(
+async def _latest_facts(repository) -> dict[str, dict[str, Any]]:
+    """Load the latest fact for every investor source in one D1 round trip."""
+    definition_rows = [
+        (source.key, fact_type, source.source_name)
+        for source in _SOURCE_DEFINITIONS
+        for fact_type in source.fact_types
+    ]
+    placeholders = ",".join("(?, ?, ?)" for _ in definition_rows)
+    parameters = tuple(value for row in definition_rows for value in row)
+    rows = await repository.all(
         f"""
-        SELECT fact_type, fact_key, as_of_date, published_date, source_name, source_url,
-               quality, updated_at
-        FROM bemobi_investor_facts
-        WHERE fact_type IN ({placeholders}){source_clause}
-        ORDER BY updated_at DESC, id DESC
-        LIMIT 1
+        WITH source_definitions(source_key, fact_type, source_name) AS (
+            VALUES {placeholders}
+        ), ranked AS (
+            SELECT d.source_key, f.fact_type, f.fact_key, f.as_of_date,
+                   f.published_date, f.source_name, f.source_url, f.quality,
+                   f.updated_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY d.source_key
+                       ORDER BY f.updated_at DESC, f.id DESC
+                   ) AS row_number
+            FROM source_definitions d
+            JOIN bemobi_investor_facts f ON f.fact_type = d.fact_type
+             AND (d.source_name IS NULL OR f.source_name = d.source_name)
+        )
+        SELECT source_key, fact_type, fact_key, as_of_date, published_date,
+               source_name, source_url, quality, updated_at
+        FROM ranked
+        WHERE row_number = 1
         """,
-        tuple(parameters),
+        parameters,
     )
+    return {str(row["source_key"]): row for row in rows}
 
 
 def _operational_display_status(
@@ -241,12 +256,11 @@ async def bemobi_source_status(repository) -> dict[str, Any]:
             metadata = {}
 
     items = await _operational_source_items(repository)
+    latest_facts = await _latest_facts(repository)
     for source in _SOURCE_DEFINITIONS:
         result = _sub_result(metadata, source.key)
         status, detail, uses_last_good = _display_status(source.key, result)
-        fact = await _latest_fact(
-            repository, source.fact_types, source_name=source.source_name
-        )
+        fact = latest_facts.get(source.key)
         if source.key == "result_release":
             status, detail, uses_last_good = _result_release_status(
                 result,
