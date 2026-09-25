@@ -274,8 +274,10 @@ async def refresh_otec_daily_activity(
                 "target_date": target,
             })
 
+    completed = all(item.get("status") in {"ok", "skipped"} for item in attempts)
+    status = "ok" if completed else ("partial" if written else "no_trade")
     return {
-        "status": "ok" if written or all(item.get("status") == "skipped" for item in attempts) else "no_trade",
+        "status": status,
         "written": written,
         "attempts": attempts,
         "as_of": local.isoformat(),
