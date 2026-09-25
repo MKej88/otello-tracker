@@ -30,14 +30,27 @@ from app.marketdata.otec_feed import (
 )
 
 
-def _merge_errors(
-    result: dict[str, Any], errors: list[dict[str, str]]
-) -> None:
+def _merge_errors(result: dict[str, Any], errors: list[dict[str, str]]) -> None:
     if not errors:
         return
     result.setdefault("source_errors", []).extend(errors)
     if result.get("status") == "ok":
         result["status"] = "degraded"
+
+
+def _record_failed_result(
+    step: str,
+    result: Any,
+    errors: list[dict[str, str]],
+) -> None:
+    """Propagate explicit provider failures that were returned instead of raised."""
+    if not isinstance(result, dict):
+        return
+    status = str(result.get("status") or "").lower()
+    if status not in {"error", "failed", "stale"}:
+        return
+    reason = result.get("reason") or result.get("error") or f"status={status}"
+    errors.append({"step": step, "error": str(reason)})
 
 
 def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
@@ -82,6 +95,7 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
             lambda: refresh_otec_intraday_price(database_path),
             pre_errors,
         )
+        _record_failed_result("otec_delayed", pre_steps["otec_delayed"], pre_errors)
     elif requested_live_otec:
         pre_steps["otec_delayed"] = {
             "skipped": True,
@@ -99,6 +113,11 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
             ),
             pre_errors,
         )
+        _record_failed_result(
+            "bmob3_official_close",
+            pre_steps["bmob3_official_close"],
+            pre_errors,
+        )
 
         def refresh_bmob3_delayed() -> Any:
             bmob3_eod = maybe_finalize_bmob3_eod(database_path)
@@ -113,6 +132,8 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["bmob3_delayed"] = _safe_step(
             "bmob3_delayed", refresh_bmob3_delayed, pre_errors
         )
+        _record_failed_result("bmob3_eod", pre_steps.get("bmob3_eod"), pre_errors)
+        _record_failed_result("bmob3_delayed", pre_steps["bmob3_delayed"], pre_errors)
     elif requested_b3:
         pre_steps["bmob3_official_close"] = {
             "skipped": True,
