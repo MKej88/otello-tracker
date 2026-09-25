@@ -66,13 +66,22 @@ def _focus_meta(
         return None
     current_year = date.fromisoformat(as_of_date).year
     age_days = (date.fromisoformat(as_of_date) - date.fromisoformat(ref_date)).days
+    dates = [
+        str(point.get("survey_date") or "")[:10]
+        for by_year in values.values() for year, point in by_year.items()
+        if str(year) in {str(current_year), str(current_year + 1)}
+        and isinstance(point, dict) and point.get("survey_date")
+    ]
+    oldest = min(dates) if dates else ref_date
     result: dict[str, Any] = {
         "ref_date": ref_date,
         "current_year": current_year,
         "next_year": current_year + 1,
         "latest_available_ref_date": ref_date,
         "age_days": age_days,
-        "stale": age_days > FOCUS_STALE_AFTER_DAYS,
+        "oldest_ref_date": oldest,
+        "mixed_dates": len(set(dates)) > 1,
+        "stale": (date.fromisoformat(as_of_date) - date.fromisoformat(oldest)).days > FOCUS_STALE_AFTER_DAYS,
     }
     if publication_date is not None:
         result["publication_date"] = publication_date
@@ -98,7 +107,7 @@ def _merge_missing_annual_values(
     *,
     as_of_date: str,
 ) -> dict[str, Any]:
-    """Fill gaps in a live response without replacing any live point."""
+    """Merge per point without regressing to an older survey."""
     merged: dict[str, Any] = {}
     if isinstance(cached_values, dict):
         for indicator, by_year in cached_values.items():
@@ -122,8 +131,11 @@ def _merge_missing_annual_values(
             continue
         target = merged.setdefault(str(indicator), {})
         for year, point in by_year.items():
-            # Live data is authoritative, including any extra metadata attached
-            # to a point, so cached completion can never overwrite it.
+            previous = target.get(str(year))
+            if isinstance(previous, dict) and isinstance(point, dict) and (
+                str(previous.get("survey_date") or "") > str(point.get("survey_date") or "")
+            ):
+                continue
             target[str(year)] = dict(point) if isinstance(point, dict) else point
     return merged
 
@@ -307,12 +319,12 @@ async def resolve_annual_focus(
             as_of_date=as_of_date,
         )
         result["focus_meta"] = _focus_meta(result["values"], as_of_date=as_of_date)
-        result["fallback"] = False
-        result["data_source"] = "BCB_OLINDA_LIVE"
+        result["fallback"] = bool(live_focus.get("fallback"))
+        result["data_source"] = live_focus.get("data_source") or "BCB_OLINDA_LIVE"
         status = {
             "ready": True,
-            "fallback": False,
-            "fallback_source": None,
+            "fallback": result["fallback"],
+            "fallback_source": result["data_source"] if result["fallback"] else None,
             "survey_date": survey_date,
             "age_days": (result.get("focus_meta") or {}).get("age_days"),
         }

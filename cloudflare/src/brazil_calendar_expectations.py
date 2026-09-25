@@ -140,7 +140,8 @@ async def _fetch_endpoint(
         "$orderby": "Data desc",
         "$filter": " and ".join(filters),
     }
-    url = f"{FOCUS_BASE}/{endpoint}?{urllib.parse.urlencode(params)}"
+    query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+    url = f"{FOCUS_BASE}/{endpoint}?{query}"
     rows: list[dict[str, Any]] = []
     visited: set[str] = set()
     base = urllib.parse.urlsplit(FOCUS_BASE)

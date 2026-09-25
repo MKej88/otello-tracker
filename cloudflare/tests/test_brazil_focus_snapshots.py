@@ -206,6 +206,8 @@ def test_focus_request_only_fetches_the_two_relevant_years() -> None:
     assert result["focus_meta"]["ref_date"] == "2026-09-04"
     assert len(requested_urls) == 4
     for requested_url in requested_urls:
+        assert "+" not in requested_url  # Olinda does not decode form spaces.
+        assert "%20" in requested_url
         query = parse_qs(urlparse(requested_url).query)
         assert "DataReferencia eq '2026'" in query["$filter"][0]
         assert "DataReferencia eq '2027'" in query["$filter"][0]

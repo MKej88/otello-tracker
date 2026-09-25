@@ -339,7 +339,7 @@ function FocusTable({ focus, year }: { focus?: FocusValues; year: number }) {
                 <td><strong>{FOCUS_ROW_LABELS[row.key]}</strong></td>
                 <td>{number(current?.median, 2)} {row.unit}</td>
                 <td>{number(next?.median, 2)} {row.unit}</td>
-                <td>{dateLabel(current?.survey_date ?? next?.survey_date)}</td>
+                <td>{dateLabel(current?.survey_date ?? next?.survey_date)}{current?.survey_date && next?.survey_date && current.survey_date !== next.survey_date ? ` / ${dateLabel(next.survey_date)}` : ""}</td>
               </tr>
             );
           })}
@@ -547,9 +547,9 @@ export default function BrazilPage() {
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
             {currentFocusDate ? <p><small>Focus {dateLabel(currentFocusDate)}</small></p> : null}
-            {data.focus?.focus_meta?.stale ? <p className="sourceWarn"><small>Obs: Tallene er eldre enn tre uker{data.focus.fallback ? " fordi nye Focus-tall ikke kunne hentes fra sentralbanken. Siste lagrede reservekopi vises." : "."}</small></p> : null}
+            {data.focus?.focus_meta?.stale ? <p className="sourceWarn"><small>Obs: Ett eller flere tall er eldre enn tre uker. Se måledato for hver indikator.</small></p> : null}
             <FocusTable focus={data.focus?.values} year={currentYear} />
-            <p><small>Kilde: Banco Central do Brasil – Focus-undersøkelsen.</small></p>
+            <p><small>Kilde: {data.focus?.source_url ? <a href={data.focus.source_url} target="_blank" rel="noreferrer">Banco Central do Brasil – Focus-undersøkelsen</a> : "Banco Central do Brasil – Focus-undersøkelsen"}.</small></p>
           </div>
         </details>
 

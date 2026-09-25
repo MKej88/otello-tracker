@@ -378,7 +378,9 @@ async def _load_focus(
                 f"and Data le '{as_of_date}'"
             ),
         }
-        url = FOCUS_URL + "?" + urllib.parse.urlencode(params)
+        # Olinda interprets '+' literally in OData expressions (HTTP 400).
+        # Encode spaces as %20 rather than form-urlencoded '+'.
+        url = FOCUS_URL + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
         for attempt in range(3):
             try:
                 response_payload = await _fetch_json(url, fetcher=fetcher)
@@ -399,8 +401,18 @@ async def _load_focus(
                 await asyncio.sleep(0.25 * (2**attempt))
         return []  # pragma: no cover - loop always returns or raises
 
-    batches = await asyncio.gather(*(load_indicator(item) for item in indicators))
-    payload = {"value": [row for batch in batches for row in batch]}
+    batches = await asyncio.gather(
+        *(load_indicator(item) for item in indicators), return_exceptions=True
+    )
+    errors = {
+        indicator: f"{type(batch).__name__}: {batch}"
+        for indicator, batch in zip(indicators, batches)
+        if isinstance(batch, Exception)
+    }
+    successful = [batch for batch in batches if isinstance(batch, list)]
+    if not successful:
+        raise next(batch for batch in batches if isinstance(batch, Exception))
+    payload = {"value": [row for batch in successful for row in batch]}
     try:
         snapshot = parse_focus_snapshot(
             payload, as_of_date=as_of_date, current_year=current_year
@@ -412,6 +424,8 @@ async def _load_focus(
         return {
             "ready": bool(values),
             "values": values,
+            "partial": True,
+            "indicator_errors": errors,
             "source": "Banco Central do Brasil / Focus",
             "source_url": BCB_FOCUS_URL,
             "note": "Focus er årsforventninger, ikke konsensus for den enkelte publisering.",
@@ -420,6 +434,7 @@ async def _load_focus(
     return {
         "ready": bool(values),
         "values": values,
+        "indicator_errors": errors,
         "focus_meta": {key: value for key, value in snapshot.items() if key != "values"},
         "source": "Banco Central do Brasil / Focus",
         "source_url": BCB_FOCUS_URL,
@@ -753,7 +768,7 @@ async def brazil_dashboard(
 
     try:
         focus_result = await _load_focus(
-            target_date, require_complete=True, fetcher=fetcher
+            target_date, fetcher=fetcher
         )
         focus = focus_result.get("values") or {}
         source_status["focus"] = {
@@ -761,6 +776,7 @@ async def brazil_dashboard(
             "source": focus_result.get("source"),
             "survey_date": (focus_result.get("focus_meta") or {}).get("ref_date"),
             "age_days": (focus_result.get("focus_meta") or {}).get("age_days"),
+            "indicator_errors": focus_result.get("indicator_errors", {}),
         }
     except Exception as exc:
         focus_result = {
