@@ -298,6 +298,15 @@ async def refresh_bemobi_web(
         )
 
     agenda = await refresh_agenda(repository, target_date=target_date, fetcher=fetcher)
+    if agenda.get("status") != "ok":
+        best_effort_warnings.append(
+            {
+                "source": "agenda",
+                "status": str(agenda.get("status") or "unknown"),
+                "reason": agenda.get("reason"),
+                "error": agenda.get("error"),
+            }
+        )
     result_release_degraded = result.get("status") == "not_available"
     distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
     non_blocking_degraded = (
