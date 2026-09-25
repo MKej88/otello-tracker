@@ -11,6 +11,7 @@ from brazil_focus_resilience import (
     resolve_annual_focus,
 )
 from brazil_investing_consensus import enrich_calendar_from_investing
+from brazil_focus_report import supplement_focus
 from brazil_investor_insights import build_focus_trend, build_investor_summary
 
 # Bruk sesongjustert IBC-Br tjenester når vi viser måned-til-måned-endring.
@@ -217,12 +218,17 @@ async def brazil_dashboard(
     try:
         source_status = result.setdefault("source_status", {})
         live_status = source_status.get("focus") if isinstance(source_status.get("focus"), dict) else {}
+        supplemented = await supplement_focus(
+            repository, result.get("focus"), as_of_date=target_date, fetcher=fetcher
+        )
         focus, resilience_status = await resolve_annual_focus(
             repository,
-            result.get("focus"),
+            supplemented,
             as_of_date=target_date,
         )
         resilience_status["live_ready"] = bool(live_status.get("ready"))
+        resilience_status["indicator_errors"] = live_status.get("indicator_errors", {})
+        resilience_status["report_errors"] = supplemented.get("report_errors", [])
         if live_status.get("error"):
             resilience_status["live_error"] = live_status.get("error")
         for diagnostic_key in ("error_kind", "http_status", "response_excerpt"):

@@ -101,6 +101,8 @@ def test_focus_endpoint_follows_odata_pagination() -> None:
     )
 
     assert calls[1] == second_url
+    assert "+" not in calls[0]
+    assert "%20" in calls[0]
     assert [row["Indicador"] for row in rows] == ["Selic", "IPCA"]
 
 
