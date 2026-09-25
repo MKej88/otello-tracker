@@ -51,6 +51,45 @@ def test_scheduled_secondary_skip_is_not_a_source_failure() -> None:
     }
 
 
+def test_agenda_failure_is_exposed_as_best_effort_degradation(monkeypatch) -> None:
+    async def ok_ir(*args, **kwargs):
+        return {"status": "ok", "rows_written": 0}
+
+    async def no_xp(*args, **kwargs):
+        return {"status": "skipped", "rows_written": 0}
+
+    async def failed_agenda(*args, **kwargs):
+        return {
+            "status": "not_available",
+            "error": "RuntimeError: upstream unavailable",
+            "rows_written": 0,
+            "last_good_preserved": True,
+        }
+
+    monkeypatch.setattr(runtime, "sync_bemobi_ir", ok_ir)
+    monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
+    monkeypatch.setattr(
+        runtime, "sync_confirmed_bemobi_distribution_cash", _no_distribution_cash
+    )
+    monkeypatch.setattr(runtime, "refresh_agenda", failed_agenda)
+    monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")
+
+    result = asyncio.run(
+        runtime.refresh_bemobi_web(object(), target_date="2026-09-25")
+    )
+
+    assert result["status"] == "ok"
+    assert result["best_effort_status"] == "degraded"
+    assert result["best_effort_warnings"] == [
+        {
+            "source": "agenda",
+            "status": "not_available",
+            "reason": None,
+            "error": "RuntimeError: upstream unavailable",
+        }
+    ]
+
+
 def test_broker_models_are_source_specific_and_not_scraped_nightly(monkeypatch) -> None:
     async def ok_ir(*args, **kwargs):
         return {"status": "ok", "rows_written": 5}
