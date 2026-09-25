@@ -78,6 +78,51 @@ class ScheduledOtecActivityStatusTest(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_all_primary_sources_failing_marks_job_failed(self) -> None:
+        """Monitoring must distinguish a total source outage from a partial run."""
+        repository = _Repository()
+        successful_step = AsyncMock(return_value={"status": "ok"})
+        failing_step = AsyncMock(side_effect=TimeoutError("provider timed out"))
+        patches = (
+            patch.object(
+                scheduled, "PerformanceD1WriteRepository", return_value=repository
+            ),
+            patch.object(scheduled, "refresh_otec_daily_activity", failing_step),
+            patch.object(scheduled, "maybe_finalize_bmob3_eod", failing_step),
+            patch.object(scheduled, "refresh_bmob3_intraday_price", successful_step),
+            patch.object(scheduled, "collect_newsweb_fast", failing_step),
+            patch.object(scheduled, "process_pending_otello_reports", failing_step),
+            patch.object(
+                scheduled,
+                "sync_interest_income_anchors_from_report_result",
+                successful_step,
+            ),
+            patch.object(scheduled, "repair_norges_bank_fx_if_stale", successful_step),
+            patch.object(scheduled, "repair_life360_lif_if_stale", successful_step),
+            patch.object(
+                scheduled, "sync_confirmed_bemobi_distribution_cash", successful_step
+            ),
+            patch.object(scheduled, "refresh_dirty_nav_layers", successful_step),
+            patch.object(scheduled, "refresh_dashboard_hot_snapshot", successful_step),
+        )
+
+        with ExitStack() as stack:
+            for dependency_patch in patches:
+                stack.enter_context(dependency_patch)
+            result = await scheduled.run_fast_refresh(
+                object(),
+                archive_bucket=object(),
+                # Saturday: OTEC's delayed-price call is intentionally outside its window.
+                scheduled_time_ms=1788055200000,
+            )
+
+        self.assertEqual(result["status"], "FAILED")
+        self.assertEqual(repository.finished_status, "FAILED")
+        self.assertEqual(
+            {error["step"].split("_")[0] for error in result["source_errors"]},
+            {"otec", "bmob3", "newsweb", "otello"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
