@@ -62,7 +62,6 @@ function preload(view: View) {
   if (view === "Tilbakekjøpsprogram") {
     void loadBuybackPage();
     preloadJson("/api/buybacks/dashboard");
-    preloadJson("/api/bemobi/dashboard");
   }
   if (view === "Cash") {
     void loadCashPage();

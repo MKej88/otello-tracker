@@ -31,9 +31,8 @@ def test_buyback_page_prioritizes_shareholder_value_creation() -> None:
     assert "share_count_nav_effect_per_share_nok" in source
 
 
-def test_bemobi_exposure_is_supplementary_and_does_not_block_buyback_page() -> None:
+def test_buyback_page_does_not_request_unused_bemobi_data() -> None:
     source = PAGE.read_text(encoding="utf-8")
 
-    assert "Bemobi-eksponering er et supplement og skal aldri blokkere buyback-siden." in source
-    assert 'if (!data?.ready)' in source
-    assert "bemobi?.ready === false ? null : bemobi?.otello?.shares" in source
+    assert "/api/bemobi/dashboard" not in source
+    assert "BemobiDashboard" not in source
