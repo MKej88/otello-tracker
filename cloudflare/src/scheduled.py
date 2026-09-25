@@ -307,13 +307,27 @@ async def run_fast_refresh(
         timings_ms["otec_delayed"] = 0.0
         timings_ms["otec_eod"] = 0.0
 
-    await _safe_async_step(
+    otec_activity = await _safe_async_step(
         "otec_activity",
         lambda: refresh_otec_daily_activity(repository, now=scheduled_at),
         steps=steps,
         errors=errors,
         timings_ms=timings_ms,
     )
+    if isinstance(otec_activity, dict) and otec_activity.get("status") in {
+        "partial",
+        "no_trade",
+    }:
+        errors.append(
+            {
+                "step": "otec_activity",
+                "error": (
+                    "Euronext-aktivitet mangler for en forventet handelsdag; "
+                    f"status={otec_activity.get('status')}"
+                ),
+                "error_type": "OtecActivityIncomplete",
+            }
+        )
     await renew("after OTEC")
 
     bmob3_eod = await _safe_async_step(
