@@ -5,7 +5,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
+
 from app.buybacks.activity import seed_otec_activity_history
+from app.buybacks.dashboard import (
+    _resolve_share_count as resolve_reference_share_count,
+)
 from app.buybacks.dashboard import buyback_dashboard as reference_dashboard
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
@@ -18,7 +23,68 @@ for path in (CLOUDFLARE, CLOUDFLARE_SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from buyback_dashboard import (  # noqa: E402
+    _resolve_share_count as resolve_worker_share_count,
+)
 from buyback_dashboard import buyback_dashboard as worker_dashboard  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("share_count", "latest", "expected"),
+    [
+        (None, None, None),
+        (
+            {
+                "total_shares": 100,
+                "treasury_shares": 10,
+                "outstanding_shares": 90,
+                "effective_from": "2026-08-20",
+            },
+            {"trade_date": "2026-08-19", "treasury_shares_after": 12},
+            {
+                "total_shares": 100,
+                "treasury_shares": 10,
+                "outstanding_shares": 90,
+                "effective_from": "2026-08-20",
+                "treasury_source": "SHARE_COUNT",
+            },
+        ),
+        (
+            {
+                "total_shares": 100,
+                "treasury_shares": 10,
+                "outstanding_shares": 90,
+                "effective_from": "2026-08-20",
+            },
+            {"trade_date": "2026-08-21", "treasury_shares_after": 12},
+            {
+                "total_shares": 100,
+                "treasury_shares": 12,
+                "outstanding_shares": 88,
+                "effective_from": "2026-08-21",
+                "treasury_source": "LATEST_BUYBACK",
+            },
+        ),
+        (
+            None,
+            {"trade_date": "2026-08-21", "treasury_shares_after": 12},
+            {
+                "total_shares": None,
+                "treasury_shares": 12,
+                "outstanding_shares": None,
+                "effective_from": "2026-08-21",
+                "treasury_source": "LATEST_BUYBACK",
+            },
+        ),
+    ],
+)
+def test_share_count_resolution_preserves_source_precedence(
+    share_count: dict | None,
+    latest: dict | None,
+    expected: dict | None,
+) -> None:
+    assert resolve_reference_share_count(share_count, latest) == expected
+    assert resolve_worker_share_count(share_count, latest) == expected
 
 
 class SQLiteAsyncRepository:
