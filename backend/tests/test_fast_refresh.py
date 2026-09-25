@@ -193,6 +193,35 @@ def test_eod_result_skips_intraday_when_session_is_finalized() -> None:
     assert fast._eod_is_authoritative_for_cycle(None) is False
 
 
+def test_previous_day_repair_is_retried_when_activity_succeeded_but_price_failed(
+    monkeypatch,
+) -> None:
+    """A partial prior cycle must not make both outputs look complete."""
+    today = real_date(2026, 8, 18)
+    monkeypatch.setattr(
+        fast, "activity_check_done", lambda *_args, **_kwargs: True
+    )
+    monkeypatch.setattr(
+        fast, "_latest_otec_date", lambda *_args, **_kwargs: "2026-08-14"
+    )
+
+    assert fast._previous_day_repair_needed("unused.db", today) is True
+
+
+def test_previous_day_repair_is_skipped_only_when_both_outputs_exist(
+    monkeypatch,
+) -> None:
+    today = real_date(2026, 8, 18)
+    monkeypatch.setattr(
+        fast, "activity_check_done", lambda *_args, **_kwargs: True
+    )
+    monkeypatch.setattr(
+        fast, "_latest_otec_date", lambda *_args, **_kwargs: "2026-08-17"
+    )
+
+    assert fast._previous_day_repair_needed("unused.db", today) is False
+
+
 def test_fast_refresh_degrades_when_provider_returns_stale_data(
     tmp_path, monkeypatch
 ) -> None:
