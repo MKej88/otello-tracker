@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 
 import pytest
 
@@ -129,3 +130,39 @@ def test_full_refresh_keeps_history_backfill_when_coverage_is_incomplete(
         )
 
     assert repository.target_queries == []
+
+
+def test_fx_write_preserves_every_row_across_batch_boundary() -> None:
+    class WriteRepository:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple]] = []
+
+        async def run(self, sql: str, parameters: tuple) -> None:
+            self.calls.append((sql, parameters))
+
+    repository = WriteRepository()
+    rows = [
+        (f"2026-09-{day:02d}", "BRL", Decimal(f"1.{day:02d}"))
+        for day in range(1, norges_bank_full_refresh.FX_WRITE_BATCH_ROWS + 2)
+    ]
+
+    written = asyncio.run(
+        norges_bank_full_refresh._write_fx_rows(
+            repository,
+            rows,
+            source_id=7,
+            document_id=11,
+        )
+    )
+
+    persisted_rows = [
+        tuple(parameters[offset : offset + 5])
+        for _, parameters in repository.calls
+        for offset in range(0, len(parameters), 5)
+    ]
+    assert written == len(rows)
+    assert [len(parameters) // 5 for _, parameters in repository.calls] == [15, 1]
+    assert persisted_rows == [
+        (currency, f"{trading_date}T00:00:00Z", format(rate, "f"), 7, 11)
+        for trading_date, currency, rate in rows
+    ]
