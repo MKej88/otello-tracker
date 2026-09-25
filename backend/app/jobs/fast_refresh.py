@@ -85,6 +85,17 @@ def _ona_has_date(database_path: str, target_date: str) -> bool:
     return row is not None
 
 
+def _previous_day_repair_needed(database_path: str, today: date) -> bool:
+    """Check both outputs produced by the shared previous-day download."""
+    previous_day = _previous_oslo_trading_day(today).isoformat()
+    latest_price_day = _latest_otec_date(database_path, previous_day)
+    return (
+        not activity_check_done(database_path, check_date=today.isoformat())
+        or latest_price_day is None
+        or latest_price_day < previous_day
+    )
+
+
 def _record_failed_result(
     step: str,
     result: Any,
@@ -207,7 +218,11 @@ def run_fast_refresh(
             "reason": "live_source_not_used_for_historical_target",
         }
 
-    if end_day == today and today.weekday() < 5 and not activity_check_done(database_path):
+    if (
+        end_day == today
+        and today.weekday() < 5
+        and _previous_day_repair_needed(database_path, today)
+    ):
         def previous_activity() -> Any:
             url, payload = download_euronext_delayed_equities("PREVIOUS_TRADING_DAY")
             activity_result = ingest_previous_trading_day_activity(
