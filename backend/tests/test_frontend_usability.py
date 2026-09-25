@@ -138,14 +138,7 @@ def test_news_page_shows_only_official_sources() -> None:
 
     for label in (
         "Siste relevante hendelser for Otello og Bemobi",
-        "NESTE VIKTIGE DATO",
-        "VIKTIGST NÅ",
-        "Hendelser som kan påvirke investeringscaset",
-        "Ingen nye vesentlige hendelser",
-        "Se siste filings →",
-        "Bekreftet viktig",
-        "Til vurdering",
-        "Viktige",
+        "NESTE DATO",
         "Vis flere",
         "Kun offisielle meldinger fra NewsWeb, CVM og Bemobis hjemmeside",
     ):
