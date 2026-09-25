@@ -7,11 +7,7 @@ const REFRESH_MS = 5 * 60 * 1000;
 const PAGE_SIZE = 10;
 const CALENDAR_LIMIT = 8;
 
-type Importance = "HIGH" | "MEDIUM" | "LOW";
-type Classification = "CONFIRMED_IMPORTANT" | "POSSIBLY_IMPORTANT" | "REVIEW" | "INFORMATION";
 type CompanyFilter = "Alle" | "Otello" | "Bemobi";
-type ContentFilter = "Alle" | "Viktige";
-type NavImpact = "DIRECT" | "POTENTIAL" | "NONE";
 
 type NewsItem = {
   id: number;
@@ -20,11 +16,6 @@ type NewsItem = {
   published_at?: string | null;
   category?: string | null;
   category_label: string;
-  importance: Importance;
-  classification: Classification;
-  reason: string;
-  case_effect?: string | null;
-  nav_impact?: NavImpact | null;
   summary?: string | null;
   source?: string | null;
   url?: string | null;
@@ -38,7 +29,6 @@ type EventItem = {
   date: string;
   company: "Otello" | "Bemobi";
   title: string;
-  importance: Importance;
   date_label: string;
   confirmed: boolean;
   source?: string | null;
@@ -49,13 +39,6 @@ type Payload = {
   ready: boolean;
   news?: NewsItem[];
   events?: EventItem[];
-};
-
-const classificationLabels: Record<Classification, string> = {
-  CONFIRMED_IMPORTANT: "Bekreftet viktig",
-  POSSIBLY_IMPORTANT: "Mulig viktig",
-  REVIEW: "Til vurdering",
-  INFORMATION: "Informasjon",
 };
 
 function dateLabel(input?: string | null, includeTime = false) {
@@ -84,27 +67,8 @@ function NewsSourceMeta({ item }: { item: NewsItem }) {
   );
 }
 
-function ClassificationBadge({ classification }: { classification: Classification }) {
-  return <span className={`importanceBadge classification${classification}`}>{classificationLabels[classification]}</span>;
-}
-
 function categoryLabel(item: NewsItem) {
   return item.category === "JCP" ? "JCP" : item.category_label;
-}
-
-function matchesContentFilter(item: NewsItem, filter: ContentFilter) {
-  if (filter === "Alle") return true;
-  if (filter === "Viktige") {
-    return item.classification === "CONFIRMED_IMPORTANT" || item.classification === "POSSIBLY_IMPORTANT";
-  }
-  return true;
-}
-
-function importantScore(item: NewsItem) {
-  if (item.classification === "CONFIRMED_IMPORTANT" && item.nav_impact === "DIRECT") return 3;
-  if (item.classification === "CONFIRMED_IMPORTANT") return 2;
-  if (item.classification === "POSSIBLY_IMPORTANT") return 1;
-  return 0;
 }
 
 export default function NewsEventsPage() {
@@ -114,21 +78,11 @@ export default function NewsEventsPage() {
     true,
   );
   const [company, setCompany] = useState<CompanyFilter>("Alle");
-  const [contentFilter, setContentFilter] = useState<ContentFilter>("Alle");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const filteredNews = useMemo(() => (data?.news ?? []).filter((item) => (
-    (company === "Alle" || item.company === company) && matchesContentFilter(item, contentFilter)
-  )), [company, contentFilter, data?.news]);
-
-  const importantNews = useMemo(() => filteredNews
-    .map((item, index) => ({ item, index, score: importantScore(item) }))
-    .filter(({ item }) => (
-      item.classification === "CONFIRMED_IMPORTANT" || item.classification === "POSSIBLY_IMPORTANT"
-    ))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, 3)
-    .map(({ item }) => item), [filteredNews]);
+    company === "Alle" || item.company === company
+  )), [company, data?.news]);
 
   const regularNews = filteredNews;
   const visibleNews = regularNews.slice(0, visibleCount);
@@ -138,18 +92,10 @@ export default function NewsEventsPage() {
   ), [company, data?.events]);
   const calendarEvents = events.slice(0, CALENDAR_LIMIT);
 
-  const nextImportantEvent = useMemo(() => {
-    const allEvents = data?.events ?? [];
-    return allEvents.find((item) => item.importance === "HIGH") ?? allEvents[0] ?? null;
-  }, [data?.events]);
+  const nextEvent = events[0] ?? null;
 
   function changeCompany(next: CompanyFilter) {
     setCompany(next);
-    setVisibleCount(PAGE_SIZE);
-  }
-
-  function changeContentFilter(next: ContentFilter) {
-    setContentFilter(next);
     setVisibleCount(PAGE_SIZE);
   }
 
@@ -163,12 +109,12 @@ export default function NewsEventsPage() {
           {refreshFailed && <small className="newsStaleNote">Ny oppdatering feilet · viser siste gode data</small>}
         </div>
         <div className="newsNextEvent">
-          <span className="label">NESTE VIKTIGE DATO</span>
-          {nextImportantEvent ? (
+          <span className="label">NESTE DATO</span>
+          {nextEvent ? (
             <>
-              <strong>{formatDate(nextImportantEvent.date)}</strong>
-              <span>{nextImportantEvent.title}</span>
-              <small>{nextImportantEvent.company} · {nextImportantEvent.confirmed ? "Bekreftet" : "Forventet"}</small>
+              <strong>{formatDate(nextEvent.date)}</strong>
+              <span>{nextEvent.title}</span>
+              <small>{nextEvent.company} · {nextEvent.confirmed ? "Bekreftet" : "Forventet"}</small>
             </>
           ) : (
             <span className="newsNextEventEmpty">Ingen kjent dato</span>
@@ -192,61 +138,7 @@ export default function NewsEventsPage() {
             ))}
           </div>
         </div>
-        <div className="newsFilterGroup">
-          <span className="newsFilterLabel">Innhold</span>
-          <div className="newsFilterButtons">
-            {(["Alle", "Viktige"] as ContentFilter[]).map((item) => (
-              <button
-                className={contentFilter === item ? "periodButton active" : "periodButton"}
-                key={item}
-                onClick={() => changeContentFilter(item)}
-                type="button"
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
       </section>
-
-      <section className="importantNewsSection">
-          <div className="sectionHeading">
-            <div>
-              <span className="label">VIKTIGST NÅ</span>
-              <h2>Hendelser som kan påvirke investeringscaset</h2>
-            </div>
-          </div>
-          {!data ? (
-            <article className="card emptyNewsCard">Laster analyserte hendelser …</article>
-          ) : importantNews.length > 0 ? <div className="importantNewsGrid">
-            {importantNews.map((item) => {
-              return (
-                <article className="card importantNewsCard" key={item.id}>
-                  <div className="newsCardTop">
-                    <div className="newsMeta newsMetaCompact">
-                      <span className={`companyTag company${item.company}`}>{item.company}</span>
-                      <span>{categoryLabel(item)}</span>
-                    </div>
-                    <ClassificationBadge classification={item.classification} />
-                  </div>
-                  <h3>{item.headline}</h3>
-                  {item.case_effect && <strong className="caseEffect">{item.case_effect}</strong>}
-                  <p>{item.reason}</p>
-                  {item.summary && <><strong className="newsSummaryLabel">Kort fortalt</strong><p>{item.summary}</p></>}
-                  <div className="newsCardFooter newsCardFooterCompact">
-                    <time dateTime={item.published_at ?? undefined}>{dateLabel(item.published_at, true)}</time>
-                    <NewsSourceMeta item={item} />
-                  </div>
-                </article>
-              );
-            })}
-          </div> : (
-            <article className="card importantEmptyState">
-              <div><strong>Ingen nye vesentlige hendelser</strong><p>Det er publisert nye regulatoriske dokumenter, men trackeren har ikke identifisert noe som foreløpig endrer investeringscaset.</p></div>
-              <a className="periodButton" href="#latest-filings">Se siste filings →</a>
-            </article>
-          )}
-        </section>
 
       <section className="newsLayout">
         <div className="newsColumn" id="latest-filings">
@@ -269,7 +161,6 @@ export default function NewsEventsPage() {
                       <span className={`companyTag company${item.company}`}>{item.company}</span>
                       <span>{categoryLabel(item)}</span>
                     </div>
-                    <ClassificationBadge classification={item.classification} />
                   </div>
                   <h3>{item.headline}</h3>
                   {item.summary && <><strong className="newsSummaryLabel">Kort fortalt</strong><p>{item.summary}</p></>}
@@ -307,7 +198,6 @@ export default function NewsEventsPage() {
                 <div>
                   <div className="newsMeta newsMetaCompact">
                     <span className={`companyTag company${item.company}`}>{item.company}</span>
-                    <span className={`importanceBadge importance${item.importance}`}>{item.importance === "HIGH" ? "Bekreftet viktig" : item.importance === "MEDIUM" ? "Mulig viktig" : "Informasjon"}</span>
                   </div>
                   <h3>{item.title}</h3>
                   <p>{item.date_label} · {item.confirmed ? "Bekreftet" : "Forventet"}</p>

@@ -16,26 +16,12 @@
 .newsFilterButtons { display: flex; flex-wrap: wrap; gap: 8px; }
 .sectionHeading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 11px; }
 .sectionHeading h2 { margin: 4px 0 0; }
-.importantNewsSection { display: grid; gap: 0; }
-.importantNewsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.importantNewsCard { padding: 18px 20px; min-width: 0; }
-.importantNewsCard h3 { margin: 10px 0 7px; line-height: 1.32; font-size: 1.02rem; }
-.importantNewsCard p { margin: 0; color: var(--ot-text-muted); line-height: 1.5; font-size: .85rem; }
 .newsCardTop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .newsMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ot-text-muted); font-size: .76rem; }
 .newsMetaCompact { gap: 7px; font-size: .72rem; }
-.companyTag, .importanceBadge { padding: 4px 8px; border-radius: 999px; font-weight: 750; letter-spacing: .04em; }
+.companyTag { padding: 4px 8px; border-radius: 999px; font-weight: 750; letter-spacing: .04em; }
 .companyOtello { color: var(--ot-positive); background: var(--ot-positive-soft); }
 .companyBemobi { color: var(--ot-accent-strong); background: var(--ot-accent-soft); }
-.importanceHIGH, .classificationCONFIRMED_IMPORTANT { color: var(--ot-negative); background: var(--ot-negative-soft); }
-.importanceMEDIUM, .classificationPOSSIBLY_IMPORTANT { color: var(--ot-warning); background: var(--ot-warning-soft); }
-.classificationREVIEW { color: var(--ot-warning); background: var(--ot-warning-soft); }
-.classificationINFORMATION { color: var(--ot-text-muted); background: var(--ot-surface-raised); }
-.caseEffect { display: block; margin: 0 0 7px; color: var(--ot-text); font-size: .86rem; line-height: 1.45; }
-.importantEmptyState { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px; }
-.importantEmptyState strong { display: block; margin-bottom: 5px; }
-.importantEmptyState p { max-width: 760px; margin: 0; color: var(--ot-text-muted); line-height: 1.5; }
-.importantEmptyState .periodButton { flex: 0 0 auto; text-decoration: none; }
 .impactTag { display: inline-flex; width: fit-content; margin-top: 11px; padding: 5px 8px; border-radius: 8px; font-size: .7rem; font-weight: 750; }
 .impactDIRECT { color: var(--ot-positive); background: var(--ot-positive-soft); }
 .impactPOTENTIAL { color: var(--ot-warning); background: var(--ot-warning-soft); }
@@ -69,6 +55,5 @@
 .calendarNote, .emptyCalendar, .emptyNewsCard { color: var(--ot-text-muted); line-height: 1.5; }
 .calendarNote { margin: 8px 2px 0; font-size: .73rem; }
 .emptyNewsCard { padding: 20px; }
-@media (max-width: 1120px) { .importantNewsGrid { grid-template-columns: 1fr; } }
 @media (max-width: 980px) { .newsLayout { grid-template-columns: 1fr; } .calendarColumn { position: static; } .newsNextEvent { width: 38%; } }
-@media (max-width: 700px) { .newsHero { display: block; padding: 22px; } .newsNextEvent { width: auto; min-width: 0; margin-top: 18px; } .newsToolbar { display: grid; } .importantEmptyState { display: grid; } .newsCardFooter { display: grid; gap: 5px; } .newsSourceMeta { text-align: left; } .calendarEvent { grid-template-columns: 82px 1fr; } }
+@media (max-width: 700px) { .newsHero { display: block; padding: 22px; } .newsNextEvent { width: auto; min-width: 0; margin-top: 18px; } .newsToolbar { display: grid; } .newsCardFooter { display: grid; gap: 5px; } .newsSourceMeta { text-align: left; } .calendarEvent { grid-template-columns: 82px 1fr; } }
