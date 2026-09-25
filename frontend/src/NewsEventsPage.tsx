@@ -27,6 +27,8 @@ type NewsItem = {
 type EventItem = {
   id: string;
   date: string;
+  starts_at_utc?: string | null;
+  time_status?: string;
   company: "Otello" | "Bemobi";
   title: string;
   date_label: string;
@@ -113,6 +115,7 @@ export default function NewsEventsPage() {
           {nextEvent ? (
             <>
               <strong>{formatDate(nextEvent.date)}</strong>
+              {nextEvent.starts_at_utc ? <small>{formatDateTime(nextEvent.starts_at_utc)} (norsk tid)</small> : nextEvent.time_status === "NOT_PUBLISHED" ? <small>Tidspunkt ikke publisert</small> : null}
               <span>{nextEvent.title}</span>
               <small>{nextEvent.company} · {nextEvent.confirmed ? "Bekreftet" : "Forventet"}</small>
             </>
@@ -200,6 +203,7 @@ export default function NewsEventsPage() {
                     <span className={`companyTag company${item.company}`}>{item.company}</span>
                   </div>
                   <h3>{item.title}</h3>
+                  {item.starts_at_utc ? <p>{formatDateTime(item.starts_at_utc)} (norsk tid)</p> : item.time_status === "NOT_PUBLISHED" ? <p>Tidspunkt ikke publisert</p> : null}
                   <p>{item.date_label} · {item.confirmed ? "Bekreftet" : "Forventet"}</p>
                   <SourceLink source={item.source} url={item.url} />
                 </div>

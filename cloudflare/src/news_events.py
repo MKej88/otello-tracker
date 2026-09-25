@@ -7,6 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from bemobi_news_translation import translate_bemobi_news
+from bemobi_agenda import agenda_events, merge_agenda_events
 
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
@@ -383,7 +384,9 @@ async def news_and_events(
                 )
             )
 
-    events.sort(key=lambda item: (item["date"], item["id"]))
+    events = merge_agenda_events(
+        events, await agenda_events(repository, as_of_date=today.isoformat())
+    )
     return {
         "ready": True,
         "as_of_date": today.isoformat(),

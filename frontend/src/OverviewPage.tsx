@@ -65,6 +65,8 @@ type DiscountHistory = {
 type NewsEvent = {
   id: string | number;
   date: string;
+  starts_at_utc?: string | null;
+  time_status?: string;
   company: "Otello" | "Bemobi";
   title: string;
   category?: string | null;
@@ -98,6 +100,8 @@ type BrazilCalendarEvent = {
 type OverviewEvent = {
   id: string;
   date: string;
+  startsAtUtc?: string | null;
+  timeStatus?: string;
   title: string;
   typeBadge: string;
   scopeBadge: string;
@@ -208,7 +212,9 @@ function eventMetaLabel(event: OverviewEvent) {
     }
     return parts.join(" · ");
   }
-  return `${event.confirmed ? "Bekreftet dato" : "Forventet dato"}${event.source ? ` · ${event.source}` : ""}`;
+  const time = norwayReleaseTime(event.startsAtUtc);
+  const timing = time ? ` · Norsk tid kl. ${time}` : event.timeStatus === "NOT_PUBLISHED" ? " · Tidspunkt ikke publisert" : "";
+  return `${event.confirmed ? "Bekreftet dato" : "Forventet dato"}${timing}${event.source ? ` · ${event.source}` : ""}`;
 }
 
 function macroTitle(event: BrazilCalendarEvent) {
@@ -227,6 +233,7 @@ function macroTitle(event: BrazilCalendarEvent) {
 function companyEventType(category?: string | null) {
   const labels: Record<string, string> = {
     RESULTS: "Rapport",
+    CONFERENCE_CALL: "Presentasjon",
     DIVIDEND: "Utbytte",
     DISTRIBUTION: "Utbytte",
     JCP: "JCP",
@@ -248,6 +255,8 @@ function upcomingEvents(payload?: OverviewEventsPayload | null): OverviewEvent[]
     events.push({
       id: `company-${event.id}`,
       date: event.date,
+      startsAtUtc: event.starts_at_utc,
+      timeStatus: event.time_status,
       title: event.title,
       typeBadge: companyEventType(event.category),
       scopeBadge: event.company,
@@ -446,7 +455,7 @@ export default function OverviewPage() {
                 <div className="overviewUpcomingRows">
                   {events.slice(1).map((event) => (
                     <div key={event.id}>
-                      <time>{eventDateLabel(event.date)}</time>
+                      <time>{eventDateLabel(event.date)}{event.startsAtUtc ? ` kl. ${norwayReleaseTime(event.startsAtUtc)} (norsk tid)` : ""}</time>
                       <strong>{event.title}</strong>
                       <span className="overviewEventBadges">
                         <span className="overviewEventBadge type">{event.typeBadge}</span>
