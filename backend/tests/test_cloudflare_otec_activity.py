@@ -149,3 +149,39 @@ def test_refresh_repairs_previous_trading_day_once_without_refetching() -> None:
     assert second["attempts"][0]["reason"] == "previous_day_already_stored"
     assert len(requested) == 1
     assert "PREVIOUS_TRADING_DAY" in requested[0]
+
+
+def test_refresh_is_partial_when_only_previous_day_is_written() -> None:
+    previous_payload = _zip_payload(
+        [
+            _row(
+                day="2026-08-26",
+                time="14:00:00",
+                price="17.12",
+                quantity="20000",
+                trade_id="previous",
+            ),
+        ]
+    )
+    current_payload_without_otec = _zip_payload([])
+    repository = FakeRepository()
+
+    async def fetcher(url: str, **kwargs):
+        payload = (
+            previous_payload
+            if "PREVIOUS_TRADING_DAY" in url
+            else current_payload_without_otec
+        )
+        return FakeResponse(payload)
+
+    now = datetime(2026, 8, 27, 17, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    result = asyncio.run(
+        refresh_otec_daily_activity(repository, now=now, fetcher=fetcher)
+    )
+
+    assert result["status"] == "partial"
+    assert result["written"] == 1
+    assert [attempt["status"] for attempt in result["attempts"]] == [
+        "ok",
+        "no_trade",
+    ]
