@@ -62,6 +62,18 @@ def test_bootstrap_is_not_visible_before_observation():
     assert asyncio.run(agenda_events(Repository(), as_of_date="2026-09-24")) == []
 
 
+def test_cached_agenda_is_not_visible_before_its_observation_date():
+    repo = Repository()
+    repo.state[STATE_KEY] = json.dumps(
+        {
+            "events": parse_agenda(BOOTSTRAP_ROWS),
+            "observed_date": "2026-09-25",
+        }
+    )
+
+    assert asyncio.run(agenda_events(repo, as_of_date="2026-09-24")) == []
+
+
 def test_refresh_replaces_rescheduled_events_and_can_clear_cancelled_events():
     repo = Repository()
     class Response:
