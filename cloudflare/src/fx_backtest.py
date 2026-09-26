@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 MAX_FX_LOOKBACK_DAYS = 7
+FX_DAYS_PER_QUERY = 90
 SUPPORTED_CURRENCIES = {"NOK", "USD", "BRL"}
 
 
@@ -23,27 +23,63 @@ def _float(value: Decimal | str | int | float | None) -> float | None:
     return float(Decimal(str(value)))
 
 
-async def _nearest_fx(repository, base: str, day: str):
-    floor_date = (date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
-    return await repository.first(
-        """
-        SELECT substr(fr.observed_at,1,10) AS rate_date, fr.rate, s.code AS source_code
-        FROM fx_rates fr
-        JOIN sources s ON s.id=fr.source_id
-        WHERE fr.base_currency=? AND fr.quote_currency='NOK'
-          AND substr(fr.observed_at,1,10) <= ? AND substr(fr.observed_at,1,10) >= ?
-        ORDER BY substr(fr.observed_at,1,10) DESC,
-                 CASE s.code
-                   WHEN 'NORGES_BANK' THEN 0
-                   WHEN 'ECB' THEN 1
-                   ELSE 5
-                 END,
-                 fr.observed_at DESC,
-                 fr.id DESC
-        LIMIT 1
+async def _rates_for_days(
+    repository, days: list[str]
+) -> dict[str, tuple[Decimal, Decimal, str, str]]:
+    unique_days = list(dict.fromkeys(days))
+    rows: list[dict[str, Any]] = []
+    for offset in range(0, len(unique_days), FX_DAYS_PER_QUERY):
+        chunk = unique_days[offset : offset + FX_DAYS_PER_QUERY]
+        placeholders = ",".join("(?)" for _ in chunk)
+        rows.extend(
+            await repository.all(
+                f"""
+        WITH requested(day) AS (VALUES {placeholders}),
+        ranked AS (
+            SELECT requested.day, fr.base_currency,
+                   substr(fr.observed_at,1,10) AS rate_date, fr.rate,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY requested.day, fr.base_currency
+                       ORDER BY substr(fr.observed_at,1,10) DESC,
+                                CASE s.code
+                                  WHEN 'NORGES_BANK' THEN 0
+                                  WHEN 'ECB' THEN 1
+                                  ELSE 5
+                                END,
+                                fr.observed_at DESC,
+                                fr.id DESC
+                   ) AS rank
+            FROM requested
+            JOIN fx_rates fr
+              ON substr(fr.observed_at,1,10) <= requested.day
+             AND substr(fr.observed_at,1,10) >= date(requested.day, '-{MAX_FX_LOOKBACK_DAYS} days')
+            JOIN sources s ON s.id=fr.source_id
+            WHERE fr.base_currency IN ('USD','BRL') AND fr.quote_currency='NOK'
+        )
+        SELECT day, base_currency, rate_date, rate
+        FROM ranked
+        WHERE rank=1
+        ORDER BY day, base_currency
         """,
-        (base, day, floor_date),
-    )
+                tuple(chunk),
+            )
+        )
+    by_day: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        by_day.setdefault(str(row["day"]), {})[str(row["base_currency"])] = row
+
+    result: dict[str, tuple[Decimal, Decimal, str, str]] = {}
+    for day, rates in by_day.items():
+        usd = rates.get("USD")
+        brl = rates.get("BRL")
+        if usd is not None and brl is not None:
+            result[day] = (
+                Decimal(str(usd["rate"])),
+                Decimal(str(brl["rate"])),
+                str(usd["rate_date"]),
+                str(brl["rate_date"]),
+            )
+    return result
 
 
 async def _anchors(repository) -> dict[str, dict[str, Any]]:
@@ -78,19 +114,6 @@ async def _outcomes(repository) -> list[dict[str, Any]]:
         if period_end and period_end not in result:
             result[period_end] = {**metadata, "source_document_id": int(row["id"])}
     return sorted(result.values(), key=lambda item: str(item["period_end"]))
-
-
-async def _rates(repository, day: str) -> tuple[Decimal, Decimal, str, str] | None:
-    usd = await _nearest_fx(repository, "USD", day)
-    brl = await _nearest_fx(repository, "BRL", day)
-    if usd is None or brl is None:
-        return None
-    return (
-        Decimal(str(usd["rate"])),
-        Decimal(str(brl["rate"])),
-        str(usd["rate_date"]),
-        str(brl["rate_date"]),
-    )
 
 
 def _value_usd(balances: dict[str, Decimal], usd_nok: Decimal, brl_nok: Decimal) -> Decimal:
@@ -144,8 +167,11 @@ async def _period_backtest(repository, outcome: dict[str, Any], anchors: dict[st
     if start_anchor is None or end_anchor is None:
         return {"ready": False, "period_start": start, "period_end": end, "reason": "missing_fx_anchor"}
 
-    start_rates = await _rates(repository, start)
-    end_rates = await _rates(repository, end)
+    movements = await _movements(repository, start, end)
+    movement_days = list(dict.fromkeys(str(item["movement_date"]) for item in movements))
+    rates_by_day = await _rates_for_days(repository, [start, end, *movement_days])
+    start_rates = rates_by_day.get(start)
+    end_rates = rates_by_day.get(end)
     if start_rates is None or end_rates is None:
         return {"ready": False, "period_start": start, "period_end": end, "reason": "missing_historical_fx_rates"}
 
@@ -157,13 +183,12 @@ async def _period_backtest(repository, outcome: dict[str, Any], anchors: dict[st
     applied_movements = 0
     skipped_movements = 0
 
-    movements = await _movements(repository, start, end)
     by_date: dict[str, list[dict[str, Any]]] = {}
     for item in movements:
         by_date.setdefault(str(item["movement_date"]), []).append(item)
 
     for movement_date, items in sorted(by_date.items()):
-        current_rates = await _rates(repository, movement_date)
+        current_rates = rates_by_day.get(movement_date)
         if current_rates is None:
             skipped_movements += len(items)
             continue
