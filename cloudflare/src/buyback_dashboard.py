@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import statistics
 from datetime import date, timedelta
@@ -265,7 +266,7 @@ async def buyback_dashboard(
         :10
     ]
 
-    latest = await repository.first(
+    latest_request = repository.first(
         """
         SELECT b.period_start, b.trade_date, b.shares, b.avg_price_nok, b.amount_nok,
                b.cumulative_program_shares, b.cumulative_program_avg_price_nok,
@@ -280,7 +281,7 @@ async def buyback_dashboard(
         """,
         (as_of, as_of, as_of),
     )
-    share_count = await repository.first(
+    share_count_request = repository.first(
         """
         SELECT effective_from, total_shares, treasury_shares, outstanding_shares
         FROM otello_share_counts
@@ -289,7 +290,7 @@ async def buyback_dashboard(
         """,
         (as_of,),
     )
-    nav_snapshot = await repository.first(
+    nav_snapshot_request = repository.first(
         """
         SELECT nav_total_nok
         FROM nav_snapshots
@@ -300,6 +301,14 @@ async def buyback_dashboard(
         """,
         (FULL_CALCULATION_VERSION, as_of),
     )
+    # These reads share only the already resolved as-of date. Running them in
+    # parallel removes two unnecessary D1 round trips from the visible page.
+    latest, share_count, nav_snapshot = await asyncio.gather(
+        latest_request,
+        share_count_request,
+        nav_snapshot_request,
+    )
+
     start_nav_snapshot = None
     if latest is not None and latest.get("start_date"):
         start_nav_snapshot = await repository.first(
