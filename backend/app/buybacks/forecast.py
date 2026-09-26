@@ -10,10 +10,11 @@ from app.db.connection import get_connection
 from app.marketdata.oslo_calendar import oslo_bors_trading_days
 from app.marketdata.quote_details import _latest_price
 
+from app.buybacks.forecast_model import METHOD_VERSION, known_history, model_confidence, point_estimate, uncertainty_band
+
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
 RECENT_PROGRAM_WEEKS = 8
-METHOD_VERSION = "otec-buyback-safe-harbour-program-v1"
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class ProgramWeek:
     period_end: date
     actual_shares: int
     cumulative_shares: int
+    published_date: date | None = None
 
 
 def _median(values: list[float], default: float) -> float:
@@ -79,8 +81,10 @@ def _active_program(connection, as_of: date):
 def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
     rows = connection.execute(
         """
-        SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares
+        SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares,
+               sd.published_at
         FROM buybacks b
+        LEFT JOIN source_documents sd ON sd.id=b.source_document_id
         WHERE b.program_id=? AND b.period_start IS NOT NULL
         ORDER BY b.trade_date, b.id
         """,
@@ -92,6 +96,8 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
             period_end=date.fromisoformat(row["trade_date"]),
             actual_shares=int(row["shares"]),
             cumulative_shares=int(row["cumulative_program_shares"]),
+            published_date=(date.fromisoformat(str(dict(row)["published_at"])[:10])
+                            if dict(row).get("published_at") else None),
         )
         for row in rows
     ]
@@ -99,43 +105,36 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
 
 def _program_history(connection, program_id: int, max_shares: int) -> list[dict[str, Any]]:
     weeks = _program_weeks(connection, program_id)
-    previous_cumulative = 0
-    observed_utils: list[float] = []
     rows: list[dict[str, Any]] = []
-    for week in weeks:
+    for index, week in enumerate(weeks):
         lookback = _activity_before(connection, week.period_start)
-        period_activity = _activity_in_period(connection, week.period_start, week.period_end)
-        if len(lookback) < LOOKBACK_DAYS or not period_activity:
-            previous_cumulative = week.cumulative_shares
+        # Calendar days are knowable before the week; future feed coverage is not.
+        days = len(oslo_bors_trading_days(week.period_start, week.period_end))
+        if len(lookback) < LOOKBACK_DAYS or not days:
             continue
-        adv20 = sum(int(item["volume_shares"]) for item in lookback) / LOOKBACK_DAYS
-        capacity = float(SAFE_HARBOUR_SHARE) * adv20 * len(period_activity)
+        prior_weeks = [
+            item for item in weeks[:index]
+            if item.period_end < week.period_start
+            and (item.published_date is None or item.published_date < week.period_start)
+        ]
+        previous_cumulative = prior_weeks[-1].cumulative_shares if prior_weeks else 0
         remaining = max(0, max_shares - previous_cumulative)
-        capacity_estimate = min(capacity, float(remaining))
-
-        if len(observed_utils) >= 2:
-            factor = _median(observed_utils[-RECENT_PROGRAM_WEEKS:], 1.0)
-        else:
-            factor = 1.0
-        factor = max(0.0, min(1.10, factor))
-        predicted = min(float(remaining), capacity_estimate * factor)
-        utilization = week.actual_shares / capacity_estimate if capacity_estimate > 0 else 0.0
-        rows.append(
-            {
-                "period_start": week.period_start.isoformat(),
-                "period_end": week.period_end.isoformat(),
-                "actual_shares": week.actual_shares,
-                "adv20_shares": adv20,
-                "trading_days": len(period_activity),
-                "week_start_capacity_estimate_shares": capacity_estimate,
-                "utilization": utilization,
-                "walk_forward_factor": factor,
-                "walk_forward_prediction_shares": predicted,
-                "absolute_error_shares": abs(predicted - week.actual_shares),
-            }
-        )
-        observed_utils.append(utilization)
-        previous_cumulative = week.cumulative_shares
+        known = known_history(rows, week.period_start.isoformat())
+        point = point_estimate(lookback, days, remaining, known)
+        capacity = point["week_start_capacity_estimate_shares"]
+        model_capacity = point["forecast_capacity_estimate_shares"]
+        predicted = point["walk_forward_prediction_shares"]
+        rows.append({
+            **point,
+            "period_start": week.period_start.isoformat(),
+            "period_end": week.period_end.isoformat(),
+            "published_date": week.published_date.isoformat() if week.published_date else None,
+            "actual_shares": week.actual_shares,
+            "trading_days": days,
+            "utilization": week.actual_shares / capacity if capacity > 0 else 0.0,
+            "forecast_utilization": week.actual_shares / model_capacity if model_capacity > 0 else 0.0,
+            "absolute_error_shares": abs(predicted - week.actual_shares),
+        })
     return rows
 
 
@@ -219,22 +218,18 @@ def buyback_forecast(
                 },
             }
 
-        capacity = float(SAFE_HARBOUR_SHARE) * adv20 * expected_days
-        capacity_estimate = min(capacity, float(remaining))
         history = _program_history(connection, int(program["id"]), int(program["max_shares"]))
+        history = known_history(history, period_start.isoformat())
         recent = history[-RECENT_PROGRAM_WEEKS:]
-        recent_utils = [float(row["utilization"]) for row in recent]
-        factor = max(0.0, min(1.10, _median(recent_utils, 1.0)))
-        base_case = min(float(remaining), capacity_estimate * factor)
-
-        error_ratios = [
-            float(row["absolute_error_shares"]) / float(row["week_start_capacity_estimate_shares"])
-            for row in recent if float(row["week_start_capacity_estimate_shares"]) > 0
-        ]
-        band = _median(error_ratios, 0.12)
-        low = max(0.0, base_case - capacity_estimate * band)
+        point = point_estimate(lookback, expected_days, remaining, history)
+        capacity_estimate = point["week_start_capacity_estimate_shares"]
+        forecast_capacity = point["forecast_capacity_estimate_shares"]
+        factor = point["walk_forward_factor"]
+        base_case = point["walk_forward_prediction_shares"]
+        band = uncertainty_band(history)
+        low = max(0.0, base_case - forecast_capacity * band)
         high_reference = min(float(remaining), capacity_estimate * 1.10)
-        high = min(high_reference, base_case + capacity_estimate * band)
+        high = min(high_reference, base_case + forecast_capacity * band)
 
         last = lookback[-1]
         last_close = (
@@ -267,18 +262,7 @@ def buyback_forecast(
                 price_state = "OPEN"
 
         metrics = _history_metrics(history)
-        if price_state == "ABOVE_CAP":
-            confidence = "LOW"
-        elif price_state in {"TIGHT", "UNKNOWN"}:
-            confidence = "MEDIUM"
-        elif (
-            len(history) >= 6
-            and metrics.get("median_ape_pct") is not None
-            and metrics["median_ape_pct"] <= 10
-        ):
-            confidence = "HIGH"
-        else:
-            confidence = "MEDIUM"
+        confidence = model_confidence(history, price_state, point["volume_adjustment_pct"])
 
         return {
             "ready": True,
@@ -303,6 +287,10 @@ def buyback_forecast(
             },
             "volume_model": {
                 "adv20_shares": round(adv20, 1),
+                "forecast_adv20_shares": round(point["forecast_adv20_shares"], 1),
+                "forecast_capacity_estimate_shares": round(forecast_capacity),
+                "volume_outlier_days": point["volume_outlier_days"],
+                "volume_adjustment_pct": round(point["volume_adjustment_pct"], 1),
                 "safe_harbour_share": float(SAFE_HARBOUR_SHARE),
                 "week_start_capacity_estimate_shares": round(capacity_estimate),
                 "volume_through": last["trading_date"],
@@ -324,5 +312,10 @@ def buyback_forecast(
                 "warning": warning,
             },
             "active_program_backtest": metrics,
+            "legacy_program_backtest": _history_metrics([
+                {**row, "absolute_error_shares": abs(row["legacy_prediction_shares"] - row["actual_shares"])}
+                for row in history
+            ]),
+            "backtest_kind": "RECALCULATED",
             "recent_program_weeks": recent,
         }

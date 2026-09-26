@@ -53,6 +53,9 @@ type Forecast = {
   forecast_week?: ForecastWeek;
   volume_model?: {
     adv20_shares?: number | null;
+    forecast_adv20_shares?: number | null;
+    volume_outlier_days?: number;
+    volume_adjustment_pct?: number;
     safe_harbour_share?: number | null;
     week_start_capacity_estimate_shares?: number | null;
     volume_through?: string | null;
@@ -78,6 +81,7 @@ type BacktestWeek = {
   period_end: string;
   actual_shares: number;
   walk_forward_prediction_shares: number;
+  legacy_prediction_shares?: number;
   market_volume_shares?: number | null;
   actual_volume_share_pct?: number | null;
   safe_harbour_utilization_pct?: number | null;
@@ -94,6 +98,7 @@ type Dashboard = {
   shares?: Shares | null;
   forecast?: Forecast;
   backtest?: {
+    legacy_metrics?: { wmape_pct?: number | null };
     metrics?: {
       weeks?: number;
       median_ape_pct?: number | null;
@@ -440,7 +445,7 @@ export default function BuybackPage() {
         <article className="card buybackDetail forecastCard">
           <div className="cardHeader">
             <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h2>Prognose</h2></div>
-            <span className="buybackConfidence">{statusLabel(estimate?.confidence)}</span>
+            <span className={`buybackConfidence ${estimate?.confidence === "HIGH" ? "" : "warn"}`}>{statusLabel(estimate?.confidence)}</span>
           </div>
           <div className="forecastPrimary">
             <span>Baseestimat</span>
@@ -460,11 +465,17 @@ export default function BuybackPage() {
             <span>Høy</span><strong>{count(estimate?.high_shares)}</strong>
           </div>
           <div className="buybackRows compactRows">
-            <div><span>ADV20</span><strong>{count(volume?.adv20_shares)}</strong></div>
-            <div><span>Safe Harbour-kapasitet</span><strong>{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
+            <div><span>ADV20 fra råvolum</span><strong>{count(volume?.adv20_shares)}</strong></div>
+            <div><span>ADV20 brukt i prognosen</span><strong>{count(volume?.forecast_adv20_shares ?? volume?.adv20_shares)}</strong></div>
+            <div><span>Kapasitet fra råvolum</span><strong>{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
             <div><span>Maks kjøpspris</span><strong>{value(price?.program_cap_nok, 2)} kr</strong></div>
             <div><span>Avstand til maks kjøpspris</span><strong>{percentage(headroom, 1)}</strong></div>
           </div>
+          <p className="accuracyNote">
+            Nyere kjøpsuker teller mest. Ekstreme volumdager dempes i prognosen.
+            {(volume?.volume_outlier_days ?? 0) > 0 && ` ${volume?.volume_outlier_days} volumdager er dempet; volumgrunnlaget er redusert med ${value(volume?.volume_adjustment_pct, 1)} %.`}
+            {" "}Intervallet bygger på de siste ukenes prognosefeil.
+          </p>
         </article>
       </section>
 
@@ -477,12 +488,16 @@ export default function BuybackPage() {
           <div><span>Innen ±10 %</span><strong>{value(metrics?.within_10_pct, 0)} %</strong></div>
           <div><span>Innen ±20 %</span><strong>{value(metrics?.within_20_pct, 0)} %</strong></div>
         </div>
-        <p className="accuracyNote">Hver historisk uke beregnes med kun informasjon som var tilgjengelig før uken startet.</p>
+        <p className="accuracyNote">
+          Historisk modelltest beregnet på nytt med dagens datagrunnlag. Hver uke bruker tidligere volum og kjøpsuker,
+          samt planlagte børsdager. Tallene er ikke arkiverte, opprinnelige prognoser.
+          {data.backtest?.legacy_metrics?.wmape_pct != null && ` Tidligere modell på samme grunnlag: ${value(data.backtest.legacy_metrics.wmape_pct, 1)} % vektet feil.`}
+        </p>
       </section>
 
       <section className="card buybackHistory">
         <div className="cardHeader">
-          <div><span className="label">Historisk prognose mot faktisk</span><h2>Siste modellerte uker</h2></div>
+          <div><span className="label">Historisk modelltest mot faktisk</span><h2>Siste modellerte uker</h2></div>
           <span className="pill muted">{weeks.length} UKER</span>
         </div>
         {weeks.length ? (
@@ -493,6 +508,7 @@ export default function BuybackPage() {
                   <th>Uke</th>
                   <th>Faktisk</th>
                   <th>Prognose</th>
+                  <th>Tidligere modell</th>
                   <th>Avvik</th>
                   <th>Volumandel</th>
                   <th>Safe Harbour-utnyttelse</th>
@@ -506,6 +522,7 @@ export default function BuybackPage() {
                       <td>{dateLabel(week.period_start)}–{dateLabel(week.period_end)}</td>
                       <td>{count(week.actual_shares)}</td>
                       <td>{count(Math.round(week.walk_forward_prediction_shares))}</td>
+                      <td>{count(week.legacy_prediction_shares == null ? null : Math.round(week.legacy_prediction_shares))}</td>
                       <td className={error == null ? "" : Math.abs(error) <= 10 ? "tableGood" : Math.abs(error) <= 20 ? "tableMid" : "tableBad"}>
                         {error == null ? "–" : `${error > 0 ? "+" : ""}${value(error, 1)} %`}
                       </td>
