@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from app.buybacks import (
@@ -53,6 +53,17 @@ def _record_failed_result(
     errors.append({"step": step, "error": str(reason)})
 
 
+def _run_provider_step(
+    step: str,
+    function: Callable[[], Any],
+    errors: list[dict[str, str]],
+) -> Any:
+    """Run a provider and record both raised and returned failures."""
+    result = _safe_step(step, function, errors)
+    _record_failed_result(step, result, errors)
+    return result
+
+
 def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
     """Hardened wrapper around the established dashboard refresh.
 
@@ -90,12 +101,11 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         }
 
     if requested_live_otec and target_day == today:
-        pre_steps["otec_delayed"] = _safe_step(
+        pre_steps["otec_delayed"] = _run_provider_step(
             "otec_delayed",
             lambda: refresh_otec_intraday_price(database_path),
             pre_errors,
         )
-        _record_failed_result("otec_delayed", pre_steps["otec_delayed"], pre_errors)
     elif requested_live_otec:
         pre_steps["otec_delayed"] = {
             "skipped": True,
@@ -105,17 +115,12 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["otec_delayed"] = {"skipped": True}
 
     if requested_b3 and target_day == today:
-        pre_steps["bmob3_official_close"] = _safe_step(
+        pre_steps["bmob3_official_close"] = _run_provider_step(
             "bmob3_official_close",
             lambda: refresh_bmob3_official_close(
                 database_path,
                 target_date=target_day.isoformat(),
             ),
-            pre_errors,
-        )
-        _record_failed_result(
-            "bmob3_official_close",
-            pre_steps["bmob3_official_close"],
             pre_errors,
         )
 
@@ -129,6 +134,8 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
                 }
             return refresh_bmob3_intraday_price(database_path)
 
+        # This compound step also exposes the EOD sub-result. Keep both failures in
+        # execution order rather than treating it as one provider call.
         pre_steps["bmob3_delayed"] = _safe_step(
             "bmob3_delayed", refresh_bmob3_delayed, pre_errors
         )
