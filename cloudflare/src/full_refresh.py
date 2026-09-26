@@ -61,6 +61,16 @@ _CRITICAL_SOURCE_STEPS = {
     "otec_recovery",
 }
 _NEWSWEB_CRITICAL_COMPONENTS = {"newsweb", "otello_reports"}
+_WRITTEN_VALUE_PATHS = (
+    ("norges_bank", "rows_written"),
+    ("life360", "rows_written"),
+    ("cvm", "archived"),
+    ("bemobi_web", "rows_written"),
+    ("newsweb", "history", "archived"),
+    ("newsweb", "buybacks", "ingested"),
+    ("newsweb_attachments", "daily_rows_written"),
+    ("otello_reports", "applied"),
+)
 
 
 def _now_iso() -> str:
@@ -282,20 +292,15 @@ def _degraded_source_blocks_job(
 
 
 def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
-    total = 0
-    norges_bank = results.get("norges_bank") or {}
-    total += int(norges_bank.get("rows_written") or 0)
-    total += int((results.get("life360") or {}).get("rows_written") or 0)
+    def value_at(path: tuple[str, ...]) -> Any:
+        current = results
+        for key in path[:-1]:
+            current = current.get(key) or {}
+        return current.get(path[-1])
+
+    total = sum(int(value_at(path) or 0) for path in _WRITTEN_VALUE_PATHS)
     if (results.get("b3") or {}).get("status") == "ok":
         total += 1
-    total += int((results.get("cvm") or {}).get("archived") or 0)
-    total += int((results.get("bemobi_web") or {}).get("rows_written") or 0)
-    newsweb = results.get("newsweb") or {}
-    total += int((newsweb.get("history") or {}).get("archived") or 0)
-    total += int((newsweb.get("buybacks") or {}).get("ingested") or 0)
-    attachments = results.get("newsweb_attachments") or {}
-    total += int(attachments.get("daily_rows_written") or 0)
-    total += int((results.get("otello_reports") or {}).get("applied") or 0)
     otec = results.get("otec_recovery") or {}
     if otec.get("recovery_used") and otec.get("status") == "ok":
         total += 1
