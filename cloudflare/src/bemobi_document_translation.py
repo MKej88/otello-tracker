@@ -421,10 +421,15 @@ async def queue_translation_backfill(
         f"SELECT sd.id FROM source_documents sd JOIN sources s ON s.id=sd.source_id WHERE {' AND '.join(conditions)} ORDER BY sd.id DESC LIMIT ?",
         tuple(parameters),
     )
-    for row in rows:
+    document_ids = tuple(int(row["id"]) for row in rows)
+    if document_ids:
+        placeholders = ",".join("?" for _ in document_ids)
         await repository.run(
-            "UPDATE source_documents SET translation_status='PENDING', translation_error=NULL WHERE id=?",
-            (int(row["id"]),),
+            f"""UPDATE source_documents
+                SET translation_status='PENDING', translation_error=NULL
+                WHERE id IN ({placeholders})""",
+            document_ids,
         )
-        print(f"bemobi_translation queued document_id={int(row['id'])}")
+    for document_id in document_ids:
+        print(f"bemobi_translation queued document_id={document_id}")
     return len(rows)
