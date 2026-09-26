@@ -182,6 +182,17 @@ def test_fx_view_does_not_request_redundant_economic_dashboard() -> None:
     assert "/api/dashboard/economic" not in fx_source
 
 
+def test_cash_view_publishes_independent_responses_without_waiting_for_slowest() -> None:
+    source = (FRONTEND_SRC / "CashPage.tsx").read_text(encoding="utf-8")
+
+    settle = source.index("await Promise.allSettled")
+    assert source.index("setSummary(result)") < settle
+    assert source.index("setBemobi(result)") < settle
+    assert source.index("setEconomic(result)") < settle
+    assert 'if (economic) {' in source
+    assert "Henter Bemobi- og" in source
+
+
 def test_inline_preload_script_is_allowed_by_content_security_policy() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     match = re.search(r"<script>\n([\s\S]*?)</script>", source)
