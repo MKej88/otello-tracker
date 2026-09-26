@@ -164,20 +164,31 @@ export default function CashPage() {
 
     const loadCore = async (initial = false) => {
       const request = initial ? fetchPreloadedJson : fetchJson;
+      const summaryRequest = request<Summary>("/api/dashboard/summary");
+      const bemobiRequest = request<BemobiDashboard>("/api/bemobi/dashboard");
+      const economicRequest = request<EconomicDashboard>("/api/dashboard/economic");
+
+      // Publish each independent response immediately. Waiting for the slowest
+      // endpoint made even the already available Otello cash figure invisible.
+      void summaryRequest.then((result) => {
+        if (!active) return;
+        setSummary(result);
+        setPriceAssumption((current) => current ?? result.otec_price ?? null);
+      }, () => undefined);
+      void bemobiRequest.then((result) => {
+        if (active) setBemobi(result);
+      }, () => undefined);
+      void economicRequest.then((result) => {
+        if (active) setEconomic(result);
+      }, () => undefined);
+
       const [summaryResult, bemobiResult, economicResult] = await Promise.allSettled([
-        request<Summary>("/api/dashboard/summary"),
-        request<BemobiDashboard>("/api/bemobi/dashboard"),
-        request<EconomicDashboard>("/api/dashboard/economic"),
+        summaryRequest,
+        bemobiRequest,
+        economicRequest,
       ]);
 
       if (!active) return;
-
-      if (summaryResult.status === "fulfilled") {
-        setSummary(summaryResult.value);
-        setPriceAssumption((current) => current ?? summaryResult.value.otec_price ?? null);
-      }
-      if (bemobiResult.status === "fulfilled") setBemobi(bemobiResult.value);
-      if (economicResult.status === "fulfilled") setEconomic(economicResult.value);
 
       setCoreFailed(
         summaryResult.status === "rejected" ||
@@ -326,6 +337,18 @@ export default function CashPage() {
   }
 
   if (!summary || !bemobi || !economic) {
+    if (economic) {
+      return (
+        <section className="card" aria-busy="true">
+          <span className="label">OTELLO-CASH</span>
+          <strong>{moneyM(economic.cash_bridge?.estimated_cash_mnok)}</strong>
+          <p>
+            Estimert per {formatDate(economic.as_of_date)}. Henter Bemobi- og
+            markedsdata for resten av analysen …
+          </p>
+        </section>
+      );
+    }
     return <ResourceNotice>Laster cash- og kapitalallokeringsdata …</ResourceNotice>;
   }
 
