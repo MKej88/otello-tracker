@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -10,44 +10,6 @@ except ImportError:
     from option_liability import decimal_text
 
 MAX_FX_LOOKBACK_DAYS = 7
-
-
-async def _nearest_brl_nok(repository, payment_date: str) -> dict[str, Any] | None:
-    floor = (date.fromisoformat(payment_date) - timedelta(days=MAX_FX_LOOKBACK_DAYS)).isoformat()
-    return await repository.first(
-        """
-        SELECT fr.id, substr(fr.observed_at, 1, 10) AS rate_date, fr.rate,
-               fr.source_document_id, s.code AS source_code
-        FROM fx_rates fr
-        JOIN sources s ON s.id = fr.source_id
-        WHERE fr.base_currency = 'BRL' AND fr.quote_currency = 'NOK'
-          AND substr(fr.observed_at, 1, 10) <= ?
-          AND substr(fr.observed_at, 1, 10) >= ?
-        ORDER BY substr(fr.observed_at, 1, 10) DESC,
-                 CASE s.code
-                   WHEN 'NORGES_BANK' THEN 0
-                   WHEN 'ECB' THEN 1
-                   ELSE 5
-                 END,
-                 fr.observed_at DESC,
-                 fr.id DESC
-        LIMIT 1
-        """,
-        (payment_date, floor),
-    )
-
-
-async def _holding(repository, entitlement_date: str) -> dict[str, Any] | None:
-    return await repository.first(
-        """
-        SELECT id, shares, effective_from, effective_to
-        FROM bemobi_holdings
-        WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?)
-        ORDER BY effective_from DESC, id DESC
-        LIMIT 1
-        """,
-        (entitlement_date, entitlement_date),
-    )
 
 
 def _tax_per_share(action: dict[str, Any]) -> tuple[Decimal, str] | None:
@@ -84,7 +46,9 @@ async def _upsert_receipt(
     gross_brl = gross_per_share * shares
     rate = Decimal(str(fx["rate"]))
     amount_nok = gross_brl * rate
-    movement_type = "BEMOBI_JCP" if action["action_type"] == "JCP" else "BEMOBI_DIVIDEND"
+    movement_type = (
+        "BEMOBI_JCP" if action["action_type"] == "JCP" else "BEMOBI_DIVIDEND"
+    )
     description = (
         f"Confirmed Bemobi {action['action_type']} receipt: {int(shares)} shares x "
         f"BRL {decimal_text(gross_per_share)} gross per share. "
@@ -169,7 +133,9 @@ async def _upsert_withholding(
     tax_brl = -(tax_per_share * shares)
     rate = Decimal(str(fx["rate"]))
     amount_nok = tax_brl * rate
-    external_action_id = str(action.get("external_action_id") or f"action-{action['id']}")
+    external_action_id = str(
+        action.get("external_action_id") or f"action-{action['id']}"
+    )
     external_movement_id = f"bemobi-withholding:{external_action_id}"
     description = (
         f"Bemobi JCP withholding adjustment ({basis}): {int(shares)} shares x "
@@ -257,9 +223,43 @@ async def sync_confirmed_bemobi_distribution_cash(
                COALESCE(ca.gross_amount_per_share, ca.amount_per_share)
                    AS amount_per_share,
                ca.net_amount_per_share,
-               ca.withholding_rate, ca.tax_treatment, ca.source_document_id
+               ca.withholding_rate, ca.tax_treatment, ca.source_document_id,
+               h.id AS holding_id, h.shares AS holding_shares,
+               h.effective_from AS holding_effective_from,
+               h.effective_to AS holding_effective_to,
+               fr.id AS fx_id, substr(fr.observed_at, 1, 10) AS fx_rate_date,
+               fr.rate AS fx_rate, fr.source_document_id AS fx_source_document_id,
+               fs.code AS fx_source_code
         FROM corporate_actions ca
         JOIN instruments i ON i.id = ca.issuer_instrument_id
+        LEFT JOIN bemobi_holdings h ON h.id = (
+            SELECT candidate.id
+            FROM bemobi_holdings candidate
+            WHERE candidate.effective_from <= ca.ex_date
+              AND (candidate.effective_to IS NULL OR candidate.effective_to >= ca.ex_date)
+            ORDER BY candidate.effective_from DESC, candidate.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN fx_rates fr ON fr.id = (
+            SELECT candidate.id
+            FROM fx_rates candidate
+            JOIN sources candidate_source ON candidate_source.id = candidate.source_id
+            WHERE candidate.base_currency = 'BRL'
+              AND candidate.quote_currency = 'NOK'
+              AND substr(candidate.observed_at, 1, 10) <= ca.payment_date
+              AND substr(candidate.observed_at, 1, 10) >=
+                  date(ca.payment_date, '-' || ? || ' days')
+            ORDER BY substr(candidate.observed_at, 1, 10) DESC,
+                     CASE candidate_source.code
+                       WHEN 'NORGES_BANK' THEN 0
+                       WHEN 'ECB' THEN 1
+                       ELSE 5
+                     END,
+                     candidate.observed_at DESC,
+                     candidate.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN sources fs ON fs.id = fr.source_id
         WHERE i.symbol='BMOB3'
           AND ca.action_type IN ('DIVIDEND', 'JCP')
           AND ca.ex_date IS NOT NULL
@@ -268,7 +268,7 @@ async def sync_confirmed_bemobi_distribution_cash(
           AND ca.payment_date <= ?
         ORDER BY ca.payment_date, ca.id
         """,
-        (target_date,),
+        (MAX_FX_LOOKBACK_DAYS, target_date),
     )
 
     written = 0
@@ -277,17 +277,38 @@ async def sync_confirmed_bemobi_distribution_cash(
     skipped: list[dict[str, Any]] = []
     processed = 0
     for action in actions:
-        entitlement_date = str(action["ex_date"])
         payment_date = str(action["payment_date"])
-        holding = await _holding(repository, entitlement_date)
-        fx = await _nearest_brl_nok(repository, payment_date)
+        date.fromisoformat(payment_date)
+        holding = (
+            {
+                "id": action["holding_id"],
+                "shares": action["holding_shares"],
+                "effective_from": action["holding_effective_from"],
+                "effective_to": action["holding_effective_to"],
+            }
+            if action.get("holding_id") is not None
+            else None
+        )
+        fx = (
+            {
+                "id": action["fx_id"],
+                "rate_date": action["fx_rate_date"],
+                "rate": action["fx_rate"],
+                "source_document_id": action["fx_source_document_id"],
+                "source_code": action["fx_source_code"],
+            }
+            if action.get("fx_id") is not None
+            else None
+        )
         if holding is None or fx is None:
             skipped.append(
                 {
                     "corporate_action_id": int(action["id"]),
                     "external_action_id": action.get("external_action_id"),
                     "payment_date": payment_date,
-                    "reason": "missing_holding" if holding is None else "missing_brl_nok",
+                    "reason": (
+                        "missing_holding" if holding is None else "missing_brl_nok"
+                    ),
                 }
             )
             continue
