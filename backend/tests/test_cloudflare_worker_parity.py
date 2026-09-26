@@ -344,8 +344,8 @@ def test_worker_buyback_forecast_matches_reference_exactly(tmp_path: Path) -> No
     )
 
     assert actual == expected
-    assert 61_000 <= actual["estimate"]["base_case_shares"] <= 63_000
-    assert actual["methodology_version"] == "otec-buyback-safe-harbour-program-v1"
+    assert 64_000 <= actual["estimate"]["base_case_shares"] <= 65_500
+    assert actual["methodology_version"] == "otec-buyback-robust-volume-v2"
 
 
 def test_worker_oslo_calendar_matches_reference() -> None:

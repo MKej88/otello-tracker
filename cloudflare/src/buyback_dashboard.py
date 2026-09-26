@@ -391,6 +391,8 @@ async def buyback_dashboard(
         "forecast": forecast,
         "backtest": {
             "metrics": forecast.get("active_program_backtest") or {"weeks": 0},
+            "legacy_metrics": forecast.get("legacy_program_backtest") or {"weeks": 0},
+            "kind": forecast.get("backtest_kind"),
             "weeks": history,
         },
         "completion": _completion(
@@ -406,7 +408,9 @@ async def buyback_dashboard(
             "Volumandel viser Otellos faktiske kjøp som andel av faktisk OTEC-volum i hele uken. "
             "Dette er et investorforholdstall, ikke selve Safe Harbour-testen. 25 %-grensen vurderes "
             "per kjøpsdag mot gjennomsnittlig dagsvolum i de 20 foregående handelsdagene. "
-            "Safe Harbour-kapasitet og neste-uke-prognose følger den eksisterende walk-forward-modellen."
+            "Kapasiteten fra råvolum er et ukeanslag. Prognosen demper ekstreme volumdager "
+            "og legger størst vekt på de nyeste kjøpsukene. Dempingen er en modellforutsetning, "
+            "ikke et dokumentert fradrag for blokkhandler eller en juridisk volumgrense."
         ),
     }
 

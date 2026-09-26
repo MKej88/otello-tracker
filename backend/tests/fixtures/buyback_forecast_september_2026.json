@@ -1,0 +1,353 @@
+{
+  "sources": {
+    "activity": "User-supplied Euronext OTELLO CORPORATION_historical_price.xls, Number of Shares and Close, 2026-08-17 through 2026-09-18",
+    "activity_sha256": "5b182c43aab479ef8472a47f29a70444fe28025b11e272c1d9d1c51ba16eb2a6",
+    "earlier_activity": "backend/app/buybacks/data/otec_euronext_daily_activity_2024_2026.csv",
+    "actuals": "https://otellotracker.com/api/buybacks/dashboard retrieved 2026-09-26; first ten weeks cross-checked with the existing current-program test fixture",
+    "limitation": "Historical export volumes differ slightly from live DELAYED_TRADE_SUM. Compare v1/v2 on the same export, not directly to the screenshot. Publication vintages are unavailable in this fixture."
+  },
+  "program_max_shares": 2192046,
+  "activity_overlay": [
+    {
+      "trading_date": "2026-08-17",
+      "volume_shares": 53546,
+      "last_price_nok": 17.5,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-18",
+      "volume_shares": 31690,
+      "last_price_nok": 17.36,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-19",
+      "volume_shares": 59082,
+      "last_price_nok": 17.2,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-20",
+      "volume_shares": 37050,
+      "last_price_nok": 17.0,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-21",
+      "volume_shares": 76185,
+      "last_price_nok": 17.04,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-24",
+      "volume_shares": 61091,
+      "last_price_nok": 16.94,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-25",
+      "volume_shares": 50302,
+      "last_price_nok": 17.02,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-26",
+      "volume_shares": 84779,
+      "last_price_nok": 17.3,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-27",
+      "volume_shares": 52434,
+      "last_price_nok": 17.18,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-28",
+      "volume_shares": 51477,
+      "last_price_nok": 17.48,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-08-31",
+      "volume_shares": 30753,
+      "last_price_nok": 17.64,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-01",
+      "volume_shares": 771901,
+      "last_price_nok": 17.8,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-02",
+      "volume_shares": 31275,
+      "last_price_nok": 17.96,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-03",
+      "volume_shares": 22901,
+      "last_price_nok": 18.0,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-04",
+      "volume_shares": 32949,
+      "last_price_nok": 17.98,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-07",
+      "volume_shares": 35759,
+      "last_price_nok": 18.3,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-08",
+      "volume_shares": 33992,
+      "last_price_nok": 18.46,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-09",
+      "volume_shares": 4727,
+      "last_price_nok": 18.18,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-10",
+      "volume_shares": 29493,
+      "last_price_nok": 18.6,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-11",
+      "volume_shares": 33331,
+      "last_price_nok": 18.48,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-14",
+      "volume_shares": 27633,
+      "last_price_nok": 18.38,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-15",
+      "volume_shares": 30065,
+      "last_price_nok": 18.64,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-16",
+      "volume_shares": 82378,
+      "last_price_nok": 18.56,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-17",
+      "volume_shares": 15253,
+      "last_price_nok": 18.74,
+      "quality": "HISTORICAL_EXPORT"
+    },
+    {
+      "trading_date": "2026-09-18",
+      "volume_shares": 4213,
+      "last_price_nok": 19.36,
+      "quality": "HISTORICAL_EXPORT"
+    }
+  ],
+  "weeks": [
+    {
+      "period_start": "2026-06-08",
+      "period_end": "2026-06-12",
+      "actual_shares": 79600
+    },
+    {
+      "period_start": "2026-06-15",
+      "period_end": "2026-06-19",
+      "actual_shares": 72009
+    },
+    {
+      "period_start": "2026-06-22",
+      "period_end": "2026-06-26",
+      "actual_shares": 52419
+    },
+    {
+      "period_start": "2026-06-29",
+      "period_end": "2026-07-03",
+      "actual_shares": 63554
+    },
+    {
+      "period_start": "2026-07-06",
+      "period_end": "2026-07-10",
+      "actual_shares": 65300
+    },
+    {
+      "period_start": "2026-07-13",
+      "period_end": "2026-07-17",
+      "actual_shares": 52599
+    },
+    {
+      "period_start": "2026-07-20",
+      "period_end": "2026-07-24",
+      "actual_shares": 50500
+    },
+    {
+      "period_start": "2026-07-27",
+      "period_end": "2026-07-31",
+      "actual_shares": 46400
+    },
+    {
+      "period_start": "2026-08-03",
+      "period_end": "2026-08-07",
+      "actual_shares": 58500
+    },
+    {
+      "period_start": "2026-08-10",
+      "period_end": "2026-08-14",
+      "actual_shares": 59512
+    },
+    {
+      "period_start": "2026-08-17",
+      "period_end": "2026-08-21",
+      "actual_shares": 64000
+    },
+    {
+      "period_start": "2026-08-24",
+      "period_end": "2026-08-28",
+      "actual_shares": 56689
+    },
+    {
+      "period_start": "2026-08-31",
+      "period_end": "2026-09-04",
+      "actual_shares": 61500
+    },
+    {
+      "period_start": "2026-09-07",
+      "period_end": "2026-09-11",
+      "actual_shares": 54388
+    },
+    {
+      "period_start": "2026-09-14",
+      "period_end": "2026-09-18",
+      "actual_shares": 36129
+    },
+    {
+      "period_start": "2026-09-21",
+      "period_end": "2026-09-25",
+      "actual_shares": 40297
+    }
+  ],
+  "live_snapshot": {
+    "methodology_version": "otec-buyback-safe-harbour-program-v1",
+    "as_of_date": "2026-09-26",
+    "active_program_backtest": {
+      "weeks": 16,
+      "median_ape_pct": 7.62,
+      "wmape_pct": 24.43,
+      "within_10_pct": 56.2,
+      "within_20_pct": 75.0
+    },
+    "recent_program_weeks": [
+      {
+        "period_start": "2026-08-03",
+        "period_end": "2026-08-07",
+        "actual_shares": 58500,
+        "adv20_shares": 44863.85,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 56079.8125,
+        "utilization": 1.0431561268147964,
+        "walk_forward_factor": 0.9337707520595595,
+        "walk_forward_prediction_shares": 52365.68869348409,
+        "absolute_error_shares": 6134.311306515912
+      },
+      {
+        "period_start": "2026-08-10",
+        "period_end": "2026-08-14",
+        "actual_shares": 59512,
+        "adv20_shares": 50077.15,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 62596.4375,
+        "utilization": 0.95072503127674,
+        "walk_forward_factor": 0.9337707520595595,
+        "walk_forward_prediction_shares": 58450.722520624215,
+        "absolute_error_shares": 1061.2774793757853
+      },
+      {
+        "period_start": "2026-08-17",
+        "period_end": "2026-08-21",
+        "actual_shares": 64000,
+        "adv20_shares": 52789.45,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 65986.8125,
+        "utilization": 0.9698907641583687,
+        "walk_forward_factor": 0.9426804731366075,
+        "walk_forward_prediction_shares": 62204.47962827661,
+        "absolute_error_shares": 1795.520371723389
+      },
+      {
+        "period_start": "2026-08-24",
+        "period_end": "2026-08-28",
+        "actual_shares": 56689,
+        "adv20_shares": 55502.4,
+        "trading_days": 4,
+        "week_start_capacity_estimate_shares": 55502.4,
+        "utilization": 1.0213792556718269,
+        "walk_forward_factor": 0.9523438737386987,
+        "walk_forward_prediction_shares": 52857.37061779475,
+        "absolute_error_shares": 3831.6293822052467
+      },
+      {
+        "period_start": "2026-08-31",
+        "period_end": "2026-09-04",
+        "actual_shares": 61500,
+        "adv20_shares": 58990.45,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 73738.0625,
+        "utilization": 0.8340333053909573,
+        "walk_forward_factor": 0.961926740179513,
+        "walk_forward_prediction_shares": 70930.61408777819,
+        "absolute_error_shares": 9430.614087778187
+      },
+      {
+        "period_start": "2026-09-07",
+        "period_end": "2026-09-11",
+        "actual_shares": 54388,
+        "adv20_shares": 85578.75,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 106973.4375,
+        "utilization": 0.5084252808086119,
+        "walk_forward_factor": 0.9603078977175543,
+        "walk_forward_prediction_shares": 102727.43687724519,
+        "absolute_error_shares": 48339.436877245185
+      },
+      {
+        "period_start": "2026-09-14",
+        "period_end": "2026-09-18",
+        "actual_shares": 36129,
+        "adv20_shares": 77968.35,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 97460.4375,
+        "utilization": 0.3707042665389225,
+        "walk_forward_factor": 0.9603078977175543,
+        "walk_forward_prediction_shares": 93592.02784625809,
+        "absolute_error_shares": 57463.02784625809
+      },
+      {
+        "period_start": "2026-09-21",
+        "period_end": "2026-09-25",
+        "actual_shares": 40297,
+        "adv20_shares": 75629.45,
+        "trading_days": 5,
+        "week_start_capacity_estimate_shares": 94536.8125,
+        "utilization": 0.426257231805864,
+        "walk_forward_factor": 0.9426804731366075,
+        "walk_forward_prediction_shares": 89118.00713632675,
+        "absolute_error_shares": 48821.00713632675
+      }
+    ]
+  }
+}

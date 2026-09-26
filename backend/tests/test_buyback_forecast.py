@@ -187,7 +187,7 @@ def test_current_program_forecast_matches_walk_forward_backtest_without_weekly_c
     assert result["volume_model"]["week_start_capacity_estimate_shares"] == 65987
     assert result["program"]["remaining_shares"] == 1_591_653
     assert result["price_model"]["state"] == "OPEN"
-    assert 61_000 <= result["estimate"]["base_case_shares"] <= 63_000
+    assert 64_000 <= result["estimate"]["base_case_shares"] <= 65_500
     assert result["estimate"]["low_shares"] < result["estimate"]["base_case_shares"]
     assert result["estimate"]["high_shares"] > result["estimate"]["base_case_shares"]
     assert result["estimate"]["confidence"] == "HIGH"
