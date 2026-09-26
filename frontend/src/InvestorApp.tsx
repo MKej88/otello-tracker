@@ -79,7 +79,6 @@ function preload(view: View) {
     void loadFxPage();
     preloadJson("/api/fx/dashboard");
     preloadJson("/api/dashboard/summary");
-    preloadJson("/api/dashboard/economic");
   }
   if (view === "Brasil") {
     void loadBrazilPage();

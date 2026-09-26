@@ -168,6 +168,20 @@ def test_html_preloads_first_screen_data_for_direct_routes() -> None:
     assert source.index("discount-history") < script_start
 
 
+def test_fx_view_does_not_request_redundant_economic_dashboard() -> None:
+    app_source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
+    fx_source = (FRONTEND_SRC / "FxPage.tsx").read_text(encoding="utf-8")
+
+    fx_preload = app_source.split('if (view === "BRL/NOK")', 1)[1].split(
+        'if (view === "Brasil")', 1
+    )[0]
+
+    assert 'preloadJson("/api/fx/dashboard")' in fx_preload
+    assert 'preloadJson("/api/dashboard/summary")' in fx_preload
+    assert "/api/dashboard/economic" not in fx_preload
+    assert "/api/dashboard/economic" not in fx_source
+
+
 def test_inline_preload_script_is_allowed_by_content_security_policy() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
     match = re.search(r"<script>\n([\s\S]*?)</script>", source)
