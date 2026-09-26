@@ -67,12 +67,6 @@ type SummaryPayload = {
     ownership_pct?: number | null;
   } | null;
 };
-type EconomicPayload = {
-  ready?: boolean;
-  shares_outstanding?: number | null;
-  nav_per_share?: number | null;
-};
-
 type LinePoint = { date: string; value: number };
 
 const ranges: RangeKey[] = ["1M", "3M", "YTD", "1Y", "3Y", "5Y"];
@@ -265,11 +259,6 @@ export default function FxPage() {
     REFRESH_MS,
     true,
   );
-  const { data: economic } = usePollingResource<EconomicPayload>(
-    "/api/dashboard/economic",
-    REFRESH_MS,
-    true,
-  );
   const [range, setRange] = useState<RangeKey>("1Y");
   const [driverPeriod, setDriverPeriod] = useState<"m1" | "ytd">("m1");
 
@@ -291,7 +280,7 @@ export default function FxPage() {
   const bmob3 = summary?.bemobi_insights?.price_brl ?? summary?.bmob3_price;
   const holdingShares = summary?.bemobi_insights?.holding_shares ?? summary?.bemobi_shares;
   const ownershipPct = summary?.bemobi_insights?.ownership_pct;
-  const sharesOutstanding = summary?.shares_outstanding ?? economic?.shares_outstanding;
+  const sharesOutstanding = summary?.shares_outstanding;
   const bemobiValueM = summary?.bemobi_value_mnok
     ?? (finite(bmob3) && finite(holdingShares) && finite(spot) ? bmob3 * holdingShares * spot / MILLION : null);
   const onePctM = finite(bemobiValueM) ? bemobiValueM * 0.01 : null;
