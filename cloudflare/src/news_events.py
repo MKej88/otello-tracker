@@ -212,6 +212,46 @@ async def news_and_events(
     seen_documents: set[str] = set()
     batch_size = safe_limit * 3
     offset = 0
+
+    programs_query = """
+        SELECT p.id, p.start_date, p.end_date, p.status, sd.url,
+               s.name AS source_name
+        FROM buyback_programs p
+        LEFT JOIN source_documents sd ON sd.id=p.source_document_id
+        LEFT JOIN sources s ON s.id=sd.source_id
+        WHERE p.end_date >= ? AND p.status='ACTIVE'
+        ORDER BY p.start_date, p.id
+        """
+    actions_query = """
+        SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date, i.symbol,
+               sd.url, s.name AS source_name
+        FROM corporate_actions ca
+        JOIN instruments i ON i.id=ca.issuer_instrument_id
+        JOIN source_documents sd ON sd.id=ca.source_document_id
+        JOIN sources s ON s.id=sd.source_id
+        WHERE i.symbol IN ('OTEC', 'BMOB3')
+          AND (ca.ex_date >= ? OR ca.payment_date >= ?)
+          AND ca.action_type IN ('DIVIDEND', 'JCP', 'DISTRIBUTION')
+        ORDER BY COALESCE(ca.ex_date, ca.payment_date), ca.id
+        """
+    next_quarter_query = """
+        SELECT fact_key, payload_json, source_name, source_url
+        FROM bemobi_investor_facts
+        WHERE fact_type='NEXT_QUARTER'
+        ORDER BY COALESCE(as_of_date, published_date, '') DESC, id DESC
+        LIMIT 1
+        """
+
+    # Calendar data does not depend on the news result. Start all event reads
+    # before the (occasionally paginated) news read so first content only waits
+    # for the slower branch, rather than paying both D1 round trips in series.
+    event_reads = asyncio.gather(
+        repository.all(programs_query, (today.isoformat(),)),
+        repository.all(actions_query, (today.isoformat(), today.isoformat())),
+        repository.first(next_quarter_query),
+        agenda_events(repository, as_of_date=today.isoformat()),
+    )
+
     while len(news) < safe_limit:
         news_rows = await repository.all(
             """
@@ -249,43 +289,7 @@ async def news_and_events(
             break
         offset += batch_size
 
-    programs_query = """
-        SELECT p.id, p.start_date, p.end_date, p.status, sd.url,
-               s.name AS source_name
-        FROM buyback_programs p
-        LEFT JOIN source_documents sd ON sd.id=p.source_document_id
-        LEFT JOIN sources s ON s.id=sd.source_id
-        WHERE p.end_date >= ? AND p.status='ACTIVE'
-        ORDER BY p.start_date, p.id
-        """
-    actions_query = """
-        SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date, i.symbol,
-               sd.url, s.name AS source_name
-        FROM corporate_actions ca
-        JOIN instruments i ON i.id=ca.issuer_instrument_id
-        JOIN source_documents sd ON sd.id=ca.source_document_id
-        JOIN sources s ON s.id=sd.source_id
-        WHERE i.symbol IN ('OTEC', 'BMOB3')
-          AND (ca.ex_date >= ? OR ca.payment_date >= ?)
-          AND ca.action_type IN ('DIVIDEND', 'JCP', 'DISTRIBUTION')
-        ORDER BY COALESCE(ca.ex_date, ca.payment_date), ca.id
-        """
-    next_quarter_query = """
-        SELECT fact_key, payload_json, source_name, source_url
-        FROM bemobi_investor_facts
-        WHERE fact_type='NEXT_QUARTER'
-        ORDER BY COALESCE(as_of_date, published_date, '') DESC, id DESC
-        LIMIT 1
-        """
-
-    # These reads are independent D1 requests. Starting them together avoids four
-    # consecutive network round trips on every visit to the news page.
-    programs, actions, next_quarter, agenda = await asyncio.gather(
-        repository.all(programs_query, (today.isoformat(),)),
-        repository.all(actions_query, (today.isoformat(), today.isoformat())),
-        repository.first(next_quarter_query),
-        agenda_events(repository, as_of_date=today.isoformat()),
-    )
+    programs, actions, next_quarter, agenda = await event_reads
 
     events: list[dict[str, Any]] = []
     for row in programs:
