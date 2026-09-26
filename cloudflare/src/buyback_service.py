@@ -8,7 +8,12 @@ from typing import Any
 
 from src.oslo_calendar import oslo_bors_trading_days
 
-from src.buyback_model import METHOD_VERSION, known_history, model_confidence, point_estimate, uncertainty_band
+try:
+    from .buyback_model import METHOD_VERSION, known_history, model_confidence, point_estimate, uncertainty_band
+except ImportError:
+    # pywrangler bundles application modules at the top level. The entrypoint's
+    # synthetic src package aliases only oslo_calendar, not arbitrary new files.
+    from buyback_model import METHOD_VERSION, known_history, model_confidence, point_estimate, uncertainty_band
 
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20

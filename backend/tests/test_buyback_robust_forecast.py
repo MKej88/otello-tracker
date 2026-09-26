@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -171,3 +172,22 @@ def test_model_mirror_has_no_drift():
     assert (ROOT / "backend/app/buybacks/forecast_model.py").read_text() == (
         ROOT / "cloudflare/src/buyback_model.py"
     ).read_text()
+
+
+def test_worker_imports_with_pywrangler_flat_module_layout():
+    # Reproduce entry.py's synthetic src alias in a fresh process. Importing the
+    # real src package in the regular test runner otherwise masks packaging bugs.
+    script = """
+import sys, types, oslo_calendar
+package = types.ModuleType('src')
+package.__path__ = []
+sys.modules['src'] = package
+sys.modules['src.oslo_calendar'] = oslo_calendar
+import buyback_service
+assert buyback_service.METHOD_VERSION == 'otec-buyback-robust-volume-v2'
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT / "cloudflare/src",
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
