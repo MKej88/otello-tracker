@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
@@ -114,6 +116,43 @@ class NewsPaginationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(repository.news_offsets, [0, 3])
         self.assertEqual([item["id"] for item in result["news"]], [42])
+
+
+class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_independent_event_reads_run_concurrently(self) -> None:
+        active_reads = 0
+        max_active_reads = 0
+
+        async def delayed_read() -> None:
+            nonlocal active_reads, max_active_reads
+            active_reads += 1
+            max_active_reads = max(max_active_reads, active_reads)
+            await asyncio.sleep(0.01)
+            active_reads -= 1
+
+        class DelayedRepository:
+            async def all(self, query, parameters=()):
+                if "FROM company_news" in query:
+                    return []
+                await delayed_read()
+                return []
+
+            async def first(self, query, parameters=()):
+                await delayed_read()
+                return None
+
+        async def delayed_agenda(repository, *, as_of_date):
+            await delayed_read()
+            return []
+
+        with patch("news_events.agenda_events", delayed_agenda):
+            result = await news_and_events(
+                DelayedRepository(),
+                as_of_date="2026-09-26",
+            )
+
+        self.assertTrue(result["ready"])
+        self.assertEqual(max_active_reads, 4)
 
 
 if __name__ == "__main__":
