@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Any
 
@@ -353,13 +354,24 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
             "data_status": summary.get("data_status"),
         }
 
-    distribution_row = await _latest_distribution(repository)
-    result_source = await _latest_result_source(repository)
-    latest_result_fact = await latest_bemobi_fact(repository, "RESULT")
-    ownership_fact = await latest_bemobi_fact(repository, "OWNERSHIP")
-    ttm_quarters = (await load_bemobi_facts(repository, "TTM_QUARTER"))[-4:]
-    ev_anchor = await latest_bemobi_fact(repository, "VALUATION_ANCHOR")
-    next_quarter_fact = await latest_bemobi_fact(repository, "NEXT_QUARTER")
+    (
+        distribution_row,
+        result_source,
+        latest_result_fact,
+        ownership_fact,
+        all_ttm_quarters,
+        ev_anchor,
+        next_quarter_fact,
+    ) = await asyncio.gather(
+        _latest_distribution(repository),
+        _latest_result_source(repository),
+        latest_bemobi_fact(repository, "RESULT"),
+        latest_bemobi_fact(repository, "OWNERSHIP"),
+        load_bemobi_facts(repository, "TTM_QUARTER"),
+        latest_bemobi_fact(repository, "VALUATION_ANCHOR"),
+        latest_bemobi_fact(repository, "NEXT_QUARTER"),
+    )
+    ttm_quarters = all_ttm_quarters[-4:]
 
     if (
         latest_result_fact is None
