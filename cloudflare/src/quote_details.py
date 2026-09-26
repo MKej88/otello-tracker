@@ -534,15 +534,18 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
         }
 
     trading_date = str(latest["trading_date"])
-    history = await _daily_history(repository, symbol, trading_date)
-    latest_close = await _latest_close(
-        repository,
-        symbol,
-        (
-            trading_date
-            if symbol == "OTEC" or latest.get("price_type") == "LAST"
-            else None
+    history, latest_close, session = await asyncio.gather(
+        _daily_history(repository, symbol, trading_date),
+        _latest_close(
+            repository,
+            symbol,
+            (
+                trading_date
+                if symbol == "OTEC" or latest.get("price_type") == "LAST"
+                else None
+            ),
         ),
+        _day_stats(repository, symbol, trading_date),
     )
     volume = await _volume_stats(repository, symbol, history, latest)
     volume["relative_3m"] = _relative_volume(volume)
@@ -555,7 +558,7 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
         "last_price_type": latest.get("price_type"),
         "last_updated_at": latest.get("observed_at"),
         "trading_date": trading_date,
-        "session": await _day_stats(repository, symbol, trading_date),
+        "session": session,
         "last_close": {
             "price": _number(latest_close.get("price")) if latest_close else None,
             "date": latest_close.get("trading_date") if latest_close else None,
