@@ -255,13 +255,14 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
 
 
 class FakeRepository:
-    def __init__(self) -> None:
+    def __init__(self, document_ids: list[int] | None = None) -> None:
+        self.document_ids = [9] if document_ids is None else document_ids
         self.updates: list[tuple[str, tuple[object, ...]]] = []
 
     async def all(self, query: str, parameters: tuple[object, ...]):
         self.query = query
         self.parameters = parameters
-        return [{"id": 9}]
+        return [{"id": document_id} for document_id in self.document_ids]
 
     async def run(self, query: str, parameters: tuple[object, ...]):
         self.updates.append((query, parameters))
@@ -278,6 +279,18 @@ class BackfillTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("substr(sd.published_at,1,10)>=?", repository.query)
         self.assertEqual(repository.parameters, (9, "2026-01-01", 1))
         self.assertEqual(repository.updates[0][1], (9,))
+
+    async def test_backfill_queues_one_hundred_documents_in_one_write(self) -> None:
+        document_ids = list(range(1, 101))
+        repository = FakeRepository(document_ids)
+
+        count = await queue_translation_backfill(repository, limit=100)
+
+        self.assertEqual(count, 100)
+        self.assertEqual(len(repository.updates), 1)
+        query, parameters = repository.updates[0]
+        self.assertEqual(query.count("?"), 100)
+        self.assertEqual(parameters, tuple(document_ids))
 
 
 if __name__ == "__main__":
