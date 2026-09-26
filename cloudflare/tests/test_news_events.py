@@ -119,7 +119,7 @@ class NewsPaginationTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
-    async def test_independent_event_reads_run_concurrently(self) -> None:
+    async def test_news_and_independent_event_reads_run_concurrently(self) -> None:
         active_reads = 0
         max_active_reads = 0
 
@@ -132,8 +132,6 @@ class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
 
         class DelayedRepository:
             async def all(self, query, parameters=()):
-                if "FROM company_news" in query:
-                    return []
                 await delayed_read()
                 return []
 
@@ -152,7 +150,7 @@ class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result["ready"])
-        self.assertEqual(max_active_reads, 4)
+        self.assertEqual(max_active_reads, 5)
 
 
 if __name__ == "__main__":
