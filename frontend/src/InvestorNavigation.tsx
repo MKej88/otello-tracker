@@ -157,8 +157,10 @@ export default function InvestorNavigation({
     <>
       <aside className="sidebar desktopSidebar">
         <div className="brand">
-          <span aria-hidden="true" className="brandMark">O</span>
-          <div><strong>Otello</strong><small>Investorverktøy</small></div>
+          <div>
+            <img className="brandLogo" src="/otello-logo.png" alt="Otello" width="350" height="100" />
+            <small>Investorverktøy</small>
+          </div>
         </div>
         <nav className="investorNav" aria-label="Hovedmeny">
           {navigationItems((view) => {
@@ -173,8 +175,10 @@ export default function InvestorNavigation({
       <div className="mobileNavigation">
         <div className="mobileNavigationBar">
           <div className="brand">
-            <span aria-hidden="true" className="brandMark">O</span>
-            <div><strong>Otello</strong><small>Investorverktøy</small></div>
+            <div>
+              <img className="brandLogo" src="/otello-logo.png" alt="Otello" width="350" height="100" />
+              <small>Investorverktøy</small>
+            </div>
           </div>
           <div className="mobileActiveView">
             <span>Aktiv side</span>

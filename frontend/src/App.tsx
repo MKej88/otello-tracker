@@ -475,8 +475,10 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span aria-hidden="true" className="brandMark">O</span>
-          <div><strong>Otello</strong><small>Investorverktøy</small></div>
+          <div>
+            <img className="brandLogo" src="/otello-logo.png" alt="Otello" width="350" height="100" />
+            <small>Investorverktøy</small>
+          </div>
         </div>
         <nav>
           {menu.map((item) => {

@@ -45,10 +45,8 @@ button { font: inherit; }
 .shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { border-right: 1px solid var(--ot-border-soft); padding: 28px 18px; display: flex; flex-direction: column; }
 .brand { display: flex; gap: 11px; align-items: center; padding: 1px 8px 26px; cursor: default; user-select: none; }
-.brandMark { position: relative; width: 38px; height: 38px; border: 1px solid; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; font-size: 18px; font-weight: 700; line-height: 1; }
-.brandMark::after { position: absolute; top: 3px; right: 1px; width: 7px; height: 7px; border: 2px solid; border-radius: 50%; content: ""; }
+.brandLogo { display: block; width: 126px; height: 36px; object-fit: contain; }
 .brand > div { min-width: 0; line-height: 1.15; }
-.brand strong { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
 .brand small { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; letter-spacing: .035em; }
 nav { display: grid; gap: 5px; }
 .navItem { border: 0; background: transparent; border-radius: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; min-width: 0; cursor: default; text-align: left; }
@@ -221,9 +219,7 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
     border-bottom: 1px solid var(--ot-border-soft);
   }
   .brand { gap: 9px; padding: 0 2px 12px; }
-  .brandMark { width: 32px; height: 32px; font-size: 15px; }
-  .brandMark::after { top: 2px; right: 0; width: 6px; height: 6px; }
-  .brand strong { font-size: 15px; }
+  .brandLogo { width: 98px; height: 28px; }
   .brand small { margin-top: 2px; font-size: 10px; }
   .mobileNavigationBar .brand { padding: 0; }
   .mobileNavigationBar .mobileActiveView { margin-left: auto; }
