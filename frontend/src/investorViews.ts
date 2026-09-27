@@ -68,6 +68,21 @@ export const viewTitles: Record<View, string> = {
   Datakvalitet: "Datakvalitet",
 };
 
+export const viewSubtitles: Record<View, string> = {
+  Oversikt: "Samlet bilde av verdi, marked og kommende hendelser.",
+  NAV: "Beregnet substansverdi og rabatt mot aksjekursen.",
+  "NAV-sensitivitet": "Hvordan endrede forutsetninger påvirker estimert NAV.",
+  Historikk: "Utviklingen i estimert NAV-rabatt over tid.",
+  Tilbakekjøpsprogram: "Fremdrift, volum og kapitalbruk i tilbakekjøpene.",
+  Cash: "Kontantbeholdning og disponering av tilgjengelig kapital.",
+  Bemobi: "Nøkkeltall og verdiutvikling for Bemobi-investeringen.",
+  "BRL/NOK": "Valutautvikling og betydningen for verdier i brasilianske real.",
+  Brasil: "Makroøkonomiske forhold som påvirker Brasil-eksponeringen.",
+  Konsensus: "Analytikernes forventninger til Bemobis resultater.",
+  Nyheter: "Selskapsnyheter og hendelser med mulig investorrelevans.",
+  Datakvalitet: "Oppdateringsstatus og kontroller av datagrunnlaget.",
+};
+
 const slugViews = Object.fromEntries(
   Object.entries(viewSlugs).map(([view, slug]) => [slug, view as View]),
 ) as Record<string, View>;
