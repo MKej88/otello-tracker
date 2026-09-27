@@ -11,5 +11,7 @@ def test_case_calendar_is_independent_of_live_nav_rendering() -> None:
     assert 'const { data: nav } = usePollingResource<EstimatedNav>(' in page
     assert 'const { data: overviewEvents } = usePollingResource<OverviewEventsPayload>(' in page
     assert '"/api/overview/events"' in page
-    assert 'nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : "Laster …"' in page
+    assert 'import LoadingPlaceholder from "./LoadingPlaceholder";' in page
+    assert "nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr`" in page
+    assert 'label="Laster estimert NAV"' in page
     assert 'const events = upcomingEvents(overviewEvents);' in page

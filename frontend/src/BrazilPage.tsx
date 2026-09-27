@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import "./brazil-page.css";
 
@@ -387,7 +388,7 @@ export default function BrazilPage() {
   );
 
   if (!data && !refreshFailed) {
-    return <section className="card viewFallback"><span className="label">BRASIL</span><strong>Henter makrodata …</strong></section>;
+    return <LoadingPlaceholder className="loadingPlaceholderPage" label="Henter makrodata for Brasil" />;
   }
   if (!data) {
     return <section className="card brazilError"><span className="label">BRASIL</span><strong>Kunne ikke hente Brasil-data</strong><p>API-et svarte ikke. Ingen NAV-data påvirkes av denne siden.</p></section>;

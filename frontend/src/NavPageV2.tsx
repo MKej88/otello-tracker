@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
@@ -539,7 +540,7 @@ export default function NavPageV2() {
       <section className="estimatedHero card">
         <div>
           <span className="label">NAV</span>
-          <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : "Laster …"}</h2>
+          <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : <LoadingPlaceholder variant="number" label="Laster estimert NAV per aksje" />}</h2>
           <p>
             Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.{" "}
             <span

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import "./buyback-page.css";
 
@@ -306,7 +307,7 @@ export default function BuybackPage() {
     : null;
 
   if (data == null && !failed) {
-    return <ResourceNotice>Laster tilbakekjøpsdata …</ResourceNotice>;
+    return <LoadingPlaceholder className="loadingPlaceholderPage" label="Laster tilbakekjøpsdata" />;
   }
 
   if (failed && data == null) {

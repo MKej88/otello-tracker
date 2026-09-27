@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
 import "./news-events.css";
@@ -153,7 +154,7 @@ export default function NewsEventsPage() {
             {regularNews.length > 0 && <span className="pill">{Math.min(visibleCount, regularNews.length)} AV {regularNews.length}</span>}
           </div>
 
-          {!data && <article className="card emptyNewsCard">Laster meldinger …</article>}
+          {!data && <LoadingPlaceholder className="loadingPlaceholderNews" label="Laster meldinger og nyheter" />}
           {data && filteredNews.length === 0 && <article className="card emptyNewsCard">Ingen meldinger funnet for dette filteret.</article>}
           <div className="newsList newsListCompact">
             {visibleNews.map((item) => {
@@ -193,7 +194,7 @@ export default function NewsEventsPage() {
             </div>
           </div>
           <div className="card calendarCard calendarCardCompact">
-            {!data && <p className="emptyCalendar">Laster kalender …</p>}
+            {!data && <LoadingPlaceholder className="loadingPlaceholderCalendar" label="Laster kommende kalenderhendelser" />}
             {data && events.length === 0 && <p className="emptyCalendar">Ingen kjente kommende datoer for dette filteret.</p>}
             {calendarEvents.map((item) => (
               <div className="calendarEvent calendarEventCompact" key={item.id}>
