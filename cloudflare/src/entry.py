@@ -5,6 +5,7 @@ import json
 import sys
 import types
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from workers import WorkflowEntrypoint, WorkerEntrypoint
 
@@ -21,6 +22,7 @@ from app import app  # noqa: E402
 from snapshot_drill import R2SnapshotDrillWorkflow  # noqa: E402,F401
 
 FULL_REFRESH_LOCK_TTL_SECONDS = 3 * 60 * 60
+OSLO_TZ = ZoneInfo("Europe/Oslo")
 
 
 def _event_value(event, key: str):
@@ -69,7 +71,7 @@ def _workflow_target_date(event) -> str:
     if scheduled_ms is not None:
         scheduled_day = datetime.fromtimestamp(float(scheduled_ms) / 1000, tz=UTC).date()
         return (scheduled_day - timedelta(days=1)).isoformat()
-    return datetime.now(UTC).date().isoformat()
+    return datetime.now(UTC).astimezone(OSLO_TZ).date().isoformat()
 
 
 def _workflow_trigger(event) -> str:
