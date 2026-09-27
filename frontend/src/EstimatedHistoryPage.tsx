@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import { percentileAssessment } from "./percentileAssessment";
@@ -54,6 +54,10 @@ function PeriodButtons({ selected, onChange }: { selected: InvestorPeriod; onCha
 
 function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [hasKeyboardFocus, setHasKeyboardFocus] = useState(false);
+  const instructionsId = useId();
+  const selectionId = useId();
   const usable = points.filter(
     (point) => finiteNumber(point.discount_pct),
   );
@@ -101,9 +105,13 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
   const xTickIndexes = Array.from(new Set([0, Math.round((usable.length - 1) * 0.25), Math.round((usable.length - 1) * 0.5), Math.round((usable.length - 1) * 0.75), usable.length - 1]));
   const zeroInRange = min <= 0 && max >= 0;
   const hasPercentileBand = finiteNumber(stats.p10_discount_pct) && finiteNumber(stats.p90_discount_pct);
-  const hovered = hoverIndex == null ? null : usable[hoverIndex];
-  const hoverX = hoverIndex == null ? null : x(hoverIndex);
-  const tooltipLeft = hoverX == null ? 50 : Math.max(12, Math.min(88, hoverX / 10));
+  const keyboardIndex = selectedIndex == null
+    ? null
+    : Math.min(selectedIndex, usable.length - 1);
+  const activeIndex = hoverIndex ?? (hasKeyboardFocus ? keyboardIndex : null);
+  const activePoint = activeIndex == null ? null : usable[activeIndex];
+  const activeX = activeIndex == null ? null : x(activeIndex);
+  const tooltipLeft = activeX == null ? 50 : Math.max(12, Math.min(88, activeX / 10));
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -113,12 +121,43 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
     setHoverIndex(Math.round(ratio * (usable.length - 1)));
   };
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    setSelectedIndex((current) => {
+      const start = Math.min(current ?? usable.length - 1, usable.length - 1);
+      return Math.max(0, Math.min(usable.length - 1, start + direction));
+    });
+  };
+
+  const keyboardSelection = keyboardIndex == null ? null : usable[keyboardIndex];
+
   return (
-    <div className="axisChart">
+    <div
+      className="axisChart historyChartInteraction"
+      tabIndex={0}
+      role="group"
+      aria-label="Historisk rabatt til NAV"
+      aria-describedby={`${instructionsId} ${selectionId}`}
+      onFocus={() => {
+        setHasKeyboardFocus(true);
+        setSelectedIndex((current) => current ?? usable.length - 1);
+      }}
+      onBlur={() => setHasKeyboardFocus(false)}
+      onKeyDown={handleKeyDown}
+    >
+      <span id={instructionsId} className="visuallyHidden">
+        Bruk venstre og høyre piltast for å velge et punkt i tidsserien.
+      </span>
+      <span id={selectionId} className="visuallyHidden" aria-live="polite">
+        {keyboardSelection && hasKeyboardFocus
+          ? `${formatDate(keyboardSelection.date)}. NAV ${formatNumber(keyboardSelection.nav_per_share, 2)} kroner. Aksjekurs ${formatNumber(keyboardSelection.otec_price, 2)} kroner. Rabatt eller premie ${formatNumber(keyboardSelection.discount_pct, 1)} prosent.`
+          : ""}
+      </span>
       <svg
         viewBox="0 0 1000 330"
-        role="img"
-        aria-label="Historisk rabatt til NAV"
+        aria-hidden="true"
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
@@ -149,12 +188,12 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
           const px = x(index);
           return <g key={index}><line className="axisTick" x1={px} x2={px} y1={bottom} y2={bottom + 7} /><text className="axisLabel" x={px} y={bottom + 26} textAnchor="middle">{chartDate(usable[index]?.date)}</text></g>;
         })}
-        {hovered && hoverX != null && (
+        {activePoint && activeX != null && (
           <g aria-hidden="true">
-            <line className="historyHoverGuide" x1={hoverX} x2={hoverX} y1={top} y2={bottom} />
-            <circle className="historyHoverPoint" cx={hoverX} cy={y(Number(hovered.discount_pct))} r="5" />
-            {finiteNumber(hovered.otec_price) && (
-              <circle className="historyHoverPricePoint" cx={hoverX} cy={priceY(hovered.otec_price)} r="4" />
+            <line className="historyHoverGuide" x1={activeX} x2={activeX} y1={top} y2={bottom} />
+            <circle className="historyHoverPoint" cx={activeX} cy={y(Number(activePoint.discount_pct))} r="5" />
+            {finiteNumber(activePoint.otec_price) && (
+              <circle className="historyHoverPricePoint" cx={activeX} cy={priceY(activePoint.otec_price)} r="4" />
             )}
           </g>
         )}
@@ -162,12 +201,12 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
         <text className="axisTitle axisPriceTitle" transform="rotate(90 982 150)" x="982" y="150" textAnchor="middle">OTEC-kurs</text>
         <text className="axisTitle" x={(left + right) / 2} y="326" textAnchor="middle">Dato</text>
       </svg>
-      {hovered && (
-        <div className="historyChartTooltip" style={{ left: `${tooltipLeft}%` }}>
-          <strong>{formatDate(hovered.date)}</strong>
-          <span><em>NAV</em><b>{formatNumber(hovered.nav_per_share, 2)} kr</b></span>
-          <span><em>OTEC</em><b>{formatNumber(hovered.otec_price, 2)} kr</b></span>
-          <span><em>Rabatt</em><b>{formatNumber(hovered.discount_pct, 1)} %</b></span>
+      {activePoint && (
+        <div className="historyChartTooltip" style={{ left: `${tooltipLeft}%` }} aria-hidden="true">
+          <strong>{formatDate(activePoint.date)}</strong>
+          <span><em>NAV</em><b>{formatNumber(activePoint.nav_per_share, 2)} kr</b></span>
+          <span><em>OTEC</em><b>{formatNumber(activePoint.otec_price, 2)} kr</b></span>
+          <span><em>Rabatt</em><b>{formatNumber(activePoint.discount_pct, 1)} %</b></span>
         </div>
       )}
       <div className="axisChartLegend" aria-hidden="true">

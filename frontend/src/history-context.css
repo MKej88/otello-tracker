@@ -35,6 +35,10 @@
   pointer-events: none;
 }
 
+.historyChartInteraction:focus-visible {
+  border-radius: 8px;
+}
+
 .historyChartTooltip {
   position: absolute;
   top: 18px;
