@@ -111,9 +111,9 @@
   margin-bottom: 12px;
 }
 
-.fxSectionHead h3,
-.fxPositionCard h3,
-.fxContextCard h3 {
+.fxSectionHead h2,
+.fxPositionCard h2,
+.fxContextCard h2 {
   margin-top: 4px;
   font-size: 20px;
   letter-spacing: -0.02em;
@@ -568,7 +568,7 @@
   min-height: 155px;
 }
 
-.fxContextCard h3 {
+.fxContextCard h2 {
   margin: 8px 0 5px;
   font-size: 24px;
 }

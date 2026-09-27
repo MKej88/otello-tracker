@@ -516,7 +516,8 @@
   gap: 4px;
 }
 
-.consensusDisclosure summary > span > strong {
+.consensusDisclosure summary > span > h2 {
+  margin: 0;
   font-size: 0.92rem;
 }
 

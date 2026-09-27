@@ -546,7 +546,7 @@ export default function BrazilPage() {
 
       <section className="brazilDetailsStack">
         <details className="card brazilDetailBlock">
-          <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>Forventninger til rente, inflasjon, vekst og valuta</strong></span><span>Vis detaljer</span></summary>
+          <summary><span><span className="label">MARKEDSFORVENTNINGER</span><h2>Forventninger til rente, inflasjon, vekst og valuta</h2></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
             {currentFocusDate ? <p><small className="numeric">Focus {dateLabel(currentFocusDate)}</small></p> : null}
@@ -557,7 +557,7 @@ export default function BrazilPage() {
         </details>
 
         <details className="card brazilDetailBlock">
-          <summary><span><span className="label">ALLE INDIKATORER</span><strong>Makrodetaljer og historikk</strong></span><span>Vis detaljer</span></summary>
+          <summary><span><span className="label">ALLE INDIKATORER</span><h2>Makrodetaljer og historikk</h2></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailMetricGrid">
             <MetricCard metric={metrics.brl_nok} />
             <MetricCard metric={metrics.selic} />
@@ -568,14 +568,14 @@ export default function BrazilPage() {
         </details>
 
         <details className="card brazilDetailBlock">
-          <summary><span><span className="label">FULL MAKROKALENDER</span><strong>{calendar.length} kommende hendelser</strong></span><span>Vis detaljer</span></summary>
+          <summary><span><span className="label">FULL MAKROKALENDER</span><h2>{calendar.length} kommende hendelser</h2></span><span>Vis detaljer</span></summary>
           <div className="brazilCompactEventList brazilFullCalendar">
             {calendar.map((event) => <CompactEvent event={event} key={`${event.date}-${event.name}`} />)}
           </div>
         </details>
 
         <details className="card brazilDetailBlock">
-          <summary><span><span className="label">KILDER OG METODE</span><strong>Datagrunnlag</strong></span><span>Vis detaljer</span></summary>
+          <summary><span><span className="label">KILDER OG METODE</span><h2>Datagrunnlag</h2></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
             <p>Styringsrente, inflasjon og aktivitetsserier hentes fra Brasils sentralbank. Markedsforventningene kommer fra sentralbankens ukentlige Focus-undersøkelse via BCB Olinda. Publiseringsdatoer hentes fra BCB/IBGE og BRL/NOK fra Norges Bank. Investing.com brukes bare som sekundær kilde for hendelseskonsensus og publiseringstid når dette finnes.</p>
             <p>Brasil-statusen er regelbasert og bruker tre transparente kanaler: rentebane, aktivitet og BRL/NOK. Den er ikke en AI-score. BRL-sensitiviteten bruker den samme Bemobi-komponenten som investor-NAV og viser isolert valutaeffekt, alt annet likt.</p>

@@ -431,7 +431,7 @@ export default function BuybackPage() {
       <section className="buybackTwoCol">
         <article className="card buybackDetail">
           <div className="cardHeader">
-            <div><span className="label">Siste rapporterte uke</span><h2>Faktisk gjennomføring</h2></div>
+            <div><span className="label">Siste rapporterte uke</span><h3>Faktisk gjennomføring</h3></div>
             <span className="pill numeric">{dateLabel(latest?.trade_date)}</span>
           </div>
           <div className="buybackRows">
@@ -447,7 +447,7 @@ export default function BuybackPage() {
 
         <article className="card buybackDetail forecastCard">
           <div className="cardHeader">
-            <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h2>Prognose</h2></div>
+            <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h3>Prognose</h3></div>
             <span className={`buybackConfidence ${estimate?.confidence === "HIGH" ? "" : "warn"}`}>{statusLabel(estimate?.confidence)}</span>
           </div>
           <div className="forecastPrimary">
@@ -483,7 +483,7 @@ export default function BuybackPage() {
       </section>
 
       <section className="card buybackDetail accuracyCard buybackAccuracyFullWidth">
-        <div className="cardHeader"><div><h2>Hvor godt treffer prognosen?</h2></div></div>
+        <div className="cardHeader"><div><h3>Hvor godt treffer prognosen?</h3></div></div>
         <div className="accuracyGrid">
           <div><span>Uker testet</span><strong className="numeric">{metrics?.weeks ?? 0}</strong></div>
           <div><span>Medianfeil</span><strong className="numeric">{value(metrics?.median_ape_pct, 1)} %</strong></div>
@@ -500,7 +500,7 @@ export default function BuybackPage() {
 
       <section className="card buybackHistory">
         <div className="cardHeader">
-          <div><span className="label">Historisk modelltest mot faktisk</span><h2>Siste modellerte uker</h2></div>
+          <div><span className="label">Historisk modelltest mot faktisk</span><h3>Siste modellerte uker</h3></div>
           <span className="pill muted numeric">{weeks.length} UKER</span>
         </div>
         {weeks.length ? (

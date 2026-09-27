@@ -536,7 +536,7 @@ export default function DataQualityPage() {
         <summary>
           <span>
             <span className="label">TEKNISK DIAGNOSTIKK</span>
-            <strong>Oppdateringsjobber, cache og preflight</strong>
+            <h2>Oppdateringsjobber, cache og preflight</h2>
           </span>
           <span className="qualityDiagnosticsSummary">
             Full refresh {statusLabel(nightly?.status)} · Fast refresh {statusLabel(runtime?.fast_refresh?.status)} · Cache {snapshot?.cache_status ?? "UKJENT"}
@@ -578,7 +578,7 @@ export default function DataQualityPage() {
 
           {nightly?.preflight && (
             <div className="qualityPreflight">
-              <strong>Preflight</strong>
+              <h3>Preflight</h3>
               <p>
                 {countLabel(nightly.preflight.blocker_count ?? 0, "blokkering", "blokkeringer")} · {countLabel(nightly.preflight.warning_count ?? 0, "advarsel", "advarsler")}.
                 {nightly.preflight.ready

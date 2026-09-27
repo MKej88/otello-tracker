@@ -755,7 +755,7 @@ export default function CashPage() {
         <div className={`cashBuybackConclusion ${buybackCalc?.limitingFactor === "PRICE" ? "warning" : ""}`}>
           <div>
             <span className="label">BEGRENSNING</span>
-            <strong>{buybackConstraintTitle}</strong>
+            <h3>{buybackConstraintTitle}</h3>
             <p>
               {buybackCalc?.limitingFactor === "MANDATE"
                 ? `Med valgt cashnivå har Otello kapasitet til ${formatInteger(buybackCalc.financialCapacityShares)} aksjer, men dagens mandat har bare ${formatInteger(buybackCalc.remainingMandate)} aksjer igjen.`
