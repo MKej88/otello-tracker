@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 
 import {
   analyzeFxDrivers,
@@ -263,7 +264,7 @@ export default function FxPage() {
   const [driverPeriod, setDriverPeriod] = useState<"m1" | "ytd">("m1");
 
   if (!fx && !fxRefreshFailed) {
-    return <section className="card viewFallback"><span className="label">BRL/NOK</span><strong>Henter valutadata …</strong></section>;
+    return <LoadingPlaceholder className="loadingPlaceholderPage" label="Henter valutadata" />;
   }
   if (!fx?.ready) {
     return (

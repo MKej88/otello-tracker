@@ -1,4 +1,5 @@
 import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import "./overview-page.css";
@@ -413,7 +414,7 @@ export default function OverviewPage() {
       <section className="overviewHeroGrid">
         <article className="card cardPrimary overviewNavCard overviewNavCardV3">
           <span className="label">NAV</span>
-          <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : "Laster …"}</h2>
+          <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : <LoadingPlaceholder variant="number" label="Laster estimert NAV" />}</h2>
           <div className="overviewNavSnapshot">
             <div className="cardSecondary"><span>OTEC</span><strong>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
             <div className="cardSecondary"><span>Rabatt</span><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>

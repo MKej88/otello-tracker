@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import "./cash-page.css";
@@ -342,14 +343,12 @@ export default function CashPage() {
         <section className="card" aria-busy="true">
           <span className="label">OTELLO-CASH</span>
           <strong>{moneyM(economic.cash_bridge?.estimated_cash_mnok)}</strong>
-          <p>
-            Estimert per {formatDate(economic.as_of_date)}. Henter Bemobi- og
-            markedsdata for resten av analysen …
-          </p>
+          <p>Estimert per {formatDate(economic.as_of_date)}.</p>
+          <LoadingPlaceholder variant="text" label="Henter Bemobi- og markedsdata for resten av analysen" />
         </section>
       );
     }
-    return <ResourceNotice>Laster cash- og kapitalallokeringsdata …</ResourceNotice>;
+    return <LoadingPlaceholder className="loadingPlaceholderPage" label="Laster cash- og kapitalallokeringsdata" />;
   }
 
   const cashAsOfDate = economic.as_of_date ?? summary.as_of_date;

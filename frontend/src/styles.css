@@ -186,6 +186,48 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 .resourceNotice.empty { border-style: dashed; color: var(--ot-text-secondary); }
 .resourceNotice.stale { border-color: var(--ot-warning-border); color: var(--ot-warning); }
 
+.loadingPlaceholder {
+  display: inline-grid;
+  width: 100%;
+  align-items: center;
+}
+.loadingPlaceholderShape {
+  display: block;
+  border: 1px solid var(--ot-border-soft);
+  background: var(--ot-surface-raised);
+  animation: loadingPlaceholderPulse 1.8s ease-in-out infinite;
+}
+.loadingPlaceholder--text { max-width: 14rem; }
+.loadingPlaceholder--text .loadingPlaceholderShape { height: .8em; border-radius: 5px; }
+.loadingPlaceholder--number { width: 7rem; vertical-align: middle; }
+.loadingPlaceholder--number .loadingPlaceholderShape { height: 1em; border-radius: 6px; }
+.loadingPlaceholder--content .loadingPlaceholderShape { min-height: 116px; border-radius: 10px; }
+.loadingPlaceholderPage { display: grid; min-height: min(58vh, 520px); }
+.loadingPlaceholderPage .loadingPlaceholderShape { height: 100%; }
+.loadingPlaceholderNews .loadingPlaceholderShape { min-height: 210px; }
+.loadingPlaceholderCalendar .loadingPlaceholderShape { min-height: 300px; }
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes loadingPlaceholderPulse {
+  0%, 100% { opacity: .58; }
+  50% { opacity: .82; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingPlaceholderShape { animation: none; }
+}
+
 .chartSummary {
   margin: 8px 0 0;
   font-size: 12px;

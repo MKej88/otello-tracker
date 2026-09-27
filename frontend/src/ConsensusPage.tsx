@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import "./consensus-page.css";
@@ -260,7 +261,7 @@ export default function ConsensusPage() {
 
   const summary = useMemo(() => beatSummary(data?.beat_miss ?? []), [data?.beat_miss]);
 
-  if (data == null && !failed) return <ResourceNotice>Laster konsensus …</ResourceNotice>;
+  if (data == null && !failed) return <LoadingPlaceholder className="loadingPlaceholderPage" label="Laster konsensusdata" />;
   if (failed && data == null) return <ResourceNotice kind="error">Kunne ikke hente konsensusdata.</ResourceNotice>;
   if (!data?.ready) return <div className="consensusNotice"><strong>Konsensus er ikke klar.</strong><span>{data?.reason}</span></div>;
 

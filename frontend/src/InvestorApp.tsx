@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import {
   type View,
   viewFromHash,
@@ -37,7 +38,7 @@ const DataQualityPage = lazy(loadDataQualityPage);
 const NewsEventsPage = lazy(loadNewsEventsPage);
 
 function ViewFallback() {
-  return <section className="card viewFallback"><span className="label">VISNING</span><strong>Laster modul …</strong></section>;
+  return <LoadingPlaceholder className="loadingPlaceholderPage" label="Laster valgt visning" />;
 }
 
 function preload(view: View) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
+import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import "./bemobi-page.css";
 
@@ -223,7 +224,7 @@ export default function BemobiPageBase() {
   }, []);
 
   if (data == null && !failed) {
-    return <ResourceNotice>Laster Bemobi-data …</ResourceNotice>;
+    return <LoadingPlaceholder className="loadingPlaceholderPage" label="Laster Bemobi-data" />;
   }
 
   if (failed && data == null) {
