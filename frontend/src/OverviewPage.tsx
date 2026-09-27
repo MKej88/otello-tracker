@@ -2,6 +2,7 @@ import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -394,6 +395,7 @@ export default function OverviewPage() {
     EVENT_REFRESH_MS,
     true,
   );
+  usePageUpdate(nav?.calculated_at ?? nav?.as_of_date, "intraday");
 
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;

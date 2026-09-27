@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./bemobi-page.css";
 
 type ValuationScenario = {
@@ -169,6 +170,7 @@ export default function BemobiPageBase() {
   const [consensus, setConsensus] = useState<BemobiConsensus | null>(null);
   const [failed, setFailed] = useState(false);
   const [consensusFailed, setConsensusFailed] = useState(false);
+  usePageUpdate(data?.market?.price_date ?? data?.latest_result?.published_date, "daily");
 
   useEffect(() => {
     let active = true;

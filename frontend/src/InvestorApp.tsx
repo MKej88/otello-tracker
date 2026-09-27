@@ -12,6 +12,12 @@ import OverviewPage from "./OverviewPage";
 import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
 import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
+import {
+  PageUpdateProvider,
+  pageUpdateIsStale,
+  pageUpdateLabel,
+  type PageUpdate,
+} from "./pageUpdateStatus";
 
 const loadNavPage = () => import("./NavPageV2");
 const loadNavSensitivityPage = () => import("./NavSensitivityPage");
@@ -165,24 +171,41 @@ export default function InvestorApp() {
           onSelect={selectView}
         />
         <main className="main investorMainV2" id="main-content" tabIndex={-1}>
-          <header className="investorTopbar">
-            <div className="investorTopbarHeading">
-              <h1>{viewTitles[activeView]}</h1>
-              <p>{viewSubtitles[activeView]}</p>
-            </div>
-            <div className="investorTopbarStatus">
-              <span aria-hidden="true" />
-              <p>
-                <strong>Automatisk oppdatering</strong>
-                <small>Data hentes og oppdateres løpende.</small>
-              </p>
-            </div>
-          </header>
-          <Suspense fallback={<ViewFallback />}>
-            <ActiveView view={activeView} />
-          </Suspense>
+          <ActiveInvestorView key={activeView} view={activeView} />
         </main>
       </div>
     </>
+  );
+}
+
+function ActiveInvestorView({ view }: { view: View }) {
+  const [pageUpdate, setPageUpdate] = useState<PageUpdate | null>(null);
+  const stale = pageUpdateIsStale(pageUpdate);
+
+  return (
+    <PageUpdateProvider onUpdate={setPageUpdate}>
+      <header className="investorTopbar">
+        <div className="investorTopbarHeading">
+          <h1>{viewTitles[view]}</h1>
+          <p>{viewSubtitles[view]}</p>
+        </div>
+        <div className={`investorTopbarStatus${stale ? " stale" : pageUpdate?.timestamp ? "" : " neutral"}`}>
+          <span aria-hidden="true" />
+          <p>
+            <strong>{pageUpdateLabel(pageUpdate?.timestamp)}</strong>
+            <small>
+              {stale
+                ? "Dataene kan være eldre enn forventet."
+                : pageUpdate?.timestamp
+                  ? "Data hentes og oppdateres løpende."
+                  : "Venter på tidsinformasjon fra siden."}
+            </small>
+          </p>
+        </div>
+      </header>
+      <Suspense fallback={<ViewFallback />}>
+        <ActiveView view={view} />
+      </Suspense>
+    </PageUpdateProvider>
   );
 }

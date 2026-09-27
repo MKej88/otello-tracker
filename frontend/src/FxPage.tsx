@@ -7,6 +7,7 @@ import {
   roundedContributions,
 } from "./fxDriverAnalysis";
 import { usePollingResource } from "./usePollingResource";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./fx-page.css";
 
 const REFRESH_MS = 10 * 60 * 1000;
@@ -260,6 +261,7 @@ export default function FxPage() {
     REFRESH_MS,
     true,
   );
+  usePageUpdate(fx?.as_of_date, "daily");
   const [range, setRange] = useState<RangeKey>("1Y");
   const [driverPeriod, setDriverPeriod] = useState<"m1" | "ytd">("m1");
 

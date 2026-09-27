@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./brazil-page.css";
 
 type Tone = "positive" | "negative" | "neutral";
@@ -386,6 +387,7 @@ export default function BrazilPage() {
     REFRESH_MS,
     true,
   );
+  usePageUpdate(data?.generated_at ?? data?.as_of_date, "daily");
 
   if (!data && !refreshFailed) {
     return <LoadingPlaceholder className="loadingPlaceholderPage" label="Henter makrodata for Brasil" />;

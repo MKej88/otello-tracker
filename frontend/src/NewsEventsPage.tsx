@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./news-events.css";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -82,6 +83,7 @@ export default function NewsEventsPage() {
   );
   const [company, setCompany] = useState<CompanyFilter>("Alle");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  usePageUpdate(data?.news?.[0]?.published_at, "daily");
 
   const filteredNews = useMemo(() => (data?.news ?? []).filter((item) => (
     company === "Alle" || item.company === company

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./data-quality.css";
 
 const REFRESH_MS = 60_000;
@@ -219,6 +220,7 @@ export default function DataQualityPage() {
     2 * REFRESH_MS,
     true,
   );
+  usePageUpdate(runtime?.checked_at ?? sources?.checked_at, "intraday");
 
   const snapshot = runtime?.hot_snapshot;
   const currentQuality = runtime?.dashboard_quality;

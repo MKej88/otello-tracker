@@ -3,6 +3,7 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import { discountHistoryUrl, investorPeriods, type InvestorPeriod } from "./investorPeriods";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
+import { usePageUpdate } from "./pageUpdateStatus";
 
 const REFRESH_MS = 2 * 60 * 1000;
 
@@ -461,6 +462,7 @@ export default function NavPageV2() {
     REFRESH_MS,
     true,
   );
+  usePageUpdate(live?.calculated_at ?? live?.as_of_date, "intraday");
   const data = cache[period.key];
 
   useEffect(() => {
