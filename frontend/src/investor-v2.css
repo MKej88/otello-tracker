@@ -2,8 +2,10 @@
 .investorTopbar { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 .investorTopbarHeading { min-width:0; }
 .investorTopbarHeading p { margin:6px 0 0; color:var(--ot-text-secondary); font-size:13px; line-height:1.45; }
-.investorTopbarStatus { display:flex; flex:0 0 auto; align-items:flex-start; gap:9px; max-width:260px; padding:8px 11px; border:1px solid var(--ot-border-soft); border-radius:10px; background:var(--ot-control-soft); }
-.investorTopbarStatus > span { flex:0 0 auto; width:7px; height:7px; margin-top:5px; border-radius:50%; background:var(--ot-accent); }
+.investorTopbarStatus { display:flex; flex:0 0 auto; align-items:center; gap:7px; width:fit-content; max-width:260px; padding:4px 0; border:1px solid transparent; border-radius:10px; background:transparent; }
+.investorTopbarStatus > span { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:var(--ot-accent); }
+.investorTopbarStatus.neutral,.investorTopbarStatus.stale { align-items:flex-start; gap:9px; padding:8px 11px; border-color:var(--ot-border-soft); background:var(--ot-control-soft); }
+.investorTopbarStatus.neutral > span,.investorTopbarStatus.stale > span { margin-top:5px; }
 .investorTopbarStatus.neutral > span { background:var(--ot-text-muted); }
 .investorTopbarStatus.stale { border-color:var(--ot-warning-border); }
 .investorTopbarStatus.stale > span { background:var(--ot-warning); }

@@ -180,6 +180,10 @@ export default function InvestorApp() {
 
 function ActiveInvestorView({ view }: { view: View }) {
   const [pageUpdate, setPageUpdate] = useState<PageUpdate | null>(null);
+  const hasUpdate = Boolean(
+    pageUpdate?.timestamp
+    && Number.isFinite(new Date(pageUpdate.timestamp).getTime()),
+  );
   const stale = pageUpdateIsStale(pageUpdate);
 
   return (
@@ -189,17 +193,15 @@ function ActiveInvestorView({ view }: { view: View }) {
           <h1>{viewTitles[view]}</h1>
           <p>{viewSubtitles[view]}</p>
         </div>
-        <div className={`investorTopbarStatus${stale ? " stale" : pageUpdate?.timestamp ? "" : " neutral"}`}>
+        <div className={`investorTopbarStatus${stale ? " stale" : hasUpdate ? "" : " neutral"}`}>
           <span aria-hidden="true" />
           <p>
             <strong>{pageUpdateLabel(pageUpdate?.timestamp)}</strong>
-            <small>
-              {stale
-                ? "Dataene kan være eldre enn forventet."
-                : pageUpdate?.timestamp
-                  ? "Data hentes og oppdateres løpende."
-                  : "Venter på tidsinformasjon fra siden."}
-            </small>
+            {stale ? (
+              <small>Dataene kan være eldre enn forventet.</small>
+            ) : !hasUpdate ? (
+              <small>Venter på tidsinformasjon fra siden.</small>
+            ) : null}
           </p>
         </div>
       </header>
