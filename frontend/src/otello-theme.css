@@ -16,6 +16,14 @@
   --ot-surface-inset: #17283d;
   --ot-surface-inset-nested: #142237;
 
+  /* Semantic card surfaces reuse the restrained Otello palette. */
+  --ot-card-primary-surface: var(--ot-surface-raised);
+  --ot-card-primary-border: var(--ot-accent-border);
+  --ot-card-standard-surface: var(--ot-surface);
+  --ot-card-standard-border: var(--ot-border);
+  --ot-card-secondary-surface: var(--ot-surface-muted);
+  --ot-card-secondary-border: var(--ot-border-soft);
+
   --ot-border: #272d36;
   --ot-border-soft: #20262e;
   --ot-border-strong: #343c47;
@@ -145,20 +153,20 @@ body {
 }
 
 .cardPrimary {
-  background: var(--ot-surface-raised);
-  border-color: var(--ot-border);
+  background: var(--ot-card-primary-surface);
+  border-color: var(--ot-card-primary-border);
   box-shadow: none;
 }
 
 .cardStandard {
-  background: var(--ot-surface);
-  border-color: var(--ot-border);
+  background: var(--ot-card-standard-surface);
+  border-color: var(--ot-card-standard-border);
   box-shadow: none;
 }
 
 .cardSecondary {
-  background: var(--ot-surface-muted);
-  border-color: var(--ot-border-soft);
+  background: var(--ot-card-secondary-surface);
+  border-color: var(--ot-card-secondary-border);
   box-shadow: none;
 }
 
