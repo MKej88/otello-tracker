@@ -110,6 +110,7 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
     : Math.min(selectedIndex, usable.length - 1);
   const activeIndex = hoverIndex ?? (hasKeyboardFocus ? keyboardIndex : null);
   const activePoint = activeIndex == null ? null : usable[activeIndex];
+  const hovered = activePoint;
   const activeX = activeIndex == null ? null : x(activeIndex);
   const tooltipLeft = activeX == null ? 50 : Math.max(12, Math.min(88, activeX / 10));
 
@@ -157,7 +158,8 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
       </span>
       <svg
         viewBox="0 0 1000 330"
-        aria-hidden="true"
+        role="img"
+        aria-label="Historisk rabatt til NAV"
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
@@ -201,12 +203,12 @@ function DiscountChart({ points, stats }: { points: Point[]; stats: Statistics }
         <text className="axisTitle axisPriceTitle" transform="rotate(90 982 150)" x="982" y="150" textAnchor="middle">OTEC-kurs</text>
         <text className="axisTitle" x={(left + right) / 2} y="326" textAnchor="middle">Dato</text>
       </svg>
-      {activePoint && (
+      {hovered && (
         <div className="historyChartTooltip" style={{ left: `${tooltipLeft}%` }} aria-hidden="true">
-          <strong>{formatDate(activePoint.date)}</strong>
-          <span><em>NAV</em><b>{formatNumber(activePoint.nav_per_share, 2)} kr</b></span>
-          <span><em>OTEC</em><b>{formatNumber(activePoint.otec_price, 2)} kr</b></span>
-          <span><em>Rabatt</em><b>{formatNumber(activePoint.discount_pct, 1)} %</b></span>
+          <strong>{formatDate(hovered.date)}</strong>
+          <span><em>NAV</em><b>{formatNumber(hovered.nav_per_share, 2)} kr</b></span>
+          <span><em>OTEC</em><b>{formatNumber(hovered.otec_price, 2)} kr</b></span>
+          <span><em>Rabatt</em><b>{formatNumber(hovered.discount_pct, 1)} %</b></span>
         </div>
       )}
       <div className="axisChartLegend" aria-hidden="true">
