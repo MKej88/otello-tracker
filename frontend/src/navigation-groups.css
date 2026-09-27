@@ -16,7 +16,7 @@
 .navGroupLabel {
   padding: 0 12px 4px;
   color: var(--ot-text-muted);
-  font-size: 9px;
+  font-size: var(--ot-type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   line-height: 1.2;
