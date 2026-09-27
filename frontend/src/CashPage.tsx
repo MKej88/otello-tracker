@@ -342,7 +342,7 @@ export default function CashPage() {
       return (
         <section className="card" aria-busy="true">
           <span className="label">OTELLO-CASH</span>
-          <strong>{moneyM(economic.cash_bridge?.estimated_cash_mnok)}</strong>
+          <strong className="numeric">{moneyM(economic.cash_bridge?.estimated_cash_mnok)}</strong>
           <p>Estimert per {formatDate(economic.as_of_date)}.</p>
           <LoadingPlaceholder variant="text" label="Henter Bemobi- og markedsdata for resten av analysen" />
         </section>
@@ -423,8 +423,8 @@ export default function CashPage() {
         </div>
         <div className="cashHeroMeta">
           <span className="pill">OTEC + BMOB3</span>
-          <span>OTEC-estimat {formatDate(cashAsOfDate)}</span>
-          <span>Bemobi-balanse {formatDate(bemobi.latest_result?.period_end)}</span>
+          <span className="numeric">OTEC-estimat {formatDate(cashAsOfDate)}</span>
+          <span className="numeric">Bemobi-balanse {formatDate(bemobi.latest_result?.period_end)}</span>
         </div>
       </section>
 
@@ -442,24 +442,24 @@ export default function CashPage() {
       <section className="cashKpiGrid">
         <article className="card cashKpi">
           <span className="label">OTEC direkte cash</span>
-          <strong>{moneyM(metrics.directCashM)}</strong>
-          <small>{formatNumber(metrics.directPerShare, 2)} kr per OTEC-aksje</small>
+          <strong className="numeric">{moneyM(metrics.directCashM)}</strong>
+          <small className="numeric">{formatNumber(metrics.directPerShare, 2)} kr per OTEC-aksje</small>
         </article>
         <article className="card cashKpi">
           <span className="label">Bemobi look-through cash</span>
-          <strong>{moneyM(metrics.bemobiLookthroughMnok)}</strong>
-          <small>
+          <strong className="numeric">{moneyM(metrics.bemobiLookthroughMnok)}</strong>
+          <small className="numeric">
             R$ {formatNumber(metrics.bemobiLookthroughMbrl, 1)}m · {formatNumber(metrics.ownershipPct, 2)} % eierandel
           </small>
         </article>
         <article className="card cashKpi cashKpiEmphasis">
           <span className="label">Samlet look-through cash</span>
-          <strong>{moneyM(metrics.combinedM)}</strong>
-          <small>{formatNumber(metrics.combinedPerShare, 2)} kr per OTEC-aksje</small>
+          <strong className="numeric">{moneyM(metrics.combinedM)}</strong>
+          <small className="numeric">{formatNumber(metrics.combinedPerShare, 2)} kr per OTEC-aksje</small>
         </article>
         <article className="card cashKpi">
           <span className="label">Cash som andel av NAV</span>
-          <strong>{pct(metrics.combinedPctNav)}</strong>
+          <strong className="numeric">{pct(metrics.combinedPctNav)}</strong>
           <small>Direkte + indirekte cash mot dagens NAV</small>
         </article>
       </section>
@@ -480,13 +480,13 @@ export default function CashPage() {
           <div className="cashLegendRows">
             <div>
               <span><i className="cashLegendSwatch direct" />Otello disponerer direkte</span>
-              <strong>{moneyM(metrics.directCashM)}</strong>
-              <small>{pct(directShare)} av look-through cash</small>
+              <strong className="numeric">{moneyM(metrics.directCashM)}</strong>
+              <small className="numeric">{pct(directShare)} av look-through cash</small>
             </div>
             <div>
               <span><i className="cashLegendSwatch indirect" />Bundet i Bemobi</span>
-              <strong>{moneyM(metrics.bemobiLookthroughMnok)}</strong>
-              <small>{pct(indirectShare)} av look-through cash</small>
+              <strong className="numeric">{moneyM(metrics.bemobiLookthroughMnok)}</strong>
+              <small className="numeric">{pct(indirectShare)} av look-through cash</small>
             </div>
           </div>
           <p className="cashNote">
@@ -503,10 +503,10 @@ export default function CashPage() {
             <span className="pill">{statusLabel(summary.cash_quality)}</span>
           </div>
           <div className="cashModelValue">
-            <strong>{moneyM(metrics.directCashM)}</strong>
-            <span>per {formatDate(cashAsOfDate)}</span>
+            <strong className="numeric">{moneyM(metrics.directCashM)}</strong>
+            <span className="numeric">per {formatDate(cashAsOfDate)}</span>
           </div>
-          <strong className="estimatedCashPerShare">
+          <strong className="estimatedCashPerShare numeric">
             {metrics.directPerShare == null || !Number.isFinite(metrics.directPerShare)
               ? "–"
               : `${formatNumber(metrics.directPerShare, 2)} kr / OTEC-aksje`}
@@ -514,24 +514,24 @@ export default function CashPage() {
           <div className="cashBridgeRows">
             <div>
               <span>Rapportert kontantbeholdning</span>
-              <strong>{moneyM(cashBridge?.reported_cash_mnok)}</strong>
+              <strong className="numeric">{moneyM(cashBridge?.reported_cash_mnok)}</strong>
             </div>
             {(cashBridge?.movements ?? []).map((movement) => (
               <div key={movement.key}>
                 <span>{movement.label}</span>
-                <strong className={movementTone(movement.amount_mnok)}>
+                <strong className={`numeric ${movementTone(movement.amount_mnok)}`}>
                   {signedMoneyM(movement.amount_mnok)}
                 </strong>
               </div>
             ))}
             <div className="cashBridgeChange">
               <span>Endring siden siste rapport</span>
-              <strong className={movementTone(cashBridge?.change_since_report_mnok)}>
+              <strong className={`numeric ${movementTone(cashBridge?.change_since_report_mnok)}`}>
                 {signedMoneyM(cashBridge?.change_since_report_mnok)}
               </strong>
             </div>
           </div>
-          <small className="estimatedCashFootnote">
+          <small className="estimatedCashFootnote numeric">
             Siste rapporterte kontantbeholdning: {formatDate(cashBridge?.report_date)}
           </small>
         </article>
@@ -544,27 +544,27 @@ export default function CashPage() {
               <span className="label">BEMOBI I DAG</span>
               <h2>Rapportert cash og kontantgenerering</h2>
             </div>
-            <span className="pill">RAPPORTERT {bemobi.latest_result?.period ?? "SISTE KVARTAL"}</span>
+            <span className="pill numeric">RAPPORTERT {bemobi.latest_result?.period ?? "SISTE KVARTAL"}</span>
           </div>
           <div className="cashMetricGrid">
             <div>
               <span>Cash</span>
-              <strong>R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
-              <small>{formatDate(bemobi.latest_result?.period_end)}</small>
+              <strong className="numeric">R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
+              <small className="numeric">{formatDate(bemobi.latest_result?.period_end)}</small>
             </div>
             <div>
               <span>Netto cash</span>
-              <strong>R$ {formatNumber(bemobi.valuation?.net_cash_mbrl, 1)}m</strong>
+              <strong className="numeric">R$ {formatNumber(bemobi.valuation?.net_cash_mbrl, 1)}m</strong>
               <small>verdsettelsesanker</small>
             </div>
             <div>
               <span>EBITDA − capex</span>
-              <strong>R$ {formatNumber(bemobi.latest_result?.ebitda_less_capex_mbrl, 1)}m</strong>
+              <strong className="numeric">R$ {formatNumber(bemobi.latest_result?.ebitda_less_capex_mbrl, 1)}m</strong>
               <small>siste kvartal</small>
             </div>
             <div>
               <span>Cash conversion</span>
-              <strong>{pct(bemobi.latest_result?.cash_conversion_pct)}</strong>
+              <strong className="numeric">{pct(bemobi.latest_result?.cash_conversion_pct)}</strong>
               <small>rapportert av Bemobi</small>
             </div>
           </div>
@@ -579,52 +579,52 @@ export default function CashPage() {
               <span className="label">FRA BEMOBI TIL OTEC</span>
               <h2>Utbyttemodell til Otello</h2>
             </div>
-            <span className="pill">10 % KILDESKATT</span>
+            <span className="pill numeric">10 % KILDESKATT</span>
           </div>
 
           <div className="placeholderRows">
             <div>
               <span>Rapportert nettoresultat TTM</span>
-              <strong>R$ {formatNumber(distribution?.reported_net_income_ttm_mbrl, 1)}m</strong>
+              <strong className="numeric">R$ {formatNumber(distribution?.reported_net_income_ttm_mbrl, 1)}m</strong>
             </div>
             <div>
               <span>× Payout-policy {distribution?.policy_year ?? "–"}</span>
-              <strong>{pct(distribution?.payout_policy_pct, 0)}</strong>
+              <strong className="numeric">{pct(distribution?.payout_policy_pct, 0)}</strong>
             </div>
             <div>
               <span>= Modellert Bemobi-distribusjon</span>
-              <strong>R$ {formatNumber(distribution?.estimated_total_distribution_mbrl, 1)}m</strong>
+              <strong className="numeric">R$ {formatNumber(distribution?.estimated_total_distribution_mbrl, 1)}m</strong>
             </div>
             <div>
               <span>× Otellos distribusjonsandel</span>
-              <strong>{pct(distribution?.otello_distribution_share_pct, 2)}</strong>
+              <strong className="numeric">{pct(distribution?.otello_distribution_share_pct, 2)}</strong>
             </div>
             <div>
               <span>= Brutto til Otello</span>
-              <strong>
+              <strong className="numeric">
                 R$ {formatNumber(distribution?.otello_gross_mbrl, 1)}m · {moneyM(distribution?.otello_gross_mnok)}
               </strong>
             </div>
             <div>
               <span>− Brasiliansk kildeskatt på ordinært utbytte</span>
-              <strong>{pct(distribution?.ordinary_dividend_withholding_rate_pct ?? 10, 0)}</strong>
+              <strong className="numeric">{pct(distribution?.ordinary_dividend_withholding_rate_pct ?? 10, 0)}</strong>
             </div>
           </div>
 
           <div className="cashDistributionHeadline">
             <span>Netto cash til Otello – utbytteforutsetning</span>
-            <strong>{moneyM(distribution?.otello_net_dividend_mnok)}</strong>
-            <small>{formatNumber(distribution?.otello_net_dividend_per_otec_share_nok, 2)} kr per OTEC-aksje</small>
+            <strong className="numeric">{moneyM(distribution?.otello_net_dividend_mnok)}</strong>
+            <small className="numeric">{formatNumber(distribution?.otello_net_dividend_per_otec_share_nok, 2)} kr per OTEC-aksje</small>
           </div>
 
           <div className="cashInterestStrip">
             <div>
               <span>BRL/NOK i modellen</span>
-              <strong>{formatNumber(distributionBrlNok, 3)}</strong>
+              <strong className="numeric">{formatNumber(distributionBrlNok, 3)}</strong>
             </div>
             <div>
               <span>Skatteforutsetning</span>
-              <strong>10 %</strong>
+              <strong className="numeric">10 %</strong>
               <small>ordinært utbytte</small>
             </div>
           </div>
@@ -640,63 +640,63 @@ export default function CashPage() {
           <div className="cardHeader">
             <div>
               <span className="label">KVARTALSVIS JCP</span>
-              <h2>Faktisk 1H26 og estimat for 2H26</h2>
+              <h2 className="numeric">Faktisk 1H26 og estimat for 2H26</h2>
             </div>
-            <span className="pill">15 % KILDESKATT</span>
+            <span className="pill numeric">15 % KILDESKATT</span>
           </div>
 
           <div className="cashMetricGrid">
             <div>
-              <span>1Q26</span>
-              <strong>R$ {formatNumber(JCP_1Q26_ACTUAL_MBRL, 1)}m</strong>
+              <span className="numeric">1Q26</span>
+              <strong className="numeric">R$ {formatNumber(JCP_1Q26_ACTUAL_MBRL, 1)}m</strong>
               <small>annonsert</small>
             </div>
             <div>
-              <span>2Q26</span>
-              <strong>R$ {formatNumber(JCP_2Q26_ACTUAL_MBRL, 1)}m</strong>
+              <span className="numeric">2Q26</span>
+              <strong className="numeric">R$ {formatNumber(JCP_2Q26_ACTUAL_MBRL, 1)}m</strong>
               <small>annonsert</small>
             </div>
             <div>
-              <span>3Q26E</span>
-              <strong>R$ {formatNumber(JCP_3Q26_ESTIMATE_MBRL, 1)}m</strong>
+              <span className="numeric">3Q26E</span>
+              <strong className="numeric">R$ {formatNumber(JCP_3Q26_ESTIMATE_MBRL, 1)}m</strong>
               <small>tracker-estimat · middels sikkerhet</small>
             </div>
             <div>
-              <span>4Q26E</span>
-              <strong>R$ {formatNumber(JCP_4Q26_ESTIMATE_MBRL, 1)}m</strong>
+              <span className="numeric">4Q26E</span>
+              <strong className="numeric">R$ {formatNumber(JCP_4Q26_ESTIMATE_MBRL, 1)}m</strong>
               <small>tracker-estimat · lavere sikkerhet</small>
             </div>
           </div>
 
           <div className="cashInterestStrip">
             <div>
-              <span>Estimert JCP 3Q + 4Q</span>
-              <strong>R$ {formatNumber(jcp2H26GrossMbrl, 1)}m</strong>
+              <span className="numeric">Estimert JCP 3Q + 4Q</span>
+              <strong className="numeric">R$ {formatNumber(jcp2H26GrossMbrl, 1)}m</strong>
               <small>Bemobi brutto</small>
             </div>
             <div>
-              <span>Estimert netto til Otello 3Q + 4Q</span>
-              <strong>{moneyM(jcp2H26NetOtecMnok)}</strong>
-              <small>etter 15 % kildeskatt · dagens BRL/NOK</small>
+              <span className="numeric">Estimert netto til Otello 3Q + 4Q</span>
+              <strong className="numeric">{moneyM(jcp2H26NetOtecMnok)}</strong>
+              <small className="numeric">etter 15 % kildeskatt · dagens BRL/NOK</small>
             </div>
           </div>
 
           <div className="placeholderRows">
             <div>
-              <span>3Q26E netto til Otello</span>
-              <strong>{moneyM(jcp3Q.netOtecMnok)}</strong>
+              <span className="numeric">3Q26E netto til Otello</span>
+              <strong className="numeric">{moneyM(jcp3Q.netOtecMnok)}</strong>
             </div>
             <div>
-              <span>4Q26E netto til Otello</span>
-              <strong>{moneyM(jcp4Q.netOtecMnok)}</strong>
+              <span className="numeric">4Q26E netto til Otello</span>
+              <strong className="numeric">{moneyM(jcp4Q.netOtecMnok)}</strong>
             </div>
             <div>
-              <span>Helårs JCP 2026E</span>
-              <strong>R$ {formatNumber(jcpFullYearGrossMbrl, 1)}m</strong>
+              <span className="numeric">Helårs JCP 2026E</span>
+              <strong className="numeric">R$ {formatNumber(jcpFullYearGrossMbrl, 1)}m</strong>
             </div>
             <div>
               <span>Otellos distribusjonsandel brukt i modellen</span>
-              <strong>{pct(distributionSharePct, 2)}</strong>
+              <strong className="numeric">{pct(distributionSharePct, 2)}</strong>
             </div>
           </div>
 
@@ -716,22 +716,22 @@ export default function CashPage() {
           <div className="cashMetricGrid">
             <div>
               <span>Siste rapporterte cash</span>
-              <strong>R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
-              <small>{formatDate(bemobi.latest_result?.period_end)}</small>
+              <strong className="numeric">R$ {formatNumber(metrics.bemobiCashMbrl, 1)}m</strong>
+              <small className="numeric">{formatDate(bemobi.latest_result?.period_end)}</small>
             </div>
             <div>
               <span>Modellrente</span>
-              <strong>{formatNumber(INTEREST_SENSITIVITY_RATE_PCT, 2)} %</strong>
+              <strong className="numeric">{formatNumber(INTEREST_SENSITIVITY_RATE_PCT, 2)} %</strong>
               <small>sensitivitetsforutsetning</small>
             </div>
             <div>
               <span>Illustrativ årlig renteinntekt</span>
-              <strong>R$ {formatNumber(interestProxyMbrl, 1)}m</strong>
+              <strong className="numeric">R$ {formatNumber(interestProxyMbrl, 1)}m</strong>
               <small>cash × modellrente</small>
             </div>
             <div>
               <span>Otellos økonomiske look-through-andel</span>
-              <strong>{moneyM(interestProxyOtecMnok)}</strong>
+              <strong className="numeric">{moneyM(interestProxyOtecMnok)}</strong>
               <small>basert på eierandel, ikke utdelingsandel</small>
             </div>
           </div>
@@ -768,13 +768,13 @@ export default function CashPage() {
         <div className="cashBuybackResults cashBuybackResultsPrimary">
           <div>
             <span>Gjenstående mandat</span>
-            <strong>{formatInteger(buybackCalc?.remainingMandate ?? null)}</strong>
+            <strong className="numeric">{formatInteger(buybackCalc?.remainingMandate ?? null)}</strong>
             <small>aksjer i dagens program</small>
           </div>
           <div>
             <span>Cash nødvendig</span>
-            <strong>{moneyM(buybackCalc?.spendM)}</strong>
-            <small>
+            <strong className="numeric">{moneyM(buybackCalc?.spendM)}</strong>
+            <small className="numeric">
               {buybackCalc == null
                 ? "–"
                 : `for ${formatInteger(buybackCalc.sharesBought)} aksjer ved ${formatNumber(buybackCalc.price, 2)} kr`}
@@ -782,8 +782,8 @@ export default function CashPage() {
           </div>
           <div>
             <span>Cash etter kjøp</span>
-            <strong>{moneyM(buybackCalc?.cashAfterM)}</strong>
-            <small>valgt minimum {formatNumber(buybackCalc?.buffer ?? bufferM, 0)} mill. kr</small>
+            <strong className="numeric">{moneyM(buybackCalc?.cashAfterM)}</strong>
+            <small className="numeric">valgt minimum {formatNumber(buybackCalc?.buffer ?? bufferM, 0)} mill. kr</small>
           </div>
           <div className={buybackCalc != null && buybackCalc.accretionPct >= 0 ? "cashAccretion positive" : "cashAccretion negative"}>
             <span>Økning i NAV per aksje</span>
@@ -792,7 +792,7 @@ export default function CashPage() {
                 ? "–"
                 : `${buybackCalc.accretionPct >= 0 ? "+" : ""}${formatNumber(buybackCalc.accretionPct, 2)} %`}
             </strong>
-            <small>
+            <small className="numeric">
               {buybackCalc == null
                 ? "–"
                 : `${formatNumber(buybackCalc.navBeforePerShare, 2)} → ${formatNumber(buybackCalc.navAfterPerShare, 2)} kr`}
@@ -804,7 +804,7 @@ export default function CashPage() {
           <div className="cashControls">
             <div className="cashBuybackSectionTitle">Forutsetninger</div>
             <label>
-              <span><strong>Minimum cash Otello skal sitte igjen med</strong><em>{formatNumber(bufferM, 0)} mill. kr</em></span>
+              <span><strong>Minimum cash Otello skal sitte igjen med</strong><em className="numeric">{formatNumber(bufferM, 0)} mill. kr</em></span>
               <input
                 type="range"
                 min="0"
@@ -815,7 +815,7 @@ export default function CashPage() {
               />
             </label>
             <label>
-              <span><strong>Kjøpskurs OTEC</strong><em>{formatNumber(priceAssumption ?? summary.otec_price, 2)} kr</em></span>
+              <span><strong>Kjøpskurs OTEC</strong><em className="numeric">{formatNumber(priceAssumption ?? summary.otec_price, 2)} kr</em></span>
               <input
                 type="range"
                 min="5"
@@ -826,28 +826,28 @@ export default function CashPage() {
               />
             </label>
             <div className="cashAssumptionRows">
-              <div><span>Dagens OTEC-kurs</span><strong>{formatNumber(summary.otec_price, 2)} kr</strong></div>
-              <div><span>Programmets makspris</span><strong>{buyback?.program?.max_price_nok == null ? "–" : `${formatNumber(buyback.program.max_price_nok, 2)} kr`}</strong></div>
-              <div><span>Allerede brukt på tilbakekjøp</span><strong>{moneyM(programSpentMnok)}</strong></div>
-              <div><span>Teoretisk cashkapasitet</span><strong>{formatInteger(buybackCalc?.financialCapacityShares ?? null)} aksjer</strong></div>
+              <div><span>Dagens OTEC-kurs</span><strong className="numeric">{formatNumber(summary.otec_price, 2)} kr</strong></div>
+              <div><span>Programmets makspris</span><strong className="numeric">{buyback?.program?.max_price_nok == null ? "–" : `${formatNumber(buyback.program.max_price_nok, 2)} kr`}</strong></div>
+              <div><span>Allerede brukt på tilbakekjøp</span><strong className="numeric">{moneyM(programSpentMnok)}</strong></div>
+              <div><span>Teoretisk cashkapasitet</span><strong className="numeric">{formatInteger(buybackCalc?.financialCapacityShares ?? null)} aksjer</strong></div>
             </div>
           </div>
 
           <div className="cashBuybackFlowCard">
             <div className="cashBuybackSectionTitle">Cashregnestykke</div>
             <div className="cashBuybackFlow">
-              <div><span>Estimert OTEC-cash</span><strong>{moneyM(metrics.directCashM)}</strong></div>
-              <div className="cashBuybackFlowMinus"><span>− Cash brukt på kjøpet</span><strong>{moneyM(buybackCalc?.spendM)}</strong></div>
-              <div className="cashBuybackFlowTotal"><span>= Cash etter kjøp</span><strong>{moneyM(buybackCalc?.cashAfterM)}</strong></div>
+              <div><span>Estimert OTEC-cash</span><strong className="numeric">{moneyM(metrics.directCashM)}</strong></div>
+              <div className="cashBuybackFlowMinus"><span>− Cash brukt på kjøpet</span><strong className="numeric">{moneyM(buybackCalc?.spendM)}</strong></div>
+              <div className="cashBuybackFlowTotal"><span>= Cash etter kjøp</span><strong className="numeric">{moneyM(buybackCalc?.cashAfterM)}</strong></div>
             </div>
             <div className="cashBuybackSecondaryFacts">
               <div>
                 <span>Over valgt minimum</span>
-                <strong>{moneyM(buybackCalc?.cashAboveBufferM)}</strong>
+                <strong className="numeric">{moneyM(buybackCalc?.cashAboveBufferM)}</strong>
               </div>
               <div>
                 <span>Kjøpskurs mot NAV</span>
-                <strong>
+                <strong className="numeric">
                   {buybackCalc == null
                     ? "–"
                     : `${formatNumber(buybackCalc.price, 2)} vs. ${formatNumber(buybackCalc.navBeforePerShare, 2)} kr`}

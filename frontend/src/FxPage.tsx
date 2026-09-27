@@ -244,7 +244,7 @@ function DriverRow({ label, value, explanation }: { label: string; value: number
   return (
     <div className="fxDriverRow">
       <div><strong>{label}</strong><span>{explanation}</span></div>
-      <strong className={tone}>{signedPct(value).replace(/%/g, "pp")}</strong>
+      <strong className={`numeric ${tone}`}>{signedPct(value).replace(/%/g, "pp")}</strong>
     </div>
   );
 }
@@ -349,18 +349,18 @@ export default function FxPage() {
         </div>
         <div className="fxHeroMeta">
           <span>Sist oppdatert</span>
-          <strong>{dateLabel(fx.as_of_date)}</strong>
+          <strong className="numeric">{dateLabel(fx.as_of_date)}</strong>
           {refreshWarning ? <small>Oppfrisking feilet – viser siste lagrede data</small> : null}
         </div>
       </section>
 
       <section className="fxKpiGrid">
-        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong>{number(spot, 4)}</strong><small>{signedPct(fx.periods?.d1?.brl_nok_pct)} siste dag</small></article>
-        <article className="card fxKpi"><span className="label">1 MÅNED</span><strong className={finite(m1) && m1 >= 0 ? "positive" : "negative"}>{signedPct(m1)}</strong><small>BRL mot NOK</small></article>
-        <article className="card fxKpi"><span className="label">YTD</span><strong className={finite(ytd) && ytd >= 0 ? "positive" : "negative"}>{signedPct(ytd)}</strong><small>BRL mot NOK</small></article>
-        <article className="card fxKpi"><span className="label">1 ÅR</span><strong className={finite(y1) && y1 >= 0 ? "positive" : "negative"}>{signedPct(y1)}</strong><small>BRL mot NOK</small></article>
-        <article className="card fxKpi accent"><span className="label">FX → NAV · 1M</span><strong>{signedNok(navEffect1m)}</strong><small>Symmetrisk FX-attribusjon per OTEC-aksje</small></article>
-        <article className="card fxKpi"><span className="label">1 % STERKERE BRL</span><strong>{finite(onePctM) ? `${number(onePctM, 1)} MNOK` : "–"}</strong><small>{finite(onePctPerShare) ? `${number(onePctPerShare * 100, 1)} øre per OTEC-aksje` : "Direkte Bemobi-effekt"}</small></article>
+        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small className="numeric">{signedPct(fx.periods?.d1?.brl_nok_pct)} siste dag</small></article>
+        <article className="card fxKpi"><span className="label">1 MÅNED</span><strong className={`numeric ${finite(m1) && m1 >= 0 ? "positive" : "negative"}`}>{signedPct(m1)}</strong><small>BRL mot NOK</small></article>
+        <article className="card fxKpi"><span className="label">YTD</span><strong className={`numeric ${finite(ytd) && ytd >= 0 ? "positive" : "negative"}`}>{signedPct(ytd)}</strong><small>BRL mot NOK</small></article>
+        <article className="card fxKpi"><span className="label">1 ÅR</span><strong className={`numeric ${finite(y1) && y1 >= 0 ? "positive" : "negative"}`}>{signedPct(y1)}</strong><small>BRL mot NOK</small></article>
+        <article className="card fxKpi accent"><span className="label">FX → NAV · 1M</span><strong className="numeric">{signedNok(navEffect1m)}</strong><small>Symmetrisk FX-attribusjon per OTEC-aksje</small></article>
+        <article className="card fxKpi"><span className="label">1 % STERKERE BRL</span><strong className="numeric">{finite(onePctM) ? `${number(onePctM, 1)} MNOK` : "–"}</strong><small className="numeric">{finite(onePctPerShare) ? `${number(onePctPerShare * 100, 1)} øre per OTEC-aksje` : "Direkte Bemobi-effekt"}</small></article>
       </section>
 
       <section className="card fxHistoryCard">
@@ -371,11 +371,11 @@ export default function FxPage() {
           </div>
         </div>
         <div className="fxHistorySummary">
-          <div><span>Endring {range}</span><strong>{signedPct(selectedMove)}</strong></div>
-          <div><span>Lav</span><strong>{number(selectedStats.low, 4)}</strong></div>
-          <div><span>Snitt</span><strong>{number(selectedStats.average, 4)}</strong></div>
-          <div><span>Høy</span><strong>{number(selectedStats.high, 4)}</strong></div>
-          <div><span>Persentil</span><strong>{finite(selectedStats.percentile) ? `${number(selectedStats.percentile, 0)}.` : "–"}</strong></div>
+          <div><span>Endring {range}</span><strong className="numeric">{signedPct(selectedMove)}</strong></div>
+          <div><span>Lav</span><strong className="numeric">{number(selectedStats.low, 4)}</strong></div>
+          <div><span>Snitt</span><strong className="numeric">{number(selectedStats.average, 4)}</strong></div>
+          <div><span>Høy</span><strong className="numeric">{number(selectedStats.high, 4)}</strong></div>
+          <div><span>Persentil</span><strong className="numeric">{finite(selectedStats.percentile) ? `${number(selectedStats.percentile, 0)}.` : "–"}</strong></div>
         </div>
         <FxChart range={range} series={series} />
       </section>
@@ -390,9 +390,9 @@ export default function FxPage() {
             </div>
           </div>
           <div className={`fxDriverHeadline ${investorTone}`}>
-            <strong>BRL/NOK {finite(displayedTotal) && displayedTotal < 0 ? "↓" : finite(displayedTotal) && displayedTotal > 0 ? "↑" : "→"} {signedPct(displayedTotal).replace(/[+-]/, "")}</strong>
+            <strong className="numeric">BRL/NOK {finite(displayedTotal) && displayedTotal < 0 ? "↓" : finite(displayedTotal) && displayedTotal > 0 ? "↑" : "→"} {signedPct(displayedTotal).replace(/[+-]/, "")}</strong>
             <span>{investorEffect} for NOK-verdien av Bemobi</span>
-            <small>{driverPeriod === "m1" ? "Siste måned" : "Hittil i år"}</small>
+            <small className="numeric">{driverPeriod === "m1" ? "Siste måned" : "Hittil i år"}</small>
           </div>
           {driverAnalysis && displayedDrivers && finite(activeDriver?.usd_nok_pct) && finite(activeDriver?.usd_brl_pct) ? (
             <>
@@ -413,18 +413,18 @@ export default function FxPage() {
                 value={displayedDrivers.brl}
                 explanation={movementText("BRL", driverAnalysis.brlDirection, activeDriver.usd_brl_pct, (value) => `${number(value, 1)} %`)}
               />
-              <div className="fxDriverNet"><strong>Netto</strong><strong className={investorTone}>{signedPct(displayedDrivers.total)}</strong></div>
+              <div className="fxDriverNet"><strong>Netto</strong><strong className={`numeric ${investorTone}`}>{signedPct(displayedDrivers.total)}</strong></div>
             </>
           ) : <p className="fxDriverUnavailable">Ikke nok data til å forklare driverne i {activeDriverLabel}.</p>}
           <details className="fxDriverDetails">
             <summary>Vis detaljer</summary>
             <p className="fxFormula">BRL/NOK = USD/NOK ÷ USD/BRL</p>
             <dl>
-              <div><dt>USD/NOK</dt><dd>{signedPct(activeDriver?.usd_nok_pct)}</dd></div>
-              <div><dt>USD/BRL</dt><dd>{signedPct(activeDriver?.usd_brl_pct)}</dd></div>
-              <div><dt>BRL/NOK</dt><dd>{signedPct(activeDriver?.brl_nok_pct)}</dd></div>
+              <div><dt>USD/NOK</dt><dd className="numeric">{signedPct(activeDriver?.usd_nok_pct)}</dd></div>
+              <div><dt>USD/BRL</dt><dd className="numeric">{signedPct(activeDriver?.usd_brl_pct)}</dd></div>
+              <div><dt>BRL/NOK</dt><dd className="numeric">{signedPct(activeDriver?.brl_nok_pct)}</dd></div>
             </dl>
-            <small>Periodeendringer fra referansedato {dateLabel(activeDriver?.reference_date)}. Bidragene over fordeler samspillet mellom valutaene likt.</small>
+            <small className="numeric">Periodeendringer fra referansedato {dateLabel(activeDriver?.reference_date)}. Bidragene over fordeler samspillet mellom valutaene likt.</small>
           </details>
         </article>
 
@@ -433,13 +433,13 @@ export default function FxPage() {
           <h3>Historisk posisjon</h3>
           <div className="fxPositionGauge">
             <div className="fxPositionTrack"><span style={{ width: `${Math.max(0, Math.min(100, fx.range_1y?.percentile ?? 0))}%` }} /></div>
-            <div><span>{number(fx.range_1y?.low, 4)}</span><strong>{finite(fx.range_1y?.percentile) ? `${number(fx.range_1y?.percentile, 0)}. persentil` : "–"}</strong><span>{number(fx.range_1y?.high, 4)}</span></div>
+            <div><span className="numeric">{number(fx.range_1y?.low, 4)}</span><strong className="numeric">{finite(fx.range_1y?.percentile) ? `${number(fx.range_1y?.percentile, 0)}. persentil` : "–"}</strong><span className="numeric">{number(fx.range_1y?.high, 4)}</span></div>
           </div>
           <div className="fxPositionRows">
-            <div><span>1-årssnitt</span><strong>{number(fx.range_1y?.average, 4)}</strong></div>
-            <div><span>50 dagers snitt</span><strong>{number(ma50, 4)}</strong></div>
-            <div><span>200 dagers snitt</span><strong>{number(ma200, 4)}</strong></div>
-            <div><span>Spot vs. 200d</span><strong>{signedPct(pctChange(spot, ma200))}</strong></div>
+            <div><span>1-årssnitt</span><strong className="numeric">{number(fx.range_1y?.average, 4)}</strong></div>
+            <div><span>50 dagers snitt</span><strong className="numeric">{number(ma50, 4)}</strong></div>
+            <div><span>200 dagers snitt</span><strong className="numeric">{number(ma200, 4)}</strong></div>
+            <div><span>Spot vs. 200d</span><strong className="numeric">{signedPct(pctChange(spot, ma200))}</strong></div>
           </div>
         </article>
       </section>
@@ -447,12 +447,12 @@ export default function FxPage() {
       <section className="card fxExposureCard">
         <div className="fxSectionHead">
           <div><span className="label">OTELLOS BRL-EKSPONERING</span><h3>Direkte effekt gjennom Bemobi-posten</h3></div>
-          <div className="fxExposureHeadline"><span>Bemobi-post</span><strong>{finite(bemobiValueM) ? `${number(bemobiValueM, 0)} MNOK` : "–"}</strong></div>
+          <div className="fxExposureHeadline"><span>Bemobi-post</span><strong className="numeric">{finite(bemobiValueM) ? `${number(bemobiValueM, 0)} MNOK` : "–"}</strong></div>
         </div>
         <div className="fxExposureMeta">
-          <span>{finite(holdingShares) ? `${number(holdingShares / MILLION, 2)}m Bemobi-aksjer` : "Bemobi-beholdning mangler"}</span>
-          <span>{finite(ownershipPct) ? `${number(ownershipPct, 2)} % eierskap` : ""}</span>
-          <span>{finite(bmob3) ? `BMOB3 ${number(bmob3, 2)} BRL` : ""}</span>
+          <span className="numeric">{finite(holdingShares) ? `${number(holdingShares / MILLION, 2)}m Bemobi-aksjer` : "Bemobi-beholdning mangler"}</span>
+          <span className="numeric">{finite(ownershipPct) ? `${number(ownershipPct, 2)} % eierskap` : ""}</span>
+          <span className="numeric">{finite(bmob3) ? `BMOB3 ${number(bmob3, 2)} BRL` : ""}</span>
         </div>
         <div className="fxTableWrap">
           <table className="fxTable">
@@ -460,11 +460,11 @@ export default function FxPage() {
             <tbody>
               {sensitivity.map((row) => (
                 <tr className={row.move === 0 ? "current" : ""} key={row.move}>
-                  <td>{row.move === 0 ? "Dagens kurs" : signedPct(row.move, 0)}</td>
-                  <td>{number(row.scenarioFx, 4)}</td>
-                  <td>{finite(row.valueM) ? `${number(row.valueM, 0)} MNOK` : "–"}</td>
-                  <td className={finite(row.deltaM) && row.deltaM > 0 ? "positive" : finite(row.deltaM) && row.deltaM < 0 ? "negative" : ""}>{finite(row.deltaM) ? `${row.deltaM > 0 ? "+" : ""}${number(row.deltaM, 1)} MNOK` : "–"}</td>
-                  <td className={finite(row.deltaPerShare) && row.deltaPerShare > 0 ? "positive" : finite(row.deltaPerShare) && row.deltaPerShare < 0 ? "negative" : ""}>{signedNok(row.deltaPerShare)}</td>
+                  <td className="numeric">{row.move === 0 ? "Dagens kurs" : signedPct(row.move, 0)}</td>
+                  <td className="numeric">{number(row.scenarioFx, 4)}</td>
+                  <td className="numeric">{finite(row.valueM) ? `${number(row.valueM, 0)} MNOK` : "–"}</td>
+                  <td className={`numeric ${finite(row.deltaM) && row.deltaM > 0 ? "positive" : finite(row.deltaM) && row.deltaM < 0 ? "negative" : ""}`}>{finite(row.deltaM) ? `${row.deltaM > 0 ? "+" : ""}${number(row.deltaM, 1)} MNOK` : "–"}</td>
+                  <td className={`numeric ${finite(row.deltaPerShare) && row.deltaPerShare > 0 ? "positive" : finite(row.deltaPerShare) && row.deltaPerShare < 0 ? "negative" : ""}`}>{signedNok(row.deltaPerShare)}</td>
                 </tr>
               ))}
             </tbody>
@@ -476,7 +476,7 @@ export default function FxPage() {
       <section className="fxTwoColumn fxContextGrid">
         <article className="card fxContextCard">
           <span className="label">VALUTABIDRAG YTD</span>
-          <h3>{signedNok(isolatedYtdFxPerShare)}</h3>
+          <h3 className="numeric">{signedNok(isolatedYtdFxPerShare)}</h3>
           <p>{finite(isolatedYtdFxM) ? `${isolatedYtdFxM > 0 ? "+" : ""}${number(isolatedYtdFxM, 1)} MNOK på Bemobi-posten` : "Ikke nok historikk til å beregne YTD-effekten."}</p>
           <small>Isolert beregning med dagens BMOB3-kurs og beholdning. Dette er ikke symmetrisk NAV-attribusjon.</small>
         </article>

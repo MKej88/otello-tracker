@@ -302,8 +302,8 @@ function MarketTicker({ label, quote }: { label: string; quote?: Quote }) {
   return (
     <div className="overviewTickerItem">
       <span>{label}</span>
-      <strong>{quotePrice(quote)}</strong>
-      <b className={tone(quote?.changes?.daily_pct)}>{signed(quote?.changes?.daily_pct, 1, " %")}</b>
+      <strong className="numeric">{quotePrice(quote)}</strong>
+      <b className={`numeric ${tone(quote?.changes?.daily_pct)}`}>{signed(quote?.changes?.daily_pct, 1, " %")}</b>
     </div>
   );
 }
@@ -350,14 +350,14 @@ function OverviewRange({
     <div className="overviewRange52">
       <div className="overviewRange52Header">
         <span>52 uker</span>
-        <small>{position == null ? "" : `${formatNumber(position, 0)} % opp i intervallet`}</small>
+        <small className="numeric">{position == null ? "" : `${formatNumber(position, 0)} % opp i intervallet`}</small>
       </div>
       <div className="overviewRange52Scale">
-        <span>{prefix}{formatNumber(low, digits)}</span>
+        <span className="numeric">{prefix}{formatNumber(low, digits)}</span>
         <div className="overviewRange52Track" aria-label="Posisjon i 52-ukersintervallet">
           {position != null ? <i style={{ left: `${position}%` }} /> : null}
         </div>
-        <span>{prefix}{formatNumber(high, digits)}</span>
+        <span className="numeric">{prefix}{formatNumber(high, digits)}</span>
       </div>
     </div>
   );
@@ -414,11 +414,11 @@ export default function OverviewPage() {
       <section className="overviewHeroGrid">
         <article className="card cardPrimary overviewNavCard overviewNavCardV3">
           <span className="label">NAV</span>
-          <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : <LoadingPlaceholder variant="number" label="Laster estimert NAV" />}</h2>
+          <h2 className="numeric">{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : <LoadingPlaceholder variant="number" label="Laster estimert NAV" />}</h2>
           <div className="overviewNavSnapshot">
-            <div className="cardSecondary"><span>OTEC</span><strong>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
-            <div className="cardSecondary"><span>Rabatt</span><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
-            <div className="cardSecondary"><span>1 års median</span><strong>{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
+            <div className="cardSecondary"><span>OTEC</span><strong className="numeric">{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
+            <div className="cardSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
+            <div className="cardSecondary"><span>1 års median</span><strong className="numeric">{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
           <div className="cardSecondary overviewDiscountContext">
             {discountSpread == null
@@ -427,7 +427,7 @@ export default function OverviewPage() {
                 ? `Rabatten er ${formatNumber(discountSpread, 1)} pp bredere enn 1-årsmedianen.`
                 : `Rabatten er ${formatNumber(Math.abs(discountSpread), 1)} pp smalere enn 1-årsmedianen.`}
           </div>
-          <small className="overviewUpdated">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
+          <small className="overviewUpdated numeric">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
         </article>
 
         <article className="card cardStandard overviewUpcomingCard overviewUpcomingCardV3">
@@ -438,8 +438,8 @@ export default function OverviewPage() {
             <>
               <div className="overviewNextEvent">
                 <div className="overviewNextEventDate">
-                  <strong>{eventDateLabel(nextEvent.date)}</strong>
-                  <span>{countdownLabel(nextEvent.date)}</span>
+                  <strong className="numeric">{eventDateLabel(nextEvent.date)}</strong>
+                  <span className="numeric">{countdownLabel(nextEvent.date)}</span>
                 </div>
                 <div className="overviewNextEventMain">
                   <div>
@@ -456,7 +456,7 @@ export default function OverviewPage() {
                 <div className="overviewUpcomingRows">
                   {events.slice(1).map((event) => (
                     <div key={event.id}>
-                      <time>{eventDateLabel(event.date)}{event.startsAtUtc ? ` kl. ${norwayReleaseTime(event.startsAtUtc)} (norsk tid)` : ""}</time>
+                      <time className="numeric">{eventDateLabel(event.date)}{event.startsAtUtc ? ` kl. ${norwayReleaseTime(event.startsAtUtc)} (norsk tid)` : ""}</time>
                       <strong>{event.title}</strong>
                       <span className="overviewEventBadges">
                         <span className="overviewEventBadge type">{event.typeBadge}</span>
@@ -481,11 +481,11 @@ export default function OverviewPage() {
         <div className="overviewDriverGrid">
           <article className="card cardStandard overviewDriverCard">
             <span className="label">BEMOBI</span>
-            <strong>{signed(bemobi?.month_pct, 1, " % siste måned")}</strong>
-            <div className={`overviewDriverEffect ${tone(bemobi?.nav_effect_1m_per_share_nok)}`}>
+            <strong className="numeric">{signed(bemobi?.month_pct, 1, " % siste måned")}</strong>
+            <div className={`overviewDriverEffect ${tone(bemobi?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
-            <small>BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
+            <small className="numeric">BMOB3 {bemobi?.price_brl == null ? "—" : `R$${formatNumber(bemobi.price_brl, 2)}`}</small>
           <OverviewRange
             current={quotes?.symbols?.BMOB3?.last ?? bemobi?.price_brl}
             low={quotes?.symbols?.BMOB3?.range_52w?.low}
@@ -497,11 +497,11 @@ export default function OverviewPage() {
 
           <article className="card cardStandard overviewDriverCard">
             <span className="label">BRL/NOK</span>
-            <strong>{signed(brl?.month_pct, 1, " % siste måned")}</strong>
-            <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)}`}>
+            <strong className="numeric">{signed(brl?.month_pct, 1, " % siste måned")}</strong>
+            <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
-            <small>Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
+            <small className="numeric">Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
           <OverviewRange
             current={summary?.brl_nok}
             low={brl?.range_1y?.low}
@@ -512,11 +512,11 @@ export default function OverviewPage() {
 
           <article className="card cardStandard overviewDriverCard">
             <span className="label">TILBAKEKJØP</span>
-            <strong>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</strong>
-            <div className={`overviewDriverEffect ${tone(buybackNavEffect)}`}>
+            <strong className="numeric">{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</strong>
+            <div className={`overviewDriverEffect ${tone(buybackNavEffect)} numeric`}>
               {signed(buybackNavEffect, 2, " kr netto NAV/aksje")}
             </div>
-            <small>{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % av programmet gjennomført`}</small>
+            <small className="numeric">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % av programmet gjennomført`}</small>
           </article>
         </div>
       </section>
@@ -528,22 +528,22 @@ export default function OverviewPage() {
         <div className="overviewCapitalGrid">
           <article className="card cardStandard overviewCapitalCard">
             <span className="label">CASH</span>
-            <strong className="overviewCapitalValue">{nav?.economic_cash_mnok == null ? "—" : `${formatNumber(nav.economic_cash_mnok, 1)} mill. kr`}</strong>
-            <span>{cashBridge?.cash_per_share_nok == null ? "—" : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}</span>
+            <strong className="overviewCapitalValue numeric">{nav?.economic_cash_mnok == null ? "—" : `${formatNumber(nav.economic_cash_mnok, 1)} mill. kr`}</strong>
+            <span className="numeric">{cashBridge?.cash_per_share_nok == null ? "—" : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}</span>
             <div className="overviewCapitalMeta">
               <span>Endring siden siste rapport</span>
-              <strong className={tone(cashBridge?.change_since_report_mnok)}>{signed(cashBridge?.change_since_report_mnok, 1, " mill. kr")}</strong>
+              <strong className={`numeric ${tone(cashBridge?.change_since_report_mnok)}`}>{signed(cashBridge?.change_since_report_mnok, 1, " mill. kr")}</strong>
             </div>
             <a className="overviewDeepLink" href="#cash">Se cash og kapitalallokering →</a>
           </article>
 
           <article className="card cardStandard overviewCapitalCard">
             <span className="label">TILBAKEKJØP</span>
-            <strong className="overviewCapitalValue">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % gjennomført`}</strong>
-            <span>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</span>
+            <strong className="overviewCapitalValue numeric">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % gjennomført`}</strong>
+            <span className="numeric">{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</span>
             <div className="overviewCapitalMeta overviewCapitalMetaTwo">
-              <div><span>Snittpris</span><strong>{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
-              <div><span>Netto NAV-effekt</span><strong className={tone(buybackNavEffect)}>{signed(buybackNavEffect, 2, " kr/aksje")}</strong></div>
+              <div><span>Snittpris</span><strong className="numeric">{programVwap == null ? "—" : `${formatNumber(programVwap, 2)} kr`}</strong></div>
+              <div><span>Netto NAV-effekt</span><strong className={`numeric ${tone(buybackNavEffect)}`}>{signed(buybackNavEffect, 2, " kr/aksje")}</strong></div>
             </div>
             <a className="overviewDeepLink" href="#tilbakekjop">Se tilbakekjøpsprogram →</a>
           </article>
@@ -560,13 +560,13 @@ export default function OverviewPage() {
           <MarketTicker label="BMOB3" quote={quotes?.symbols?.BMOB3} />
           <div className="overviewTickerItem">
             <span>BRL/NOK</span>
-            <strong>{summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</strong>
-            <b className={tone(brl?.daily_pct)}>{signed(brl?.daily_pct, 1, " %")}</b>
+            <strong className="numeric">{summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</strong>
+            <b className={`numeric ${tone(brl?.daily_pct)}`}>{signed(brl?.daily_pct, 1, " %")}</b>
           </div>
           <MarketTicker label="LIF" quote={quotes?.symbols?.LIF} />
         </div>
         {otecVolumeRelative != null && Number.isFinite(otecVolumeRelative) && otecVolumeRelative >= 1.5 ? (
-          <small className="overviewVolumeAlert">OTEC-volum siste handelsdag: {formatNumber(otecVolumeRelative, 1)}× 3-månederssnitt.</small>
+          <small className="overviewVolumeAlert numeric">OTEC-volum siste handelsdag: {formatNumber(otecVolumeRelative, 1)}× 3-månederssnitt.</small>
         ) : null}
       </section>
     </div>

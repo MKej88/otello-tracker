@@ -207,6 +207,10 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 .loadingPlaceholderNews .loadingPlaceholderShape { min-height: 210px; }
 .loadingPlaceholderCalendar .loadingPlaceholderShape { min-height: 300px; }
 
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
 .visuallyHidden {
   position: absolute;
   width: 1px;

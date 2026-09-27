@@ -318,32 +318,32 @@ export default function ConsensusPage() {
         </div>
         <div className="consensusHeroPrice">
           <span>BMOB3</span>
-          <strong>R$ {value(marketPrice, 2)}</strong>
-          <small>{dateLabel(market?.price_date)} · {market?.price_source ?? "marked"}</small>
+          <strong className="numeric">R$ {value(marketPrice, 2)}</strong>
+          <small className="numeric">{dateLabel(market?.price_date)} · {market?.price_source ?? "marked"}</small>
         </div>
       </section>
 
       <section className="consensusKpis consensusKpisV2">
         <article className="card">
           <span className="label">Konsensusmål</span>
-          <strong>R$ {value(targetAverage, 2)}</strong>
-          <small className={tone(coverage?.upside_to_average_pct)}>{signedPct(coverage?.upside_to_average_pct)} mot dagens kurs</small>
+          <strong className="numeric">R$ {value(targetAverage, 2)}</strong>
+          <small className={`numeric ${tone(coverage?.upside_to_average_pct)}`}>{signedPct(coverage?.upside_to_average_pct)} mot dagens kurs</small>
         </article>
         <article className="card">
           <span className="label">Kjøpsandel</span>
-          <strong>{value(coverage?.buy_pct, 0)} %</strong>
-          <small>{coverage?.buy_count ?? 0} kjøp · {coverage?.hold_count ?? 0} hold · {coverage?.sell_count ?? 0} selg</small>
+          <strong className="numeric">{value(coverage?.buy_pct, 0)} %</strong>
+          <small className="numeric">{coverage?.buy_count ?? 0} kjøp · {coverage?.hold_count ?? 0} hold · {coverage?.sell_count ?? 0} selg</small>
         </article>
         <article className="card">
           <span className="label">Neste rapport</span>
-          <strong>{nextQuarter?.period ?? "–"}</strong>
+          <strong className="numeric">{nextQuarter?.period ?? "–"}</strong>
           <small>{hasPublicPreview ? `${previewBroker}-preview tilgjengelig` : "Venter på offentlig preview"}</small>
         </article>
       </section>
 
       <section className="card consensusNextReport">
         <div className="cardHeader">
-          <div><span className="label">NESTE RAPPORT</span><h2>{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
+          <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
           <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
         </div>
         {hasPublicPreview ? (
@@ -360,20 +360,20 @@ export default function ConsensusPage() {
                     return (
                       <tr key={estimate.metric}>
                         <td><strong>{estimate.label}</strong></td>
-                        <td>R$ {value(estimate.value_mbrl, 1)}m</td>
-                        <td>{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
-                        <td className={tone(change)}>{signedPct(change)}</td>
-                        <td>&gt; R$ {value(estimate.value_mbrl, 1)}m</td>
+                        <td className="numeric">R$ {value(estimate.value_mbrl, 1)}m</td>
+                        <td className="numeric">{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
+                        <td className={`numeric ${tone(change)}`}>{signedPct(change)}</td>
+                        <td className="numeric">&gt; R$ {value(estimate.value_mbrl, 1)}m</td>
                       </tr>
                     );
                   })}
                   {finite(previewMargin) && (
                     <tr>
                       <td><strong>EBITDA-margin</strong></td>
-                      <td>{value(previewMargin, 1)} %</td>
-                      <td>{finite(latestMargin) ? `${value(latestMargin, 1)} %` : "–"}</td>
-                      <td className={tone(pctChange(latestMargin, previewMargin))}>{signedPct(pctChange(latestMargin, previewMargin))}</td>
-                      <td>&gt; {value(previewMargin, 1)} %</td>
+                      <td className="numeric">{value(previewMargin, 1)} %</td>
+                      <td className="numeric">{finite(latestMargin) ? `${value(latestMargin, 1)} %` : "–"}</td>
+                      <td className={`numeric ${tone(pctChange(latestMargin, previewMargin))}`}>{signedPct(pctChange(latestMargin, previewMargin))}</td>
+                      <td className="numeric">&gt; {value(previewMargin, 1)} %</td>
                     </tr>
                   )}
                 </tbody>
@@ -404,8 +404,8 @@ export default function ConsensusPage() {
             {summary.map((metric) => (
               <div key={metric.key}>
                 <span>{metric.label}</span>
-                <strong>{metric.beats}/{metric.total} beat</strong>
-                <small className={tone(metric.averagePct)}>Snitt {signedPct(metric.averagePct)}</small>
+                <strong className="numeric">{metric.beats}/{metric.total} beat</strong>
+                <small className={`numeric ${tone(metric.averagePct)}`}>Snitt {signedPct(metric.averagePct)}</small>
               </div>
             ))}
           </div>
@@ -415,7 +415,7 @@ export default function ConsensusPage() {
       <section className="card consensusForward consensusForwardV2">
         <div className="cardHeader">
           <div><span className="label">FORWARD ESTIMATER</span><h2>{broker?.source ?? "Meglerestimat"}</h2></div>
-          <SourceLink url={broker?.source_url}><span className="pill">{broker?.published_date ? dateLabel(broker.published_date) : "KILDE"}</span></SourceLink>
+          <SourceLink url={broker?.source_url}><span className="pill numeric">{broker?.published_date ? dateLabel(broker.published_date) : "KILDE"}</span></SourceLink>
         </div>
         <p className="consensusNote">Kildeverifisert modell fra ett meglerhus. Dette er ikke et anonymt aggregat.</p>
         <div className="consensusTableWrap consensusForwardMatrixWrap">
@@ -433,7 +433,7 @@ export default function ConsensusPage() {
         </div>
         <div className="consensusNetCashRow">
           {brokerYears.map((year) => (
-            <span key={year.year}>{year.year}E: {finite(year.net_debt_mbrl) ? (year.net_debt_mbrl <= 0 ? `netto cash R$ ${value(Math.abs(year.net_debt_mbrl), 0)}m` : `netto gjeld R$ ${value(year.net_debt_mbrl, 0)}m`) : "netto gjeld/cash –"}</span>
+            <span className="numeric" key={year.year}>{year.year}E: {finite(year.net_debt_mbrl) ? (year.net_debt_mbrl <= 0 ? `netto cash R$ ${value(Math.abs(year.net_debt_mbrl), 0)}m` : `netto gjeld R$ ${value(year.net_debt_mbrl, 0)}m`) : "netto gjeld/cash –"}</span>
           ))}
         </div>
         {broker?.note && <p className="consensusNote">{broker.note}</p>}
@@ -444,16 +444,16 @@ export default function ConsensusPage() {
       <section className="card consensusTargetRange">
         <div className="cardHeader">
           <div><span className="label">KURSMÅL</span><h2>Analytikernes spenn</h2></div>
-          <SourceLink url={coverage?.source_url}><span className="pill">{coverage?.analyst_count ?? 0} ANALYTIKERE</span></SourceLink>
+          <SourceLink url={coverage?.source_url}><span className="pill numeric">{coverage?.analyst_count ?? 0} ANALYTIKERE</span></SourceLink>
         </div>
         {targetRangeReady ? (
           <div className="targetRangeVisual">
-            <div className="targetRangeNumbers"><span>Lav R$ {value(targetLow, 2)}</span><span>Snitt R$ {value(targetAverage, 2)}</span><span>Høy R$ {value(targetHigh, 2)}</span></div>
+            <div className="targetRangeNumbers"><span className="numeric">Lav R$ {value(targetLow, 2)}</span><span className="numeric">Snitt R$ {value(targetAverage, 2)}</span><span className="numeric">Høy R$ {value(targetHigh, 2)}</span></div>
             <div className="targetRangeTrack">
               <i className="targetRangeAverage" style={{ left: `${rangePosition(targetAverage) ?? 50}%` }} />
               {rangePosition(marketPrice) != null && <i className="targetRangeMarket" style={{ left: `${rangePosition(marketPrice)}%` }} />}
             </div>
-            <div className="targetRangeLegend"><span><i className="averageDot" />Konsensusmål</span><span><i className="marketDot" />BMOB3 R$ {value(marketPrice, 2)}</span></div>
+            <div className="targetRangeLegend"><span><i className="averageDot" />Konsensusmål</span><span className="numeric"><i className="marketDot" />BMOB3 R$ {value(marketPrice, 2)}</span></div>
           </div>
         ) : <div className="consensusEmptyInline">Kursmålsspenn mangler.</div>}
       </section>
@@ -470,8 +470,8 @@ export default function ConsensusPage() {
                     <td><strong>{analyst.institution}</strong></td>
                     <td>{analyst.analyst}</td>
                     <td><span className={`rating ${analyst.rating.toLowerCase()}`}>{ratingLabel(analyst.rating)}</span></td>
-                    <td>R$ {value(analyst.target_price_brl, 2)}</td>
-                    <td>{dateLabel(analyst.last_update)}</td>
+                    <td className="numeric">R$ {value(analyst.target_price_brl, 2)}</td>
+                    <td className="numeric">{dateLabel(analyst.last_update)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -484,12 +484,12 @@ export default function ConsensusPage() {
           <div className="beatMissGrid beatMissGridDetails">
             {beatMiss.map((period) => (
               <article key={period.period}>
-                <div className="beatMissHeader"><div><strong>{period.period}</strong><span>{period.broker}</span></div><SourceLink url={period.source_url}><span>Kilde →</span></SourceLink></div>
+                <div className="beatMissHeader"><div><strong className="numeric">{period.period}</strong><span>{period.broker}</span></div><SourceLink url={period.source_url}><span>Kilde →</span></SourceLink></div>
                 {period.metrics.map((metric) => (
                   <div className="beatMissRow" key={`${period.period}-${metric.metric}`}>
                     <span>{metric.label}</span>
-                    <div><small>Est. R$ {value(metric.estimate, 1)}m</small><small>Faktisk R$ {value(metric.actual, 1)}m</small></div>
-                    <strong className={tone(metric.beat_miss_pct)}>{signedPct(metric.beat_miss_pct)}</strong>
+                    <div><small className="numeric">Est. R$ {value(metric.estimate, 1)}m</small><small className="numeric">Faktisk R$ {value(metric.actual, 1)}m</small></div>
+                    <strong className={`numeric ${tone(metric.beat_miss_pct)}`}>{signedPct(metric.beat_miss_pct)}</strong>
                   </div>
                 ))}
               </article>

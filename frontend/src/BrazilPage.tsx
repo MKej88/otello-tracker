@@ -311,11 +311,11 @@ function MetricCard({ metric }: { metric?: Metric }) {
         <span className="label">{(METRIC_LABELS[metric.key] ?? metric.label).toUpperCase()}</span>
         <span className={`brazilSignal ${metric.signal?.tone ?? "neutral"}`}>{financialText(metric.signal?.label) || "Nøytral"}</span>
       </div>
-      <strong>{number(metric.value, digits)} <small>{metric.unit.replace("% p.a.", "% per år")}</small></strong>
+      <strong className="numeric">{number(metric.value, digits)} <small>{metric.unit.replace("% p.a.", "% per år")}</small></strong>
       <span>{secondary}</span>
       <Sparkline points={metric.series} />
       <p>{financialText(metric.bemobi_impact)}</p>
-      <small>{metric.source} · {dateLabel(metric.date)}</small>
+      <small className="numeric">{metric.source} · {dateLabel(metric.date)}</small>
     </article>
   );
 }
@@ -338,9 +338,9 @@ function FocusTable({ focus, year }: { focus?: FocusValues; year: number }) {
             return (
               <tr key={row.key}>
                 <td><strong>{FOCUS_ROW_LABELS[row.key]}</strong></td>
-                <td>{number(current?.median, 2)} {row.unit}</td>
-                <td>{number(next?.median, 2)} {row.unit}</td>
-                <td>{dateLabel(current?.survey_date ?? next?.survey_date)}{current?.survey_date && next?.survey_date && current.survey_date !== next.survey_date ? ` / ${dateLabel(next.survey_date)}` : ""}</td>
+                <td className="numeric">{number(current?.median, 2)} {row.unit}</td>
+                <td className="numeric">{number(next?.median, 2)} {row.unit}</td>
+                <td className="numeric">{dateLabel(current?.survey_date ?? next?.survey_date)}{current?.survey_date && next?.survey_date && current.survey_date !== next.survey_date ? ` / ${dateLabel(next.survey_date)}` : ""}</td>
               </tr>
             );
           })}
@@ -356,7 +356,7 @@ function CompactEvent({ event }: { event: CalendarEvent }) {
   return (
     <article className="brazilCompactEvent">
       <div className="brazilCompactEventDate">
-        <strong>{dateLabel(event.date).slice(0, 5)}</strong>
+        <strong className="numeric">{dateLabel(event.date).slice(0, 5)}</strong>
         {releaseTime ? <small>kl. {releaseTime}</small> : null}
       </div>
       <div>
@@ -368,7 +368,7 @@ function CompactEvent({ event }: { event: CalendarEvent }) {
       </div>
       <div className="brazilCompactConsensus">
         <span className="label">KONSENSUS</span>
-        <strong>{expectation ? `${number(expectation.value, 2)}${expectation.unit ? ` ${expectation.unit}` : ""}` : "–"}</strong>
+        <strong className="numeric">{expectation ? `${number(expectation.value, 2)}${expectation.unit ? ` ${expectation.unit}` : ""}` : "–"}</strong>
         {expectation?.previous ? <small>Forrige: {expectation.previous}</small> : null}
       </div>
     </article>
@@ -430,8 +430,8 @@ export default function BrazilPage() {
         </div>
         <div className="brazilFreshness">
           <span className="label">SIST HENTET</span>
-          <strong>{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
-          <small>{refreshFailed ? "Forrige data beholdt" : dateLabel(data.as_of_date)}</small>
+          <strong className="numeric">{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
+          <small className="numeric">{refreshFailed ? "Forrige data beholdt" : dateLabel(data.as_of_date)}</small>
         </div>
       </section>
 
@@ -442,15 +442,15 @@ export default function BrazilPage() {
             <span className={`brazilSignal ${summary?.drivers?.valuation?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.valuation?.tone)}</span>
           </div>
           <div className="brazilRatePath brazilRatePathThree">
-            <div><strong>{number(ratePath?.current, 2)} %</strong><small>I dag</small></div>
+            <div><strong className="numeric">{number(ratePath?.current, 2)} %</strong><small>I dag</small></div>
             <span>→</span>
-            <div><strong>{number(ratePath?.current_year_estimate, 2)} %</strong><small>{currentYear}E</small></div>
+            <div><strong className="numeric">{number(ratePath?.current_year_estimate, 2)} %</strong><small className="numeric">{currentYear}E</small></div>
             <span>→</span>
-            <div><strong>{number(ratePath?.next_year_estimate, 2)} %</strong><small>{nextYear}E</small></div>
+            <div><strong className="numeric">{number(ratePath?.next_year_estimate, 2)} %</strong><small className="numeric">{nextYear}E</small></div>
           </div>
           <div className="brazilRateMilestones">
-            <span><strong>{signedBp(ratePath?.expected_change_to_current_year_bp)}</strong> innen årsslutt</span>
-            <span><strong>{signedBp(ratePath?.expected_change_to_next_year_bp)}</strong> til utgangen av {nextYear}</span>
+            <span><strong className="numeric">{signedBp(ratePath?.expected_change_to_current_year_bp)}</strong> innen årsslutt</span>
+            <span><strong className="numeric">{signedBp(ratePath?.expected_change_to_next_year_bp)}</strong> til utgangen av {nextYear}</span>
           </div>
           <p>{rateExpectationText(ratePath?.next_year_estimate, ratePath?.expected_change_to_next_year_bp, nextYear)}</p>
         </article>
@@ -460,11 +460,11 @@ export default function BrazilPage() {
             <span className="label">BRL / NOK</span>
             <span className={`brazilSignal ${summary?.drivers?.nav_fx?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.nav_fx?.tone)}</span>
           </div>
-          <div className="brazilDriverMainValue">{number(metrics.brl_nok?.value, 4)}</div>
-          <div className="brazilDriverMetric">{signed(metrics.brl_nok?.change_1m_pct, 1)} % siste måned</div>
+          <div className="brazilDriverMainValue numeric">{number(metrics.brl_nok?.value, 4)}</div>
+          <div className="brazilDriverMetric numeric">{signed(metrics.brl_nok?.change_1m_pct, 1)} % siste måned</div>
           <div className="brazilNavSensitivity">
-            <span>+10 % BRL</span>
-            <strong>{brlNavImpact10 == null ? "–" : `${signed(brlNavImpact10, 2)} kr NAV/OTEC`}</strong>
+            <span className="numeric">+10 % BRL</span>
+            <strong className="numeric">{brlNavImpact10 == null ? "–" : `${signed(brlNavImpact10, 2)} kr NAV/OTEC`}</strong>
           </div>
           <p>{brlNavImpact1 == null ? financialText(summary?.drivers?.nav_fx?.summary) : `+1 % BRL tilsvarer om lag ${signed(brlNavImpact1, 2)} kr NAV per OTEC-aksje, alt annet likt.`}</p>
         </article>
@@ -475,8 +475,8 @@ export default function BrazilPage() {
             <span className={`brazilSignal ${summary?.drivers?.operations?.tone ?? "neutral"}`}>{toneLabel(summary?.drivers?.operations?.tone)}</span>
           </div>
           <div className="brazilActivityPair">
-            <div><span>Økonomisk aktivitet</span><strong>{signed(metrics.ibc_br?.value, 2)} %</strong></div>
-            <div><span>Tjenester</span><strong>{signed(metrics.ibc_services?.value, 2)} %</strong></div>
+            <div><span>Økonomisk aktivitet</span><strong className="numeric">{signed(metrics.ibc_br?.value, 2)} %</strong></div>
+            <div><span>Tjenester</span><strong className="numeric">{signed(metrics.ibc_services?.value, 2)} %</strong></div>
           </div>
           <p>{financialText(summary?.drivers?.operations?.summary) || "Aktivitetssignalene viser etterspørselsbildet Bemobi opererer i."}</p>
         </article>
@@ -485,7 +485,7 @@ export default function BrazilPage() {
       <section className="card brazilChangeCard">
         <div className="sectionHeading compactHeading">
           <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
-          <small>{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Tabellen viser endringen mot siste komplette snapshot rundt 30 dager tidligere."}</small>
+          <small className="numeric">{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Tabellen viser endringen mot siste komplette snapshot rundt 30 dager tidligere."}</small>
         </div>
         <div className="brazilChangeLayout">
           <div className="brazilChangeTableWrap">
@@ -494,25 +494,25 @@ export default function BrazilPage() {
               <tbody>
                 <tr>
                   <td>Styringsrente</td>
-                  <td><strong className={trendTone(selicCurrent30d, true)}>{signedBp(selicCurrent30d?.change_bp)}</strong></td>
-                  <td><strong className={trendTone(selicNext30d, true)}>{signedBp(selicNext30d?.change_bp)}</strong></td>
+                  <td><strong className={`numeric ${trendTone(selicCurrent30d, true)}`}>{signedBp(selicCurrent30d?.change_bp)}</strong></td>
+                  <td><strong className={`numeric ${trendTone(selicNext30d, true)}`}>{signedBp(selicNext30d?.change_bp)}</strong></td>
                 </tr>
                 <tr>
                   <td>Prisvekst</td>
-                  <td><strong className={trendTone(ipcaCurrent30d, true)}>{signedBp(ipcaCurrent30d?.change_bp)}</strong></td>
-                  <td><strong className={trendTone(ipcaNext30d, true)}>{signedBp(ipcaNext30d?.change_bp)}</strong></td>
+                  <td><strong className={`numeric ${trendTone(ipcaCurrent30d, true)}`}>{signedBp(ipcaCurrent30d?.change_bp)}</strong></td>
+                  <td><strong className={`numeric ${trendTone(ipcaNext30d, true)}`}>{signedBp(ipcaNext30d?.change_bp)}</strong></td>
                 </tr>
                 <tr>
                   <td>BNP-vekst</td>
-                  <td><strong className={trendTone(gdpCurrent30d, false)}>{gdpCurrent30d?.change == null ? "–" : `${signed(gdpCurrent30d.change, 2)} pp`}</strong></td>
-                  <td><strong className={trendTone(gdpNext30d, false)}>{gdpNext30d?.change == null ? "–" : `${signed(gdpNext30d.change, 2)} pp`}</strong></td>
+                  <td><strong className={`numeric ${trendTone(gdpCurrent30d, false)}`}>{gdpCurrent30d?.change == null ? "–" : `${signed(gdpCurrent30d.change, 2)} pp`}</strong></td>
+                  <td><strong className={`numeric ${trendTone(gdpNext30d, false)}`}>{gdpNext30d?.change == null ? "–" : `${signed(gdpNext30d.change, 2)} pp`}</strong></td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div className="brazilChangeFx">
             <span>BRL/NOK · siste måned</span>
-            <strong className={(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong>
+            <strong className={`numeric ${(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}`}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong>
           </div>
         </div>
       </section>
@@ -521,12 +521,12 @@ export default function BrazilPage() {
         <section className="card brazilLatestCompact">
           <div className="brazilLatestCompactTitle">
             <div><span className="label">SISTE VIKTIGE MAKROTALL</span><h2>{latestMacroLabel(data.latest_high_importance_release)}</h2></div>
-            <span>{dateLabel(data.latest_high_importance_release.date)}</span>
+            <span className="numeric">{dateLabel(data.latest_high_importance_release.date)}</span>
           </div>
           <div className="brazilLatestCompactValues">
-            <div><span>Faktisk</span><strong>{data.latest_high_importance_release.actual || "–"}</strong></div>
-            <div><span>Forventet</span><strong>{data.latest_high_importance_release.forecast || "–"}</strong></div>
-            <div><span>Avvik</span><strong>{data.latest_high_importance_release.surprise == null ? "–" : `${signed(data.latest_high_importance_release.surprise, 2)} pp`}</strong></div>
+            <div><span>Faktisk</span><strong className="numeric">{data.latest_high_importance_release.actual || "–"}</strong></div>
+            <div><span>Forventet</span><strong className="numeric">{data.latest_high_importance_release.forecast || "–"}</strong></div>
+            <div><span>Avvik</span><strong className="numeric">{data.latest_high_importance_release.surprise == null ? "–" : `${signed(data.latest_high_importance_release.surprise, 2)} pp`}</strong></div>
           </div>
           <p>{financialText(data.latest_high_importance_release.bemobi_impact) || "Ingen særskilt Bemobi-vurdering er knyttet til publiseringen."}</p>
         </section>
@@ -535,7 +535,7 @@ export default function BrazilPage() {
       <section className="card brazilNextEventsCard">
         <div className="sectionHeading compactHeading">
           <div><span className="label">NESTE VIKTIGE HENDELSER</span><h2>Makrokalender</h2></div>
-          <span className="brazilCalendarCount">3 nærmeste</span>
+          <span className="brazilCalendarCount numeric">3 nærmeste</span>
         </div>
         <div className="brazilCompactEventList">
           {nextEvents.length ? nextEvents.map((event) => <CompactEvent event={event} key={`${event.date}-${event.name}`} />) : <p>Ingen kommende hendelser i perioden.</p>}
@@ -547,7 +547,7 @@ export default function BrazilPage() {
           <summary><span><span className="label">MARKEDSFORVENTNINGER</span><strong>Forventninger til rente, inflasjon, vekst og valuta</strong></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
-            {currentFocusDate ? <p><small>Focus {dateLabel(currentFocusDate)}</small></p> : null}
+            {currentFocusDate ? <p><small className="numeric">Focus {dateLabel(currentFocusDate)}</small></p> : null}
             {data.focus?.focus_meta?.stale ? <p className="sourceWarn"><small>Obs: Ett eller flere tall er eldre enn tre uker. Se måledato for hver indikator.</small></p> : null}
             <FocusTable focus={data.focus?.values} year={currentYear} />
             <p><small>Kilde: {data.focus?.source_url ? <a href={data.focus.source_url} target="_blank" rel="noreferrer">Banco Central do Brasil – Focus-undersøkelsen</a> : "Banco Central do Brasil – Focus-undersøkelsen"}.</small></p>
@@ -577,7 +577,7 @@ export default function BrazilPage() {
           <div className="brazilDetailBody">
             <p>Styringsrente, inflasjon og aktivitetsserier hentes fra Brasils sentralbank. Markedsforventningene kommer fra sentralbankens ukentlige Focus-undersøkelse via BCB Olinda. Publiseringsdatoer hentes fra BCB/IBGE og BRL/NOK fra Norges Bank. Investing.com brukes bare som sekundær kilde for hendelseskonsensus og publiseringstid når dette finnes.</p>
             <p>Brasil-statusen er regelbasert og bruker tre transparente kanaler: rentebane, aktivitet og BRL/NOK. Den er ikke en AI-score. BRL-sensitiviteten bruker den samme Bemobi-komponenten som investor-NAV og viser isolert valutaeffekt, alt annet likt.</p>
-            {bemobiNavShare != null ? <p>Bemobi utgjør nå omtrent <strong>{number(bemobiNavShare, 1)} %</strong> av investor-NAV før andre samtidige markedsbevegelser.</p> : null}
+            {bemobiNavShare != null ? <p>Bemobi utgjør nå omtrent <strong className="numeric">{number(bemobiNavShare, 1)} %</strong> av investor-NAV før andre samtidige markedsbevegelser.</p> : null}
             <div className="brazilSources">{(data.sources ?? []).map((source) => <span key={source.name}>{financialText(source.name)}</span>)}</div>
           </div>
         </details>

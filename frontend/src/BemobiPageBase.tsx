@@ -315,8 +315,8 @@ export default function BemobiPageBase() {
         </div>
         <div className="bemobiHeroQuote">
           <span>BMOB3</span>
-          <strong>{market?.price_brl == null ? "–" : `R$ ${value(market.price_brl, 2)}`}</strong>
-          <small>{dateLabel(market?.price_date)}</small>
+          <strong className="numeric">{market?.price_brl == null ? "–" : `R$ ${value(market.price_brl, 2)}`}</strong>
+          <small className="numeric">{dateLabel(market?.price_date)}</small>
         </div>
       </section>
 
@@ -329,23 +329,23 @@ export default function BemobiPageBase() {
       <section className="bemobiCleanKpiGrid">
         <article className="card bemobiCleanKpi">
           <span className="label">Omsetning</span>
-          <strong>R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
-          <small className={metricTone(result?.adjusted_net_revenue_yoy_pct)}>{signedPct(result?.adjusted_net_revenue_yoy_pct)} år/år</small>
+          <strong className="numeric">R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
+          <small className={`numeric ${metricTone(result?.adjusted_net_revenue_yoy_pct)}`}>{signedPct(result?.adjusted_net_revenue_yoy_pct)} år/år</small>
         </article>
         <article className="card bemobiCleanKpi">
           <span className="label">Justert EBITDA</span>
-          <strong>R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
-          <small className={metricTone(result?.adjusted_ebitda_yoy_pct)}>{signedPct(result?.adjusted_ebitda_yoy_pct)} år/år</small>
+          <strong className="numeric">R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
+          <small className={`numeric ${metricTone(result?.adjusted_ebitda_yoy_pct)}`}>{signedPct(result?.adjusted_ebitda_yoy_pct)} år/år</small>
         </article>
         <article className="card bemobiCleanKpi">
           <span className="label">EBITDA-margin</span>
-          <strong>{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
-          <small>{result?.period ?? "Siste kvartal"}</small>
+          <strong className="numeric">{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
+          <small className="numeric">{result?.period ?? "Siste kvartal"}</small>
         </article>
         <article className="card bemobiCleanKpi">
           <span className="label">Justert resultat</span>
-          <strong>R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
-          <small className={metricTone(result?.adjusted_net_income_yoy_pct)}>{signedPct(result?.adjusted_net_income_yoy_pct)} år/år</small>
+          <strong className="numeric">R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
+          <small className={`numeric ${metricTone(result?.adjusted_net_income_yoy_pct)}`}>{signedPct(result?.adjusted_net_income_yoy_pct)} år/år</small>
         </article>
       </section>
 
@@ -356,22 +356,22 @@ export default function BemobiPageBase() {
               <span className="label">VEKSTDRIVERE</span>
               <h2>Hva driver veksten?</h2>
             </div>
-            <span className="pill">{result?.period ?? "SISTE"}</span>
+            <span className="pill numeric">{result?.period ?? "SISTE"}</span>
           </div>
           <div className="bemobiDriverGrid">
             <div>
               <span>Payments</span>
-              <strong className={metricTone(result?.payments_yoy_pct)}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
+              <strong className={`numeric ${metricTone(result?.payments_yoy_pct)}`}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
               <small>år/år</small>
             </div>
             <div>
               <span>SaaS</span>
-              <strong className={metricTone(result?.saas_yoy_pct)}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
+              <strong className={`numeric ${metricTone(result?.saas_yoy_pct)}`}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
               <small>år/år</small>
             </div>
           </div>
           <p className="bemobiCleanNote">
-            Samlet rapportert omsetningsvekst i kvartalet: <strong>{signedPct(result?.adjusted_net_revenue_yoy_pct)}</strong>.
+            Samlet rapportert omsetningsvekst i kvartalet: <strong className="numeric">{signedPct(result?.adjusted_net_revenue_yoy_pct)}</strong>.
           </p>
         </article>
 
@@ -385,18 +385,18 @@ export default function BemobiPageBase() {
           <div className="bemobiCashMetricGrid">
             <div>
               <span>EBITDA − capex</span>
-              <strong>R$ {value(result?.ebitda_less_capex_mbrl, 1)}m</strong>
+              <strong className="numeric">R$ {value(result?.ebitda_less_capex_mbrl, 1)}m</strong>
               <small>siste kvartal</small>
             </div>
             <div>
               <span>Cash conversion</span>
-              <strong>{value(result?.cash_conversion_pct, 1)} %</strong>
+              <strong className="numeric">{value(result?.cash_conversion_pct, 1)} %</strong>
               <small>rapportert av Bemobi</small>
             </div>
             <div>
               <span>Netto cash</span>
-              <strong>R$ {value(netCashMbrl, 1)}m</strong>
-              <small>{latestQuarter?.period ?? valuation?.period ?? "TTM"}</small>
+              <strong className="numeric">R$ {value(netCashMbrl, 1)}m</strong>
+              <small className="numeric">{latestQuarter?.period ?? valuation?.period ?? "TTM"}</small>
             </div>
           </div>
         </article>
@@ -414,28 +414,28 @@ export default function BemobiPageBase() {
         <div className="bemobiCleanValuationGrid bemobiCleanValuationGridFive">
           <div>
             <span>P/E {forwardLabel}</span>
-            <strong>{value(forwardPe, 1)}x</strong>
-            <small>{nextYear == null ? `TTM ${value(peTtm, 1)}x` : `${nextYear}E ${value(nextPe, 1)}x · TTM ${value(peTtm, 1)}x`}</small>
+            <strong className="numeric">{value(forwardPe, 1)}x</strong>
+            <small className="numeric">{nextYear == null ? `TTM ${value(peTtm, 1)}x` : `${nextYear}E ${value(nextPe, 1)}x · TTM ${value(peTtm, 1)}x`}</small>
           </div>
           <div>
             <span>EV / EBITDA {forwardLabel}</span>
-            <strong>{value(forwardEvEbitda, 1)}x</strong>
-            <small>{nextYear == null ? `TTM ${value(evEbitdaTtm, 1)}x` : `${nextYear}E ${value(nextEvEbitda, 1)}x · TTM ${value(evEbitdaTtm, 1)}x`}</small>
+            <strong className="numeric">{value(forwardEvEbitda, 1)}x</strong>
+            <small className="numeric">{nextYear == null ? `TTM ${value(evEbitdaTtm, 1)}x` : `${nextYear}E ${value(nextEvEbitda, 1)}x · TTM ${value(evEbitdaTtm, 1)}x`}</small>
           </div>
           <div>
             <span>Est. payout yield</span>
-            <strong>{value(payoutYield, 1)} %</strong>
-            <small>{nextYear == null ? `100 % av ${forwardLabel} resultat` : `${nextYear}E ${value(nextPayoutYield, 1)} % · 100 % payout`}</small>
+            <strong className="numeric">{value(payoutYield, 1)} %</strong>
+            <small className="numeric">{nextYear == null ? `100 % av ${forwardLabel} resultat` : `${nextYear}E ${value(nextPayoutYield, 1)} % · 100 % payout`}</small>
           </div>
           <div>
             <span>OpFCF yield TTM</span>
-            <strong>{value(opFcfYield, 1)} %</strong>
+            <strong className="numeric">{value(opFcfYield, 1)} %</strong>
             <small>justert EBITDA − capex</small>
           </div>
           <div>
             <span>Net cash / MCap</span>
-            <strong>{value(netCashToMarketCap, 1)} %</strong>
-            <small>R$ {value(netCashMbrl, 1)}m netto cash</small>
+            <strong className="numeric">{value(netCashToMarketCap, 1)} %</strong>
+            <small className="numeric">R$ {value(netCashMbrl, 1)}m netto cash</small>
           </div>
         </div>
 
@@ -458,9 +458,9 @@ export default function BemobiPageBase() {
           <div className="bemobiCleanScenarioGrid">
             {forwardScenarios.map((scenario) => (
               <div key={scenario.multiple}>
-                <span>{value(scenario.multiple, 0)}x P/E</span>
-                <strong>R$ {value(scenario.implied_price_brl, 2)}</strong>
-                <small className={metricTone(scenario.upside_pct)}>{signedPct(scenario.upside_pct)} mot BMOB3</small>
+                <span className="numeric">{value(scenario.multiple, 0)}x P/E</span>
+                <strong className="numeric">R$ {value(scenario.implied_price_brl, 2)}</strong>
+                <small className={`numeric ${metricTone(scenario.upside_pct)}`}>{signedPct(scenario.upside_pct)} mot BMOB3</small>
               </div>
             ))}
           </div>
@@ -494,11 +494,11 @@ export default function BemobiPageBase() {
                   : null;
                 return (
                   <tr key={quarter.period}>
-                    <td><strong>{quarter.period}</strong></td>
-                    <td>R$ {value(revenue, 1)}m</td>
-                    <td>R$ {value(ebitda, 1)}m</td>
-                    <td>{value(margin, 1)} %</td>
-                    <td>R$ {value(quarter.adjusted_net_income_mbrl, 1)}m</td>
+                    <td><strong className="numeric">{quarter.period}</strong></td>
+                    <td className="numeric">R$ {value(revenue, 1)}m</td>
+                    <td className="numeric">R$ {value(ebitda, 1)}m</td>
+                    <td className="numeric">{value(margin, 1)} %</td>
+                    <td className="numeric">R$ {value(quarter.adjusted_net_income_mbrl, 1)}m</td>
                   </tr>
                 );
               })}
@@ -517,27 +517,27 @@ export default function BemobiPageBase() {
         <div className="bemobiWatchGrid">
           <div>
             <span>Payments-vekst</span>
-            <strong className={metricTone(result?.payments_yoy_pct)}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
+            <strong className={`numeric ${metricTone(result?.payments_yoy_pct)}`}>{signedPct(result?.payments_yoy_pct, 0)}</strong>
             <small>år/år</small>
           </div>
           <div>
             <span>SaaS-vekst</span>
-            <strong className={metricTone(result?.saas_yoy_pct)}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
+            <strong className={`numeric ${metricTone(result?.saas_yoy_pct)}`}>{signedPct(result?.saas_yoy_pct, 0)}</strong>
             <small>år/år</small>
           </div>
           <div>
             <span>Cash conversion</span>
-            <strong>{value(result?.cash_conversion_pct, 1)} %</strong>
+            <strong className="numeric">{value(result?.cash_conversion_pct, 1)} %</strong>
             <small>siste kvartal</small>
           </div>
           <div>
             <span>Neste rapport</span>
-            <strong>{nextReport?.date ? dateLabel(nextReport.date) : "Ikke bekreftet"}</strong>
-            <small>{nextReport?.period ?? "Neste kvartal"}</small>
+            <strong className="numeric">{nextReport?.date ? dateLabel(nextReport.date) : "Ikke bekreftet"}</strong>
+            <small className="numeric">{nextReport?.period ?? "Neste kvartal"}</small>
           </div>
         </div>
         <div className="bemobiCleanFooterMeta">
-          <span>Siste rapport: {result?.period ?? "–"} · publisert {dateLabel(result?.published_date)}</span>
+          <span className="numeric">Siste rapport: {result?.period ?? "–"} · publisert {dateLabel(result?.published_date)}</span>
           {result?.source_url && (
             <a href={result.source_url} target="_blank" rel="noreferrer">Åpne resultatkilden →</a>
           )}
