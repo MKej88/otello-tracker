@@ -540,7 +540,7 @@ export default function NavPageV2() {
       <section className="estimatedHero card">
         <div>
           <span className="label">NAV</span>
-          <h2>{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : <LoadingPlaceholder variant="number" label="Laster estimert NAV per aksje" />}</h2>
+          <h2 className="numeric">{displayedNavPerShare != null ? `${value(displayedNavPerShare)} kr per aksje` : <LoadingPlaceholder variant="number" label="Laster estimert NAV per aksje" />}</h2>
           <p>
             Beregnet på {integer(displayedSharesOutstanding)} utestående aksjer.{" "}
             <span
@@ -555,8 +555,8 @@ export default function NavPageV2() {
           {shareBasisSummary && <small>{shareBasisSummary}</small>}
         </div>
         <div className="estimatedHeroSide">
-          <div><span>Rabatt</span><strong>{value(displayedDiscountPct, 1)} %</strong></div>
-          <small>Sist oppdatert {dateTimeLabel(live?.calculated_at)}</small>
+          <div><span>Rabatt</span><strong className="numeric">{value(displayedDiscountPct, 1)} %</strong></div>
+          <small className="numeric">Sist oppdatert {dateTimeLabel(live?.calculated_at)}</small>
           <small>Kontrolleres hvert 30. minutt</small>
         </div>
       </section>
@@ -564,7 +564,7 @@ export default function NavPageV2() {
       <section className="card compositionCard">
         <div className="cardHeader">
           <div><span className="label">SAMMENSETNING</span><h2>Hva består NAV av i dag?</h2></div>
-          <span className="pill">{dateLabel(compositionDate)}</span>
+          <span className="pill numeric">{dateLabel(compositionDate)}</span>
         </div>
         {loading && !data && !liveCompositionReady && <p className="dataNotice">Beregner sammensetningen …</p>}
         {failed && !data && !liveCompositionReady && <p className="dataNotice">Kunne ikke hente NAV-sammensetningen.</p>}
@@ -577,16 +577,16 @@ export default function NavPageV2() {
               return (
                 <div className="compositionRow" key={item.key}>
                   <strong>{item.key === "life360" ? "Life360" : item.label}</strong>
-                  <span>{available ? `${value(item.amount_mnok, 1)} mill. kr` : "–"}</span>
-                  <span className={available && item.per_share_nok < 0 ? "negative" : ""}>{available ? `${value(item.per_share_nok)} kr` : "–"}</span>
+                  <span className="numeric">{available ? `${value(item.amount_mnok, 1)} mill. kr` : "–"}</span>
+                  <span className={`numeric ${available && item.per_share_nok < 0 ? "negative" : ""}`}>{available ? `${value(item.per_share_nok)} kr` : "–"}</span>
                   <small>{available ? displayFormula(item) : "Mangler gyldig LIF-kurs og rapportanker"}</small>
                 </div>
               );
             })}
             <div className="compositionTotal">
               <strong>NAV</strong>
-              <span>{value(compositionNavTotalMnok, 1)} mill. kr</span>
-              <span>{value(compositionNavPerShare)} kr</span>
+              <span className="numeric">{value(compositionNavTotalMnok, 1)} mill. kr</span>
+              <span className="numeric">{value(compositionNavPerShare)} kr</span>
               <small>Sum av komponentene over</small>
             </div>
           </div>
@@ -610,9 +610,9 @@ export default function NavPageV2() {
         {change?.ready ? (
           <>
             <div className="changeSummary">
-              <div><span>Fra</span><strong>{value(change.start_nav_per_share)} kr</strong><small>{dateLabel(change.resolved_start)}</small></div>
-              <div><span>Til</span><strong>{value(change.current_nav_per_share)} kr</strong><small>{dateLabel(change.current_date)}</small></div>
-              <div><span>Nettoendring</span><strong className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
+              <div><span>Fra</span><strong className="numeric">{value(change.start_nav_per_share)} kr</strong><small className="numeric">{dateLabel(change.resolved_start)}</small></div>
+              <div><span>Til</span><strong className="numeric">{value(change.current_nav_per_share)} kr</strong><small className="numeric">{dateLabel(change.current_date)}</small></div>
+              <div><span>Nettoendring</span><strong className={`numeric ${(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}`}>{signed(change.change_per_share_nok)} kr</strong><small>per aksje</small></div>
             </div>
             <div className="compositionTable driverNetTable">
               <div className="compositionHead"><span>Komponent</span><span>Bevegelse</span><span>Verdieffekt</span><span>Nettoeffekt NAV/aksje</span></div>
@@ -629,9 +629,9 @@ export default function NavPageV2() {
               })}
               <div className="compositionTotal">
                 <strong>NAV</strong>
-                <span>{dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}</span>
+                <span className="numeric">{dateLabel(change.resolved_start)} → {dateLabel(change.current_date)}</span>
                 <span>–</span>
-                <span className={(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}>{signed(change.change_per_share_nok)} kr/aksje</span>
+                <span className={`numeric ${(change.change_per_share_nok ?? 0) >= 0 ? "positive" : "negative"}`}>{signed(change.change_per_share_nok)} kr/aksje</span>
               </div>
             </div>
             <p className="methodNote">Bemobi deles i aksjekurs og BRL/NOK. Life360 vises med samlet markedsverdieffekt. Bekreftede Bemobi-utdelinger vises først som fordring og deretter som utbetalt kontant; overgangen påvirker ikke NAV. Øvrig kontantendring fordeles på drift og renteinntekter. Tilbakekjøp vises som nettoeffekten av kontantbruk og færre aksjer. NAV/aksje-effekter avrundes symmetrisk.</p>

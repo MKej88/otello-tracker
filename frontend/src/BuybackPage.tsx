@@ -333,10 +333,10 @@ export default function BuybackPage() {
       <section className="buybackHero card investorBuybackHero simplifiedBuybackHero">
         <div className="buybackHeroCopy">
           <span className="label">Verdiskaping fra tilbakekjøp</span>
-          <h2 className={effectTone(navEffect)}>
+          <h2 className={`numeric ${effectTone(navEffect)}`}>
             {navEffect == null ? "Netto NAV-effekt beregnes" : `${signedKr(navEffect, 2)} NAV per aksje`}
           </h2>
-          <strong className={`buybackHeroSubEffect ${effectTone(navEffectPct)}`}>
+          <strong className={`buybackHeroSubEffect ${effectTone(navEffectPct)} numeric`}>
             {signedPercentage(navEffectPct, 2)} siden programstart
           </strong>
           <p>
@@ -347,8 +347,8 @@ export default function BuybackPage() {
             <span style={{ width: `${progress}%` }} />
           </div>
           <div className="buybackProgressLabels">
-            <strong>{value(progress, 1)} % gjennomført</strong>
-            <span>{count(program?.cumulative_shares)} kjøpt · {count(program?.remaining_shares)} gjenstår</span>
+            <strong className="numeric">{value(progress, 1)} % gjennomført</strong>
+            <span className="numeric">{count(program?.cumulative_shares)} kjøpt · {count(program?.remaining_shares)} gjenstår</span>
           </div>
         </div>
       </section>
@@ -377,18 +377,18 @@ export default function BuybackPage() {
       <section className="buybackKpis investorBuybackKpis simplifiedBuybackKpis">
         <article className="card buybackKpi">
           <span className="label">Kapital brukt</span>
-          <strong>{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong>
+          <strong className="numeric">{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong>
           <small>kapital brukt i dagens program</small>
         </article>
         <article className="card buybackKpi">
           <span className="label">Gjennomsnittlig kjøpskurs</span>
-          <strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong>
+          <strong className="numeric">{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong>
           <small>volumvektet kjøpskurs</small>
         </article>
         <article className="card buybackKpi">
           <span className="label">Aksjer kjøpt tilbake</span>
-          <strong>{count(program?.cumulative_shares)}</strong>
-          <small>{count(shares?.outstanding_shares)} utestående aksjer</small>
+          <strong className="numeric">{count(program?.cumulative_shares)}</strong>
+          <small className="numeric">{count(shares?.outstanding_shares)} utestående aksjer</small>
         </article>
       </section>
 
@@ -398,10 +398,10 @@ export default function BuybackPage() {
             <div><span className="label">Slik oppstår effekten</span><h2>Fra tilbakekjøp til NAV-effekt</h2></div>
           </div>
           <div className="buybackRows buybackEffectRows">
-            <div><span>Effekt av færre aksjer</span><strong>{signedKr(grossShareEffect, 2)}</strong></div>
-            <div><span>Cash brukt i programmet</span><strong>{signedKr(cashEffectPerShare, 2)}</strong></div>
-            <div className="buybackEffectTotal"><span>Netto verdi skapt</span><strong>{signedKr(navEffect, 2)} per aksje</strong></div>
-            <div><span>Netto NAV-effekt</span><strong className={effectTone(navEffectPct)}>{signedPercentage(navEffectPct, 2)}</strong></div>
+            <div><span>Effekt av færre aksjer</span><strong className="numeric">{signedKr(grossShareEffect, 2)}</strong></div>
+            <div><span>Cash brukt i programmet</span><strong className="numeric">{signedKr(cashEffectPerShare, 2)}</strong></div>
+            <div className="buybackEffectTotal"><span>Netto verdi skapt</span><strong className="numeric">{signedKr(navEffect, 2)} per aksje</strong></div>
+            <div><span>Netto NAV-effekt</span><strong className={`numeric ${effectTone(navEffectPct)}`}>{signedPercentage(navEffectPct, 2)}</strong></div>
           </div>
         </article>
 
@@ -410,12 +410,12 @@ export default function BuybackPage() {
             <div><span className="label">Programstatus</span><h2>Status i dagens program</h2></div>
           </div>
           <div className="buybackRows">
-            <div><span>Kjøpt</span><strong>{count(program?.cumulative_shares)}</strong></div>
-            <div><span>Gjenstår</span><strong>{count(program?.remaining_shares)}</strong></div>
-            <div><span>Gjennomført</span><strong>{value(program?.progress_pct, 1)} %</strong></div>
-            <div><span>Makspris</span><strong>{value(program?.max_price_nok, 2)} kr</strong></div>
-            <div><span>Snittpris</span><strong>{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
-            <div><span>Estimert programslutt</span><strong>{completionText(data.completion)}</strong></div>
+            <div><span>Kjøpt</span><strong className="numeric">{count(program?.cumulative_shares)}</strong></div>
+            <div><span>Gjenstår</span><strong className="numeric">{count(program?.remaining_shares)}</strong></div>
+            <div><span>Gjennomført</span><strong className="numeric">{value(program?.progress_pct, 1)} %</strong></div>
+            <div><span>Makspris</span><strong className="numeric">{value(program?.max_price_nok, 2)} kr</strong></div>
+            <div><span>Snittpris</span><strong className="numeric">{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong></div>
+            <div><span>Estimert programslutt</span><strong className="numeric">{completionText(data.completion)}</strong></div>
           </div>
         </article>
       </section>
@@ -430,16 +430,16 @@ export default function BuybackPage() {
         <article className="card buybackDetail">
           <div className="cardHeader">
             <div><span className="label">Siste rapporterte uke</span><h2>Faktisk gjennomføring</h2></div>
-            <span className="pill">{dateLabel(latest?.trade_date)}</span>
+            <span className="pill numeric">{dateLabel(latest?.trade_date)}</span>
           </div>
           <div className="buybackRows">
-            <div><span>Kjøpte aksjer</span><strong>{count(latest?.shares)}</strong></div>
-            <div><span>Gjennomsnittlig kjøpskurs</span><strong>{value(latest?.avg_price_nok, 2)} kr</strong></div>
-            <div><span>Investert beløp</span><strong>{value(Number(latest?.amount_nok ?? 0) / 1_000_000, 2)} mill. kr</strong></div>
-            <div><span>Markedsvolum i uken</span><strong>{count(latest?.market_volume_shares)}</strong></div>
-            <div><span>Otellos volumandel</span><strong>{value(latest?.volume_share_pct, 2)} %</strong></div>
-            <div><span>Safe Harbour-kapasitet</span><strong>{count(latest?.safe_harbour_capacity_shares)}</strong></div>
-            <div><span>Utnyttet av estimert kapasitet</span><strong>{value(latest?.safe_harbour_utilization_pct, 1)} %</strong></div>
+            <div><span>Kjøpte aksjer</span><strong className="numeric">{count(latest?.shares)}</strong></div>
+            <div><span>Gjennomsnittlig kjøpskurs</span><strong className="numeric">{value(latest?.avg_price_nok, 2)} kr</strong></div>
+            <div><span>Investert beløp</span><strong className="numeric">{value(Number(latest?.amount_nok ?? 0) / 1_000_000, 2)} mill. kr</strong></div>
+            <div><span>Markedsvolum i uken</span><strong className="numeric">{count(latest?.market_volume_shares)}</strong></div>
+            <div><span>Otellos volumandel</span><strong className="numeric">{value(latest?.volume_share_pct, 2)} %</strong></div>
+            <div><span>Safe Harbour-kapasitet</span><strong className="numeric">{count(latest?.safe_harbour_capacity_shares)}</strong></div>
+            <div><span>Utnyttet av estimert kapasitet</span><strong className="numeric">{value(latest?.safe_harbour_utilization_pct, 1)} %</strong></div>
           </div>
         </article>
 
@@ -450,27 +450,27 @@ export default function BuybackPage() {
           </div>
           <div className="forecastPrimary">
             <span>Baseestimat</span>
-            <strong>{count(estimate?.base_case_shares)}</strong>
-            <small>
+            <strong className="numeric">{count(estimate?.base_case_shares)}</strong>
+            <small className="numeric">
               {forecast?.forecast_week
                 ? `${dateLabel(forecast.forecast_week.from)}–${dateLabel(forecast.forecast_week.to)}`
                 : "Prognoseperiode ikke oppgitt"}
             </small>
           </div>
           <div className="forecastRange">
-            <span>Lav</span><strong>{count(estimate?.low_shares)}</strong>
+            <span>Lav</span><strong className="numeric">{count(estimate?.low_shares)}</strong>
             <div className="rangeLine">
               <span className="rangeEstimate" />
               <span className="rangeBase" style={{ left: `${basePosition}%` }} aria-label="Baseestimat" />
             </div>
-            <span>Høy</span><strong>{count(estimate?.high_shares)}</strong>
+            <span>Høy</span><strong className="numeric">{count(estimate?.high_shares)}</strong>
           </div>
           <div className="buybackRows compactRows">
-            <div><span>ADV20 fra råvolum</span><strong>{count(volume?.adv20_shares)}</strong></div>
-            <div><span>ADV20 brukt i prognosen</span><strong>{count(volume?.forecast_adv20_shares ?? volume?.adv20_shares)}</strong></div>
-            <div><span>Kapasitet fra råvolum</span><strong>{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
-            <div><span>Maks kjøpspris</span><strong>{value(price?.program_cap_nok, 2)} kr</strong></div>
-            <div><span>Avstand til maks kjøpspris</span><strong>{percentage(headroom, 1)}</strong></div>
+            <div><span>ADV20 fra råvolum</span><strong className="numeric">{count(volume?.adv20_shares)}</strong></div>
+            <div><span>ADV20 brukt i prognosen</span><strong className="numeric">{count(volume?.forecast_adv20_shares ?? volume?.adv20_shares)}</strong></div>
+            <div><span>Kapasitet fra råvolum</span><strong className="numeric">{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
+            <div><span>Maks kjøpspris</span><strong className="numeric">{value(price?.program_cap_nok, 2)} kr</strong></div>
+            <div><span>Avstand til maks kjøpspris</span><strong className="numeric">{percentage(headroom, 1)}</strong></div>
           </div>
           <p className="accuracyNote">
             Nyere kjøpsuker teller mest. Ekstreme volumdager dempes i prognosen.
@@ -483,11 +483,11 @@ export default function BuybackPage() {
       <section className="card buybackDetail accuracyCard buybackAccuracyFullWidth">
         <div className="cardHeader"><div><h2>Hvor godt treffer prognosen?</h2></div></div>
         <div className="accuracyGrid">
-          <div><span>Uker testet</span><strong>{metrics?.weeks ?? 0}</strong></div>
-          <div><span>Medianfeil</span><strong>{value(metrics?.median_ape_pct, 1)} %</strong></div>
-          <div><span>Vektet feil</span><strong>{value(metrics?.wmape_pct, 1)} %</strong></div>
-          <div><span>Innen ±10 %</span><strong>{value(metrics?.within_10_pct, 0)} %</strong></div>
-          <div><span>Innen ±20 %</span><strong>{value(metrics?.within_20_pct, 0)} %</strong></div>
+          <div><span>Uker testet</span><strong className="numeric">{metrics?.weeks ?? 0}</strong></div>
+          <div><span>Medianfeil</span><strong className="numeric">{value(metrics?.median_ape_pct, 1)} %</strong></div>
+          <div><span>Vektet feil</span><strong className="numeric">{value(metrics?.wmape_pct, 1)} %</strong></div>
+          <div><span>Innen ±10 %</span><strong className="numeric">{value(metrics?.within_10_pct, 0)} %</strong></div>
+          <div><span>Innen ±20 %</span><strong className="numeric">{value(metrics?.within_20_pct, 0)} %</strong></div>
         </div>
         <p className="accuracyNote">
           Historisk modelltest beregnet på nytt med dagens datagrunnlag. Hver uke bruker tidligere volum og kjøpsuker,
@@ -499,7 +499,7 @@ export default function BuybackPage() {
       <section className="card buybackHistory">
         <div className="cardHeader">
           <div><span className="label">Historisk modelltest mot faktisk</span><h2>Siste modellerte uker</h2></div>
-          <span className="pill muted">{weeks.length} UKER</span>
+          <span className="pill muted numeric">{weeks.length} UKER</span>
         </div>
         {weeks.length ? (
           <div className="buybackTableWrap">
@@ -520,15 +520,15 @@ export default function BuybackPage() {
                   const error = week.forecast_error_pct;
                   return (
                     <tr key={week.period_end}>
-                      <td>{dateLabel(week.period_start)}–{dateLabel(week.period_end)}</td>
-                      <td>{count(week.actual_shares)}</td>
-                      <td>{count(Math.round(week.walk_forward_prediction_shares))}</td>
-                      <td>{count(week.legacy_prediction_shares == null ? null : Math.round(week.legacy_prediction_shares))}</td>
-                      <td className={error == null ? "" : Math.abs(error) <= 10 ? "tableGood" : Math.abs(error) <= 20 ? "tableMid" : "tableBad"}>
+                      <td className="numeric">{dateLabel(week.period_start)}–{dateLabel(week.period_end)}</td>
+                      <td className="numeric">{count(week.actual_shares)}</td>
+                      <td className="numeric">{count(Math.round(week.walk_forward_prediction_shares))}</td>
+                      <td className="numeric">{count(week.legacy_prediction_shares == null ? null : Math.round(week.legacy_prediction_shares))}</td>
+                      <td className={`numeric ${error == null ? "" : Math.abs(error) <= 10 ? "tableGood" : Math.abs(error) <= 20 ? "tableMid" : "tableBad"}`}>
                         {error == null ? "–" : `${error > 0 ? "+" : ""}${value(error, 1)} %`}
                       </td>
-                      <td>{value(week.actual_volume_share_pct, 1)} %</td>
-                      <td>{value(week.safe_harbour_utilization_pct, 1)} %</td>
+                      <td className="numeric">{value(week.actual_volume_share_pct, 1)} %</td>
+                      <td className="numeric">{value(week.safe_harbour_utilization_pct, 1)} %</td>
                     </tr>
                   );
                 })}
