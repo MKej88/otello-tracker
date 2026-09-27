@@ -172,6 +172,10 @@ export default function InvestorNavigation({
       </aside>
       <div className="mobileNavigation">
         <div className="mobileNavigationBar">
+          <div className="brand">
+            <span aria-hidden="true" className="brandMark">O</span>
+            <div><strong>Otello</strong><small>Investorverktøy</small></div>
+          </div>
           <div className="mobileActiveView">
             <span>Aktiv side</span>
             <strong>{activeView}</strong>

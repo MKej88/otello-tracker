@@ -475,7 +475,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brandMark">O</span>
+          <span aria-hidden="true" className="brandMark">O</span>
           <div><strong>Otello</strong><small>Investorverktøy</small></div>
         </div>
         <nav>
