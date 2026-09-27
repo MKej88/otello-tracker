@@ -83,9 +83,12 @@
 .buybackHistory { min-width: 0; }
 .buybackTableWrap { margin-top: 16px; overflow-x: auto; border: 1px solid var(--ot-border-soft); border-radius: 11px; }
 .buybackTable { width: 100%; border-collapse: collapse; min-width: 780px; font-size: 12px; background: var(--ot-surface); }
-.buybackTable th { text-align: right; color: var(--ot-text-muted); background: var(--ot-surface-raised); font-size: 10px; text-transform: uppercase; letter-spacing: .055em; padding: 11px 12px; }
+.buybackTable th { position: sticky; top: 0; z-index: 2; text-align: right; color: var(--ot-text-muted); background: var(--ot-surface-raised); font-size: 10px; text-transform: uppercase; letter-spacing: .055em; padding: 11px 12px; }
 .buybackTable th:first-child, .buybackTable td:first-child { text-align: left; }
 .buybackTable td { color: var(--ot-text-secondary); text-align: right; padding: 11px 12px; border-top: 1px solid var(--ot-border-soft); font-variant-numeric: tabular-nums; }
+.buybackTable th:first-child, .buybackTable td:first-child { position: sticky; left: 0; z-index: 1; background: var(--ot-surface); box-shadow: 1px 0 0 var(--ot-border-soft); }
+.buybackTable th:first-child { z-index: 3; background: var(--ot-surface-raised); }
+.buybackTable tbody tr:hover td:first-child { background: var(--ot-accent-soft); }
 .buybackTable tbody tr:hover { background: var(--ot-accent-soft); }
 .buybackTable .tableGood { color: var(--ot-positive); font-weight: 700; }
 .buybackTable .tableMid { color: var(--ot-warning); font-weight: 700; }

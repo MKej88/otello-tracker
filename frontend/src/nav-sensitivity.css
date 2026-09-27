@@ -40,8 +40,9 @@
 .sensitivityTableWrap { width:100%; overflow-x:auto; padding-bottom:4px; }
 .sensitivityTable { width:100%; min-width:900px; border-collapse:separate; border-spacing:6px; table-layout:fixed; }
 .sensitivityTable th { font-size:11px; font-weight:750; color:var(--ot-text-muted); text-align:center; font-variant-numeric:tabular-nums; }
-.sensitivityTable thead th { padding:0 4px 5px; }
-.sensitivityTable tbody th { width:80px; padding:0 8px; }
+.sensitivityTable thead th { position:sticky; top:0; z-index:2; padding:0 4px 5px; background:var(--ot-surface); }
+.sensitivityTable tbody th { position:sticky; left:0; z-index:1; width:80px; padding:0 8px; background:var(--ot-surface); box-shadow:7px 0 7px -7px var(--ot-border-strong); }
+.sensitivityTable thead th:first-child { left:0; z-index:3; box-shadow:7px 0 7px -7px var(--ot-border-strong); }
 .sensitivityTable .axisCorner { width:98px; text-align:left; line-height:1.35; }
 .sensitivityTable .nearestAxis { color:var(--ot-accent-strong); }
 .sensitivityTable td { padding:0; }
