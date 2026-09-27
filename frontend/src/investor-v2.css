@@ -1,5 +1,12 @@
 .investorMainV2 { min-width: 0; }
 .investorTopbar { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+.investorTopbarHeading { min-width:0; }
+.investorTopbarHeading p { margin:6px 0 0; color:var(--ot-text-secondary); font-size:13px; line-height:1.45; }
+.investorTopbarStatus { display:flex; flex:0 0 auto; align-items:flex-start; gap:9px; max-width:260px; padding:8px 11px; border:1px solid var(--ot-border-soft); border-radius:10px; background:var(--ot-control-soft); }
+.investorTopbarStatus > span { flex:0 0 auto; width:7px; height:7px; margin-top:5px; border-radius:50%; background:var(--ot-accent); }
+.investorTopbarStatus p { display:grid; gap:2px; margin:0; }
+.investorTopbarStatus strong { color:var(--ot-text-secondary); font-size:11px; line-height:1.3; }
+.investorTopbarStatus small { color:var(--ot-text-muted); font-size:10px; line-height:1.35; }
 .investorModelBadge { border:1px solid var(--ot-accent-border); border-radius:999px; padding:8px 12px; font-size:12px; font-weight:800; letter-spacing:.08em; white-space:nowrap; }
 .investorSidebarFooter { line-height:1.45; opacity:.7; }
 .investorPage { display:grid; gap:18px; }
@@ -152,6 +159,7 @@
 @media (max-width:760px) {
   .nightlyMetrics,.nightlySources { grid-template-columns:1fr; }
   .investorTopbar,.historyV2Header,.qualityIntro { display:grid; }
+  .investorTopbarStatus { max-width:none; }
   .estimatedHero { grid-template-columns:1fr; }
   .estimatedHeroSide { border-left:0; border-top:1px solid var(--ot-border-soft); padding:18px 0 0; }
   .changeSummary,.historyDetailGrid { grid-template-columns:1fr; }

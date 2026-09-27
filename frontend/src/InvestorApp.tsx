@@ -1,6 +1,12 @@
 import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
-import { type View, viewFromHash, viewSlugs, viewTitles } from "./investorViews";
+import {
+  type View,
+  viewFromHash,
+  viewSlugs,
+  viewSubtitles,
+  viewTitles,
+} from "./investorViews";
 import OverviewPage from "./OverviewPage";
 import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
@@ -159,7 +165,17 @@ export default function InvestorApp() {
         />
         <main className="main investorMainV2" id="main-content" tabIndex={-1}>
           <header className="investorTopbar">
-            <h1>{viewTitles[activeView]}</h1>
+            <div className="investorTopbarHeading">
+              <h1>{viewTitles[activeView]}</h1>
+              <p>{viewSubtitles[activeView]}</p>
+            </div>
+            <div className="investorTopbarStatus">
+              <span aria-hidden="true" />
+              <p>
+                <strong>Automatisk oppdatering</strong>
+                <small>Data hentes og oppdateres løpende.</small>
+              </p>
+            </div>
           </header>
           <Suspense fallback={<ViewFallback />}>
             <ActiveView view={activeView} />
