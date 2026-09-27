@@ -58,23 +58,122 @@
   color: var(--ot-accent);
 }
 
+.mobileNavigation {
+  display: none;
+}
+
 @media (max-width: 850px) {
-  .investorNav .navGroupItems {
-    display: flex;
+  .desktopSidebar {
+    display: none;
   }
 
-  .investorNav .navItem {
-    width: auto;
+  .mobileNavigation {
+    position: sticky;
+    z-index: 100;
+    top: 0;
+    display: block;
+    min-width: 0;
+    background: var(--ot-sidebar);
+    border-bottom: 1px solid var(--ot-border-soft);
+  }
+
+  .mobileNavigationBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 62px;
+    padding: 9px 16px;
+  }
+
+  .mobileActiveView {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .mobileActiveView span {
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-label);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mobileActiveView strong {
+    overflow: hidden;
+    color: var(--ot-text);
+    font-size: 15px;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .investorNav .navItem.active::before {
-    top: auto;
-    right: 9px;
-    bottom: 0;
-    left: 9px;
-    width: auto;
-    height: 3px;
-    border-radius: 3px 3px 0 0;
+  .mobileMenuButton,
+  .mobileMenuClose {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 11px;
+    border: 1px solid var(--ot-border-strong);
+    border-radius: 9px;
+    background: var(--ot-surface-raised);
+    color: var(--ot-text);
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .mobileMenuButton svg,
+  .mobileMenuClose svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 1.8;
+  }
+
+  .mobileMenuPanel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    overflow-y: auto;
+    max-height: calc(100vh - 62px);
+    max-height: calc(100dvh - 62px);
+    padding: 14px 16px 20px;
+    background: var(--ot-sidebar);
+    border-top: 1px solid var(--ot-border-soft);
+    border-bottom: 1px solid var(--ot-border-strong);
+    box-shadow: var(--ot-shadow-overlay);
+  }
+
+  .mobileMenuPanelHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 15px;
+  }
+
+  .mobileMenuPanelHeader > strong {
+    font-size: var(--ot-type-section-title);
+  }
+
+  .mobileInvestorNav .navGroupItems {
+    display: grid;
+  }
+
+  .mobileInvestorNav .navItem {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .mobileInvestorNav .navItem.active::before {
+    top: 8px;
+    right: auto;
+    bottom: 8px;
+    left: 0;
+    width: 3px;
+    height: auto;
+    border-radius: 0 3px 3px 0;
   }
 }

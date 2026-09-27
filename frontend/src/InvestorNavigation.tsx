@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { navigationGroups, type View } from "./investorViews";
 
@@ -80,6 +80,10 @@ export default function InvestorNavigation({
   onSelect,
 }: InvestorNavigationProps) {
   const hoverTimer = useRef<number | null>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const mobileMenuId = useId();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function cancelHoverPreload() {
     if (hoverTimer.current == null) return;
@@ -97,50 +101,127 @@ export default function InvestorNavigation({
 
   useEffect(() => cancelHoverPreload, []);
 
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    closeButton.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMobileMenuOpen(false);
+      menuButton.current?.focus();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
+
+  function closeMobileMenu() {
+    setMobileMenuOpen(false);
+    menuButton.current?.focus();
+  }
+
+  function navigationItems(selectView: (view: View) => void) {
+    return navigationGroups.map((group) => (
+      <div className="navGroup" key={group.label}>
+        <span className="navGroupLabel">{group.label}</span>
+        <div className="navGroupItems">
+          {group.items.map((item) => (
+            <button
+              aria-current={item === activeView ? "page" : undefined}
+              className={item === activeView ? "navItem active" : "navItem"}
+              key={item}
+              onClick={() => selectView(item)}
+              onBlur={cancelHoverPreload}
+              onFocus={() => scheduleHoverPreload(item)}
+              onMouseEnter={() => scheduleHoverPreload(item)}
+              onMouseLeave={cancelHoverPreload}
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                className="navIcon"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                {navigationIcons[item]}
+              </svg>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+    ));
+  }
+
   return (
-    <aside className="sidebar">
-      <div className="brand">
-        <span aria-hidden="true" className="brandMark">O</span>
-        <div><strong>Otello</strong><small>Investorverktøy</small></div>
-      </div>
-      <nav className="investorNav" aria-label="Hovedmeny">
-        {navigationGroups.map((group) => (
-          <div className="navGroup" key={group.label}>
-            <span className="navGroupLabel">{group.label}</span>
-            <div className="navGroupItems">
-              {group.items.map((item) => (
-                <button
-                  aria-current={item === activeView ? "page" : undefined}
-                  className={item === activeView ? "navItem active" : "navItem"}
-                  key={item}
-                  onClick={() => {
-                    cancelHoverPreload();
-                    onSelect(item);
-                  }}
-                  onBlur={cancelHoverPreload}
-                  onFocus={() => scheduleHoverPreload(item)}
-                  onMouseEnter={() => scheduleHoverPreload(item)}
-                  onMouseLeave={cancelHoverPreload}
-                  type="button"
-                >
-                  <svg
-                    aria-hidden="true"
-                    className="navIcon"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    {navigationIcons[item]}
-                  </svg>
-                  {item}
-                </button>
-              ))}
-            </div>
+    <>
+      <aside className="sidebar desktopSidebar">
+        <div className="brand">
+          <span aria-hidden="true" className="brandMark">O</span>
+          <div><strong>Otello</strong><small>Investorverktøy</small></div>
+        </div>
+        <nav className="investorNav" aria-label="Hovedmeny">
+          {navigationItems((view) => {
+            cancelHoverPreload();
+            onSelect(view);
+          })}
+        </nav>
+        <div className="sidebarFooter investorSidebarFooter">
+          Teknisk status ligger under Datakvalitet
+        </div>
+      </aside>
+      <div className="mobileNavigation">
+        <div className="mobileNavigationBar">
+          <div className="mobileActiveView">
+            <span>Aktiv side</span>
+            <strong>{activeView}</strong>
           </div>
-        ))}
-      </nav>
-      <div className="sidebarFooter investorSidebarFooter">
-        Teknisk status ligger under Datakvalitet
+          <button
+            aria-controls={mobileMenuId}
+            aria-expanded={mobileMenuOpen}
+            className="mobileMenuButton"
+            onClick={() => setMobileMenuOpen(true)}
+            ref={menuButton}
+            type="button"
+          >
+            <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+            Meny
+          </button>
+        </div>
+        {mobileMenuOpen ? (
+          <div
+            aria-label="Hovedmeny"
+            className="mobileMenuPanel"
+            id={mobileMenuId}
+            role="dialog"
+          >
+            <div className="mobileMenuPanelHeader">
+              <strong>Navigasjon</strong>
+              <button
+                aria-label="Lukk meny"
+                className="mobileMenuClose"
+                onClick={closeMobileMenu}
+                ref={closeButton}
+                type="button"
+              >
+                <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+                Lukk
+              </button>
+            </div>
+            <nav className="investorNav mobileInvestorNav" aria-label="Sider">
+              {navigationItems((view) => {
+                cancelHoverPreload();
+                onSelect(view);
+                closeMobileMenu();
+              })}
+            </nav>
+          </div>
+        ) : null}
       </div>
-    </aside>
+    </>
   );
 }
