@@ -12,7 +12,7 @@ def test_overview_splits_nav_hero_and_shows_case_calendar() -> None:
 
     assert 'className="overviewHeroGrid"' in page
     assert 'className="card cardPrimary overviewNavCard overviewNavCardV3"' in page
-    assert 'className="card cardStandard overviewUpcomingCard overviewUpcomingCardV3"' in page
+    assert 'className="card cardPrimary overviewUpcomingCard overviewUpcomingCardV3"' in page
     assert "NESTE VIKTIGE DATOER" in page
     assert "Dette bør du følge med på" in page
     assert '"/api/overview/events"' in page
