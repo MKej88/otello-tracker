@@ -145,7 +145,7 @@ export default function InvestorNavigation({
               >
                 {navigationIcons[item]}
               </svg>
-              {item}
+              <span className="navItemLabel">{item}</span>
             </button>
           ))}
         </div>

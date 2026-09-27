@@ -1,13 +1,14 @@
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   --ot-type-page-title: 28px;
   --ot-type-section-title: 18px;
   --ot-type-key-figure: 25px;
-  --ot-type-body: 13px;
-  --ot-type-meta: 12px;
-  --ot-type-label: 11px;
-  --ot-type-badge: 10px;
+  --ot-type-body: 14px;
+  --ot-type-help: 12px;
+  --ot-type-meta: var(--ot-type-help);
+  --ot-type-label: 12px;
+  --ot-type-badge: 12px;
 }
 
 * { box-sizing: border-box; }
@@ -20,7 +21,8 @@ button { font: inherit; }
 .brand strong { display: block; font-size: 18px; }
 .brand small { display: block; margin-top: 2px; }
 nav { display: grid; gap: 5px; }
-.navItem { border: 0; background: transparent; border-radius: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; cursor: default; text-align: left; }
+.navItem { border: 0; background: transparent; border-radius: 10px; padding: 11px 12px; display: flex; align-items: center; gap: 10px; min-width: 0; cursor: default; text-align: left; }
+.navItemLabel { min-width: 0; overflow-wrap: anywhere; }
 .navItem:not(:disabled) { cursor: pointer; }
 .navItem:disabled:not(.active) { color: var(--ot-text-muted); cursor: not-allowed; }
 .navDot { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
@@ -30,7 +32,7 @@ header { display: flex; justify-content: space-between; gap: 20px; align-items: 
 h1 { margin: 3px 0 0; font-size: var(--ot-type-page-title); letter-spacing: -.03em; }
 h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 .eyebrow, .label { margin: 0; font-size: var(--ot-type-label); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.updated { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.updated { display: flex; gap: 8px; align-items: center; font-size: var(--ot-type-body); }
 .statusDot { width: 8px; height: 8px; border-radius: 50%; background: var(--ot-negative); box-shadow: 0 0 0 4px var(--ot-negative-soft); flex: 0 0 auto; }
 .statusDot.ok { background: var(--ot-positive); box-shadow: 0 0 0 4px var(--ot-positive-soft); }
 .modelWarning { margin: -8px 0 18px; padding: 12px 15px; border: 1px solid var(--ot-warning-border); background: var(--ot-warning-soft); border-radius: 11px; color: var(--ot-warning); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -88,7 +90,7 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 .lowerGrid { display: grid; grid-template-columns: 1.15fr 1fr .8fr; gap: 14px; margin-top: 14px; }
 .overviewGrid, .navCompositionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
 .placeholderRows, .sourceList { display: grid; gap: 0; margin-top: 14px; }
-.placeholderRows > div, .sourceList > div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-secondary); font-size: 13px; }
+.placeholderRows > div, .sourceList > div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-secondary); font-size: var(--ot-type-body); }
 .placeholderRows strong { color: var(--ot-text); text-align: right; }
 .historyRangeRows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .historyRangeRows small { grid-column: 2; text-align: right; }
@@ -209,6 +211,11 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 
 .numeric {
   font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  overflow-wrap: anywhere;
 }
 
 .visuallyHidden {

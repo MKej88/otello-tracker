@@ -116,9 +116,7 @@
 
 .overviewNextEventMain>div>strong {
   min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  overflow-wrap:anywhere;
   font-size:1rem;
 }
 
@@ -156,9 +154,7 @@
 
 .overviewUpcomingRows strong {
   min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  overflow-wrap:anywhere;
   font-size:var(--ot-type-body);
 }
 
