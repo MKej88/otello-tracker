@@ -89,9 +89,19 @@ body {
 }
 
 .brandMark {
-  background: var(--ot-accent);
+  background: var(--ot-surface-raised);
+  border-color: var(--ot-accent-border);
   color: var(--ot-text);
   box-shadow: none;
+}
+
+.brandMark::after {
+  background: var(--ot-sidebar);
+  border-color: var(--ot-accent-strong);
+}
+
+.brand strong {
+  color: var(--ot-text);
 }
 
 .brand small,
