@@ -112,7 +112,7 @@ def test_worker_cash_bridge_has_backend_parity() -> None:
 def test_overview_cash_card_is_compact_and_links_to_cash_page() -> None:
     page = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
-    assert 'className="card overviewCapitalCard"' in page
+    assert 'className="card cardStandard overviewCapitalCard"' in page
     assert '<span className="label">CASH</span>' in page
     assert "mill. kr" in page
     assert "kr / OTEC-aksje" in page

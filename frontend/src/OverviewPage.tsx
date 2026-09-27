@@ -411,15 +411,15 @@ export default function OverviewPage() {
   return (
     <div className="investorPage overviewV3">
       <section className="overviewHeroGrid">
-        <article className="card overviewNavCard overviewNavCardV3">
+        <article className="card cardPrimary overviewNavCard overviewNavCardV3">
           <span className="label">NAV</span>
           <h2>{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : "Laster …"}</h2>
           <div className="overviewNavSnapshot">
-            <div><span>OTEC</span><strong>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
-            <div><span>Rabatt</span><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
-            <div><span>1 års median</span><strong>{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
+            <div className="cardSecondary"><span>OTEC</span><strong>{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
+            <div className="cardSecondary"><span>Rabatt</span><strong>{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
+            <div className="cardSecondary"><span>1 års median</span><strong>{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
-          <div className="overviewDiscountContext">
+          <div className="cardSecondary overviewDiscountContext">
             {discountSpread == null
               ? "Historisk rabatt sammenlignes når data er tilgjengelige."
               : discountSpread >= 0
@@ -429,7 +429,7 @@ export default function OverviewPage() {
           <small className="overviewUpdated">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
         </article>
 
-        <article className="card overviewUpcomingCard overviewUpcomingCardV3">
+        <article className="card cardStandard overviewUpcomingCard overviewUpcomingCardV3">
           <div className="overviewUpcomingHeader">
             <div><span className="label">NESTE VIKTIGE DATOER</span><h2>Dette bør du følge med på</h2></div>
           </div>
@@ -478,7 +478,7 @@ export default function OverviewPage() {
           <small>Siste måned for markedsdriverne · akkumulert effekt for tilbakekjøp.</small>
         </div>
         <div className="overviewDriverGrid">
-          <article className="card overviewDriverCard">
+          <article className="card cardStandard overviewDriverCard">
             <span className="label">BEMOBI</span>
             <strong>{signed(bemobi?.month_pct, 1, " % siste måned")}</strong>
             <div className={`overviewDriverEffect ${tone(bemobi?.nav_effect_1m_per_share_nok)}`}>
@@ -494,7 +494,7 @@ export default function OverviewPage() {
           />
           </article>
 
-          <article className="card overviewDriverCard">
+          <article className="card cardStandard overviewDriverCard">
             <span className="label">BRL/NOK</span>
             <strong>{signed(brl?.month_pct, 1, " % siste måned")}</strong>
             <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)}`}>
@@ -509,7 +509,7 @@ export default function OverviewPage() {
           />
           </article>
 
-          <article className="card overviewDriverCard">
+          <article className="card cardStandard overviewDriverCard">
             <span className="label">TILBAKEKJØP</span>
             <strong>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</strong>
             <div className={`overviewDriverEffect ${tone(buybackNavEffect)}`}>
@@ -525,7 +525,7 @@ export default function OverviewPage() {
           <div><span className="label">KAPITAL</span><h2>Cash og tilbakekjøp</h2></div>
         </div>
         <div className="overviewCapitalGrid">
-          <article className="card overviewCapitalCard">
+          <article className="card cardStandard overviewCapitalCard">
             <span className="label">CASH</span>
             <strong className="overviewCapitalValue">{nav?.economic_cash_mnok == null ? "—" : `${formatNumber(nav.economic_cash_mnok, 1)} mill. kr`}</strong>
             <span>{cashBridge?.cash_per_share_nok == null ? "—" : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}</span>
@@ -536,7 +536,7 @@ export default function OverviewPage() {
             <a className="overviewDeepLink" href="#cash">Se cash og kapitalallokering →</a>
           </article>
 
-          <article className="card overviewCapitalCard">
+          <article className="card cardStandard overviewCapitalCard">
             <span className="label">TILBAKEKJØP</span>
             <strong className="overviewCapitalValue">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % gjennomført`}</strong>
             <span>{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</span>
@@ -549,7 +549,7 @@ export default function OverviewPage() {
         </div>
       </section>
 
-      <section className="card overviewMarketStrip">
+      <section className="card cardStandard overviewMarketStrip">
         <div className="overviewMarketStripHeader">
           <span className="label">MARKED</span>
           {quotesRefreshFailed ? <small>Viser siste gode markedsdata</small> : null}
