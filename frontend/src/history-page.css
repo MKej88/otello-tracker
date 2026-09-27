@@ -46,7 +46,6 @@
   cursor: pointer;
 }
 
-.historyPeriodSelector button:hover,
 .historyPeriodSelector button.active {
   border-color: var(--ot-accent-border);
   background: var(--ot-accent-soft);

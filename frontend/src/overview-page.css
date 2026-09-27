@@ -389,10 +389,6 @@
   font-weight:700;
 }
 
-.overviewDeepLink:hover {
-  text-decoration:underline;
-}
-
 .overviewMarketStrip {
   padding:16px 18px;
 }

@@ -120,6 +120,12 @@
     cursor: pointer;
   }
 
+  .mobileMenuButton:active,
+  .mobileMenuClose:active {
+    border-color: var(--ot-interactive-active-border);
+    background: var(--ot-interactive-active-bg);
+  }
+
   .mobileMenuButton svg,
   .mobileMenuClose svg {
     width: 18px;
