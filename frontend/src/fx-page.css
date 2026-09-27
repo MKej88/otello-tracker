@@ -555,8 +555,7 @@
   text-decoration: none;
 }
 
-.fxFootnote a:hover,
-.fxSources a:hover {
+.fxFootnote a:hover {
   text-decoration: underline;
 }
 

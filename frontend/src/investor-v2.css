@@ -37,7 +37,6 @@
 
 .periodButtons { display:flex; flex-wrap:wrap; gap:7px; }
 .periodButtons button { border:1px solid var(--ot-border-strong); background:var(--ot-control-soft); color:inherit; border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
-.periodButtons button:hover { border-color:var(--ot-border-strong); }
 .periodButtons button.active { background:var(--ot-accent-soft); border-color:var(--ot-accent-border); }
 
 .compositionCard,.navDriversCard,.historyAxisCard,.historyV2Header,.qualityIntro { padding:24px; }

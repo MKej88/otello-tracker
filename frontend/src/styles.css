@@ -14,6 +14,34 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; font-size: var(--ot-type-body); }
 button { font: inherit; }
+
+:where(
+  .navItem,
+  .periodButtons button,
+  .periodButton,
+  .historyPeriodSelector button,
+  .sensitivityModeButtons button,
+  .targetSolveButtons button,
+  .selectedHeader button,
+  .sensitivityRangeActions button,
+  .rangeEditorButtons button,
+  .targetResult button,
+  button.rangeClose,
+  .mobileMenuButton,
+  .mobileMenuClose,
+  .overviewDeepLink,
+  .newsSourceLink,
+  .qualitySourceDetail a,
+  .qualityReportSummary a,
+  .qualityReportMeta a,
+  .sourceStatusSource a,
+  .fxSources a
+) {
+  transition:
+    background-color var(--ot-interaction-duration) ease,
+    border-color var(--ot-interaction-duration) ease,
+    color var(--ot-interaction-duration) ease;
+}
 .shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { border-right: 1px solid var(--ot-border-soft); padding: 28px 18px; display: flex; flex-direction: column; }
 .brand { display: flex; gap: 12px; align-items: center; padding: 0 8px 28px; }
@@ -154,6 +182,33 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
   transform: translateY(-160%);
 }
 .skipLink:focus { transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  :where(
+    .navItem,
+    .periodButtons button,
+    .periodButton,
+    .historyPeriodSelector button,
+    .sensitivityModeButtons button,
+    .targetSolveButtons button,
+    .selectedHeader button,
+    .sensitivityRangeActions button,
+    .rangeEditorButtons button,
+    .targetResult button,
+    button.rangeClose,
+    .mobileMenuButton,
+    .mobileMenuClose,
+    .overviewDeepLink,
+    .newsSourceLink,
+    .qualitySourceDetail a,
+    .qualityReportSummary a,
+    .qualityReportMeta a,
+    .sourceStatusSource a,
+    .fxSources a
+  ) {
+    transition-duration: 0.01ms;
+  }
+}
 
 @media (max-width: 850px) {
   .sidebar {

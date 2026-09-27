@@ -18,7 +18,6 @@
 .sensitivityMatrixActions { display:grid; justify-items:end; gap:9px; }
 .sensitivityModeButtons,.targetSolveButtons { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
 .sensitivityModeButtons button,.targetSolveButtons button,.selectedHeader button,.sensitivityRangeActions button,.rangeEditorButtons button,.rangeClose,.targetResult button { border:1px solid var(--ot-border-strong); background:var(--ot-control-soft); color:var(--ot-text-secondary); border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
-.sensitivityModeButtons button:hover,.targetSolveButtons button:hover,.selectedHeader button:hover,.sensitivityRangeActions button:hover,.rangeEditorButtons button:hover,.rangeClose:hover,.targetResult button:hover { border-color:var(--ot-accent-border); color:var(--ot-text); }
 .sensitivityModeButtons button.active,.targetSolveButtons button.active,.rangeEditorButtons .primary { background:var(--ot-accent-soft); border-color:var(--ot-accent-border); color:var(--ot-text); }
 .sensitivityRangeActions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
 .sensitivityRangeActions .secondary { color:var(--ot-text-muted); }

@@ -52,6 +52,13 @@
   --ot-overlay-soft: rgba(11, 13, 16, 0.18);
   --ot-track: #424a55;
 
+  /* Shared interaction states keep controls consistent across pages. */
+  --ot-interactive-hover-bg: var(--ot-surface-raised);
+  --ot-interactive-active-bg: var(--ot-surface-inset-nested);
+  --ot-interactive-hover-border: var(--ot-accent-border);
+  --ot-interactive-active-border: var(--ot-accent-strong);
+  --ot-interaction-duration: 160ms;
+
   --ot-chart-secondary: #55c9b5;
   --ot-chart-reference: rgba(159, 193, 255, 0.9);
   --ot-chart-band: rgba(79, 139, 255, 0.08);
@@ -98,11 +105,6 @@ body {
 
 .navItem {
   color: var(--ot-text-secondary);
-}
-
-.navItem:not(:disabled):hover {
-  background: var(--ot-surface-raised);
-  color: var(--ot-text);
 }
 
 .navItem.active {
@@ -215,15 +217,76 @@ body {
   color: var(--ot-text-muted);
 }
 
-.periodButtons button:hover {
-  border-color: var(--ot-border-strong);
-  background: var(--ot-surface-raised);
-}
-
 .periodButtons button.active {
   background: var(--ot-accent-soft);
   border-color: var(--ot-accent-border);
   color: var(--ot-text);
+}
+
+@media (hover: hover) {
+  .navItem:not(:disabled, .active):hover,
+  .periodButtons button:not(.active):hover,
+  .periodButton:not(.active):hover,
+  .historyPeriodSelector button:not(.active):hover,
+  :where(
+    .sensitivityModeButtons,
+    .targetSolveButtons,
+    .selectedHeader,
+    .sensitivityRangeActions,
+    .rangeEditorButtons,
+    .targetResult
+  ) button:not(.active):hover,
+  button.rangeClose:hover,
+  .mobileMenuButton:hover,
+  .mobileMenuClose:hover {
+    border-color: var(--ot-interactive-hover-border);
+    background: var(--ot-interactive-hover-bg);
+    color: var(--ot-text);
+  }
+
+  :where(
+    .overviewDeepLink,
+    .newsSourceLink,
+    .qualitySourceDetail a,
+    .qualityReportSummary a,
+    .qualityReportMeta a,
+    .sourceStatusSource a,
+    .fxSources a
+  ):hover {
+    color: var(--ot-text);
+  }
+}
+
+:where(
+  .navItem,
+  .periodButtons button,
+  .periodButton,
+  .historyPeriodSelector button,
+  .sensitivityModeButtons button,
+  .targetSolveButtons button,
+  .selectedHeader button,
+  .sensitivityRangeActions button,
+  .rangeEditorButtons button,
+  .targetResult button,
+  button.rangeClose,
+  .mobileMenuButton,
+  .mobileMenuClose
+):not(:disabled, .active):active {
+  border-color: var(--ot-interactive-active-border);
+  background: var(--ot-interactive-active-bg);
+  color: var(--ot-text);
+}
+
+:where(
+  .overviewDeepLink,
+  .newsSourceLink,
+  .qualitySourceDetail a,
+  .qualityReportSummary a,
+  .qualityReportMeta a,
+  .sourceStatusSource a,
+  .fxSources a
+):active {
+  color: var(--ot-accent-strong);
 }
 
 :focus-visible {
