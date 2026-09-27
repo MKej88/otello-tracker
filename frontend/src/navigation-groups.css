@@ -101,11 +101,9 @@
   }
 
   .mobileActiveView strong {
-    overflow: hidden;
+    overflow-wrap: anywhere;
     color: var(--ot-text);
     font-size: 15px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .mobileMenuButton,
