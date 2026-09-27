@@ -2,6 +2,7 @@ export type FreshnessCadence = "intraday" | "daily";
 export type FreshnessStatus = "fresh" | "delayed" | "stale" | "unavailable";
 
 const MINUTE_MS = 60_000;
+const OSLO_TIME_ZONE = "Europe/Oslo";
 
 function validDate(value?: string | null): Date | null {
   if (!value) return null;
@@ -9,13 +10,36 @@ function validDate(value?: string | null): Date | null {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
+function osloParts(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: OSLO_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const number = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return {
+    year: number("year"),
+    month: number("month"),
+    day: number("day"),
+    hour: number("hour"),
+  };
+}
+
 function businessDaysOld(observed: Date, now: Date): number {
-  const cursor = new Date(observed.getFullYear(), observed.getMonth(), observed.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const observedParts = osloParts(observed);
+  const nowParts = osloParts(now);
+  const cursor = new Date(
+    Date.UTC(observedParts.year, observedParts.month - 1, observedParts.day),
+  );
+  const end = new Date(Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day));
   let days = 0;
   while (cursor < end) {
-    cursor.setDate(cursor.getDate() + 1);
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) days += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) days += 1;
   }
   return days;
 }
@@ -44,8 +68,12 @@ export function freshnessStatus(
   // burde ha vært oppdatert. Ferske beregnede verdier (f.eks. NAV) forblir grønne.
   if (ageMinutes <= 60) return "fresh";
 
-  const weekday = now.getDay() !== 0 && now.getDay() !== 6;
-  const hour = now.getHours();
+  const nowParts = osloParts(now);
+  const osloDay = new Date(
+    Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day),
+  ).getUTCDay();
+  const weekday = osloDay !== 0 && osloDay !== 6;
+  const hour = nowParts.hour;
   const strictIntradayWindow = weekday && hour >= 16 && hour < 22;
   if (strictIntradayWindow) {
     if (ageMinutes <= 6 * 60) return "delayed";
@@ -59,10 +87,19 @@ export function freshnessStatus(
 export function freshnessTimestamp(value?: string | null, now = new Date()): string {
   const parsed = validDate(value);
   if (!parsed) return "—";
-  const sameDay = parsed.toLocaleDateString("nb-NO") === now.toLocaleDateString("nb-NO");
-  const time = parsed.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+  const dateOptions = { timeZone: OSLO_TIME_ZONE };
+  const sameDay = parsed.toLocaleDateString("nb-NO", dateOptions)
+    === now.toLocaleDateString("nb-NO", dateOptions);
+  const time = parsed.toLocaleTimeString("nb-NO", {
+    timeZone: OSLO_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   if (sameDay) return time;
-  const date = parsed.toLocaleDateString("nb-NO", { day: "2-digit", month: "2-digit" });
+  const date = parsed.toLocaleDateString("nb-NO", {
+    timeZone: OSLO_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+  });
   return `${date} · ${time}`;
 }
-

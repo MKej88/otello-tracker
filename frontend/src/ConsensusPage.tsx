@@ -3,6 +3,7 @@ import { fetchPreloadedJson } from "./navigationDataPreload";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -229,6 +230,7 @@ function forwardMetricValue(metric: string, year: BrokerYear) {
 export default function ConsensusPage() {
   const [data, setData] = useState<ConsensusPayload | null>(null);
   const [failed, setFailed] = useState(false);
+  usePageUpdate(data?.as_of_date, "daily");
 
   useEffect(() => {
     let active = true;

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { preloadJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./nav-sensitivity.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -263,6 +264,7 @@ export default function NavSensitivityPage() {
     REFRESH_MS,
     true,
   );
+  usePageUpdate(economic?.calculated_at ?? economic?.as_of_date ?? summary?.as_of_date, "intraday");
   const [mode, setMode] = useState<DisplayMode>("nav");
   const [selected, setSelected] = useState<{ bemobiPrice: number; brlNok: number } | null>(null);
   const [rangeEditorOpen, setRangeEditorOpen] = useState(false);

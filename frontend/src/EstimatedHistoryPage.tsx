@@ -5,6 +5,7 @@ import { percentileAssessment } from "./percentileAssessment";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatNumber } from "./uiFormat";
 import { usePollingResource } from "./usePollingResource";
+import { usePageUpdate } from "./pageUpdateStatus";
 
 type Point = { date: string; nav_per_share?: number | null; otec_price?: number | null; discount_pct?: number | null };
 type Statistics = {
@@ -238,6 +239,7 @@ export default function EstimatedHistoryPage() {
     AUTO_REFRESH_MS,
     true,
   );
+  usePageUpdate(economicNav?.calculated_at, "intraday");
 
   useEffect(() => {
     let active = true;

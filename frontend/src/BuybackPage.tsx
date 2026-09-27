@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchPreloadedJson } from "./navigationDataPreload";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./buyback-page.css";
 
 type Program = {
@@ -251,6 +252,7 @@ function forecastPeriodLabel(week?: ForecastWeek) {
 export default function BuybackPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [failed, setFailed] = useState(false);
+  usePageUpdate(data?.as_of_date, "daily");
 
   useEffect(() => {
     let active = true;

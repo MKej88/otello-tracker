@@ -3,6 +3,7 @@ import { fetchPreloadedJson } from "./navigationDataPreload";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
+import { usePageUpdate } from "./pageUpdateStatus";
 import "./cash-page.css";
 
 type Summary = {
@@ -159,6 +160,7 @@ export default function CashPage() {
   const [partialFailed, setPartialFailed] = useState(false);
   const [bufferM, setBufferM] = useState(30);
   const [priceAssumption, setPriceAssumption] = useState<number | null>(null);
+  usePageUpdate(economic?.as_of_date ?? summary?.as_of_date, "daily");
 
   useEffect(() => {
     let active = true;
