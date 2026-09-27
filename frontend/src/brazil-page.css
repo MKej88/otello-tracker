@@ -441,6 +441,9 @@
 }
 
 .brazilTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-size: .7rem;
   letter-spacing: .07em;
   color: var(--ot-text-muted);
@@ -609,6 +612,9 @@
 }
 
 .brazilChangeTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-size: .68rem;
   letter-spacing: .06em;
   color: var(--ot-text-muted);

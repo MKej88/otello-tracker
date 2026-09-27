@@ -263,11 +263,32 @@
 }
 
 .bemobiQuarterTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   color: var(--ot-text-muted);
   background: var(--ot-surface-raised);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .03em;
+}
+
+.bemobiQuarterTable th:first-child,
+.bemobiQuarterTable td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--ot-surface);
+  box-shadow: 1px 0 0 var(--ot-border-soft);
+}
+
+.bemobiQuarterTable th:first-child {
+  z-index: 3;
+  background: var(--ot-surface-raised);
+}
+
+.bemobiQuarterTable tbody tr:last-child td:first-child {
+  background: var(--ot-surface-raised);
 }
 
 .bemobiQuarterTable td {

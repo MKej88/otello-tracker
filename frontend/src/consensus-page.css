@@ -148,11 +148,28 @@
 }
 
 .consensusTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   color: var(--ot-text-muted);
   background: var(--ot-surface-raised);
   font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
+}
+
+.consensusTable th:first-child,
+.consensusTable td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--ot-surface);
+  box-shadow: 1px 0 0 var(--ot-border-soft);
+}
+
+.consensusTable th:first-child {
+  z-index: 3;
+  background: var(--ot-surface-raised);
 }
 
 .consensusTable td {
