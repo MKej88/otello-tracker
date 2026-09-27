@@ -462,7 +462,7 @@ export default function ConsensusPage() {
 
       <section className="consensusDetailsStack">
         <details className="card consensusDisclosure">
-          <summary><span><span className="label">DETALJER</span><strong>Analytikere og kursmål</strong></span><b>Vis</b></summary>
+          <summary><span><span className="label">DETALJER</span><h2>Analytikere og kursmål</h2></span><b>Vis</b></summary>
           <div className="consensusTableWrap">
             <table className="consensusTable analystTable">
               <thead><tr><th>Meglerhus</th><th>Analytiker</th><th>Anbefaling</th><th>Kursmål</th><th>Oppdatert</th></tr></thead>
@@ -482,7 +482,7 @@ export default function ConsensusPage() {
         </details>
 
         <details className="card consensusDisclosure">
-          <summary><span><span className="label">DETALJER</span><strong>Beat/miss per kvartal</strong></span><b>Vis</b></summary>
+          <summary><span><span className="label">DETALJER</span><h2>Beat/miss per kvartal</h2></span><b>Vis</b></summary>
           <div className="beatMissGrid beatMissGridDetails">
             {beatMiss.map((period) => (
               <article key={period.period}>
@@ -500,7 +500,7 @@ export default function ConsensusPage() {
         </details>
 
         <details className="card consensusDisclosure">
-          <summary><span><span className="label">DETALJER</span><strong>Kilder og metode</strong></span><b>Vis</b></summary>
+          <summary><span><span className="label">DETALJER</span><h2>Kilder og metode</h2></span><b>Vis</b></summary>
           <div className="sourceList consensusSourceList">
             {(data.sources ?? []).map((source) => <div key={source.label}><span>{source.label}</span><strong><SourceLink url={source.url}>{source.source}</SourceLink></strong></div>)}
           </div>

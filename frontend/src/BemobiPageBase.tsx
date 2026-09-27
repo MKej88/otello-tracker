@@ -454,7 +454,7 @@ export default function BemobiPageBase() {
 
         <div className="bemobiCleanScenarioBlock">
           <div className="bemobiCleanSectionTitle">
-            <strong>Multipelsensitivitet</strong>
+            <h3>Multipelsensitivitet</h3>
             <span>{forwardYear == null ? "Justert EPS · ikke kursmål" : `${forwardYear}E EPS · ikke kursmål`}</span>
           </div>
           <div className="bemobiCleanScenarioGrid">

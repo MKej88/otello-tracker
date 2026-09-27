@@ -354,7 +354,8 @@
   gap: 5px;
 }
 
-.qualityDiagnostics > summary > span:first-child > strong {
+.qualityDiagnostics > summary > span:first-child > h2 {
+  margin: 0;
   font-size: 14px;
 }
 
@@ -413,8 +414,10 @@
   line-height: 1.5;
 }
 
-.qualityPreflight > strong {
+.qualityPreflight > h3 {
+  margin: 0;
   color: var(--ot-text);
+  font-size: inherit;
 }
 
 .qualityPreflight p {

@@ -367,7 +367,7 @@ export default function FxPage() {
 
       <section className="card fxHistoryCard">
         <div className="fxSectionHead">
-          <div><span className="label">HISTORIKK</span><h3>BRL/NOK</h3></div>
+          <div><span className="label">HISTORIKK</span><h2>BRL/NOK</h2></div>
           <div className="periodButtons fxRangeButtons" role="group" aria-label="Velg periode">
             {ranges.map((item) => <button className={range === item ? "active" : ""} key={item} onClick={() => setRange(item)} type="button">{item}</button>)}
           </div>
@@ -385,7 +385,7 @@ export default function FxPage() {
       <section className="fxTwoColumn">
         <article className="card fxDriverCard">
           <div className="fxSectionHead compact">
-            <div><span className="label">VALUTAEFFEKT PÅ BEMOBI</span><h3>Hva driver BRL/NOK?</h3></div>
+            <div><span className="label">VALUTAEFFEKT PÅ BEMOBI</span><h2>Hva driver BRL/NOK?</h2></div>
             <div className="periodButtons fxDriverButtons">
               <button className={driverPeriod === "m1" ? "active" : ""} onClick={() => setDriverPeriod("m1")} type="button">1M</button>
               <button className={driverPeriod === "ytd" ? "active" : ""} onClick={() => setDriverPeriod("ytd")} type="button">YTD</button>
@@ -432,7 +432,7 @@ export default function FxPage() {
 
         <article className="card fxPositionCard">
           <span className="label">DAGENS NIVÅ</span>
-          <h3>Historisk posisjon</h3>
+          <h2>Historisk posisjon</h2>
           <div className="fxPositionGauge">
             <div className="fxPositionTrack"><span style={{ width: `${Math.max(0, Math.min(100, fx.range_1y?.percentile ?? 0))}%` }} /></div>
             <div><span className="numeric">{number(fx.range_1y?.low, 4)}</span><strong className="numeric">{finite(fx.range_1y?.percentile) ? `${number(fx.range_1y?.percentile, 0)}. persentil` : "–"}</strong><span className="numeric">{number(fx.range_1y?.high, 4)}</span></div>
@@ -448,7 +448,7 @@ export default function FxPage() {
 
       <section className="card fxExposureCard">
         <div className="fxSectionHead">
-          <div><span className="label">OTELLOS BRL-EKSPONERING</span><h3>Direkte effekt gjennom Bemobi-posten</h3></div>
+          <div><span className="label">OTELLOS BRL-EKSPONERING</span><h2>Direkte effekt gjennom Bemobi-posten</h2></div>
           <div className="fxExposureHeadline"><span>Bemobi-post</span><strong className="numeric">{finite(bemobiValueM) ? `${number(bemobiValueM, 0)} MNOK` : "–"}</strong></div>
         </div>
         <div className="fxExposureMeta">
@@ -478,13 +478,13 @@ export default function FxPage() {
       <section className="fxTwoColumn fxContextGrid">
         <article className="card fxContextCard">
           <span className="label">VALUTABIDRAG YTD</span>
-          <h3 className="numeric">{signedNok(isolatedYtdFxPerShare)}</h3>
+          <h2 className="numeric">{signedNok(isolatedYtdFxPerShare)}</h2>
           <p>{finite(isolatedYtdFxM) ? `${isolatedYtdFxM > 0 ? "+" : ""}${number(isolatedYtdFxM, 1)} MNOK på Bemobi-posten` : "Ikke nok historikk til å beregne YTD-effekten."}</p>
           <small>Isolert beregning med dagens BMOB3-kurs og beholdning. Dette er ikke symmetrisk NAV-attribusjon.</small>
         </article>
         <article className="card fxContextCard">
           <span className="label">BEMOBI · OPERASJONELL FX</span>
-          <h3>2Q26: 15 % → 20 %</h3>
+          <h2>2Q26: 15 % → 20 %</h2>
           <p>Organisk omsetningsvekst var 15 % rapportert og 20 % på valutajustert basis. Valuta var dermed en motvind på om lag 5 prosentpoeng i kvartalet.</p>
           <small>Senest dokumentert i Bemobi 2Q26 / Otello 1H26. Denne effekten er separat fra NOK-omregningen av Otellos Bemobi-post.</small>
         </article>
