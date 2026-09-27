@@ -432,7 +432,7 @@ export default function OverviewPage() {
           <small className="overviewUpdated numeric">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
         </article>
 
-        <article className="card cardStandard overviewUpcomingCard overviewUpcomingCardV3">
+        <article className="card cardPrimary overviewUpcomingCard overviewUpcomingCardV3">
           <div className="overviewUpcomingHeader">
             <div><span className="label">NESTE VIKTIGE DATOER</span><h2>Dette bør du følge med på</h2></div>
           </div>
