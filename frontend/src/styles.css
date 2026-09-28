@@ -75,9 +75,9 @@ h2 { margin: 4px 0 0; font-size: var(--ot-type-section-title); }
 .neutralWarning { border-color: var(--ot-border-strong); background: var(--ot-surface-raised); color: var(--ot-text-secondary); }
 .neutralWarning strong { color: var(--ot-text); }
 .card { border: 1px solid var(--ot-border); border-radius: 14px; padding: 18px; }
-.cardPrimary { border: 1px solid var(--ot-card-primary-border); border-radius: 16px; }
-.cardStandard { border: 1px solid var(--ot-card-standard-border); border-radius: 14px; }
-.cardSecondary { border: 1px solid var(--ot-card-secondary-border); border-radius: 10px; padding: 10px; }
+.cardPrimary { border: 1px solid var(--ot-card-primary-border); border-radius: var(--ot-card-primary-radius); padding: var(--ot-card-primary-padding); }
+.cardStandard { border: 1px solid var(--ot-card-standard-border); border-radius: var(--ot-card-standard-radius); padding: var(--ot-card-standard-padding); }
+.cardSecondary { border: 1px solid var(--ot-card-secondary-border); border-radius: var(--ot-card-secondary-radius); padding: var(--ot-card-secondary-padding); }
 .kpiGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
 .overviewKpiGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .navKpiGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

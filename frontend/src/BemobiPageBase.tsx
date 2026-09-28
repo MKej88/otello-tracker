@@ -309,7 +309,7 @@ export default function BemobiPageBase() {
 
   return (
     <div className="bemobiPage bemobiPageClean">
-      <section className="card bemobiCleanHero">
+      <section className="card cardPrimary bemobiCleanHero">
         <div>
           <span className="label">BEMOBI</span>
           <h2>Hvordan går Bemobi operasjonelt?</h2>
@@ -329,22 +329,22 @@ export default function BemobiPageBase() {
       )}
 
       <section className="bemobiCleanKpiGrid">
-        <article className="card bemobiCleanKpi">
+        <article className="card cardPrimary bemobiCleanKpi">
           <span className="label">Omsetning</span>
           <strong className="numeric">R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_net_revenue_yoy_pct)}`}>{signedPct(result?.adjusted_net_revenue_yoy_pct)} år/år</small>
         </article>
-        <article className="card bemobiCleanKpi">
+        <article className="card cardPrimary bemobiCleanKpi">
           <span className="label">Justert EBITDA</span>
           <strong className="numeric">R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_ebitda_yoy_pct)}`}>{signedPct(result?.adjusted_ebitda_yoy_pct)} år/år</small>
         </article>
-        <article className="card bemobiCleanKpi">
+        <article className="card cardPrimary bemobiCleanKpi">
           <span className="label">EBITDA-margin</span>
           <strong className="numeric">{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
           <small className="numeric">{result?.period ?? "Siste kvartal"}</small>
         </article>
-        <article className="card bemobiCleanKpi">
+        <article className="card cardPrimary bemobiCleanKpi">
           <span className="label">Justert resultat</span>
           <strong className="numeric">R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_net_income_yoy_pct)}`}>{signedPct(result?.adjusted_net_income_yoy_pct)} år/år</small>
@@ -352,7 +352,7 @@ export default function BemobiPageBase() {
       </section>
 
       <section className="bemobiCleanTwinGrid">
-        <article className="card bemobiCleanSection">
+        <article className="card cardStandard bemobiCleanSection">
           <div className="cardHeader">
             <div>
               <span className="label">VEKSTDRIVERE</span>
@@ -377,7 +377,7 @@ export default function BemobiPageBase() {
           </p>
         </article>
 
-        <article className="card bemobiCleanSection">
+        <article className="card cardStandard bemobiCleanSection">
           <div className="cardHeader">
             <div>
               <span className="label">KONTANTGENERERING</span>
@@ -404,7 +404,7 @@ export default function BemobiPageBase() {
         </article>
       </section>
 
-      <section className="card bemobiCleanValuation">
+      <section className="card cardStandard bemobiCleanValuation">
         <div className="cardHeader">
           <div>
             <span className="label">VERDSETTELSE</span>
@@ -452,7 +452,7 @@ export default function BemobiPageBase() {
           ) : null}
         </div>
 
-        <div className="bemobiCleanScenarioBlock">
+        <div className="cardSecondary bemobiCleanScenarioBlock">
           <div className="bemobiCleanSectionTitle">
             <h3>Multipelsensitivitet</h3>
             <span>{forwardYear == null ? "Justert EPS · ikke kursmål" : `${forwardYear}E EPS · ikke kursmål`}</span>
@@ -469,7 +469,7 @@ export default function BemobiPageBase() {
         </div>
       </section>
 
-      <section className="card bemobiCleanHistory">
+      <section className="card cardStandard bemobiCleanHistory">
         <div className="cardHeader">
           <div>
             <span className="label">KVARTALSUTVIKLING</span>
@@ -509,7 +509,7 @@ export default function BemobiPageBase() {
         </div>
       </section>
 
-      <section className="card bemobiCleanWatch">
+      <section className="card cardStandard bemobiCleanWatch">
         <div className="cardHeader">
           <div>
             <span className="label">FREMOVER</span>

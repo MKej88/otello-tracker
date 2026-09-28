@@ -414,7 +414,7 @@ export default function CashPage() {
 
   return (
     <div className="investorPage cashPage">
-      <section className="card cashHero">
+      <section className="card cardPrimary cashHero">
         <div>
           <span className="label">CASH & KAPITALALLOKERING</span>
           <h2>Hvor mye cash finnes – og hva kan den gjøre for NAV?</h2>
@@ -442,24 +442,24 @@ export default function CashPage() {
       )}
 
       <section className="cashKpiGrid">
-        <article className="card cashKpi">
+        <article className="card cardPrimary cashKpi">
           <span className="label">OTEC direkte cash</span>
           <strong className="numeric">{moneyM(metrics.directCashM)}</strong>
           <small className="numeric">{formatNumber(metrics.directPerShare, 2)} kr per OTEC-aksje</small>
         </article>
-        <article className="card cashKpi">
+        <article className="card cardPrimary cashKpi">
           <span className="label">Bemobi look-through cash</span>
           <strong className="numeric">{moneyM(metrics.bemobiLookthroughMnok)}</strong>
           <small className="numeric">
             R$ {formatNumber(metrics.bemobiLookthroughMbrl, 1)}m · {formatNumber(metrics.ownershipPct, 2)} % eierandel
           </small>
         </article>
-        <article className="card cashKpi cashKpiEmphasis">
+        <article className="card cardPrimary cashKpi cashKpiEmphasis">
           <span className="label">Samlet look-through cash</span>
           <strong className="numeric">{moneyM(metrics.combinedM)}</strong>
           <small className="numeric">{formatNumber(metrics.combinedPerShare, 2)} kr per OTEC-aksje</small>
         </article>
-        <article className="card cashKpi">
+        <article className="card cardPrimary cashKpi">
           <span className="label">Cash som andel av NAV</span>
           <strong className="numeric">{pct(metrics.combinedPctNav)}</strong>
           <small>Direkte + indirekte cash mot dagens NAV</small>
@@ -467,7 +467,7 @@ export default function CashPage() {
       </section>
 
       <section className="cashMainGrid">
-        <article className="card cashCompositionCard">
+        <article className="card cardStandard cashCompositionCard">
           <div className="cardHeader">
             <div>
               <span className="label">KONTANTSTRUKTUR</span>
@@ -496,7 +496,7 @@ export default function CashPage() {
           </p>
         </article>
 
-        <article className="card cashModelCard">
+        <article className="card cardStandard cashModelCard">
           <div className="cardHeader">
             <div>
               <span className="label">OTELLO CASH-MODELL</span>
@@ -540,7 +540,7 @@ export default function CashPage() {
       </section>
 
       <section className="cashMainGrid">
-        <article className="card cashEngineCard">
+        <article className="card cardStandard cashEngineCard">
           <div className="cardHeader">
             <div>
               <span className="label">BEMOBI I DAG</span>
@@ -575,7 +575,7 @@ export default function CashPage() {
           </p>
         </article>
 
-        <article className="card cashDistributionCard">
+        <article className="card cardStandard cashDistributionCard">
           <div className="cardHeader">
             <div>
               <span className="label">FRA BEMOBI TIL OTEC</span>
@@ -638,7 +638,7 @@ export default function CashPage() {
       </section>
 
       <section className="cashMainGrid">
-        <article className="card cashDistributionCard">
+        <article className="card cardStandard cashDistributionCard">
           <div className="cardHeader">
             <div>
               <span className="label">KVARTALSVIS JCP</span>
@@ -707,7 +707,7 @@ export default function CashPage() {
           </p>
         </article>
 
-        <article className="card cashEngineCard">
+        <article className="card cardStandard cashEngineCard">
           <div className="cardHeader">
             <div>
               <span className="label">RENTEINNTEKTER</span>
@@ -743,7 +743,7 @@ export default function CashPage() {
         </article>
       </section>
 
-      <section className="card cashBuybackCard">
+      <section className="card cardStandard cashBuybackCard">
         <div className="cardHeader">
           <div>
             <span className="label">TILBAKEKJØPSKAPASITET</span>
@@ -869,7 +869,7 @@ export default function CashPage() {
         </p>
       </section>
 
-      <section className="card cashMethodCard">
+      <section className="card cardStandard cashMethodCard">
         <div className="cardHeader">
           <div><span className="label">METODE</span><h2>Hva tallene betyr</h2></div>
         </div>

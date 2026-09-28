@@ -8,7 +8,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 28px;
-  padding: 24px;
+  padding: var(--ot-card-primary-padding);
 }
 
 .cashHero h2 {
@@ -41,7 +41,7 @@
 
 .cashKpi {
   min-height: 132px;
-  padding: 18px;
+  padding: var(--ot-card-primary-padding);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -75,7 +75,7 @@
 .cashDistributionCard,
 .cashBuybackCard,
 .cashMethodCard {
-  padding: 22px;
+  padding: var(--ot-card-standard-padding);
 }
 
 .cashSplitBar {

@@ -312,7 +312,7 @@ export default function ConsensusPage() {
 
   return (
     <div className="consensusPage consensusPageV2">
-      <section className="card consensusHero consensusHeroV2">
+      <section className="card cardPrimary consensusHero consensusHeroV2">
         <div>
           <span className="label">BEMOBI / KONSENSUS</span>
           <h2>Hva forventer markedet?</h2>
@@ -326,24 +326,24 @@ export default function ConsensusPage() {
       </section>
 
       <section className="consensusKpis consensusKpisV2">
-        <article className="card">
+        <article className="card cardPrimary">
           <span className="label">Konsensusmål</span>
           <strong className="numeric">R$ {value(targetAverage, 2)}</strong>
           <small className={`numeric ${tone(coverage?.upside_to_average_pct)}`}>{signedPct(coverage?.upside_to_average_pct)} mot dagens kurs</small>
         </article>
-        <article className="card">
+        <article className="card cardPrimary">
           <span className="label">Kjøpsandel</span>
           <strong className="numeric">{value(coverage?.buy_pct, 0)} %</strong>
           <small className="numeric">{coverage?.buy_count ?? 0} kjøp · {coverage?.hold_count ?? 0} hold · {coverage?.sell_count ?? 0} selg</small>
         </article>
-        <article className="card">
+        <article className="card cardPrimary">
           <span className="label">Neste rapport</span>
           <strong className="numeric">{nextQuarter?.period ?? "–"}</strong>
           <small>{hasPublicPreview ? `${previewBroker}-preview tilgjengelig` : "Venter på offentlig preview"}</small>
         </article>
       </section>
 
-      <section className="card consensusNextReport">
+      <section className="card cardStandard consensusNextReport">
         <div className="cardHeader">
           <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
           <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
@@ -388,7 +388,7 @@ export default function ConsensusPage() {
             <p className="consensusNote">Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus.</p>
           </>
         ) : (
-          <div className="consensusWaitingPreview">
+          <div className="cardSecondary consensusWaitingPreview">
             <strong>Ingen verifisert offentlig preview ennå.</strong>
             <p>{nextQuarter?.note ?? "Estimatene fylles inn når de kan verifiseres mot en offentlig meglerkilde."}</p>
             <div className="trackedMetrics">{(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}</div>
@@ -396,7 +396,7 @@ export default function ConsensusPage() {
         )}
       </section>
 
-      <section className="card consensusBeatSummary">
+      <section className="card cardStandard consensusBeatSummary">
         <div className="cardHeader">
           <div><span className="label">HISTORISK TREFF</span><h2>Har estimatene vært konservative?</h2></div>
           <small>{beatMiss.length} rapportperioder med verifisert preview</small>
@@ -414,7 +414,7 @@ export default function ConsensusPage() {
         ) : <div className="consensusEmptyInline">Ingen verifisert beat/miss-historikk ennå.</div>}
       </section>
 
-      <section className="card consensusForward consensusForwardV2">
+      <section className="card cardStandard consensusForward consensusForwardV2">
         <div className="cardHeader">
           <div><span className="label">FORWARD ESTIMATER</span><h2>{broker?.source ?? "Meglerestimat"}</h2></div>
           <SourceLink url={broker?.source_url}><span className="pill numeric">{broker?.published_date ? dateLabel(broker.published_date) : "KILDE"}</span></SourceLink>
@@ -443,7 +443,7 @@ export default function ConsensusPage() {
 
       <ConsensusHistoryPanel history={data.history_link} />
 
-      <section className="card consensusTargetRange">
+      <section className="card cardStandard consensusTargetRange">
         <div className="cardHeader">
           <div><span className="label">KURSMÅL</span><h2>Analytikernes spenn</h2></div>
           <SourceLink url={coverage?.source_url}><span className="pill numeric">{coverage?.analyst_count ?? 0} ANALYTIKERE</span></SourceLink>
@@ -461,7 +461,7 @@ export default function ConsensusPage() {
       </section>
 
       <section className="consensusDetailsStack">
-        <details className="card consensusDisclosure">
+        <details className="card cardStandard consensusDisclosure">
           <summary><span><span className="label">DETALJER</span><h2>Analytikere og kursmål</h2></span><b>Vis</b></summary>
           <div className="consensusTableWrap">
             <table className="consensusTable analystTable">
@@ -481,7 +481,7 @@ export default function ConsensusPage() {
           </div>
         </details>
 
-        <details className="card consensusDisclosure">
+        <details className="card cardStandard consensusDisclosure">
           <summary><span><span className="label">DETALJER</span><h2>Beat/miss per kvartal</h2></span><b>Vis</b></summary>
           <div className="beatMissGrid beatMissGridDetails">
             {beatMiss.map((period) => (
@@ -499,7 +499,7 @@ export default function ConsensusPage() {
           </div>
         </details>
 
-        <details className="card consensusDisclosure">
+        <details className="card cardStandard consensusDisclosure">
           <summary><span><span className="label">DETALJER</span><h2>Kilder og metode</h2></span><b>Vis</b></summary>
           <div className="sourceList consensusSourceList">
             {(data.sources ?? []).map((source) => <div key={source.label}><span>{source.label}</span><strong><SourceLink url={source.url}>{source.source}</SourceLink></strong></div>)}

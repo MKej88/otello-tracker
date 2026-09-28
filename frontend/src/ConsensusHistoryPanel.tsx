@@ -120,7 +120,7 @@ export default function ConsensusHistoryPanel({ history }: { history?: Consensus
   if (visibleEvents.length === 0 && latestChanges.length === 0) return null;
 
   return (
-    <section className="card consensusRevisionSection">
+    <section className="card cardStandard consensusRevisionSection">
       <div className="cardHeader">
         <div>
           <span className="label">ETTER RESULTAT</span>

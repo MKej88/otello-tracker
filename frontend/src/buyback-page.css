@@ -3,7 +3,7 @@
 .buybackNotice { display: grid; gap: 7px; }
 .buybackNotice strong { color: var(--ot-text); }
 
-.buybackHero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; align-items: stretch; padding: 24px; }
+.buybackHero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; align-items: stretch; padding: var(--ot-card-primary-padding); }
 .buybackHeroCopy { min-width: 0; }
 .buybackHeroTitle { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .buybackHeroTitle h2 { margin: 0; font-size: 28px; letter-spacing: -.035em; }

@@ -378,7 +378,7 @@ export default function DataQualityPage() {
 
   return (
     <div className="investorPage dataQualityPage">
-      <section className="card qualityTrustHero">
+      <section className="card cardPrimary qualityTrustHero">
         <div className="qualityTrustLead">
           <span className="label">DATAKVALITET NÅ</span>
           <h2>{heroTitle}</h2>
@@ -405,7 +405,7 @@ export default function DataQualityPage() {
       </section>
 
       {issues.length > 0 && (
-        <section className="card qualityIssuesCard">
+        <section className="card cardStandard qualityIssuesCard">
           <div className="cardHeader">
             <div>
               <span className="label">AKTIVE AVVIK</span>
@@ -432,7 +432,7 @@ export default function DataQualityPage() {
         </section>
       )}
 
-      <section className="card qualityCriticalCard">
+      <section className="card cardStandard qualityCriticalCard">
         <div className="cardHeader">
           <div>
             <span className="label">KRITISKE NAV-INPUTS</span>
@@ -462,7 +462,7 @@ export default function DataQualityPage() {
         <p className="qualityFootnote">Datadato viser datoen på siste godkjente verdi når kilden oppgir den. Ved avvik beholdes siste validerte data fremfor å nullstille NAV.</p>
       </section>
 
-      <section className="card qualitySourcesCard">
+      <section className="card cardStandard qualitySourcesCard">
         <div className="cardHeader">
           <div>
             <span className="label">DATAKILDER</span>
@@ -499,7 +499,7 @@ export default function DataQualityPage() {
         )}
       </section>
 
-      <section className={`card qualityReportCard ${reportNeedsAttention ? "qualityReportAttention" : ""}`}>
+      <section className={`card cardStandard qualityReportCard ${reportNeedsAttention ? "qualityReportAttention" : ""}`}>
         <div className="cardHeader">
           <div>
             <span className="label">RAPPORTDATA</span>
@@ -532,7 +532,7 @@ export default function DataQualityPage() {
         )}
       </section>
 
-      <details className="card qualityDiagnostics">
+      <details className="card cardStandard qualityDiagnostics">
         <summary>
           <span>
             <span className="label">TEKNISK DIAGNOSTIKK</span>

@@ -8,7 +8,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px 28px;
   align-items: start;
-  padding: 22px;
+  padding: var(--ot-card-primary-padding);
 }
 
 .qualityTrustLead h2 {
@@ -96,7 +96,7 @@
 .qualityCriticalCard,
 .qualitySourcesCard,
 .qualityReportCard {
-  padding: 20px;
+  padding: var(--ot-card-standard-padding);
 }
 
 .qualityIssueList {
