@@ -23,7 +23,7 @@
 
 .overviewNavCardV3 h2 {
   margin:7px 0 16px;
-  font-size:clamp(36px,4vw,48px);
+  font-size:var(--ot-type-key-value-large);
   letter-spacing:-.04em;
 }
 
@@ -64,12 +64,12 @@
 .overviewUpcomingCardV3 {
   display:grid;
   align-content:start;
-  gap:12px;
+  gap:var(--ot-space-md);
 }
 
 .overviewUpcomingHeader h2 {
   margin:5px 0 0;
-  font-size:18px;
+  font-size:var(--ot-type-section-title);
 }
 
 .overviewNextEvent {
@@ -212,7 +212,7 @@
 
 .overviewSection {
   display:grid;
-  gap:12px;
+  gap:var(--ot-space-md);
 }
 
 .overviewSectionHeading {
@@ -344,13 +344,13 @@
 
 .overviewCapitalCard {
   display:grid;
-  gap:8px;
+  gap:var(--ot-space-sm);
   min-height:210px;
   padding:20px;
 }
 
 .overviewCapitalValue {
-  font-size:1.75rem;
+  font-size:var(--ot-type-key-value);
   letter-spacing:-.03em;
 }
 
@@ -446,8 +446,8 @@
 
 .overviewVolumeAlert {
   display:block;
-  margin-top:8px;
-  padding-top:8px;
+  margin-top:var(--ot-space-sm);
+  padding-top:var(--ot-space-sm);
   border-top:1px solid var(--ot-border-soft);
   color:var(--ot-text-secondary);
 }
