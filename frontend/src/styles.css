@@ -2,6 +2,8 @@
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   --ot-type-page-title: 28px;
+  --ot-type-key-value-large: clamp(36px, 4vw, 48px);
+  --ot-type-key-value: 28px;
   --ot-type-section-title: 18px;
   --ot-type-key-figure: 25px;
   --ot-type-body: 14px;
@@ -9,6 +11,11 @@
   --ot-type-meta: var(--ot-type-help);
   --ot-type-label: 12px;
   --ot-type-badge: 12px;
+  --ot-space-xs: 4px;
+  --ot-space-sm: 8px;
+  --ot-space-md: 12px;
+  --ot-space-lg: 16px;
+  --ot-space-xl: 24px;
 }
 
 * { box-sizing: border-box; }
