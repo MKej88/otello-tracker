@@ -415,14 +415,14 @@ export default function OverviewPage() {
     <div className="investorPage overviewV3">
       <section className="overviewHeroGrid">
         <article className="card cardPrimary overviewNavCard overviewNavCardV3">
-          <span className="label">NAV</span>
+          <span className="label">ESTIMERT NAV</span>
           <h2 className="numeric">{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : <LoadingPlaceholder variant="number" label="Laster estimert NAV" />}</h2>
           <div className="overviewNavSnapshot">
-            <div className="cardSecondary"><span>OTEC</span><strong className="numeric">{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
-            <div className="cardSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
-            <div className="cardSecondary"><span>1 års median</span><strong className="numeric">{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
+            <div className="overviewNavSecondary"><span>OTEC</span><strong className="numeric">{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
+            <div className="overviewNavSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
+            <div className="overviewNavTertiary"><span>1 års median</span><strong className="numeric">{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
-          <div className="cardSecondary overviewDiscountContext">
+          <div className="overviewDiscountContext">
             {discountSpread == null
               ? "Historisk rabatt sammenlignes når data er tilgjengelige."
               : discountSpread >= 0
