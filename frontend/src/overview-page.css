@@ -76,13 +76,13 @@
   padding-top:12px;
   border-top:1px solid var(--ot-border-soft);
   font-size:var(--ot-type-meta);
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
   line-height:1.45;
 }
 
 .overviewUpdated {
   margin-top:8px;
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
   font-size:var(--ot-type-meta);
 }
 
@@ -122,7 +122,7 @@
 
 .overviewNextEventDate span {
   font-size:var(--ot-type-meta);
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
 }
 
 .overviewNextEventMain {
@@ -148,7 +148,7 @@
 .overviewNextEventMain small {
   display:block;
   margin-top:6px;
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
   font-size:var(--ot-type-meta);
   line-height:1.45;
 }
@@ -172,7 +172,7 @@
 
 .overviewUpcomingRows time {
   font-size:var(--ot-type-meta);
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
   font-weight:700;
   text-transform:uppercase;
 }
@@ -254,7 +254,8 @@
 
 .overviewSectionHeading>small {
   max-width:420px;
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-help);
   text-align:right;
 }
 
@@ -297,7 +298,8 @@
 
 .overviewDriverCard>small {
   margin-top:auto;
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-meta);
 }
 
 .overviewRange52 {
@@ -425,7 +427,8 @@
 }
 
 .overviewMarketStripHeader small {
-  color:var(--ot-text-muted);
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-meta);
 }
 
 .overviewTickerGrid {
