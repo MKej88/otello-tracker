@@ -52,7 +52,7 @@
 
 .overviewDiscountContext {
   margin-top:14px;
-  font-size:.83rem;
+  font-size:var(--ot-type-body);
   color:var(--ot-text-secondary);
 }
 

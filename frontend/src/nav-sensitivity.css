@@ -25,20 +25,20 @@
 .sensitivityRangeEditor { display:grid; gap:14px; margin:-2px 0 18px; padding:16px; border:1px solid var(--ot-accent-border); background:var(--ot-accent-soft); border-radius:12px; }
 .rangeEditorLead { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }
 .rangeEditorLead > div { display:grid; gap:3px; }
-.rangeEditorLead small { font-size:11px; color:var(--ot-text-muted); }
+.rangeEditorLead small { font-size: var(--ot-type-help); color:var(--ot-text-muted); }
 .rangeClose { padding:6px 9px; }
 .rangeEditorGroups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .rangeEditorGroups fieldset { margin:0; min-width:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; border:1px solid var(--ot-border-soft); border-radius:10px; padding:11px 12px 12px; }
-.rangeEditorGroups legend { padding:0 5px; font-size:11px; font-weight:750; color:var(--ot-text-secondary); }
-.rangeEditorGroups label,.targetInputs label { display:grid; gap:6px; min-width:0; font-size:11px; color:var(--ot-text-secondary); }
+.rangeEditorGroups legend { padding:0 5px; font-size: var(--ot-type-meta); font-weight:750; color:var(--ot-text-secondary); }
+.rangeEditorGroups label,.targetInputs label { display:grid; gap:6px; min-width:0; font-size: var(--ot-type-label); color:var(--ot-text-secondary); }
 .rangeEditorGroups input,.targetInputs input { min-width:0; width:100%; box-sizing:border-box; border:1px solid var(--ot-border-strong); background:var(--ot-surface-muted); color:var(--ot-text); border-radius:8px; padding:9px 10px; font:inherit; font-size:14px; font-variant-numeric:tabular-nums; outline:none; }
 .rangeEditorGroups input:focus,.targetInputs input:focus { border-color:var(--ot-accent-strong); box-shadow:0 0 0 2px var(--ot-accent-soft); }
-.rangeError { margin:0; padding:9px 11px; border:1px solid var(--ot-negative-border); background:var(--ot-negative-soft); border-radius:9px; font-size:11px; color:var(--ot-negative); }
+.rangeError { margin:0; padding:9px 11px; border:1px solid var(--ot-negative-border); background:var(--ot-negative-soft); border-radius:9px; font-size: var(--ot-type-meta); color:var(--ot-negative); }
 .rangeEditorButtons { display:flex; flex-wrap:wrap; gap:8px; }
 
 .sensitivityTableWrap { width:100%; overflow-x:auto; padding-bottom:4px; }
 .sensitivityTable { width:100%; min-width:900px; border-collapse:separate; border-spacing:6px; table-layout:fixed; }
-.sensitivityTable th { font-size:11px; font-weight:750; color:var(--ot-text-muted); text-align:center; font-variant-numeric:tabular-nums; }
+.sensitivityTable th { font-size: var(--ot-type-label); font-weight:750; color:var(--ot-text-muted); text-align:center; font-variant-numeric:tabular-nums; }
 .sensitivityTable thead th { position:sticky; top:0; z-index:2; padding:0 4px 5px; background:var(--ot-surface); }
 .sensitivityTable tbody th { position:sticky; left:0; z-index:1; width:80px; padding:0 8px; background:var(--ot-surface); box-shadow:7px 0 7px -7px var(--ot-border-strong); }
 .sensitivityTable thead th:first-child { left:0; z-index:3; box-shadow:7px 0 7px -7px var(--ot-border-strong); }
@@ -49,14 +49,14 @@
 .sensitivityCell:hover { border-color:var(--ot-accent-border); transform:translateY(-1px); }
 .sensitivityCell.selected { border-color:var(--ot-accent-strong); box-shadow:0 0 0 1px var(--ot-accent-soft) inset; }
 .sensitivityCell strong { font-size:13px; color:var(--ot-text); font-variant-numeric:tabular-nums; }
-.sensitivityCell small { font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--ot-text-muted); }
+.sensitivityCell small { font-size: var(--ot-type-help); letter-spacing:.08em; text-transform:uppercase; color:var(--ot-text-muted); }
 .sensitivityCell.toneNegative,.sensitivityLegend .toneNegative { background:var(--ot-negative-soft); }
 .sensitivityCell.toneFlat,.sensitivityLegend .toneFlat { background:var(--ot-control-soft); }
 .sensitivityCell.toneMild,.sensitivityLegend .toneMild { background:color-mix(in srgb, var(--ot-positive) 8%, transparent); }
 .sensitivityCell.toneGood,.sensitivityLegend .toneGood { background:var(--ot-positive-soft); }
 .sensitivityCell.toneStrong,.sensitivityLegend .toneStrong { background:color-mix(in srgb, var(--ot-positive) 22%, transparent); }
 .sensitivityLegend { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
-.sensitivityLegend span { border:1px solid var(--ot-border-soft); border-radius:999px; padding:5px 8px; font-size:10px; color:var(--ot-text-secondary); }
+.sensitivityLegend span { border:1px solid var(--ot-border-soft); border-radius:999px; padding:5px 8px; font-size: var(--ot-type-meta); color:var(--ot-text-secondary); }
 
 .targetCalculator { padding:22px 24px; }
 .targetCalculatorHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:22px; }
@@ -64,16 +64,16 @@
 .targetCalculatorHeader p { margin:0; font-size:12px; color:var(--ot-text-muted); }
 .targetCalculatorBody { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr); gap:18px; margin-top:18px; }
 .targetInputs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-content:start; }
-.targetInputs label > span { font-size:11px; font-weight:650; }
-.targetInputs label > small { font-size:10px; color:var(--ot-text-muted); }
+.targetInputs label > span { font-size: var(--ot-type-label); font-weight:650; }
+.targetInputs label > small { font-size: var(--ot-type-label); color:var(--ot-text-muted); }
 .inputWithSuffix { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; border:1px solid var(--ot-border-soft); border-radius:9px; overflow:hidden; background:var(--ot-control-soft); }
 .inputWithSuffix input { border:0; border-radius:0; background:transparent; }
 .inputWithSuffix input:focus { box-shadow:none; }
-.inputWithSuffix em { padding:0 10px; font-size:11px; font-style:normal; font-weight:750; color:var(--ot-text-muted); white-space:nowrap; }
+.inputWithSuffix em { padding:0 10px; font-size: var(--ot-type-meta); font-style:normal; font-weight:750; color:var(--ot-text-muted); white-space:nowrap; }
 .targetResult { min-height:112px; display:grid; align-content:center; gap:5px; padding:16px 18px; border:1px solid var(--ot-border-soft); border-radius:12px; background:var(--ot-surface-raised); }
-.targetResult > span { font-size:11px; color:var(--ot-text-muted); }
+.targetResult > span { font-size: var(--ot-type-meta); color:var(--ot-text-muted); }
 .targetResult > strong { font-size:29px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-.targetResult > small { font-size:11px; line-height:1.4; color:var(--ot-text-muted); }
+.targetResult > small { font-size: var(--ot-type-help); line-height:1.4; color:var(--ot-text-muted); }
 .targetResult button { justify-self:start; margin-top:5px; }
 
 .sensitivityDetailGrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
@@ -82,7 +82,7 @@
 .selectedHeader button { white-space:nowrap; }
 .breakEvenGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:18px; }
 .breakEvenGrid > div { display:grid; gap:5px; padding:14px; border:1px solid var(--ot-border-soft); border-radius:11px; background:var(--ot-surface-raised); }
-.breakEvenGrid span,.breakEvenGrid small { font-size:11px; color:var(--ot-text-muted); }
+.breakEvenGrid span,.breakEvenGrid small { font-size: var(--ot-type-help); color:var(--ot-text-muted); }
 .breakEvenGrid strong { font-size:21px; font-variant-numeric:tabular-nums; }
 .scenarioRows { display:grid; margin-top:16px; }
 .scenarioRows > div { display:flex; align-items:baseline; justify-content:space-between; gap:20px; padding:10px 0; border-top:1px solid var(--ot-border-soft); }
@@ -90,7 +90,7 @@
 .scenarioRows strong { font-size:14px; text-align:right; font-variant-numeric:tabular-nums; }
 .scenarioRows .scenarioTotal { margin-top:4px; padding-top:13px; border-top-color:var(--ot-accent-border); }
 .scenarioRows .scenarioTotal span,.scenarioRows .scenarioTotal strong { font-size:16px; color:var(--ot-text); font-weight:800; }
-.sensitivityMethodNote { margin:0 2px; font-size:11px; line-height:1.55; color:var(--ot-text-muted); }
+.sensitivityMethodNote { margin:0 2px; font-size: var(--ot-type-help); line-height:1.55; color:var(--ot-text-muted); }
 .sensitivityUnavailable { padding:28px; }
 .sensitivityUnavailable h2 { margin:6px 0 8px; }
 .sensitivityUnavailable p { margin:0; max-width:780px; line-height:1.55; color:var(--ot-text-secondary); }

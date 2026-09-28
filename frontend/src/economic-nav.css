@@ -8,48 +8,48 @@
 }
 .economicHeader { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .economicHeader h2 { margin: 4px 0 0; font-size: 19px; }
-.economicEyebrow { color: var(--ot-accent-strong); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.economicBadge { border: 1px solid var(--ot-accent-border); background: var(--ot-accent-soft); color: var(--ot-accent-strong); border-radius: 999px; padding: 6px 9px; font-size: 10px; font-weight: 800; }
+.economicEyebrow { color: var(--ot-accent-strong); font-size: var(--ot-type-label); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.economicBadge { border: 1px solid var(--ot-accent-border); background: var(--ot-accent-soft); color: var(--ot-accent-strong); border-radius: 999px; padding: 6px 9px; font-size: var(--ot-type-label); font-weight: 800; }
 .economicMetrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
 .economicMetrics > div { background: var(--ot-surface-raised); border: 1px solid var(--ot-border-soft); border-radius: 11px; padding: 13px; }
-.economicMetrics span, .economicAdjustments span { display: block; color: var(--ot-text-secondary); font-size: 11px; }
+.economicMetrics span, .economicAdjustments span { display: block; color: var(--ot-text-secondary); font-size: var(--ot-type-meta); }
 .economicMetrics strong { display: block; margin-top: 7px; font-size: 22px; color: var(--ot-text); }
-.economicMetrics small, .economicAdjustments small { display: block; margin-top: 5px; color: var(--ot-text-muted); font-size: 10px; line-height: 1.35; }
+.economicMetrics small, .economicAdjustments small { display: block; margin-top: 5px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.35; }
 .economicMetrics .economicPrimary { border-color: var(--ot-positive-border); background: var(--ot-positive-soft); }
 .economicMetrics .economicPrimary strong { color: var(--ot-positive); }
 .cashCurrencyEstimate, .fxBacktest { margin-top: 14px; padding: 14px; border: 1px solid var(--ot-border-soft); border-radius: 12px; background: var(--ot-surface-raised); }
 .cashCurrencyHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .cashCurrencyHeader h3 { margin: 4px 0 0; font-size: 15px; color: var(--ot-text); }
-.cashConfidence { border: 1px solid var(--ot-border-strong); border-radius: 999px; padding: 5px 8px; color: var(--ot-text-secondary); font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.cashConfidence { border: 1px solid var(--ot-border-strong); border-radius: 999px; padding: 5px 8px; color: var(--ot-text-secondary); font-size: var(--ot-type-label); font-weight: 800; letter-spacing: .04em; }
 .cashCurrencyGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
 .cashCurrencyCard { border: 1px solid var(--ot-border-soft); border-radius: 10px; padding: 11px 12px; background: var(--ot-surface-muted); }
-.cashCurrencyCard > span { display: block; color: var(--ot-text-secondary); font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+.cashCurrencyCard > span { display: block; color: var(--ot-text-secondary); font-size: var(--ot-type-meta); font-weight: 800; letter-spacing: .05em; }
 .cashCurrencyCard strong { display: block; margin-top: 6px; color: var(--ot-text); font-size: 17px; }
-.cashCurrencyCard small { display: block; margin-top: 4px; color: var(--ot-text-muted); font-size: 10px; line-height: 1.35; }
-.cashCurrencyNote { display: flex; justify-content: space-between; gap: 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: 10px; line-height: 1.45; }
+.cashCurrencyCard small { display: block; margin-top: 4px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.35; }
+.cashCurrencyNote { display: flex; justify-content: space-between; gap: 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.45; }
 .cashCurrencyNote span:first-child { max-width: 720px; }
 .fxBacktestGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
 .fxBacktestCard { border: 1px solid var(--ot-border-soft); border-radius: 10px; padding: 12px; background: var(--ot-surface-muted); }
 .fxBacktestYear { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .fxBacktestYear > strong { color: var(--ot-text); font-size: 17px; }
-.fxBacktestHit, .fxBacktestMiss { border-radius: 999px; padding: 4px 7px; font-size: 8px; font-weight: 800; letter-spacing: .04em; }
+.fxBacktestHit, .fxBacktestMiss { border-radius: 999px; padding: 4px 7px; font-size: var(--ot-type-meta); font-weight: 800; letter-spacing: .04em; }
 .fxBacktestHit { color: var(--ot-positive); border: 1px solid var(--ot-positive-border); background: var(--ot-positive-soft); }
 .fxBacktestMiss { color: var(--ot-negative); border: 1px solid var(--ot-negative-border); background: var(--ot-negative-soft); }
 .fxBacktestCard dl { margin: 10px 0 0; }
 .fxBacktestCard dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--ot-border-soft); }
-.fxBacktestCard dt { color: var(--ot-text-secondary); font-size: 10px; }
-.fxBacktestCard dd { margin: 0; color: var(--ot-text); font-size: 11px; font-weight: 700; text-align: right; }
-.fxBacktestCard > small { display: block; margin-top: 8px; color: var(--ot-text-muted); font-size: 9px; line-height: 1.4; }
-.fxBacktestSummary { display: flex; justify-content: space-between; gap: 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: 10px; line-height: 1.45; }
+.fxBacktestCard dt { color: var(--ot-text-secondary); font-size: var(--ot-type-meta); }
+.fxBacktestCard dd { margin: 0; color: var(--ot-text); font-size: var(--ot-type-meta); font-weight: 700; text-align: right; }
+.fxBacktestCard > small { display: block; margin-top: 8px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.4; }
+.fxBacktestSummary { display: flex; justify-content: space-between; gap: 18px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: var(--ot-type-meta); line-height: 1.45; }
 .fxBacktestSummary span:last-child { max-width: 610px; text-align: right; }
 .fxBacktestUnavailable { margin-top: 11px; padding: 11px 12px; border: 1px dashed var(--ot-border-strong); border-radius: 9px; }
-.fxBacktestUnavailable strong { display: block; color: var(--ot-text-secondary); font-size: 11px; }
-.fxBacktestUnavailable span { display: block; margin-top: 4px; color: var(--ot-text-muted); font-size: 10px; }
+.fxBacktestUnavailable strong { display: block; color: var(--ot-text-secondary); font-size: var(--ot-type-label); }
+.fxBacktestUnavailable span { display: block; margin-top: 4px; color: var(--ot-text-muted); font-size: var(--ot-type-meta); }
 .economicAdjustments { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 0; margin-top: 12px; border-top: 1px solid var(--ot-border-soft); border-bottom: 1px solid var(--ot-border-soft); }
 .economicAdjustments > div { padding: 11px 13px; border-right: 1px solid var(--ot-border-soft); }
 .economicAdjustments > div:last-child { border-right: 0; }
 .economicAdjustments strong { display: block; margin-top: 4px; color: var(--ot-text); font-size: 14px; }
-.economicFootnote { display: flex; justify-content: space-between; gap: 16px; color: var(--ot-text-muted); font-size: 11px; margin-top: 11px; }
+.economicFootnote { display: flex; justify-content: space-between; gap: 16px; color: var(--ot-text-muted); font-size: var(--ot-type-help); margin-top: 11px; }
 .economicNavUnavailable { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 180px; color: var(--ot-text-secondary); }
 .economicNavUnavailable strong { display: block; margin-top: 4px; color: var(--ot-text); font-size: 13px; }
 

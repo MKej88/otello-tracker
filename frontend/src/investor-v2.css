@@ -10,7 +10,7 @@
 .investorTopbarStatus.stale { border-color:var(--ot-warning-border); }
 .investorTopbarStatus.stale > span { background:var(--ot-warning); }
 .investorTopbarStatus p { display:grid; gap:2px; margin:0; }
-.investorTopbarStatus strong { color:var(--ot-text-secondary); font-size:11px; line-height:1.3; }
+.investorTopbarStatus strong { color:var(--ot-text-secondary); font-size: var(--ot-type-label); line-height:1.3; }
 .investorTopbarStatus small { color:var(--ot-text-muted); font-size:var(--ot-type-meta); line-height:1.35; }
 .investorModelBadge { border:1px solid var(--ot-accent-border); border-radius:999px; padding:8px 12px; font-size:12px; font-weight:800; letter-spacing:.08em; white-space:nowrap; }
 .investorSidebarFooter { color:var(--ot-text-muted); line-height:1.45; }
@@ -49,7 +49,7 @@
 .compositionRow strong { font-size:14px; }
 .compositionRow small { color:var(--ot-text-muted); line-height:1.35; white-space:pre-line; }
 .driverLabel,.driverCell { display:grid; gap:7px; }
-.driverLabel small,.driverCell small { min-height:18px; padding-top:6px; border-top:1px solid var(--ot-border-soft); font-size:11px; }
+.driverLabel small,.driverCell small { min-height:18px; padding-top:6px; border-top:1px solid var(--ot-border-soft); font-size: var(--ot-type-label); }
 .driverCell > span { min-height:18px; }
 @media (min-width:1101px) {
   .driverNetTable .compositionRow { row-gap:7px; align-items:stretch; }
