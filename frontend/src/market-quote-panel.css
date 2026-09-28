@@ -8,18 +8,18 @@
 .marketQuoteHeadline { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 12px; }
 .marketQuoteHeadline > strong:first-child { color: var(--ot-text); font-size: 28px; letter-spacing: -.035em; }
 .marketQuoteHeadline > strong:last-child { font-size: 15px; text-align: right; }
-.marketQuoteSubline, .marketQuoteFooter { color: var(--ot-text-muted); font-size: 10px; }
+.marketQuoteSubline, .marketQuoteFooter { color: var(--ot-text-muted); font-size: var(--ot-type-help); }
 .marketQuoteSubline { display: block; min-height: 14px; margin-top: 5px; }
 .marketDivider { height: 1px; margin: 17px 0; background: var(--ot-border-soft); }
 .marketMetrics { display: grid; gap: 11px; }
 .marketMetricRow { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 16px; color: var(--ot-text-secondary); font-size: 12px; }
 .marketMetricRow > span { min-width: 0; }
-.marketMetricRow small { display: block; margin-top: 3px; color: var(--ot-text-muted); font-size: 10px; }
+.marketMetricRow small { display: block; margin-top: 3px; color: var(--ot-text-muted); font-size: var(--ot-type-help); }
 .marketMetricRow strong { color: var(--ot-text); font-size: 13px; text-align: right; }
 .marketQuoteCard .positive { color: var(--ot-positive); }
 .marketQuoteCard .negative { color: var(--ot-negative); }
 .marketQuoteCard .neutral { color: var(--ot-text-muted); }
-.marketRange { display: grid; grid-template-columns: auto auto minmax(35px, 1fr) auto; align-items: center; gap: 7px; margin-top: auto; padding-top: 21px; color: var(--ot-text-muted); font-size: 10px; line-height: 12px; }
+.marketRange { display: grid; grid-template-columns: auto auto minmax(35px, 1fr) auto; align-items: center; gap: 7px; margin-top: auto; padding-top: 21px; color: var(--ot-text-muted); font-size: var(--ot-type-meta); line-height: 12px; }
 .marketRangeTrack { position: relative; height: 2px; background: var(--ot-track); }
 .marketRangeTrack i { position: absolute; top: 50%; width: 7px; height: 7px; border-radius: 50%; background: var(--ot-positive); transform: translate(-50%, -50%); }
 .marketQuoteFooter { min-height: 14px; margin-top: 15px; }

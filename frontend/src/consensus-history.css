@@ -8,33 +8,33 @@
 .consensusEventHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--ot-border-soft); background: var(--ot-surface-raised); }
 .consensusEventHeader > div { display: flex; align-items: baseline; gap: 10px; }
 .consensusEventHeader strong { color: var(--ot-text); font-size: 18px; }
-.consensusEventHeader span { color: var(--ot-text-muted); font-size: 10px; }
+.consensusEventHeader span { color: var(--ot-text-muted); font-size: var(--ot-type-meta); }
 .consensusEventHeader a span { color: var(--ot-accent-strong); }
 
 .consensusEventSteps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .consensusEventStep { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 9px; padding: 15px 14px; border-right: 1px solid var(--ot-border-soft); min-height: 165px; background: var(--ot-surface); }
 .consensusEventStep:last-child { border-right: 0; }
-.stepNumber { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; border: 1px solid var(--ot-border-strong); color: var(--ot-text-secondary); font-size: 9px; font-weight: 800; }
-.consensusEventStep small { display: block; color: var(--ot-text-muted); font-size: 8px; font-weight: 800; letter-spacing: .09em; }
+.stepNumber { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; border: 1px solid var(--ot-border-strong); color: var(--ot-text-secondary); font-size: var(--ot-type-label); font-weight: 800; }
+.consensusEventStep small { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-help); font-weight: 800; letter-spacing: .09em; }
 .consensusEventStep strong { display: block; margin-top: 7px; color: var(--ot-text); font-size: 13px; line-height: 1.35; }
-.consensusEventStep p { margin: 7px 0 0; color: var(--ot-text-secondary); font-size: 9px; line-height: 1.45; }
+.consensusEventStep p { margin: 7px 0 0; color: var(--ot-text-secondary); font-size: var(--ot-type-help); line-height: 1.45; }
 .consensusEventStep p b { color: var(--ot-text-secondary); font-weight: 700; }
-.consensusEventStep em { display: inline-block; margin-top: 9px; color: var(--ot-accent-strong); font-size: 9px; font-style: normal; font-weight: 700; }
-.consensusEventNote { display: grid; gap: 4px; padding: 10px 16px 12px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: 9px; line-height: 1.5; }
+.consensusEventStep em { display: inline-block; margin-top: 9px; color: var(--ot-accent-strong); font-size: var(--ot-type-label); font-style: normal; font-weight: 700; }
+.consensusEventNote { display: grid; gap: 4px; padding: 10px 16px 12px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.5; }
 
 .consensusRevisionBaseline { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 9px; margin-top: 14px; }
 .consensusRevisionBaseline > div { padding: 12px; border: 1px solid var(--ot-border-soft); border-radius: 10px; background: var(--ot-surface-raised); }
-.consensusRevisionBaseline span { display: block; color: var(--ot-text-muted); font-size: 9px; }
+.consensusRevisionBaseline span { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-meta); }
 .consensusRevisionBaseline strong,
 .consensusRevisionBaseline b { display: block; margin-top: 6px; color: var(--ot-text); font-size: 13px; }
 
 .consensusSnapshotChanges { display: grid; gap: 7px; margin-top: 10px; padding: 12px; border: 1px solid var(--ot-border-soft); border-radius: 10px; background: var(--ot-surface-raised); }
 .consensusSnapshotChangesHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--ot-border-soft); }
-.consensusSnapshotChangesHeader strong { color: var(--ot-text); font-size: 11px; }
+.consensusSnapshotChangesHeader strong { color: var(--ot-text); font-size: var(--ot-type-label); }
 .consensusSnapshotChange { display: grid; grid-template-columns: 1.3fr 1fr .65fr; align-items: center; gap: 12px; padding: 5px 0; }
-.consensusSnapshotChange span { color: var(--ot-text-muted); font-size: 9px; }
-.consensusSnapshotChange b { color: var(--ot-text-secondary); font-size: 10px; font-weight: 700; }
-.consensusSnapshotChange strong { text-align: right; font-size: 10px; }
+.consensusSnapshotChange span { color: var(--ot-text-muted); font-size: var(--ot-type-meta); }
+.consensusSnapshotChange b { color: var(--ot-text-secondary); font-size: var(--ot-type-meta); font-weight: 700; }
+.consensusSnapshotChange strong { text-align: right; font-size: var(--ot-type-label); }
 
 @media (max-width: 1180px) {
   .consensusEventSteps { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -40,7 +40,7 @@
   max-width: 780px;
   margin: 10px 0 0;
   color: var(--ot-text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--ot-type-body);
   line-height: 1.55;
 }
 
@@ -53,7 +53,7 @@
 .consensusHeroPrice span,
 .consensusHeroPrice small {
   color: var(--ot-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusHeroPrice strong {
@@ -86,7 +86,7 @@
   display: block;
   margin-top: 7px;
   color: var(--ot-text-muted);
-  font-size: 0.74rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusNextReport,
@@ -116,7 +116,7 @@
 .consensusBeatSummary .cardHeader > small,
 .consensusRevisionSection .cardHeader > small {
   color: var(--ot-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusTableWrap {
@@ -139,7 +139,7 @@
   border-bottom: 1px solid var(--ot-border-soft);
   text-align: right;
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusTable th:first-child,
@@ -153,7 +153,7 @@
   z-index: 2;
   color: var(--ot-text-muted);
   background: var(--ot-surface-raised);
-  font-size: 0.66rem;
+  font-size: var(--ot-type-label);
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
@@ -194,7 +194,7 @@
   gap: 16px;
   margin-top: 10px;
   color: var(--ot-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusPreviewMeta a {
@@ -235,7 +235,7 @@
   border-radius: 7px;
   background: var(--ot-control-soft);
   color: var(--ot-text-secondary);
-  font-size: 0.7rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusBeatSummaryGrid {
@@ -258,7 +258,7 @@
 .consensusBeatSummaryGrid span,
 .consensusBeatSummaryGrid small {
   color: var(--ot-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusBeatSummaryGrid strong {
@@ -285,13 +285,13 @@
   gap: 8px 16px;
   margin-top: 11px;
   color: var(--ot-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusNote {
   margin: 11px 0 0;
   color: var(--ot-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--ot-type-help);
   line-height: 1.5;
 }
 
@@ -334,7 +334,7 @@
 .consensusForwardRevisionHeader small,
 .consensusRevisionEventHeader span {
   color: var(--ot-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusForwardRevisionGrid {
@@ -356,7 +356,7 @@
 .consensusForwardRevisionGrid span,
 .consensusForwardRevisionGrid small {
   color: var(--ot-text-muted);
-  font-size: 0.68rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusRevisionEvents {
@@ -399,12 +399,12 @@
 .consensusEstimateRevisionRows span,
 .consensusEstimateRevisionRows small {
   color: var(--ot-text-muted);
-  font-size: 0.67rem;
+  font-size: var(--ot-type-meta);
   line-height: 1.4;
 }
 
 .consensusRevisionEventGrid strong {
-  font-size: 0.86rem;
+  font-size: var(--ot-type-body);
 }
 
 .consensusEstimateRevisionRows {
@@ -435,7 +435,7 @@
   justify-content: space-between;
   gap: 14px;
   color: var(--ot-text-secondary);
-  font-size: 0.76rem;
+  font-size: var(--ot-type-meta);
 }
 
 .targetRangeTrack {
@@ -469,7 +469,7 @@
   display: flex;
   gap: 18px;
   color: var(--ot-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--ot-type-meta);
 }
 
 .targetRangeLegend span {
@@ -523,7 +523,7 @@
 
 .consensusDisclosure summary > b {
   color: var(--ot-accent-strong);
-  font-size: 0.72rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusDisclosure[open] summary {
@@ -550,7 +550,7 @@
   display: inline-flex;
   padding: 4px 8px;
   border-radius: 999px;
-  font-size: 0.65rem;
+  font-size: var(--ot-type-label);
   font-weight: 800;
 }
 
@@ -608,7 +608,7 @@
 .beatMissHeader span,
 .beatMissHeader a span {
   color: var(--ot-text-muted);
-  font-size: 0.67rem;
+  font-size: var(--ot-type-meta);
 }
 
 .beatMissHeader a span {
@@ -631,7 +631,7 @@
 .beatMissRow > span,
 .beatMissRow > div small {
   color: var(--ot-text-muted);
-  font-size: 0.66rem;
+  font-size: var(--ot-type-meta);
 }
 
 .beatMissRow > div small {
@@ -642,7 +642,7 @@
 .beatMissRow > strong {
   min-width: 54px;
   text-align: right;
-  font-size: 0.78rem;
+  font-size: var(--ot-type-meta);
 }
 
 .consensusSourceList {
