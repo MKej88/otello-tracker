@@ -62,7 +62,12 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
     expected_tokens = {
         "cash-page.css": ("var(--ot-surface-inset)", "var(--ot-surface-raised)", "var(--ot-border-inset)"),
         "buyback-page.css": ("var(--ot-positive-soft)", "var(--ot-warning-soft)", "var(--ot-surface-raised)"),
-        "bemobi-page.css": ("var(--ot-surface-raised)", "var(--ot-surface-muted)", "var(--ot-border-soft)", "var(--ot-positive)"),
+        "bemobi-page.css": (
+            "var(--ot-surface-raised)",
+            "var(--ot-card-secondary-padding)",
+            "var(--ot-border-soft)",
+            "var(--ot-positive)",
+        ),
         "consensus-page.css": ("var(--ot-surface-raised)", "var(--ot-surface-muted)", "var(--ot-positive-soft)"),
         "consensus-history.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-accent-strong)"),
         "brazil-page.css": ("var(--ot-surface-raised)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
@@ -115,6 +120,18 @@ def test_overview_reference_uses_same_shared_surface_contract() -> None:
     assert "background:var(--ot-control-soft)" in overview
     assert "color:var(--ot-positive)" in overview
     assert "color:var(--ot-negative)" in overview
+
+
+def test_shared_card_levels_own_their_geometry() -> None:
+    styles = read_frontend("styles.css")
+    theme = read_frontend("otello-theme.css")
+
+    for level in ("primary", "standard", "secondary"):
+        assert f"--ot-card-{level}-padding" in theme
+        assert f"--ot-card-{level}-radius" in theme
+        assert f"--ot-card-{level}-shadow" in theme
+        assert f"padding: var(--ot-card-{level}-padding)" in styles
+        assert f"border-radius: var(--ot-card-{level}-radius)" in styles
 
 
 def test_cross_page_surface_override_layer_is_gone() -> None:
