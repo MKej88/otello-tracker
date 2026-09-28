@@ -38,6 +38,11 @@
   min-width:0;
   padding:12px 14px;
   border-left:1px solid var(--ot-border-soft);
+  border-top:0;
+  border-right:0;
+  border-bottom:0;
+  border-radius:0;
+  background:transparent;
 }
 
 .overviewNavSnapshot>div:first-child {
@@ -56,12 +61,12 @@
   margin-top:4px;
 }
 
-.overviewNavSecondary strong {
+.overviewNavSnapshot>div:nth-child(-n+2) strong {
   font-size:var(--ot-type-key-value);
   letter-spacing:-.03em;
 }
 
-.overviewNavTertiary strong {
+.overviewNavSnapshot>div:nth-child(3) strong {
   color:var(--ot-text-secondary);
   font-size:var(--ot-type-body);
 }
