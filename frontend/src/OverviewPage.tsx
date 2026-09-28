@@ -482,7 +482,7 @@ export default function OverviewPage() {
         </div>
         <div className="overviewDriverGrid">
           <article className="card cardStandard overviewDriverCard">
-            <span className="label">BEMOBI</span>
+            <span>Bemobi</span>
             <strong className="numeric">{signed(bemobi?.month_pct, 1, " % siste måned")}</strong>
             <div className={`overviewDriverEffect ${tone(bemobi?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(bemobi?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
@@ -498,7 +498,7 @@ export default function OverviewPage() {
           </article>
 
           <article className="card cardStandard overviewDriverCard">
-            <span className="label">BRL/NOK</span>
+            <span>BRL/NOK</span>
             <strong className="numeric">{signed(brl?.month_pct, 1, " % siste måned")}</strong>
             <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
@@ -513,7 +513,7 @@ export default function OverviewPage() {
           </article>
 
           <article className="card cardStandard overviewDriverCard">
-            <span className="label">TILBAKEKJØP</span>
+            <span>Tilbakekjøp</span>
             <strong className="numeric">{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</strong>
             <div className={`overviewDriverEffect ${tone(buybackNavEffect)} numeric`}>
               {signed(buybackNavEffect, 2, " kr netto NAV/aksje")}
@@ -529,7 +529,7 @@ export default function OverviewPage() {
         </div>
         <div className="overviewCapitalGrid">
           <article className="card cardStandard overviewCapitalCard">
-            <span className="label">CASH</span>
+            <span>Cash</span>
             <strong className="overviewCapitalValue numeric">{nav?.economic_cash_mnok == null ? "—" : `${formatNumber(nav.economic_cash_mnok, 1)} mill. kr`}</strong>
             <span className="numeric">{cashBridge?.cash_per_share_nok == null ? "—" : `${formatNumber(cashBridge.cash_per_share_nok, 2)} kr / OTEC-aksje`}</span>
             <div className="overviewCapitalMeta">
@@ -540,7 +540,7 @@ export default function OverviewPage() {
           </article>
 
           <article className="card cardStandard overviewCapitalCard">
-            <span className="label">TILBAKEKJØP</span>
+            <span>Tilbakekjøp</span>
             <strong className="overviewCapitalValue numeric">{buybackProgram?.progress_pct == null ? "—" : `${formatNumber(buybackProgram.progress_pct, 1)} % gjennomført`}</strong>
             <span className="numeric">{buybackProgram?.cumulative_shares == null ? "—" : `${formatInteger(buybackProgram.cumulative_shares)} aksjer kjøpt`}</span>
             <div className="overviewCapitalMeta overviewCapitalMetaTwo">
