@@ -23,7 +23,7 @@
 
 .overviewNavCardV3 h2 {
   margin:7px 0 16px;
-  font-size:var(--ot-type-key-value-large);
+  font-size:clamp(var(--ot-type-key-value-large),4vw,3.35rem);
   letter-spacing:-.04em;
 }
 
@@ -116,7 +116,6 @@
 
 .overviewNextEventDate strong {
   font-size:1.35rem;
-  text-transform:uppercase;
   letter-spacing:-.02em;
 }
 
@@ -174,7 +173,6 @@
   font-size:var(--ot-type-meta);
   color:var(--ot-text-secondary);
   font-weight:700;
-  text-transform:uppercase;
 }
 
 .overviewUpcomingRows strong {
@@ -262,7 +260,9 @@
 .overviewDriverGrid {
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:14px;
+  gap:0;
+  border-top:1px solid var(--ot-border-soft);
+  border-bottom:1px solid var(--ot-border-soft);
 }
 
 .overviewDriverCard {
@@ -270,6 +270,33 @@
   gap:9px;
   min-height:150px;
   padding:var(--ot-card-standard-padding);
+  border:0;
+  border-left:1px solid var(--ot-border-soft);
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+
+.overviewDriverCard:first-child {
+  border-left:0;
+}
+
+.overviewDriverCard>span:first-child,
+.overviewCapitalCard>span:first-child {
+  color:var(--ot-text-muted);
+  font-size:var(--ot-type-body);
+  font-weight:700;
+  letter-spacing:normal;
+  text-transform:lowercase;
+}
+
+.overviewDriverCard>span:first-child::first-letter,
+.overviewCapitalCard>span:first-child::first-letter {
+  text-transform:uppercase;
+}
+
+.overviewDriverCard:nth-child(2)>span:first-child {
+  text-transform:uppercase;
 }
 
 .overviewDriverCard>strong {
@@ -320,8 +347,6 @@
 .overviewRange52Header>span {
   font-size:var(--ot-type-meta);
   font-weight:800;
-  text-transform:uppercase;
-  letter-spacing:.05em;
   color:var(--ot-text-muted);
 }
 
@@ -366,7 +391,9 @@
 .overviewCapitalGrid {
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:14px;
+  gap:0;
+  border-top:1px solid var(--ot-border-soft);
+  border-bottom:1px solid var(--ot-border-soft);
 }
 
 .overviewCapitalCard {
@@ -374,6 +401,15 @@
   gap:var(--ot-space-sm);
   min-height:210px;
   padding:var(--ot-card-standard-padding);
+  border:0;
+  border-left:1px solid var(--ot-border-soft);
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+
+.overviewCapitalCard:first-child {
+  border-left:0;
 }
 
 .overviewCapitalValue {
@@ -417,6 +453,11 @@
 
 .overviewMarketStrip {
   padding:var(--ot-card-standard-padding);
+  border-right:0;
+  border-left:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
 }
 
 .overviewMarketStripHeader {
@@ -489,6 +530,15 @@
   }
   .overviewDriverCard:last-child {
     grid-column:1/-1;
+    border-top:1px solid var(--ot-border-soft);
+    border-left:0;
+  }
+  .overviewCapitalCard {
+    border-top:1px solid var(--ot-border-soft);
+    border-left:0;
+  }
+  .overviewCapitalCard:first-child {
+    border-top:0;
   }
   .overviewTickerGrid {
     grid-template-columns:1fr 1fr;
@@ -520,6 +570,13 @@
   }
   .overviewDriverCard:last-child {
     grid-column:auto;
+  }
+  .overviewDriverCard {
+    border-top:1px solid var(--ot-border-soft);
+    border-left:0;
+  }
+  .overviewDriverCard:first-child {
+    border-top:0;
   }
   .overviewSectionHeading {
     display:block;
