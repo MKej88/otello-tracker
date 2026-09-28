@@ -30,11 +30,23 @@
 .overviewNavSnapshot {
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:10px;
+  border-radius:var(--ot-card-secondary-radius);
+  background:var(--ot-surface-muted);
 }
 
 .overviewNavSnapshot>div {
-  padding:11px 12px;
+  min-width:0;
+  padding:12px 14px;
+  border-left:1px solid var(--ot-border-soft);
+  border-top:0;
+  border-right:0;
+  border-bottom:0;
+  border-radius:0;
+  background:transparent;
+}
+
+.overviewNavSnapshot>div:first-child {
+  border-left:0;
 }
 
 .overviewNavSnapshot span,
@@ -47,18 +59,31 @@
 .overviewNavSnapshot strong {
   display:block;
   margin-top:4px;
-  font-size:1rem;
+}
+
+.overviewNavSnapshot>div:nth-child(-n+2) strong {
+  font-size:var(--ot-type-key-value);
+  letter-spacing:-.03em;
+}
+
+.overviewNavSnapshot>div:nth-child(3) strong {
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-body);
 }
 
 .overviewDiscountContext {
   margin-top:14px;
-  font-size:var(--ot-type-body);
-  color:var(--ot-text-secondary);
+  padding-top:12px;
+  border-top:1px solid var(--ot-border-soft);
+  font-size:var(--ot-type-meta);
+  color:var(--ot-text-muted);
+  line-height:1.45;
 }
 
 .overviewUpdated {
   margin-top:8px;
   color:var(--ot-text-muted);
+  font-size:var(--ot-type-meta);
 }
 
 .overviewUpcomingCardV3 {
@@ -363,9 +388,8 @@
   justify-content:space-between;
   gap:14px;
   margin-top:8px;
-  padding:12px 0;
+  padding-top:12px;
   border-top:1px solid var(--ot-border-soft);
-  border-bottom:1px solid var(--ot-border-soft);
 }
 
 .overviewCapitalMeta>strong {
@@ -483,6 +507,13 @@
   .overviewDriverGrid,
   .overviewTickerGrid {
     grid-template-columns:1fr;
+  }
+  .overviewNavSnapshot>div {
+    border-top:1px solid var(--ot-border-soft);
+    border-left:0;
+  }
+  .overviewNavSnapshot>div:first-child {
+    border-top:0;
   }
   .overviewDriverCard:last-child {
     grid-column:auto;
