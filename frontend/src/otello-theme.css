@@ -23,6 +23,15 @@
   --ot-card-standard-border: var(--ot-border);
   --ot-card-secondary-surface: var(--ot-surface-muted);
   --ot-card-secondary-border: var(--ot-border-soft);
+  --ot-card-primary-padding: 24px;
+  --ot-card-standard-padding: 20px;
+  --ot-card-secondary-padding: 12px;
+  --ot-card-primary-radius: 16px;
+  --ot-card-standard-radius: 14px;
+  --ot-card-secondary-radius: 10px;
+  --ot-card-primary-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  --ot-card-standard-shadow: none;
+  --ot-card-secondary-shadow: none;
 
   --ot-border: #272d36;
   --ot-border-soft: #20262e;
@@ -151,19 +160,19 @@ body {
 .cardPrimary {
   background: var(--ot-card-primary-surface);
   border-color: var(--ot-card-primary-border);
-  box-shadow: none;
+  box-shadow: var(--ot-card-primary-shadow);
 }
 
 .cardStandard {
   background: var(--ot-card-standard-surface);
   border-color: var(--ot-card-standard-border);
-  box-shadow: none;
+  box-shadow: var(--ot-card-standard-shadow);
 }
 
 .cardSecondary {
   background: var(--ot-card-secondary-surface);
   border-color: var(--ot-card-secondary-border);
-  box-shadow: none;
+  box-shadow: var(--ot-card-secondary-shadow);
 }
 
 .insightDivider,

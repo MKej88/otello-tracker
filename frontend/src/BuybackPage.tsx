@@ -332,7 +332,7 @@ export default function BuybackPage() {
 
   return (
     <div className="buybackPage">
-      <section className="buybackHero card investorBuybackHero simplifiedBuybackHero">
+      <section className="buybackHero card cardPrimary investorBuybackHero simplifiedBuybackHero">
         <div className="buybackHeroCopy">
           <span className="label">Verdiskaping fra tilbakekjøp</span>
           <h2 className={`numeric ${effectTone(navEffect)}`}>
@@ -377,17 +377,17 @@ export default function BuybackPage() {
       )}
 
       <section className="buybackKpis investorBuybackKpis simplifiedBuybackKpis">
-        <article className="card buybackKpi">
+        <article className="card cardPrimary buybackKpi">
           <span className="label">Kapital brukt</span>
           <strong className="numeric">{programCashSpent == null ? "–" : `${value(Math.abs(programCashSpent) / 1_000_000, 1)} mill. kr`}</strong>
           <small>kapital brukt i dagens program</small>
         </article>
-        <article className="card buybackKpi">
+        <article className="card cardPrimary buybackKpi">
           <span className="label">Gjennomsnittlig kjøpskurs</span>
           <strong className="numeric">{programVwap == null ? "–" : `${value(programVwap, 2)} kr`}</strong>
           <small>volumvektet kjøpskurs</small>
         </article>
-        <article className="card buybackKpi">
+        <article className="card cardPrimary buybackKpi">
           <span className="label">Aksjer kjøpt tilbake</span>
           <strong className="numeric">{count(program?.cumulative_shares)}</strong>
           <small className="numeric">{count(shares?.outstanding_shares)} utestående aksjer</small>
@@ -395,7 +395,7 @@ export default function BuybackPage() {
       </section>
 
       <section className="buybackEffectGrid">
-        <article className="card buybackDetail buybackEffectBridgeCard">
+        <article className="card cardStandard buybackDetail buybackEffectBridgeCard">
           <div className="cardHeader">
             <div><span className="label">Slik oppstår effekten</span><h2>Fra tilbakekjøp til NAV-effekt</h2></div>
           </div>
@@ -407,7 +407,7 @@ export default function BuybackPage() {
           </div>
         </article>
 
-        <article className="card buybackDetail buybackProgramStatusCard">
+        <article className="card cardStandard buybackDetail buybackProgramStatusCard">
           <div className="cardHeader">
             <div><span className="label">Programstatus</span><h2>Status i dagens program</h2></div>
           </div>
@@ -429,7 +429,7 @@ export default function BuybackPage() {
       </div>
 
       <section className="buybackTwoCol">
-        <article className="card buybackDetail">
+        <article className="card cardStandard buybackDetail">
           <div className="cardHeader">
             <div><span className="label">Siste rapporterte uke</span><h3>Faktisk gjennomføring</h3></div>
             <span className="pill numeric">{dateLabel(latest?.trade_date)}</span>
@@ -445,7 +445,7 @@ export default function BuybackPage() {
           </div>
         </article>
 
-        <article className="card buybackDetail forecastCard">
+        <article className="card cardStandard buybackDetail forecastCard">
           <div className="cardHeader">
             <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h3>Prognose</h3></div>
             <span className={`buybackConfidence ${estimate?.confidence === "HIGH" ? "" : "warn"}`}>{statusLabel(estimate?.confidence)}</span>
@@ -482,7 +482,7 @@ export default function BuybackPage() {
         </article>
       </section>
 
-      <section className="card buybackDetail accuracyCard buybackAccuracyFullWidth">
+      <section className="card cardStandard buybackDetail accuracyCard buybackAccuracyFullWidth">
         <div className="cardHeader"><div><h3>Hvor godt treffer prognosen?</h3></div></div>
         <div className="accuracyGrid">
           <div><span>Uker testet</span><strong className="numeric">{metrics?.weeks ?? 0}</strong></div>
@@ -498,7 +498,7 @@ export default function BuybackPage() {
         </p>
       </section>
 
-      <section className="card buybackHistory">
+      <section className="card cardStandard buybackHistory">
         <div className="cardHeader">
           <div><span className="label">Historisk modelltest mot faktisk</span><h3>Siste modellerte uker</h3></div>
           <span className="pill muted numeric">{weeks.length} UKER</span>

@@ -27,7 +27,7 @@
   justify-content: space-between;
   gap: 28px;
   min-height: 142px;
-  padding: 22px 24px;
+  padding: var(--ot-card-primary-padding);
 }
 
 .consensusHeroV2 h2 {
@@ -71,7 +71,7 @@
 
 .consensusKpisV2 article {
   min-height: 112px;
-  padding: 18px;
+  padding: var(--ot-card-primary-padding);
 }
 
 .consensusKpisV2 strong {
@@ -94,7 +94,7 @@
 .consensusForwardV2,
 .consensusRevisionSection,
 .consensusTargetRange {
-  padding: 20px 22px;
+  padding: var(--ot-card-standard-padding);
 }
 
 .consensusNextReport .cardHeader,
@@ -207,10 +207,7 @@
   display: grid;
   gap: 10px;
   margin-top: 16px;
-  padding: 18px;
-  border: 1px solid var(--ot-border-soft);
-  border-radius: 10px;
-  background: var(--ot-surface-raised);
+  padding: var(--ot-card-secondary-padding);
 }
 
 .consensusWaitingPreview > strong {
