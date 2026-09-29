@@ -32,3 +32,60 @@ def test_python_cron_handler_falls_back_to_worker_entrypoint_bindings() -> None:
 def test_python_cron_handler_keeps_documented_four_parameter_signature() -> None:
     scheduled = _scheduled_method()
     assert [arg.arg for arg in scheduled.args.args] == ["self", "controller", "env", "ctx"]
+
+
+def _run_handler(cron: str, *, fallback_env: bool = False):
+    import asyncio
+    import sys
+    import types
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock, Mock, patch
+
+    scheduled = _scheduled_method()
+    namespace = {"datetime": datetime, "UTC": UTC}
+    exec(compile(ast.Module(body=[scheduled], type_ignores=[]), str(ENTRYPOINT), "exec"), namespace)
+    events = []
+
+    async def fast(*args, **kwargs):
+        events.append("fast")
+        return {"status": "SUCCESS"}
+
+    async def nightly(*args, **kwargs):
+        events.append("nightly")
+        return {"status": "STARTED"}
+
+    nightly_mock = AsyncMock(side_effect=nightly)
+    bindings = types.SimpleNamespace(DB=object(), FULL_REFRESH=object(), SOURCE_ARCHIVE=object())
+    controller = types.SimpleNamespace(cron=cron, scheduledTime=1790654400000)
+    modules = {
+        "scheduled": types.SimpleNamespace(run_scheduled=AsyncMock(side_effect=fast)),
+        "nightly_trigger": types.SimpleNamespace(
+            FULL_REFRESH_CRON="35 3 * * *", FAST_REFRESH_CRON="*/30 * * * *",
+            ensure_nightly_refresh=nightly_mock,
+        ),
+        "repository": types.SimpleNamespace(D1Repository=Mock(return_value="repository")),
+    }
+    with patch.dict(sys.modules, modules):
+        result = asyncio.run(namespace["scheduled"](
+            types.SimpleNamespace(env=bindings), controller,
+            None if fallback_env else bindings, None,
+        ))
+    return result, events, nightly_mock, bindings
+
+
+def test_daily_cron_starts_workflow_without_fast_refresh() -> None:
+    result, events, nightly, bindings = _run_handler("35 3 * * *", fallback_env=True)
+    assert result["status"] == "STARTED"
+    assert events == ["nightly"]
+    assert nightly.call_args.args == ("repository", bindings.FULL_REFRESH)
+
+
+def test_half_hour_cron_checks_recovery_after_fast_refresh() -> None:
+    result, events, _, _ = _run_handler("*/30 * * * *")
+    assert events == ["fast", "nightly"]
+    assert result["nightly_trigger"]["status"] == "STARTED"
+
+
+def test_unknown_cron_does_not_start_nightly_workflow() -> None:
+    _, _, nightly, _ = _run_handler("0 1 * * *")
+    nightly.assert_not_awaited()

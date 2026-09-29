@@ -6,9 +6,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 try:
+    from .nightly_trigger import nightly_is_overdue
     from .dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from .fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
 except ImportError:
+    from nightly_trigger import nightly_is_overdue
     from dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
 
@@ -457,6 +459,8 @@ async def runtime_status_summary(
         running_max_age=FULL_RUNNING_MAX_AGE,
     )
     full = _guard_orphaned_full_job(full, full_row, writer_lock, now=current)
+    if nightly_is_overdue(full.get("started_at"), now=current):
+        full.update(stale=True, reason="missed_daily_run")
     fast = _job_payload(
         fast_row,
         now=current,

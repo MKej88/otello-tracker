@@ -226,6 +226,7 @@ export default function DataQualityPage() {
   const currentQuality = runtime?.dashboard_quality;
   const pipeline = report?.pipeline ?? {};
   const nightly = runtime?.full_refresh;
+  const nightlyLabel = nightly?.stale ? "Forsinket" : statusLabel(nightly?.status);
   const nightlySources = Object.entries(nightly?.source_health ?? {});
   const healthySourceCount = nightlySources.filter(([, status]) => normalizeStatus(status) === "OK").length;
   const sourceItems = sources?.items ?? [];
@@ -282,6 +283,18 @@ export default function DataQualityPage() {
         detail: reasons.join(" ") || "Dashboardkvaliteten er ikke godkjent som OK.",
         checkedAt: runtime?.checked_at,
         affects: "NAV og Oversikt",
+      });
+    }
+
+    if (runtime?.full_refresh?.stale || runtime?.full_refresh?.has_error) {
+      next.push({
+        id: "nightly-refresh",
+        title: runtime.full_refresh.stale ? "Nattoppdateringen er forsinket" : "Nattoppdateringen har feilet",
+        state: "DEGRADED",
+        detail: "Forventet daglig nattoppdatering mangler eller har feilet. Kildestatusen gjelder siste registrerte kjøring.",
+        lastGood: runtime.full_refresh.has_error ? undefined : runtime.full_refresh.finished_at,
+        checkedAt: runtime.checked_at,
+        affects: "Nattoppdatering og kildekontroll",
       });
     }
 
@@ -539,15 +552,16 @@ export default function DataQualityPage() {
             <h2>Oppdateringsjobber, cache og preflight</h2>
           </span>
           <span className="qualityDiagnosticsSummary">
-            Full refresh {statusLabel(nightly?.status)} · Fast refresh {statusLabel(runtime?.fast_refresh?.status)} · Cache {snapshot?.cache_status ?? "UKJENT"}
+            Full refresh {nightlyLabel} · Fast refresh {statusLabel(runtime?.fast_refresh?.status)} · Cache {snapshot?.cache_status ?? "UKJENT"}
           </span>
         </summary>
         <div className="qualityDiagnosticsBody">
           <div className="qualityDiagnosticGrid">
             <div>
               <span>Nattoppdatering</span>
-              <strong>{statusLabel(nightly?.status)}</strong>
-              <small>{formatDate(nightly?.target_date)} · {nightlySources.length ? `${healthySourceCount}/${nightlySources.length} kilder OK` : "kilder ukjent"}</small>
+              <strong>{nightlyLabel}</strong>
+              <small>Sist kjørt {formatDateTime(nightly?.started_at)}</small>
+              <small>Datadato {formatDate(nightly?.target_date)} · {nightlySources.length ? `${healthySourceCount}/${nightlySources.length} kilder OK` : "kilder ukjent"}</small>
             </div>
             <div>
               <span>Kjøretid natt</span>

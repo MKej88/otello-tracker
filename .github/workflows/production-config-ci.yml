@@ -76,9 +76,9 @@ jobs:
           assert config['observability']['traces']['enabled'] is False
           assert config['limits']['cpu_ms'] == 60000
           assert config['limits']['subrequests'] == 50000
-          assert config['triggers']['crons'] == ['*/30 * * * *']
+          assert config['triggers']['crons'] == ['*/30 * * * *', '35 3 * * *']
           workflows = {item['binding']: item for item in config['workflows']}
-          assert workflows['FULL_REFRESH']['schedules'] == ['35 3 * * *']
+          assert not workflows['FULL_REFRESH'].get('schedules')
           assert config['send_email'] == [
               {
                   'name': 'STATUS_EMAIL',

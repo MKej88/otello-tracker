@@ -77,7 +77,9 @@ def _workflow_target_date(event) -> str:
 def _workflow_trigger(event) -> str:
     schedule = _event_value(event, "schedule")
     cron = _nested_value(schedule, "cron")
-    return f"workflow_schedule:{cron}" if cron else "workflow_manual"
+    return f"workflow_schedule:{cron}" if cron else (
+        _nested_value(_workflow_payload(event), "trigger") or "workflow_manual"
+    )
 
 
 def _workflow_instance_key(event) -> str:
@@ -159,14 +161,29 @@ class Default(WorkerEntrypoint):
 
     async def scheduled(self, controller, env, ctx):
         from scheduled import run_scheduled
+        from nightly_trigger import FULL_REFRESH_CRON, FAST_REFRESH_CRON, ensure_nightly_refresh
+        from repository import D1Repository
 
         bindings = env if env is not None else self.env
-        return await run_scheduled(
+        cron = str(controller.cron)
+        now = datetime.fromtimestamp(float(controller.scheduledTime) / 1000, tz=UTC)
+        if cron == FULL_REFRESH_CRON:
+            return await ensure_nightly_refresh(
+                D1Repository(bindings.DB), bindings.FULL_REFRESH, now=now
+            )
+        result = await run_scheduled(
             bindings.DB,
-            cron=str(controller.cron),
+            cron=cron,
             archive_bucket=bindings.SOURCE_ARCHIVE,
             scheduled_time_ms=controller.scheduledTime,
         )
+        if cron == FAST_REFRESH_CRON:
+            # Run after the fast writer lock is released. A missed 03:35 firing
+            # is recovered on the next half-hour tick, even after a redeploy.
+            result["nightly_trigger"] = await ensure_nightly_refresh(
+                D1Repository(bindings.DB), bindings.FULL_REFRESH, now=now
+            )
+        return result
 
 
 class FullRefreshWorkflow(WorkflowEntrypoint):

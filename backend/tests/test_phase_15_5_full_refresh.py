@@ -483,12 +483,12 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
     config = json.loads(
         (ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8")
     )
-    assert config["triggers"]["crons"] == ["*/30 * * * *"]
+    assert config["triggers"]["crons"] == ["*/30 * * * *", "35 3 * * *"]
     assert "python_workers" in config["compatibility_flags"]
     assert "python_workflows" in config["compatibility_flags"]
     workflow = config["workflows"][0]
     assert workflow["class_name"] == "FullRefreshWorkflow"
-    assert workflow["schedules"] == ["35 3 * * *"]
+    assert not workflow.get("schedules")
     assert config["r2_buckets"][0]["binding"] == "SOURCE_ARCHIVE"
 
     entry = (ROOT / "cloudflare" / "src" / "entry.py").read_text(encoding="utf-8")
