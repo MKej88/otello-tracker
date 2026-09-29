@@ -379,6 +379,7 @@ jobs:
 
           sys.path.insert(0, "cloudflare/src")
           from oslo_calendar import is_oslo_bors_trading_day
+          from nightly_trigger import nightly_is_overdue
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -486,7 +487,10 @@ jobs:
 
           full_age = job_age(full, now)
           fast_age = job_age(fast, now)
-          full_stale = full_age is None or full_age > FULL_MAX_AGE
+          full_stale = (
+              full_age is None or full_age > FULL_MAX_AGE
+              or nightly_is_overdue((full or {}).get("started_at"), now=now)
+          )
           fast_stale = fast_age is None or fast_age > FAST_MAX_AGE
 
           nav = nav_rows[0] if nav_rows else {}

@@ -179,6 +179,6 @@ def test_life360_beholdes_i_eksisterende_30_minutters_refresh() -> None:
     wrangler = (ROOT / "cloudflare/wrangler.jsonc").read_text(encoding="utf-8")
     scheduled = (ROOT / "cloudflare/src/scheduled.py").read_text(encoding="utf-8")
 
-    assert '"crons": ["*/30 * * * *"]' in wrangler
+    assert '"crons": ["*/30 * * * *", "35 3 * * *"]' in wrangler
     assert "repair_life360_lif_if_stale" in scheduled
     assert "force_refresh=True" in scheduled
