@@ -489,6 +489,9 @@ export default function BrazilPage() {
           <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
           <small className="numeric">{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Tabellen viser endringen mot siste komplette snapshot rundt 30 dager tidligere."}</small>
         </div>
+        <p className="brazilChangeExplanation">
+          Tabellen viser siste måneds endringer i markedsaktørenes prognoser for Brasil, samlet inn av Brasils sentralbank gjennom <a href="https://www.bcb.gov.br/en/publications/focusmarketreadout" target="_blank" rel="noopener noreferrer">Focus-undersøkelsen</a>.
+        </p>
         <div className="brazilChangeLayout">
           <div className="brazilChangeTableWrap">
             <table className="brazilChangeTable">
