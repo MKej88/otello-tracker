@@ -235,6 +235,39 @@ jobs:
         working-directory: cloudflare
         run: pywrangler deploy --config wrangler.production.jsonc
 
+      - name: Clear legacy Workflow schedule after Worker cron migration
+        shell: bash
+        run: |
+          python - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          config = json.loads(Path('cloudflare/wrangler.production.jsonc').read_text())
+          workflow = next(w for w in config['workflows'] if w['binding'] == 'FULL_REFRESH')
+          # Wrangler 4.123 rejects schedules=[] and omits absent schedules from
+          # its PUT. Explicitly remove any pre-existing native schedule via API.
+          account = quote(os.environ['CLOUDFLARE_ACCOUNT_ID'], safe='')
+          name = quote(workflow['name'], safe='')
+          url = f'https://api.cloudflare.com/client/v4/accounts/{account}/workflows/{name}'
+          body = json.dumps({
+              'script_name': config['name'],
+              'class_name': workflow['class_name'],
+              'schedules': [],
+          }).encode()
+          request = Request(url, data=body, method='PUT', headers={
+              'Authorization': 'Bearer ' + os.environ['CLOUDFLARE_API_TOKEN'],
+              'Content-Type': 'application/json',
+          })
+          with urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          if payload.get('success') is not True:
+              raise SystemExit('Could not clear legacy full-refresh schedule')
+          print('Legacy Workflow schedule cleared; Worker cron owns nightly startup.')
+          PYTHON
+
       - name: Production HTTP acceptance
         shell: bash
         env:

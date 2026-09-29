@@ -10,8 +10,7 @@
     {
       "name": "otello-full-refresh",
       "binding": "FULL_REFRESH",
-      "class_name": "FullRefreshWorkflow",
-      "schedules": []
+      "class_name": "FullRefreshWorkflow"
     },
     {
       "name": "otello-r2-snapshot-drill",
