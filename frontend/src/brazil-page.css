@@ -202,6 +202,13 @@
   font-size: .72rem;
 }
 
+.brazilChangeExplanation {
+  margin: 0 0 12px;
+  color: var(--ot-text-muted);
+  font-size: var(--ot-type-help);
+  line-height: 1.5;
+}
+
 .brazilChangeGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
