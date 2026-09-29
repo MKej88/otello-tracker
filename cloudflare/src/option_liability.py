@@ -184,8 +184,13 @@ def _interpolate(start: Decimal, end: Decimal, fraction: Decimal) -> Decimal:
     return start + (end - start) * fraction
 
 
-async def _parameter_pair(repository, current: date) -> tuple[Decimal, Decimal, dict[str, Any]]:
-    anchors = await _valuation_anchors(repository)
+async def _parameter_pair(
+    repository,
+    current: date,
+    anchors: list[dict[str, Any]] | None = None,
+) -> tuple[Decimal, Decimal, dict[str, Any]]:
+    if anchors is None:
+        anchors = await _valuation_anchors(repository)
     first = anchors[0]
     eligible = [item for item in anchors if date.fromisoformat(str(item["as_of_date"])) <= current]
     active = eligible[-1] if eligible else first
@@ -290,10 +295,15 @@ async def _anchor_recognition_fraction(repository, anchor: dict[str, Any]) -> De
     return reported_nok / gross
 
 
-async def _reported_anchors(repository) -> list[dict[str, Any]]:
+async def _reported_anchors(
+    repository,
+    anchors: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if anchors is None:
+        anchors = await _valuation_anchors(repository)
     return [
         item
-        for item in await _valuation_anchors(repository)
+        for item in anchors
         if item.get("reported_liability_usd") is not None
     ]
 
@@ -301,18 +311,23 @@ async def _reported_anchors(repository) -> list[dict[str, Any]]:
 async def _recognition_fraction(
     repository,
     current: date,
+    anchors: list[dict[str, Any]] | None = None,
 ) -> tuple[Decimal | None, dict[str, Any] | None]:
     grant = date.fromisoformat(OPTION_PROGRAM["program"]["grant_date"])
-    anchors = await _reported_anchors(repository)
-    if not anchors:
+    reported_anchors = await _reported_anchors(repository, anchors)
+    if not reported_anchors:
         return None, None
 
-    eligible = [item for item in anchors if date.fromisoformat(str(item["as_of_date"])) <= current]
+    eligible = [
+        item
+        for item in reported_anchors
+        if date.fromisoformat(str(item["as_of_date"])) <= current
+    ]
     if eligible:
         active = eligible[-1]
         return await _anchor_recognition_fraction(repository, active), active
 
-    first = anchors[0]
+    first = reported_anchors[0]
     first_day = date.fromisoformat(str(first["as_of_date"]))
     fraction = await _anchor_recognition_fraction(repository, first)
     if fraction is None:
@@ -343,12 +358,15 @@ async def option_liability_for_day(repository, as_of_date: str) -> dict[str, Any
 
     price = await _preferred_otec_price(repository, as_of_date)
     usd_nok = await _nearest_usd_nok(repository, as_of_date)
-    recognition, report_anchor = await _recognition_fraction(repository, current)
+    anchors = await _valuation_anchors(repository)
+    recognition, report_anchor = await _recognition_fraction(repository, current, anchors)
     if price is None or usd_nok is None or recognition is None or report_anchor is None:
         return None
 
     strike, strike_adjustments = await _adjusted_strike(repository, as_of_date)
-    risk_free, volatility, parameter_anchor = await _parameter_pair(repository, current)
+    risk_free, volatility, parameter_anchor = await _parameter_pair(
+        repository, current, anchors
+    )
     years = _years_to_expected_settlement(current)
     spot = Decimal(str(price["price"]))
     fair_value = black_scholes_call(spot, strike, years, risk_free, volatility)
