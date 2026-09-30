@@ -1,6 +1,11 @@
 import pytest
 
-from app.main import _sync_economic_with_otec_quote, _sync_summary_with_otec_quote
+import app.main as main_module
+from app.main import (
+    _canonical_otec_quote,
+    _sync_economic_with_otec_quote,
+    _sync_summary_with_otec_quote,
+)
 
 
 def _quote(price: float = 17.98) -> dict:
@@ -69,3 +74,18 @@ def test_missing_quote_leaves_existing_payload_untouched() -> None:
 
     assert _sync_summary_with_otec_quote(summary, {}) == summary
     assert _sync_economic_with_otec_quote(summary, {}) == summary
+
+
+def test_canonical_quote_only_calculates_otec(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def quote_detail(database_path: str, symbol: str) -> dict:
+        calls.append((database_path, symbol))
+        return _quote()
+
+    monkeypatch.setattr(main_module, "market_quote_detail", quote_detail)
+
+    result = _canonical_otec_quote()
+
+    assert result["last"] == 17.98
+    assert calls == [(main_module.settings.database_path, "OTEC")]

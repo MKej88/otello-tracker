@@ -577,6 +577,14 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
     }
 
 
+def market_quote_detail(database_path: str | None, symbol: str) -> dict[str, Any]:
+    """Return one quote without calculating the other dashboard instruments."""
+    if symbol not in _SYMBOLS:
+        raise ValueError(f"Ukjent symbol: {symbol}")
+    with get_connection(database_path) as connection:
+        return _quote(connection, symbol)
+
+
 def market_quote_details(database_path: str | None = None) -> dict[str, Any]:
     with get_connection(database_path) as connection:
         quotes = {symbol: _quote(connection, symbol) for symbol in _SYMBOLS}
