@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 try:
     from .bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from .brazil_snapshot import refresh_brazil_snapshot
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
     from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
@@ -30,6 +31,7 @@ try:
 except ImportError:
     from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
+    from brazil_snapshot import refresh_brazil_snapshot
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
     from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
@@ -554,6 +556,21 @@ async def run_fast_refresh(
         steps["dashboard_hot_snapshot"]["non_critical"] = True
 
     await renew("after dashboard snapshot")
+
+    # Macro sources update independently of price ingestion. Warm this response every
+    # half hour, including no-change runs, before a first-time visitor needs it.
+    brazil_snapshot_errors: list[dict[str, str]] = []
+    await _safe_async_step(
+        "brazil_snapshot",
+        lambda: refresh_brazil_snapshot(repository),
+        steps=steps,
+        errors=brazil_snapshot_errors,
+        timings_ms=timings_ms,
+    )
+    if brazil_snapshot_errors and isinstance(steps.get("brazil_snapshot"), dict):
+        steps["brazil_snapshot"]["non_critical"] = True
+
+    await renew("after Brazil snapshot")
 
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}

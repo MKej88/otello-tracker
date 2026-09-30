@@ -317,10 +317,10 @@ async def get_brazil_dashboard(
     request: Request,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
-    from brazil_dashboard_v2 import brazil_dashboard
+    from brazil_snapshot import cached_brazil_dashboard
 
     try:
-        return await brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
+        return await cached_brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
 
