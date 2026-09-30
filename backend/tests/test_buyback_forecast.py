@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from app.buybacks.activity import (
@@ -7,11 +9,17 @@ from app.buybacks.activity import (
     market_activity_status,
     seed_otec_activity_history,
 )
-from app.buybacks.forecast import buyback_forecast
+from app.buybacks.forecast import _oslo_today, buyback_forecast
 from app.buybacks.program_terms import parse_program_terms
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 from app.db.repository import create_source_document
+
+
+def test_default_forecast_date_uses_oslo_calendar_day() -> None:
+    utc_time = datetime(2026, 9, 30, 22, 30, tzinfo=UTC)
+
+    assert _oslo_today(now=utc_time).isoformat() == "2026-10-01"
 
 
 def test_parse_program_terms_from_weekly_status() -> None:
