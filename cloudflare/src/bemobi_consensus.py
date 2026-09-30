@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from bemobi_consensus_history import build_consensus_history
@@ -107,14 +108,24 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
     if not bemobi.get("ready"):
         return {"ready": False, "reason": "bemobi_dashboard_not_ready"}
 
-    analyst_facts = await load_bemobi_facts(repository, "ANALYST")
+    (
+        analyst_facts,
+        all_broker_facts,
+        beat_miss_facts,
+        next_quarter_fact,
+        reference_model_fact,
+    ) = await asyncio.gather(
+        load_bemobi_facts(repository, "ANALYST"),
+        load_bemobi_facts(repository, "FORWARD_CONSENSUS"),
+        load_bemobi_facts(repository, "BEAT_MISS"),
+        latest_bemobi_fact(repository, "NEXT_QUARTER"),
+        latest_bemobi_fact(repository, "REFERENCE_MODEL"),
+    )
     broker_facts = [
-        item for item in await load_bemobi_facts(repository, "FORWARD_CONSENSUS")
+        item
+        for item in all_broker_facts
         if str(item.get("_source_name") or "").lower() != "marketscreener"
     ]
-    beat_miss_facts = await load_bemobi_facts(repository, "BEAT_MISS")
-    next_quarter_fact = await latest_bemobi_fact(repository, "NEXT_QUARTER")
-    reference_model_fact = await latest_bemobi_fact(repository, "REFERENCE_MODEL")
 
     if not analyst_facts or not broker_facts or next_quarter_fact is None or reference_model_fact is None:
         return {"ready": False, "reason": "bemobi_consensus_facts_not_ready"}
