@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.db.connection import get_connection
 from app.marketdata.oslo_calendar import oslo_bors_trading_days
@@ -15,6 +16,7 @@ from app.buybacks.forecast_model import METHOD_VERSION, known_history, model_con
 SAFE_HARBOUR_SHARE = Decimal("0.25")
 LOOKBACK_DAYS = 20
 RECENT_PROGRAM_WEEKS = 8
+OSLO_TZ = ZoneInfo("Europe/Oslo")
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,13 @@ class ProgramWeek:
     actual_shares: int
     cumulative_shares: int
     published_date: date | None = None
+
+
+def _oslo_today(*, now: datetime | None = None) -> date:
+    current = now or datetime.now(OSLO_TZ)
+    if current.tzinfo is None:
+        raise ValueError("now must include timezone information")
+    return current.astimezone(OSLO_TZ).date()
 
 
 def _median(values: list[float], default: float) -> float:
@@ -167,7 +176,7 @@ def buyback_forecast(
     ex-ante capacity estimate, not the exact legal weekly ceiling: Safe Harbour is tested
     separately on each purchase day using that day's rolling prior-20-day ADV.
     """
-    as_of = date.fromisoformat(as_of_date) if as_of_date else date.today()
+    as_of = date.fromisoformat(as_of_date) if as_of_date else _oslo_today()
     with get_connection(database_path) as connection:
         program = _active_program(connection, as_of)
         if program is None:
