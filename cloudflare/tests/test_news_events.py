@@ -5,11 +5,46 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from datetime import UTC, datetime
 
 SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
-from news_events import _company_name, _news_item, news_and_events  # noqa: E402
+from news_events import _company_name, _news_item, news_and_events, news_source_freshness  # noqa: E402
+
+
+class NewsFreshnessTest(unittest.IsolatedAsyncioTestCase):
+    async def test_uses_oldest_source_check_and_does_not_require_new_announcements(self):
+        class Repository:
+            async def all(self, query, parameters):
+                return [
+                    {"code": "NEWSWEB", "checked_at": "2026-09-30T11:00:00Z", "status": "OK"},
+                    {"code": "CVM", "checked_at": "2026-09-30T03:40:00Z", "status": "OK"},
+                    {"code": "BEMOBI_IR", "checked_at": "2026-09-30T03:41:00Z", "status": "OK"},
+                ]
+        result = await news_source_freshness(Repository(), now=datetime(2026, 9, 30, 11, 10, tzinfo=UTC))
+        self.assertEqual(result["checked_at"], "2026-09-30T03:40:00+00:00")
+        self.assertIsNone(result["warning"])
+
+    async def test_new_newsweb_check_does_not_hide_delayed_or_failed_sources(self):
+        class Repository:
+            async def all(self, query, parameters):
+                return [
+                    {"code": "NEWSWEB", "checked_at": "2026-09-30T11:00:00Z", "status": "OK"},
+                    {"code": "CVM", "checked_at": "2026-09-28T03:40:00Z", "status": "OK"},
+                    {"code": "BEMOBI_IR", "checked_at": "2026-09-30T03:41:00Z", "status": "DEGRADED"},
+                ]
+        result = await news_source_freshness(Repository(), now=datetime(2026, 9, 30, 11, 10, tzinfo=UTC))
+        self.assertIn("CVM: kontrollen er forsinket", result["warning"])
+        self.assertIn("Bemobis IR-side: avvik ved siste kontroll", result["warning"])
+
+    async def test_missing_checks_never_use_current_time_as_a_successful_check(self):
+        class Repository:
+            async def all(self, query, parameters):
+                return [{"code": "NEWSWEB", "checked_at": "invalid", "status": "OK"}]
+        result = await news_source_freshness(Repository())
+        self.assertIsNone(result["checked_at"])
+        self.assertIn("kontrolltidspunkt mangler", result["warning"])
 
 
 class CompanyNameTest(unittest.TestCase):
@@ -150,7 +185,7 @@ class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result["ready"])
-        self.assertEqual(max_active_reads, 5)
+        self.assertEqual(max_active_reads, 6)
 
 
 if __name__ == "__main__":

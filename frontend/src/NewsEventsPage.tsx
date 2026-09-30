@@ -41,6 +41,7 @@ type EventItem = {
 
 type Payload = {
   ready: boolean;
+  freshness?: { checked_at?: string | null; warning?: string | null };
   news?: NewsItem[];
   events?: EventItem[];
 };
@@ -83,7 +84,10 @@ export default function NewsEventsPage() {
   );
   const [company, setCompany] = useState<CompanyFilter>("Alle");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  usePageUpdate(data?.news?.[0]?.published_at, "daily");
+  usePageUpdate(data?.freshness?.checked_at, "daily", {
+    label: "Sist kontrollert",
+    warning: refreshFailed ? "Ny kontroll feilet – viser siste tilgjengelige data." : data?.freshness?.warning,
+  });
 
   const filteredNews = useMemo(() => (data?.news ?? []).filter((item) => (
     company === "Alle" || item.company === company

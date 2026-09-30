@@ -200,6 +200,47 @@ def _event(
     }
 
 
+async def news_source_freshness(repository, *, now: datetime | None = None) -> dict:
+    """Measure source checks, not the age of the most recent company announcement."""
+    rows = await repository.all(
+        """SELECT s.code, sh.checked_at, sh.status
+        FROM sources s
+        LEFT JOIN source_health sh ON sh.id = (
+            SELECT id FROM source_health WHERE source_id = s.id
+            ORDER BY checked_at DESC, id DESC LIMIT 1
+        )
+        WHERE s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')""", ()
+    )
+    by_code = {row["code"]: row for row in rows}
+    current = now or datetime.now(UTC)
+    timestamps = []
+    problems = []
+    for code, label, max_hours in (
+        ("NEWSWEB", "NewsWeb", 2),
+        ("CVM", "CVM", 36),
+        ("BEMOBI_IR", "Bemobis IR-side", 36),
+    ):
+        row = by_code.get(code, {})
+        try:
+            checked = datetime.fromisoformat(str(row.get("checked_at")).replace("Z", "+00:00"))
+            if checked.tzinfo is None or checked > current:
+                raise ValueError("Invalid check timestamp")
+        except ValueError:
+            problems.append(f"{label}: kontrolltidspunkt mangler")
+            continue
+        timestamps.append(checked)
+        if row.get("status") != "OK":
+            problems.append(f"{label}: avvik ved siste kontroll")
+        elif current - checked > timedelta(hours=max_hours):
+            problems.append(f"{label}: kontrollen er forsinket")
+    return {
+        # All sources have been checked at least this recently. A fast NewsWeb check
+        # must not make a stopped nightly CVM/IR ingestion look current.
+        "checked_at": min(timestamps).isoformat() if timestamps else None,
+        "warning": "; ".join(problems) if problems else None,
+    }
+
+
 async def news_and_events(
     repository,
     *,
@@ -250,6 +291,7 @@ async def news_and_events(
         repository.all(actions_query, (today.isoformat(), today.isoformat())),
         repository.first(next_quarter_query),
         agenda_events(repository, as_of_date=today.isoformat()),
+        news_source_freshness(repository),
     )
 
     while len(news) < safe_limit:
@@ -289,7 +331,7 @@ async def news_and_events(
             break
         offset += batch_size
 
-    programs, actions, next_quarter, agenda = await event_reads
+    programs, actions, next_quarter, agenda, freshness = await event_reads
 
     events: list[dict[str, Any]] = []
     for row in programs:
@@ -397,6 +439,7 @@ async def news_and_events(
     return {
         "ready": True,
         "as_of_date": today.isoformat(),
+        "freshness": freshness,
         "news": news,
         "events": events[:40],
         "counts": {"news": len(news), "events": min(len(events), 40)},

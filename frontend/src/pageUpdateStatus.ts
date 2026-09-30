@@ -4,6 +4,8 @@ import { freshnessStatus, type FreshnessCadence } from "./dataFreshness";
 export type PageUpdate = {
   timestamp?: string | null;
   cadence: FreshnessCadence;
+  label?: string;
+  warning?: string | null;
 };
 
 const PageUpdateContext = createContext<((update: PageUpdate) => void) | null>(null);
@@ -23,15 +25,19 @@ export function PageUpdateProvider({
 export function usePageUpdate(
   timestamp: string | null | undefined,
   cadence: FreshnessCadence,
+  options?: { label?: string; warning?: string | null },
 ) {
   const reportUpdate = useContext(PageUpdateContext);
+  const label = options?.label;
+  const warning = options?.warning;
 
   useEffect(() => {
-    reportUpdate?.({ timestamp, cadence });
-  }, [cadence, reportUpdate, timestamp]);
+    reportUpdate?.({ timestamp, cadence, label, warning });
+  }, [cadence, reportUpdate, timestamp, label, warning]);
 }
 
 export function pageUpdateIsStale(update: PageUpdate | null, now = new Date()) {
+  if (update?.warning) return true;
   if (!update?.timestamp) return false;
   return freshnessStatus(update.cadence, update.timestamp, now) === "stale";
 }
