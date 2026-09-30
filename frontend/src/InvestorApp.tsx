@@ -196,9 +196,9 @@ function ActiveInvestorView({ view }: { view: View }) {
         <div className={`investorTopbarStatus${stale ? " stale" : hasUpdate ? "" : " neutral"}`}>
           <span aria-hidden="true" />
           <p>
-            <strong>{pageUpdateLabel(pageUpdate?.timestamp)}</strong>
+            <strong>{pageUpdateLabel(pageUpdate?.timestamp, new Date(), pageUpdate?.label)}</strong>
             {stale ? (
-              <small>Dataene kan være eldre enn forventet.</small>
+              <small>{pageUpdate?.warning ?? "Dataene kan være eldre enn forventet."}</small>
             ) : !hasUpdate ? (
               <small>Venter på tidsinformasjon fra siden.</small>
             ) : null}

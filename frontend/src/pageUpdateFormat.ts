@@ -18,10 +18,11 @@ function previousDateKey(dateKey: string) {
   return date.toISOString().slice(0, 10);
 }
 
-export function pageUpdateLabel(timestamp?: string | null, now = new Date()) {
-  if (!timestamp) return "Oppdateringstidspunkt mangler";
+export function pageUpdateLabel(timestamp?: string | null, now = new Date(), prefix = "Oppdatert") {
+  const missing = prefix === "Sist kontrollert" ? "Kontrolltidspunkt mangler" : "Oppdateringstidspunkt mangler";
+  if (!timestamp) return missing;
   const parsed = new Date(timestamp);
-  if (!Number.isFinite(parsed.getTime())) return "Oppdateringstidspunkt mangler";
+  if (!Number.isFinite(parsed.getTime())) return missing;
 
   const observedKey = /^\d{4}-\d{2}-\d{2}$/.test(timestamp)
     ? timestamp
@@ -36,8 +37,8 @@ export function pageUpdateLabel(timestamp?: string | null, now = new Date()) {
       }).format(parsed)}`
     : "";
 
-  if (observedKey === todayKey) return `Oppdatert i dag${time}`;
-  if (observedKey === previousDateKey(todayKey)) return `Oppdatert i går${time}`;
+  if (observedKey === todayKey) return `${prefix} i dag${time}`;
+  if (observedKey === previousDateKey(todayKey)) return `${prefix} i går${time}`;
 
   const dateOnly = new Date(`${observedKey}T12:00:00Z`);
   const date = new Intl.DateTimeFormat("nb-NO", {
@@ -46,5 +47,5 @@ export function pageUpdateLabel(timestamp?: string | null, now = new Date()) {
     month: "long",
     year: "numeric",
   }).format(dateOnly);
-  return `Oppdatert ${date}${time}`;
+  return `${prefix} ${date}${time}`;
 }
