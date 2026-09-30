@@ -53,6 +53,7 @@ class ScheduledOtecActivityStatusTest(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(scheduled, "refresh_dirty_nav_layers", successful_step),
             patch.object(scheduled, "refresh_dashboard_hot_snapshot", successful_step),
+            patch.object(scheduled, "refresh_brazil_snapshot", successful_step),
         )
 
         with ExitStack() as stack:
@@ -104,6 +105,7 @@ class ScheduledOtecActivityStatusTest(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(scheduled, "refresh_dirty_nav_layers", successful_step),
             patch.object(scheduled, "refresh_dashboard_hot_snapshot", successful_step),
+            patch.object(scheduled, "refresh_brazil_snapshot", successful_step),
         )
 
         with ExitStack() as stack:
