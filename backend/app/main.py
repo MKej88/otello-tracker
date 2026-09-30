@@ -27,7 +27,7 @@ from app.fx_backtest import fx_backtest_summary
 from app.fx_dashboard import fx_dashboard
 from app.history import history_status, seed_curated_history_if_needed
 from app.marketdata import market_data_status
-from app.marketdata.quote_details import market_quote_details
+from app.marketdata.quote_details import market_quote_detail, market_quote_details
 from app.materialized_discount_history import (
     materialized_discount_history as get_discount_history,
 )
@@ -43,7 +43,6 @@ from app.nav_waterfall_attribution_enrich import enrich_nav_waterfall
 from app.nav_waterfall_settlement import nav_waterfall_summary
 from app.news_events import news_events_dashboard
 from app.settings import settings
-
 
 API_VERSION = "0.12.1"
 
@@ -65,8 +64,7 @@ def _discount_pct(otec_price: float | None, nav_per_share: Any) -> float | None:
 
 def _canonical_otec_quote() -> dict[str, Any]:
     """Returner samme OTEC-quote som /api/market/quotes bruker."""
-    payload = market_quote_details(settings.database_path)
-    quote = dict((payload.get("symbols") or {}).get("OTEC") or {})
+    quote = dict(market_quote_detail(settings.database_path, "OTEC"))
     price = _finite_number(quote.get("last"))
     if not quote.get("ready") or price is None or price <= 0:
         return {}
