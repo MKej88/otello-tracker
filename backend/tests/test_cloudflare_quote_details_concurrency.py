@@ -86,3 +86,51 @@ def test_concurrent_quote_read_keeps_database_error_visible(monkeypatch) -> None
 
     with pytest.raises(RuntimeError, match="D1 read failed"):
         asyncio.run(worker_quotes._quote(object(), "BMOB3"))
+
+
+def test_otec_same_day_last_trade_is_not_replaced_by_activity_close(
+    monkeypatch,
+) -> None:
+    async def latest_price(_repository, _symbol):
+        return {
+            "trading_date": "2026-09-04",
+            "observed_at": "2026-09-04T14:15:00Z",
+            "price": 17.98,
+            "price_type": "LAST",
+            "source_code": "EURONEXT",
+        }
+
+    async def latest_close(_repository, _symbol, before_date=None):
+        if before_date is None:
+            return {
+                "trading_date": "2026-09-04",
+                "price": 17.84,
+                "source_code": "EURONEXT",
+            }
+        return {
+            "trading_date": "2026-09-03",
+            "price": 17.70,
+            "source_code": "EURONEXT",
+        }
+
+    async def daily_history(_repository, _symbol, _trading_date):
+        return []
+
+    async def day_stats(_repository, _symbol, _trading_date):
+        return {"open": None, "low": None, "high": None, "basis": "MISSING"}
+
+    async def volume_stats(_repository, _symbol, _history, _latest):
+        return {"latest": None, "average_3m": None, "average_sessions": 0}
+
+    monkeypatch.setattr(worker_quotes, "_latest_price", latest_price)
+    monkeypatch.setattr(worker_quotes, "_latest_close", latest_close)
+    monkeypatch.setattr(worker_quotes, "_daily_history", daily_history)
+    monkeypatch.setattr(worker_quotes, "_day_stats", day_stats)
+    monkeypatch.setattr(worker_quotes, "_volume_stats", volume_stats)
+
+    result = asyncio.run(worker_quotes._quote(object(), "OTEC"))
+
+    assert result["last"] == pytest.approx(17.98)
+    assert result["last_price_type"] == "LAST"
+    assert result["last_updated_at"] == "2026-09-04T14:15:00Z"
+    assert result["last_close"]["price"] == pytest.approx(17.70)
