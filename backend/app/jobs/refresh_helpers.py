@@ -27,6 +27,11 @@ def previous_oslo_trading_day(day: date) -> date:
     return candidate
 
 
+def is_current_oslo_trading_day(target_day: date, today: date) -> bool:
+    """Return whether a live target is an actual Oslo Bors trading day."""
+    return target_day == today and is_oslo_bors_trading_day(today)
+
+
 def eod_is_authoritative(result: Any) -> bool:
     """Return whether an end-of-day result should suppress an intraday fetch."""
     if not isinstance(result, dict):
