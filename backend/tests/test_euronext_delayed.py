@@ -352,3 +352,52 @@ def test_refresh_uses_previous_day_only_when_current_has_no_otec(
     assert result["selected"] == "PREVIOUS_TRADING_DAY"
     assert result["trading_date"] == "2026-08-14"
     assert result["price_nok"] == "17.2000000"
+
+
+def test_refresh_uses_next_selection_when_first_download_fails(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "euronext-error-fallback.db")
+    init_database(database)
+    fallback = _zip([_row(TradeUniqueIdentifier="OTEC-FALLBACK")])
+    calls = []
+
+    def fake_download(selection, timeout=120, attempts=3):
+        calls.append(selection)
+        if selection == "LAST_15_MINUTES":
+            raise RuntimeError("midlertidig feil i korttidsfil")
+        return "https://example/LAST_HOUR", fallback
+
+    monkeypatch.setattr(
+        "app.marketdata.euronext_delayed.download_euronext_delayed_equities",
+        fake_download,
+    )
+
+    result = refresh_otec_delayed_price(
+        database, selections=("LAST_15_MINUTES", "LAST_HOUR")
+    )
+
+    assert calls == ["LAST_15_MINUTES", "LAST_HOUR"]
+    assert result["status"] == "ok"
+    assert result["selected"] == "LAST_HOUR"
+    assert result["trade_unique_identifier"] == "OTEC-FALLBACK"
+    assert result["attempts"][0] == {
+        "found": False,
+        "time_selection": "LAST_15_MINUTES",
+        "error": "midlertidig feil i korttidsfil",
+    }
+
+
+def test_refresh_fails_when_any_selection_failed_without_a_trade(monkeypatch) -> None:
+    def fake_download(selection, timeout=120, attempts=3):
+        if selection == "LAST_15_MINUTES":
+            raise RuntimeError("midlertidig feil i korttidsfil")
+        return "https://example/LAST_HOUR", _zip([_row(MifidInstrumentID="OTHER")])
+
+    monkeypatch.setattr(
+        "app.marketdata.euronext_delayed.download_euronext_delayed_equities",
+        fake_download,
+    )
+
+    with pytest.raises(RuntimeError, match="LAST_15_MINUTES"):
+        refresh_otec_delayed_price(selections=("LAST_15_MINUTES", "LAST_HOUR"))

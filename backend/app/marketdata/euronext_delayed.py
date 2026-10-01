@@ -358,15 +358,29 @@ def refresh_otec_delayed_price(
     timeout: int = 120,
 ) -> dict[str, Any]:
     attempts: list[dict[str, Any]] = []
+    selection_errors: list[tuple[str, Exception]] = []
     for selection in selections:
         normalized = selection.strip().upper()
-        url, payload = download_euronext_delayed_equities(normalized, timeout=timeout)
-        result = import_delayed_otec_trade(
-            payload,
-            time_selection=normalized,
-            source_url=url,
-            database_path=database_path,
-        )
+        try:
+            url, payload = download_euronext_delayed_equities(
+                normalized, timeout=timeout
+            )
+            result = import_delayed_otec_trade(
+                payload,
+                time_selection=normalized,
+                source_url=url,
+                database_path=database_path,
+            )
+        except (RuntimeError, ValueError) as exc:
+            selection_errors.append((normalized, exc))
+            attempts.append(
+                {
+                    "found": False,
+                    "time_selection": normalized,
+                    "error": str(exc),
+                }
+            )
+            continue
         attempts.append(result)
         if result.get("found"):
             return {
@@ -375,4 +389,9 @@ def refresh_otec_delayed_price(
                 "attempts": attempts,
                 **result,
             }
+    if selection_errors:
+        failed = ", ".join(selection for selection, _ in selection_errors)
+        raise RuntimeError(
+            f"Euronext delayed-data feilet for utvalg: {failed}"
+        ) from selection_errors[-1][1]
     return {"status": "no_trade", "selected": None, "attempts": attempts}
