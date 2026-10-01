@@ -248,6 +248,43 @@ def test_intraday_refresh_falls_back_from_15_minutes_to_last_hour() -> None:
     assert len(repository.prices) == 1
 
 
+def test_intraday_refresh_uses_last_hour_when_short_window_fails() -> None:
+    last_hour = _zip_payload(
+        [
+            _otec_row(
+                trade_time="2026-08-17T09:45:00Z",
+                publication_time="2026-08-17T10:00:00Z",
+                price="17.00",
+                quantity="300",
+                trade_id="hour-trade",
+            )
+        ]
+    )
+    requested: list[str] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        requested.append(url)
+        if "LAST_15_MINUTES" in url:
+            raise TimeoutError("midlertidig feil i korttidsfil")
+        return FakeResponse(last_hour)
+
+    repository = FakeRepository()
+    result = asyncio.run(
+        refresh_otec_intraday(repository=repository, fetcher=fake_fetch)
+    )
+
+    assert len(requested) == 2
+    assert result["status"] == "ok"
+    assert result["selected"] == "LAST_HOUR"
+    assert result["trade_unique_identifier"] == "hour-trade"
+    assert result["attempts"][-1] == {
+        "found": False,
+        "time_selection": "LAST_15_MINUTES",
+        "error": "midlertidig feil i korttidsfil",
+    }
+    assert len(repository.prices) == 1
+
+
 def test_intraday_refresh_compares_both_windows_before_selecting_trade() -> None:
     short_window = _zip_payload(
         [

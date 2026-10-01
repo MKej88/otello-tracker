@@ -435,9 +435,13 @@ async def refresh_otec_intraday(
         repository = D1WriteRepository(database)
 
     downloads: list[tuple[str, str, bytes, DelayedTrade | None]] = []
+    selection_errors: list[tuple[str, Exception]] = []
     for selection in INTRADAY_SELECTIONS:
-        url, payload = await download_euronext_intraday(selection, fetcher=fetcher)
-        downloads.append((selection, url, payload, latest_otec_trade(payload)))
+        try:
+            url, payload = await download_euronext_intraday(selection, fetcher=fetcher)
+            downloads.append((selection, url, payload, latest_otec_trade(payload)))
+        except Exception as exc:
+            selection_errors.append((selection, exc))
 
     candidates = [item for item in downloads if item[3] is not None]
     if candidates:
@@ -464,6 +468,14 @@ async def refresh_otec_intraday(
             }
             for item_selection, item_url, _, trade in downloads
         ]
+        attempts.extend(
+            {
+                "found": False,
+                "time_selection": item_selection,
+                "error": str(error),
+            }
+            for item_selection, error in selection_errors
+        )
         return {
             "status": "ok",
             "feed_mode": "worker_intraday",
@@ -471,6 +483,11 @@ async def refresh_otec_intraday(
             "attempts": attempts,
             **result,
         }
+    if selection_errors:
+        failed = ", ".join(selection for selection, _ in selection_errors)
+        raise RuntimeError(
+            f"Euronext delayed-data feilet for utvalg: {failed}"
+        ) from selection_errors[-1][1]
     return {
         "status": "no_trade",
         "feed_mode": "worker_intraday",
