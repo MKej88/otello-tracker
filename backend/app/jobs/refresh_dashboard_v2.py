@@ -15,6 +15,7 @@ from app.db.migration_runner import init_database
 from app.jobs.refresh_dashboard import run_refresh as run_core_refresh
 from app.jobs.refresh_helpers import (
     eod_is_authoritative as _eod_is_authoritative,
+    is_current_oslo_trading_day,
     previous_oslo_trading_day as _previous_oslo_trading_day,
     safe_step as _safe_step,
 )
@@ -160,8 +161,7 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["bmob3_delayed"] = {"skipped": True}
 
     if (
-        target_day == today
-        and today.weekday() < 5
+        is_current_oslo_trading_day(target_day, today)
         and not activity_check_done(database_path)
     ):
 

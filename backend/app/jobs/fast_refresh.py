@@ -18,6 +18,7 @@ from app.db.migration_runner import init_database
 from app.history import seed_curated_history_if_needed
 from app.jobs.refresh_helpers import (
     eod_is_authoritative as _eod_is_authoritative_for_cycle,
+    is_current_oslo_trading_day,
     previous_oslo_trading_day as _previous_oslo_trading_day,
     safe_step as _safe_step,
 )
@@ -219,8 +220,7 @@ def run_fast_refresh(
         }
 
     if (
-        end_day == today
-        and today.weekday() < 5
+        is_current_oslo_trading_day(end_day, today)
         and _previous_day_repair_needed(database_path, today)
     ):
         def previous_activity() -> Any:

@@ -2,6 +2,7 @@ from datetime import date
 
 from app.jobs.refresh_helpers import (
     eod_is_authoritative,
+    is_current_oslo_trading_day,
     previous_oslo_trading_day,
     safe_step,
 )
@@ -26,6 +27,13 @@ def test_safe_step_records_error_and_allows_refresh_to_continue() -> None:
 
 def test_previous_oslo_trading_day_skips_weekend() -> None:
     assert previous_oslo_trading_day(date(2026, 8, 31)) == date(2026, 8, 28)
+
+
+def test_current_oslo_trading_day_rejects_weekday_holiday() -> None:
+    easter_monday = date(2026, 4, 6)
+
+    assert is_current_oslo_trading_day(easter_monday, easter_monday) is False
+    assert is_current_oslo_trading_day(date(2026, 4, 7), date(2026, 4, 7)) is True
 
 
 def test_only_completed_eod_results_are_authoritative() -> None:
