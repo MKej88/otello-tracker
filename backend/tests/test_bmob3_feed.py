@@ -1,7 +1,10 @@
 import json
 from datetime import datetime
 from decimal import Decimal
+from urllib.error import URLError
 from zoneinfo import ZoneInfo
+
+import pytest
 
 import app.marketdata.bmob3_feed as feed
 from app.db.connection import get_connection
@@ -122,6 +125,28 @@ def test_download_retries_after_timeout_and_returns_next_valid_response(
     assert calls == [7, 7]
 
 
+def test_download_stops_after_configured_attempts_and_preserves_network_error(
+    monkeypatch,
+) -> None:
+    """Ved vedvarende nettverksfeil skal jobben feile tydelig etter siste forsøk."""
+    calls: list[int] = []
+    sleep_calls: list[int] = []
+
+    def failing_urlopen(_request, *, timeout: int):
+        calls.append(timeout)
+        raise URLError("B3 er midlertidig utilgjengelig")
+
+    monkeypatch.setattr(feed, "urlopen", failing_urlopen)
+    monkeypatch.setattr(feed.time, "sleep", sleep_calls.append)
+
+    with pytest.raises(RuntimeError, match="failed after 3 attempts") as error:
+        feed.download_bmob3_web_quote(timeout=9, attempts=3)
+
+    assert calls == [9, 9, 9]
+    assert sleep_calls == [1, 2]
+    assert isinstance(error.value.__cause__, URLError)
+
+
 def test_intraday_refresh_persists_delayed_last(tmp_path, monkeypatch) -> None:
     database = str(tmp_path / "bmob3.db")
     init_database(database)
@@ -177,6 +202,37 @@ def test_intraday_refresh_rejects_stale_same_day_response(
 
     assert result["status"] == "stale"
     assert result["reason"] == "provider_timestamp_stale"
+    with get_connection(database) as connection:
+        count = connection.execute("""
+            SELECT COUNT(*)
+            FROM market_prices mp
+            JOIN instruments i ON i.id = mp.instrument_id
+            WHERE i.symbol = 'BMOB3' AND mp.trading_date = '2026-08-17'
+            """).fetchone()[0]
+    assert count == 0
+
+
+def test_intraday_refresh_rejects_provider_timestamp_from_the_future(
+    tmp_path, monkeypatch
+) -> None:
+    """En klokke foran nåtid må ikke lagres som en fersk, observerbar markedskurs."""
+    database = str(tmp_path / "bmob3-future.db")
+    init_database(database)
+    payload = _payload(timestamp="2026-08-17 12:01:00")
+    monkeypatch.setattr(
+        feed,
+        "download_bmob3_web_quote",
+        lambda **_kwargs: ("https://cotacao.b3.com.br/example", payload),
+    )
+
+    result = feed.refresh_bmob3_intraday_price(
+        database,
+        now=datetime(2026, 8, 17, 12, 0, tzinfo=B3_TZ),
+    )
+
+    assert result["status"] == "stale"
+    assert result["reason"] == "provider_timestamp_stale"
+    assert result["provider_age_seconds"] == -60
     with get_connection(database) as connection:
         count = connection.execute("""
             SELECT COUNT(*)
