@@ -160,9 +160,9 @@ def run_refresh(database_path: str, **kwargs: Any) -> dict[str, Any]:
         pre_steps["bmob3_eod"] = {"skipped": True}
         pre_steps["bmob3_delayed"] = {"skipped": True}
 
-    if (
-        is_current_oslo_trading_day(target_day, today)
-        and not activity_check_done(database_path)
+    if is_current_oslo_trading_day(target_day, today) and not activity_check_done(
+        database_path,
+        check_date=today.isoformat(),
     ):
 
         def refresh_previous_day_activity() -> dict[str, Any]:

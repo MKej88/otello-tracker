@@ -58,6 +58,47 @@ def test_daily_wrapper_refreshes_light_otec_before_core_nav(
     assert result["steps"]["otec_delayed"]["feed_mode"] == "delayed_intraday"
 
 
+def test_daily_wrapper_checks_activity_for_current_oslo_date(
+    tmp_path, monkeypatch
+) -> None:
+    database = str(tmp_path / "oslo-date.db")
+    checked_dates: list[str | None] = []
+
+    class FixedDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            # UTC is still Sunday, while Oslo has entered Monday.
+            instant = cls(2026, 1, 4, 23, 30, tzinfo=UTC)
+            return instant if tz is None else instant.astimezone(tz)
+
+    monkeypatch.setattr(wrapper, "datetime", FixedDateTime)
+    monkeypatch.setattr(
+        wrapper,
+        "market_activity_status",
+        lambda *_args, **_kwargs: {"status": "ok", "count": 600, "to": "2026-01-02"},
+    )
+
+    def activity_done(*_args, check_date=None, **_kwargs):
+        checked_dates.append(check_date)
+        return True
+
+    monkeypatch.setattr(wrapper, "activity_check_done", activity_done)
+    monkeypatch.setattr(
+        wrapper,
+        "run_core_refresh",
+        lambda *_args, **_kwargs: {"status": "ok", "steps": {}, "source_errors": []},
+    )
+
+    wrapper.run_refresh(
+        database,
+        fetch_otec_delayed=False,
+        fetch_b3=False,
+        fetch_buybacks=False,
+    )
+
+    assert checked_dates == ["2026-01-05"]
+
+
 def test_source_failure_is_recorded_while_core_refresh_continues(
     tmp_path, monkeypatch
 ) -> None:
