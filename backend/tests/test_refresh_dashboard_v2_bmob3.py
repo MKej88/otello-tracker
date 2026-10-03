@@ -27,7 +27,11 @@ def test_default_target_uses_oslo_date_at_utc_day_boundary(
             "to": "2026-08-14",
         },
     )
-    monkeypatch.setattr(refresh_v2, "activity_check_done", lambda *_args: True)
+    monkeypatch.setattr(
+        refresh_v2,
+        "activity_check_done",
+        lambda *_args, **_kwargs: True,
+    )
     monkeypatch.setattr(
         refresh_v2,
         "refresh_otec_intraday_price",
