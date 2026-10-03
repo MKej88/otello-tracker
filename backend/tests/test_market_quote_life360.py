@@ -149,6 +149,35 @@ def test_life360_fullfort_dag_bruker_nasdaq_stengetid(
     assert life360["last_updated_at"] == expected_close
 
 
+@pytest.mark.parametrize(
+    ("retrieved_at", "expected_price_type", "expected_timestamp"),
+    [
+        ("2026-08-31T13:30:00Z", "LAST", "2026-08-31T13:30:00Z"),
+        ("2026-08-31T20:00:00Z", "CLOSE", "2026-08-31T20:00:00Z"),
+        ("2026-12-01T14:30:00Z", "LAST", "2026-12-01T14:30:00Z"),
+        ("2026-12-01T21:00:00Z", "CLOSE", "2026-12-01T21:00:00Z"),
+    ],
+)
+def test_life360_klassifiserer_noyaktig_apning_og_stenging(
+    retrieved_at: str, expected_price_type: str, expected_timestamp: str
+) -> None:
+    trading_date = retrieved_at[:10]
+    row = {
+        "trading_date": trading_date,
+        "source_code": "YAHOO_FINANCE",
+        "source_retrieved_at": retrieved_at,
+        "price_type": "CLOSE",
+        "observed_at": f"{trading_date}T00:00:00Z",
+    }
+
+    reference = _normalize_lif_yahoo_price(row)
+    worker = _load_worker_quote_details()._normalize_lif_yahoo_price(row)
+
+    assert reference["price_type"] == expected_price_type
+    assert reference["observed_at"] == expected_timestamp
+    assert worker == reference
+
+
 def test_worker_og_referanse_har_lik_life360_semantikk() -> None:
     worker = _load_worker_quote_details()
     rows = [
