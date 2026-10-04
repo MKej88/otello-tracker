@@ -61,6 +61,24 @@
   margin-top:4px;
 }
 
+.miniTrend {
+  display:block;
+  width:100%;
+  height:30px;
+  margin-top:8px;
+  color:var(--ot-accent);
+  overflow:visible;
+}
+
+.miniTrend polyline {
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  vector-effect:non-scaling-stroke;
+}
+
 .overviewNavSnapshot>div:nth-child(-n+2) strong {
   font-size:var(--ot-type-key-value);
   letter-spacing:-.03em;
