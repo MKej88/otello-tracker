@@ -34,7 +34,7 @@
 .buybackKpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .buybackKpi { min-height: 124px; }
 .buybackKpi > strong { display: block; font-size: 26px; letter-spacing: -.03em; margin-top: 13px; }
-.buybackKpi > small { display: block; color: var(--ot-text-muted); margin-top: 8px; font-size: var(--ot-type-help); line-height: 1.4; }
+.buybackKpi > small { display: block; color: var(--ot-text-muted); margin-top: 8px; font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 .navEffectKpi { border-color: var(--ot-positive-border); }
 .navEffectKpi > strong { color: var(--ot-positive); }
 .bemobiExposureKpi { border-color: var(--ot-accent-border); }
@@ -49,7 +49,7 @@
 .buybackEffectRows strong.negative { color: var(--ot-negative); }
 .buybackAccuracyFullWidth { min-width: 0; }
 
-.buybackInvestorNote { border: 1px solid var(--ot-border-soft); border-radius: 11px; background: var(--ot-surface-raised); padding: 12px 14px; display: flex; gap: 8px; align-items: baseline; color: var(--ot-text-secondary); font-size: var(--ot-type-help); line-height: 1.5; }
+.buybackInvestorNote { border: 1px solid var(--ot-border-soft); border-radius: 11px; background: var(--ot-surface-raised); padding: 12px 14px; display: flex; gap: 8px; align-items: baseline; color: var(--ot-text-secondary); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 .buybackInvestorNote strong { color: var(--ot-text); white-space: nowrap; }
 .buybackSectionIntro { margin: 8px 2px 0; }
 .buybackSectionIntro h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.02em; }
@@ -79,7 +79,7 @@
 .accuracyGrid > div { padding: 12px 9px; background: var(--ot-surface-raised); border: 1px solid var(--ot-border-soft); border-radius: 10px; min-width: 0; }
 .accuracyGrid span { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-meta); line-height: 1.3; }
 .accuracyGrid strong { display: block; color: var(--ot-text); margin-top: 7px; font-size: 17px; }
-.accuracyNote { margin: 13px 0 0; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.5; }
+.accuracyNote { margin: 13px 0 0; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 
 .buybackHistory { min-width: 0; }
 .buybackTableWrap { margin-top: 16px; overflow-x: auto; border: 1px solid var(--ot-border-soft); border-radius: 11px; }
@@ -95,7 +95,7 @@
 .buybackTable .tableMid { color: var(--ot-warning); font-weight: 700; }
 .buybackTable .tableBad { color: var(--ot-negative); font-weight: 700; }
 .buybackEmpty { border: 1px dashed var(--ot-border-strong); border-radius: 10px; padding: 30px; color: var(--ot-text-muted); text-align: center; margin-top: 16px; }
-.buybackMethodNote { color: var(--ot-text-muted); font-size: var(--ot-type-help); margin-top: 11px; line-height: 1.5; }
+.buybackMethodNote { color: var(--ot-text-muted); font-size: var(--ot-type-help); margin-top: 11px; line-height: var(--ot-line-help); }
 
 @media (max-width: 1250px) {
   .buybackKpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }

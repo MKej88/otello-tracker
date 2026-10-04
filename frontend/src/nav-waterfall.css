@@ -34,7 +34,7 @@
 .waterfallImpact { text-align: right; }
 .waterfallImpact strong { display: block; font-size: 13px; }
 .waterfallImpact small { display: block; margin-top: 3px; color: var(--ot-text-muted); font-size: var(--ot-type-help); }
-.waterfallFooter { display: flex; justify-content: space-between; gap: 16px; margin-top: 12px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.45; }
+.waterfallFooter { display: flex; justify-content: space-between; gap: 16px; margin-top: 12px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 .waterfallUnavailable { color: var(--ot-text-secondary); }
 .waterfallUnavailable strong { display: block; margin-top: 5px; color: var(--ot-text); font-size: 13px; }
 
