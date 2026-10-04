@@ -17,10 +17,10 @@
 .stepNumber { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; border: 1px solid var(--ot-border-strong); color: var(--ot-text-secondary); font-size: var(--ot-type-label); font-weight: 800; }
 .consensusEventStep small { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-help); font-weight: 800; letter-spacing: .09em; }
 .consensusEventStep strong { display: block; margin-top: 7px; color: var(--ot-text); font-size: 13px; line-height: 1.35; }
-.consensusEventStep p { margin: 7px 0 0; color: var(--ot-text-secondary); font-size: var(--ot-type-help); line-height: 1.45; }
+.consensusEventStep p { margin: 7px 0 0; color: var(--ot-text-secondary); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 .consensusEventStep p b { color: var(--ot-text-secondary); font-weight: 700; }
 .consensusEventStep em { display: inline-block; margin-top: 9px; color: var(--ot-accent-strong); font-size: var(--ot-type-label); font-style: normal; font-weight: 700; }
-.consensusEventNote { display: grid; gap: 4px; padding: 10px 16px 12px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.5; }
+.consensusEventNote { display: grid; gap: 4px; padding: 10px 16px 12px; border-top: 1px solid var(--ot-border-soft); color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 
 .consensusRevisionBaseline { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 9px; margin-top: 14px; }
 .consensusRevisionBaseline > div { padding: 12px; border: 1px solid var(--ot-border-soft); border-radius: 10px; background: var(--ot-surface-raised); }

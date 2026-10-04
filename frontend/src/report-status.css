@@ -23,7 +23,7 @@
 .reportMetric { padding: 14px; border: 1px solid var(--ot-border-soft); background: var(--ot-surface-raised); border-radius: 10px; }
 .reportMetric span { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .reportMetric strong { display: block; margin-top: 8px; font-size: 16px; color: var(--ot-text); }
-.reportMetric small { display: block; margin-top: 6px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: 1.4; }
+.reportMetric small { display: block; margin-top: 6px; color: var(--ot-text-muted); font-size: var(--ot-type-help); line-height: var(--ot-line-help); }
 .reportNavRow { display: grid; grid-template-columns: 1.1fr .8fr 1fr auto; gap: 12px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ot-border-soft); }
 .reportNavRow > div span { display: block; color: var(--ot-text-muted); font-size: var(--ot-type-meta); text-transform: uppercase; letter-spacing: .05em; }
 .reportNavRow > div strong { display: block; margin-top: 5px; font-size: 13px; color: var(--ot-text); }
