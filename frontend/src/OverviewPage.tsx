@@ -3,7 +3,6 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
-import MiniTrend from "./MiniTrend";
 import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -59,10 +58,6 @@ type BuybackProgramStatus = {
 type DiscountHistory = {
   estimated?: {
     ready: boolean;
-    points?: Array<{
-      discount_pct?: number | null;
-      otec_price?: number | null;
-    }>;
     statistics?: {
       median_discount_pct?: number | null;
     };
@@ -409,12 +404,6 @@ export default function OverviewPage() {
   const programVwap = finiteNumber(buybackProgram?.vwap_nok);
   const cashBridge = nav?.cash_bridge;
   const discountMedian = history?.estimated?.statistics?.median_discount_pct;
-  const discountHistory = (history?.estimated?.points ?? [])
-    .map((point) => point.discount_pct)
-    .filter((value): value is number => value != null && Number.isFinite(value));
-  const otecHistory = (history?.estimated?.points ?? [])
-    .map((point) => point.otec_price)
-    .filter((value): value is number => value != null && Number.isFinite(value));
   const discountSpread = nav?.discount_pct != null && discountMedian != null
     ? nav.discount_pct - discountMedian
     : null;
@@ -429,8 +418,8 @@ export default function OverviewPage() {
           <span className="label">ESTIMERT NAV</span>
           <h2 className="numeric">{nav?.ready ? `${formatNumber(nav.nav_per_share, 2)} kr` : <LoadingPlaceholder variant="number" label="Laster estimert NAV" />}</h2>
           <div className="overviewNavSnapshot">
-            <div className="cardSecondary"><span>OTEC</span><strong className="numeric">{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong><MiniTrend values={otecHistory} /></div>
-            <div className="cardSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong><MiniTrend values={discountHistory} /></div>
+            <div className="cardSecondary"><span>OTEC</span><strong className="numeric">{summary?.otec_price == null ? "—" : `${formatNumber(summary.otec_price, 2)} kr`}</strong></div>
+            <div className="cardSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
             <div className="cardSecondary"><span>1 års median</span><strong className="numeric">{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
           <div className="overviewDiscountContext">
