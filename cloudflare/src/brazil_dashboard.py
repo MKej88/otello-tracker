@@ -444,6 +444,10 @@ async def _load_focus(
 
 def _impact(kind: str) -> tuple[str, str]:
     mapping = {
+        "election": (
+            "Høy",
+            "Valgutfallet kan påvirke finanspolitikk, BRL og renteforventninger, og dermed verdsettelsen av Bemobi. Retningen avhenger av utfallet og markedets forventninger.",
+        ),
         "copom": (
             "Høy",
             "Lavere rente/rentebane er normalt positivt for Bemobis multippel. Høyere rente er negativt.",
@@ -477,7 +481,7 @@ def _impact(kind: str) -> tuple[str, str]:
 
 
 def _calendar_seed() -> list[dict[str, Any]]:
-    # Offisielle 2026/2027-datoer publisert av IBGE og BCB. Listen er bevisst
+    # Offisielle 2026/2027-datoer publisert av IBGE, BCB og TSE. Listen er bevisst
     # begrenset til hendelser med klar relevans for Bemobi/renter/BRL.
     raw = [
         ("2026-09-01", "BNP Q2", "gdp", "IBGE", IBGE_CALENDAR_URL, "2026 Q2"),
@@ -488,11 +492,13 @@ def _calendar_seed() -> list[dict[str, Any]]:
         ("2026-09-16", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "jul. 2026"),
         ("2026-09-25", "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
         ("2026-09-29", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
+        ("2026-10-04", "Presidentvalg – første valgomgang", "election", "TSE", "https://www.tse.jus.br/eleicoes/calendario-eleitoral", None),
         ("2026-10-09", "IPCA", "inflation", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
         ("2026-10-14", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
         ("2026-10-15", "Detaljhandel (PMC)", "retail", "IBGE", IBGE_CALENDAR_URL, "aug. 2026"),
         ("2026-10-16", "IBC-Br", "activity", "BCB", BCB_IBC_URL, "aug. 2026"),
         ("2026-10-23", "IPCA-15", "inflation", "IBGE", IBGE_CALENDAR_URL, "okt. 2026"),
+        ("2026-10-25", "Presidentvalg – andre valgomgang", "election", "TSE", "https://www.tse.jus.br/eleicoes/calendario-eleitoral", None),
         ("2026-10-30", "Arbeidsledighet (PNAD)", "labor", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
         ("2026-11-04", "Copom rentebeslutning", "copom", "BCB", BCB_COPOM_URL, None),
         ("2026-11-11", "Tjenesteaktivitet (PMS)", "services", "IBGE", IBGE_CALENDAR_URL, "sep. 2026"),
@@ -823,7 +829,7 @@ async def brazil_dashboard(
         "metrics": metrics,
         "focus": focus_result,
         "calendar": calendar,
-        "calendar_note": "Bekreftede datoer kommer fra IBGE/BCB. Rader merket estimated er en rullerende forhåndsvisning og må bekreftes i den lenkede offisielle kalenderen. Forventning-feltet bruker BCB Focus som års-/retningsproxy og er ikke konsensus for den enkelte publisering.",
+        "calendar_note": "Bekreftede datoer kommer fra IBGE/BCB; valgdatoer kommer fra TSE. Rader merket estimated er en rullerende forhåndsvisning og må bekreftes i den lenkede offisielle kalenderen. Forventning-feltet bruker BCB Focus som års-/retningsproxy og er ikke konsensus for den enkelte publisering.",
         "source_status": source_status,
         "sources": [
             {"name": "Banco Central do Brasil – SGS", "url": "https://dadosabertos.bcb.gov.br/"},
