@@ -276,7 +276,7 @@ function upcomingEvents(payload?: OverviewEventsPayload | null): OverviewEvent[]
       id: `macro-${event.date}-${event.kind}-${event.name}`,
       date: event.date,
       title: macroTitle(event),
-      typeBadge: "Makro",
+      typeBadge: event.kind === "election" ? "Valg" : "Makro",
       scopeBadge: "Brasil",
       scopeClass: "brazil",
       eventKind: "macro",
