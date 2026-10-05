@@ -336,7 +336,7 @@ async def brazil_dashboard(
             else ""
         )
         result["calendar_note"] = (
-            "Bekreftede publiseringsdatoer kommer fra IBGE/BCB. Publiseringstid og "
+            "Bekreftede datoer kommer fra IBGE/BCB og TSE (valg). Publiseringstid og "
             "hendelsesnær markedskonsensus hentes fra Investing.com når tilgjengelig; "
             "tidspunktet konverteres til norsk tid i nettleseren. BCB Focus brukes som "
             "sekundær hendelsesforventning der en relevant serie finnes. Årlige Focus-tall "
