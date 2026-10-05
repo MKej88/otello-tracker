@@ -79,10 +79,10 @@ class FakeRepository:
             return None
 
         if normalized.startswith("UPDATE JOB_RUNS"):
-            finished_at, reason, full_job_name, fast_job_name, before = parameters
+            finished_at, reason, *job_names, before = parameters
             for row in self.jobs:
                 if (
-                    row["job_name"] in {full_job_name, fast_job_name}
+                    row["job_name"] in job_names
                     and row["status"] == "RUNNING"
                     and row["started_at"] < before
                 ):
@@ -124,6 +124,20 @@ def test_acquiring_writer_lock_reconciles_orphaned_writer_jobs() -> None:
     # Same-timestamp retry/current fast job is not orphaned by strict started_at < finished_at.
     assert repository.jobs[2]["status"] == "RUNNING"
     assert repository.jobs[2]["finished_at"] is None
+
+
+def test_abandoned_bemobi_reference_capture_is_reconciled() -> None:
+    repository = FakeRepository()
+    repository.jobs[0]["job_name"] = "cloudflare_bemobi_oslo_reference"
+    asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:recovery",
+            ttl_seconds=120,
+            now=datetime(2026, 8, 21, 9, 30, tzinfo=UTC),
+        )
+    )
+    assert repository.jobs[0]["status"] == "FAILED"
 
 
 def test_failed_lock_acquisition_does_not_reconcile_writer_jobs() -> None:

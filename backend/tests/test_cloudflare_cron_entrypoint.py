@@ -31,7 +31,12 @@ def test_python_cron_handler_falls_back_to_worker_entrypoint_bindings() -> None:
 
 def test_python_cron_handler_keeps_documented_four_parameter_signature() -> None:
     scheduled = _scheduled_method()
-    assert [arg.arg for arg in scheduled.args.args] == ["self", "controller", "env", "ctx"]
+    assert [arg.arg for arg in scheduled.args.args] == [
+        "self",
+        "controller",
+        "env",
+        "ctx",
+    ]
 
 
 def _run_handler(cron: str, *, fallback_env: bool = False):
@@ -43,7 +48,10 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
 
     scheduled = _scheduled_method()
     namespace = {"datetime": datetime, "UTC": UTC}
-    exec(compile(ast.Module(body=[scheduled], type_ignores=[]), str(ENTRYPOINT), "exec"), namespace)
+    exec(
+        compile(ast.Module(body=[scheduled], type_ignores=[]), str(ENTRYPOINT), "exec"),
+        namespace,
+    )
     events = []
 
     async def fast(*args, **kwargs):
@@ -54,22 +62,39 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
         events.append("nightly")
         return {"status": "STARTED"}
 
+    async def reference(*args, **kwargs):
+        events.append("reference")
+        return {"status": "ok"}
+
     nightly_mock = AsyncMock(side_effect=nightly)
-    bindings = types.SimpleNamespace(DB=object(), FULL_REFRESH=object(), SOURCE_ARCHIVE=object())
+    bindings = types.SimpleNamespace(
+        DB=object(), FULL_REFRESH=object(), SOURCE_ARCHIVE=object()
+    )
     controller = types.SimpleNamespace(cron=cron, scheduledTime=1790654400000)
     modules = {
+        "bemobi_after_oslo": types.SimpleNamespace(
+            REFERENCE_CRONS=("40-42 14,15 * * 1-5", "20-22 11,12 * * 1-5"),
+            run_reference_capture=AsyncMock(side_effect=reference),
+        ),
         "scheduled": types.SimpleNamespace(run_scheduled=AsyncMock(side_effect=fast)),
         "nightly_trigger": types.SimpleNamespace(
-            FULL_REFRESH_CRON="35 3 * * *", FAST_REFRESH_CRON="*/30 * * * *",
+            FULL_REFRESH_CRON="35 3 * * *",
+            FAST_REFRESH_CRON="*/30 * * * *",
             ensure_nightly_refresh=nightly_mock,
         ),
-        "repository": types.SimpleNamespace(D1Repository=Mock(return_value="repository")),
+        "repository": types.SimpleNamespace(
+            D1Repository=Mock(return_value="repository")
+        ),
     }
     with patch.dict(sys.modules, modules):
-        result = asyncio.run(namespace["scheduled"](
-            types.SimpleNamespace(env=bindings), controller,
-            None if fallback_env else bindings, None,
-        ))
+        result = asyncio.run(
+            namespace["scheduled"](
+                types.SimpleNamespace(env=bindings),
+                controller,
+                None if fallback_env else bindings,
+                None,
+            )
+        )
     return result, events, nightly_mock, bindings
 
 
@@ -88,4 +113,11 @@ def test_half_hour_cron_checks_recovery_after_fast_refresh() -> None:
 
 def test_unknown_cron_does_not_start_nightly_workflow() -> None:
     _, _, nightly, _ = _run_handler("0 1 * * *")
+    nightly.assert_not_awaited()
+
+
+def test_reference_cron_runs_only_bounded_capture() -> None:
+    result, events, nightly, _ = _run_handler("40-42 14,15 * * 1-5", fallback_env=True)
+    assert result["status"] == "ok"
+    assert events == ["reference"]
     nightly.assert_not_awaited()

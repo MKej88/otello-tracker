@@ -1,5 +1,6 @@
 import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
+import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
@@ -474,6 +475,8 @@ export default function OverviewPage() {
           )}
         </article>
       </section>
+
+      <BemobiAfterOsloCard />
 
       <section className="overviewSection">
         <div className="overviewSectionHeading">

@@ -167,6 +167,10 @@ class Default(WorkerEntrypoint):
         bindings = env if env is not None else self.env
         cron = str(controller.cron)
         now = datetime.fromtimestamp(float(controller.scheduledTime) / 1000, tz=UTC)
+        from bemobi_after_oslo import REFERENCE_CRONS, run_reference_capture
+
+        if cron in REFERENCE_CRONS:
+            return await run_reference_capture(bindings.DB, now=now)
         if cron == FULL_REFRESH_CRON:
             return await ensure_nightly_refresh(
                 D1Repository(bindings.DB), bindings.FULL_REFRESH, now=now

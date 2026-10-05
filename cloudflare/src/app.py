@@ -43,6 +43,7 @@ CACHE_POLICIES = {
     "/api/brazil/dashboard": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/news-events": ("public, max-age=60", "public, max-age=300, stale-while-revalidate=600"),
     "/api/market/quotes": ("public, max-age=30", "public, max-age=300, stale-while-revalidate=1800"),
+    "/api/market/bemobi-after-oslo": ("public, max-age=15", "public, max-age=15"),
 }
 
 app = FastAPI(
@@ -225,6 +226,13 @@ async def get_market_quotes(request: Request) -> dict:
     from quote_details import market_quote_details
 
     return await market_quote_details(repository)
+
+
+@app.get("/api/market/bemobi-after-oslo")
+async def get_bemobi_after_oslo(request: Request) -> dict:
+    from bemobi_after_oslo import bemobi_after_oslo
+
+    return await bemobi_after_oslo(_repository(request))
 
 
 @app.get("/api/buybacks/forecast")

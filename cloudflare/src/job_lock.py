@@ -6,6 +6,7 @@ from typing import Any
 LOCK_KEY = "cloudflare_refresh_writer_lock"
 FULL_REFRESH_JOB_NAME = "cloudflare_full_refresh"
 FAST_REFRESH_JOB_NAME = "cloudflare_fast_refresh"
+REFERENCE_JOB_NAME = "cloudflare_bemobi_oslo_reference"
 LOCK_STALE_HEARTBEAT_SECONDS = 30 * 60
 ORPHANED_REFRESH_REASON = (
     "Refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
@@ -37,7 +38,7 @@ async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> N
         SET finished_at=?,
             status='FAILED',
             error_message=COALESCE(NULLIF(error_message, ''), ?)
-        WHERE job_name IN (?, ?)
+        WHERE job_name IN (?, ?, ?)
           AND status='RUNNING'
           AND started_at < ?
         """,
@@ -46,6 +47,7 @@ async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> N
             ORPHANED_REFRESH_REASON,
             FULL_REFRESH_JOB_NAME,
             FAST_REFRESH_JOB_NAME,
+            REFERENCE_JOB_NAME,
             finished_at,
         ),
     )
