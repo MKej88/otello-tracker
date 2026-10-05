@@ -319,7 +319,7 @@ def test_d1_snapshot_policy_is_weekly_plus_month_end() -> None:
 
 def test_phase_15_6_worker_config_bundles_pdf_parser_and_archive_steps() -> None:
     pyproject = (ROOT / "cloudflare" / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"pypdf==6.16.1"' in pyproject
+    assert '"pypdf==6.19.0"' in pyproject
 
     entry = (ROOT / "cloudflare" / "src" / "entry.py").read_text(encoding="utf-8")
     assert '"archive NewsWeb buyback PDFs"' in entry
