@@ -467,7 +467,7 @@ async def run_reference_capture(database, *, now: datetime | None = None):
             metadata={"oslo_close_reference": True},
         )
         # Validate the response against the real clock, including delayed execution.
-        result = await capture_reference(repository)
+        result = await asyncio.wait_for(capture_reference(repository), timeout=60)
         await repository.finish_job(
             job_id,
             finished_at=iso(datetime.now(UTC)),

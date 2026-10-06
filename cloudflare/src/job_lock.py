@@ -7,6 +7,7 @@ LOCK_KEY = "cloudflare_refresh_writer_lock"
 FULL_REFRESH_JOB_NAME = "cloudflare_full_refresh"
 FAST_REFRESH_JOB_NAME = "cloudflare_fast_refresh"
 REFERENCE_JOB_NAME = "cloudflare_bemobi_oslo_reference"
+REFERENCE_STALE_SECONDS = 5 * 60
 LOCK_STALE_HEARTBEAT_SECONDS = 30 * 60
 ORPHANED_REFRESH_REASON = (
     "Refresh ended without finalizing job_run; reconciled as FAILED when the writer lock "
@@ -48,6 +49,27 @@ async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> N
             FULL_REFRESH_JOB_NAME,
             FAST_REFRESH_JOB_NAME,
             finished_at,
+        ),
+    )
+
+    # Reference capture does not hold this lease. Preserve live captures and only
+    # reconcile jobs substantially older than their bounded execution deadline.
+    stale_reference_before = _iso(
+        datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+        - timedelta(seconds=REFERENCE_STALE_SECONDS)
+    )
+    await repository.run(
+        """
+        UPDATE job_runs
+        SET finished_at=?, status='FAILED',
+            error_message=COALESCE(NULLIF(error_message, ''), ?)
+        WHERE job_name IN (?) AND status='RUNNING' AND started_at < ?
+        """,
+        (
+            finished_at,
+            "Reference capture exceeded its bounded execution deadline; reconciled as FAILED",
+            REFERENCE_JOB_NAME,
+            stale_reference_before,
         ),
     )
 
