@@ -385,13 +385,17 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert "Otello eier" not in bemobi_card
     assert "Kilde: B3 · 30 min refresh" in bemobi_card
     assert "summary?.bemobi_value_mnok" in bemobi_card
-    assert bemobi_card.index('label: "Verdi for Otello"') < bemobi_card.index(
-        'label: "Verdi / OTEC-aksje"'
-    ) < bemobi_card.index('label: "NAV-effekt 1 mnd"')
+    assert (
+        bemobi_card.index('label: "Verdi for Otello"')
+        < bemobi_card.index('label: "Verdi / OTEC-aksje"')
+        < bemobi_card.index('label: "NAV-effekt 1 mnd"')
+    )
     life360_card = panel.split('title="Life360 / LIF"', maxsplit=1)[1]
-    assert life360_card.index('label: "Verdi for Otello"') < life360_card.index(
-        'label: "Verdi / OTEC-aksje"'
-    ) < life360_card.index('label: "NAV-effekt 1 mnd"')
+    assert (
+        life360_card.index('label: "Verdi for Otello"')
+        < life360_card.index('label: "Verdi / OTEC-aksje"')
+        < life360_card.index('label: "NAV-effekt 1 mnd"')
+    )
     shared_card = panel.split("function MarketInsightCard", maxsplit=1)[1].split(
         "export default function", maxsplit=1
     )[0]
@@ -402,3 +406,86 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert 'const EMPTY = "—"' in panel
     assert "Number.isFinite" in panel
     assert "<MarketQuotePanel />" in economic
+
+
+@pytest.mark.parametrize(
+    "day,expected",
+    [
+        ("2026-10-06", "2026-10-06T16:25:00+02:00"),
+        ("2026-04-01", "2026-04-01T13:05:00+02:00"),
+        ("2026-11-02", "2026-11-02T16:25:00+01:00"),
+    ],
+)
+def test_oslo_close_timestamps_match_auction_in_both_runtimes(day, expected):
+    from app.marketdata.quote_details import _oslo_close_timestamp
+    from quote_details import _oslo_close_timestamp as worker_close
+
+    assert _oslo_close_timestamp(day) == worker_close(day) == expected
+
+
+def test_official_close_wins_over_same_day_activity_in_card_and_history(tmp_path):
+    from app.marketdata.quote_details import _latest_close, _daily_history
+
+    database = str(tmp_path / "official-priority.db")
+    init_database(database)
+    with get_connection(database) as connection:
+        upsert_market_price(
+            connection,
+            symbol="OTEC",
+            observed_at="2026-10-05T14:25:00Z",
+            trading_date="2026-10-05",
+            price_type="CLOSE",
+            price="20",
+            currency="NOK",
+            source_code="EURONEXT",
+            quality="DIRECT",
+        )
+        connection.execute("""INSERT INTO market_activity(instrument_id,trading_date,volume_shares,last_price_nok,source_id,quality)
+            SELECT i.id,'2026-10-05',10,'19',s.id,'DELAYED_TRADE_SUM'
+            FROM instruments i,sources s WHERE i.symbol='OTEC' AND s.code='EURONEXT'""")
+        upsert_market_price(
+            connection,
+            symbol="OTEC",
+            observed_at="2026-10-05T14:24:00Z",
+            trading_date="2026-10-05",
+            price_type="LAST",
+            price="19",
+            currency="NOK",
+            source_code="EURONEXT",
+            quality="DIRECT",
+        )
+        assert float(_latest_close(connection, "OTEC")["price"]) == 20
+        assert (
+            float(_daily_history(connection, "OTEC", "2026-10-05")[-1]["price"]) == 20
+        )
+        from quote_details import (
+            _latest_close as worker_latest,
+            _daily_history as worker_history,
+        )
+
+        class ReadRepository:
+            async def all(self, sql, parameters=()):
+                return [dict(row) for row in connection.execute(sql, parameters)]
+
+            async def first(self, sql, parameters=()):
+                rows = await self.all(sql, parameters)
+                return rows[0] if rows else None
+
+        import asyncio
+
+        assert (
+            float(asyncio.run(worker_latest(ReadRepository(), "OTEC"))["price"]) == 20
+        )
+        assert (
+            float(
+                asyncio.run(worker_history(ReadRepository(), "OTEC", "2026-10-05"))[-1][
+                    "price"
+                ]
+            )
+            == 20
+        )
+
+        connection.commit()
+    quote = market_quote_details(database)["symbols"]["OTEC"]
+    assert quote["last"] == 20
+    assert quote["last_price_type"] == "CLOSE"

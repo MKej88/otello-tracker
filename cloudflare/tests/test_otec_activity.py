@@ -74,13 +74,15 @@ class OtecActivityRefreshTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ingest.await_args.kwargs["target_date"], "2026-09-25")
 
-    async def test_stored_days_are_not_downloaded_or_written_again(self) -> None:
+    async def test_stored_days_are_not_downloaded_after_late_publication_window(
+        self,
+    ) -> None:
         repository = _ActivityRepository({"2026-09-24", "2026-09-25"})
         fetcher = AsyncMock(side_effect=AssertionError("should not fetch stored days"))
 
         result = await otec_activity.refresh_otec_daily_activity(
             repository,
-            now=datetime(2026, 9, 25, 17, 0, tzinfo=OSLO_TZ),
+            now=datetime(2026, 9, 25, 19, 0, tzinfo=OSLO_TZ),
             fetcher=fetcher,
         )
 
@@ -90,10 +92,55 @@ class OtecActivityRefreshTest(unittest.IsolatedAsyncioTestCase):
             [attempt["reason"] for attempt in result["attempts"]],
             [
                 "previous_day_already_stored",
-                "current_day_already_stored",
+                "late_publication_checks_complete",
             ],
         )
         fetcher.assert_not_awaited()
+
+    async def test_stored_current_day_is_rechecked_for_late_publications(self):
+        repository = _ActivityRepository({"2026-09-24", "2026-09-25"})
+        with (
+            patch.object(
+                otec_activity,
+                "_download_activity",
+                AsyncMock(return_value=("url", b"zip")),
+            ) as download,
+            patch.object(
+                otec_activity,
+                "ingest_otec_daily_activity",
+                AsyncMock(return_value={"status": "ok"}),
+            ) as ingest,
+        ):
+            result = await otec_activity.refresh_otec_daily_activity(
+                repository, now=datetime(2026, 9, 25, 17, 0, tzinfo=OSLO_TZ)
+            )
+        download.assert_awaited_once_with(
+            otec_activity.CURRENT_DAY_SELECTION, fetcher=None
+        )
+        self.assertEqual(result["written"], 1)
+        self.assertEqual(ingest.await_args.kwargs["target_date"], "2026-09-25")
+
+    async def test_half_day_activity_is_available_after_1325(self):
+        repository = _ActivityRepository({"2026-03-31"})
+        with (
+            patch.object(
+                otec_activity,
+                "_download_activity",
+                AsyncMock(return_value=("url", b"zip")),
+            ) as download,
+            patch.object(
+                otec_activity,
+                "ingest_otec_daily_activity",
+                AsyncMock(return_value={"status": "ok"}),
+            ),
+        ):
+            result = await otec_activity.refresh_otec_daily_activity(
+                repository, now=datetime(2026, 4, 1, 13, 25, tzinfo=OSLO_TZ)
+            )
+        download.assert_awaited_once_with(
+            otec_activity.CURRENT_DAY_SELECTION, fetcher=None
+        )
+        self.assertEqual(result["written"], 1)
 
 
 if __name__ == "__main__":

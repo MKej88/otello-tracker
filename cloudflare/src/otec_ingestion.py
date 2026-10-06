@@ -6,13 +6,13 @@ import io
 import json
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime, time as dt_time
+from datetime import UTC, date, datetime, time as dt_time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 from bounded_response import read_response_bytes
-from oslo_calendar import is_oslo_bors_trading_day
+from oslo_calendar import closing_auction, is_oslo_bors_trading_day
 from repository import D1WriteRepository
 
 OTEC_ISIN = "NO0010040611"
@@ -91,8 +91,10 @@ def _parse_utc_timestamp(value: str, *, field: str) -> datetime:
 
 
 def _canonical_utc(value: str, *, field: str) -> str:
-    return _parse_utc_timestamp(value, field=field).isoformat(timespec="microseconds").replace(
-        "+00:00", "Z"
+    return (
+        _parse_utc_timestamp(value, field=field)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
     )
 
 
@@ -141,13 +143,19 @@ def _parse_euronext_trades(
         members = [name for name in archive.namelist() if not name.endswith("/")]
         csv_members = [name for name in members if name.lower().endswith(".csv")]
         if len(csv_members) != 1:
-            raise ValueError(f"Euronext delayed ZIP forventet én CSV, fant {len(csv_members)}")
+            raise ValueError(
+                f"Euronext delayed ZIP forventet én CSV, fant {len(csv_members)}"
+            )
         info = archive.getinfo(csv_members[0])
         if info.file_size > max_csv_bytes:
-            raise ValueError(f"Euronext {payload_label}-CSV overstiger streaming-grensen")
+            raise ValueError(
+                f"Euronext {payload_label}-CSV overstiger streaming-grensen"
+            )
 
         with archive.open(csv_members[0], "r") as raw_stream:
-            with io.TextIOWrapper(raw_stream, encoding="utf-8-sig", newline="") as text_stream:
+            with io.TextIOWrapper(
+                raw_stream, encoding="utf-8-sig", newline=""
+            ) as text_stream:
                 fieldnames: list[str] | None = None
                 for _ in range(100):
                     line = text_stream.readline()
@@ -177,7 +185,9 @@ def _parse_euronext_trades(
                         price = Decimal((row.get("MifidPrice") or "").strip())
                         quantity = Decimal((row.get("MifidQuantity") or "").strip())
                     except (InvalidOperation, ValueError) as exc:
-                        raise ValueError("Ugyldig pris/antall i OTEC-rad fra Euronext") from exc
+                        raise ValueError(
+                            "Ugyldig pris/antall i OTEC-rad fra Euronext"
+                        ) from exc
                     if (
                         not price.is_finite()
                         or not quantity.is_finite()
@@ -192,12 +202,15 @@ def _parse_euronext_trades(
                         row.get("TradingDateTime") or "", field="TradingDateTime"
                     )
                     publication_datetime = _canonical_utc(
-                        row.get("PublicationDateTime") or "", field="PublicationDateTime"
+                        row.get("PublicationDateTime") or "",
+                        field="PublicationDateTime",
                     )
                     if _parse_utc_timestamp(
                         publication_datetime, field="PublicationDateTime"
                     ) < _parse_utc_timestamp(trading_datetime, field="TradingDateTime"):
-                        raise ValueError("Euronext PublicationDateTime er før TradingDateTime")
+                        raise ValueError(
+                            "Euronext PublicationDateTime er før TradingDateTime"
+                        )
 
                     trades.append(
                         DelayedTrade(
@@ -210,9 +223,9 @@ def _parse_euronext_trades(
                             trade_unique_identifier=(
                                 row.get("TradeUniqueIdentifier") or ""
                             ).strip(),
-                            venue_of_publication=(
-                                row.get("VenueOfPublication") or ""
-                            ).strip().upper(),
+                            venue_of_publication=(row.get("VenueOfPublication") or "")
+                            .strip()
+                            .upper(),
                         )
                     )
                 return trades
@@ -252,7 +265,9 @@ def _latest_trade(
         candidates,
         key=lambda item: (
             _parse_utc_timestamp(item.trading_datetime, field="TradingDateTime"),
-            _parse_utc_timestamp(item.publication_datetime, field="PublicationDateTime"),
+            _parse_utc_timestamp(
+                item.publication_datetime, field="PublicationDateTime"
+            ),
             item.trade_unique_identifier,
         ),
     )
@@ -267,7 +282,9 @@ def latest_otec_recovery_trade(
     *,
     target_date: str | None = None,
 ) -> DelayedTrade | None:
-    return _latest_trade(parse_euronext_recovery_trades(payload), target_date=target_date)
+    return _latest_trade(
+        parse_euronext_recovery_trades(payload), target_date=target_date
+    )
 
 
 async def _response_bytes(
@@ -538,7 +555,9 @@ async def recent_otec_poll_covered(
         if not _otec_step_healthy(row.get("metadata_json")):
             continue
         try:
-            finished = _parse_utc_timestamp(str(row["finished_at"]), field="finished_at")
+            finished = _parse_utc_timestamp(
+                str(row["finished_at"]), field="finished_at"
+            )
         except (KeyError, ValueError):
             continue
         age_seconds = (current_utc - finished).total_seconds()
@@ -569,7 +588,11 @@ async def refresh_otec_with_gap_recovery(
 
     today = current.date()
     if not is_oslo_bors_trading_day(today):
-        return {"gap_recovery": False, "gap_recovery_skipped": "not_trading_day", **small}
+        return {
+            "gap_recovery": False,
+            "gap_recovery_skipped": "not_trading_day",
+            **small,
+        }
     if current.time().replace(tzinfo=None) < INTRADAY_BOOTSTRAP_AFTER:
         return {
             "gap_recovery": False,
@@ -607,9 +630,14 @@ async def eod_otec_check_done(repository: D1WriteRepository, target_date: str) -
         FROM source_documents sd
         JOIN sources s ON s.id=sd.source_id
         WHERE s.code='EURONEXT' AND sd.external_id=?
+          AND (julianday(COALESCE(json_extract(sd.metadata_json,'$.latest_trade_at'),sd.published_at))>=julianday(?)
+               OR json_extract(sd.metadata_json,'$.current_refresh_selected')='CURRENT_TRADING_DAY')
         LIMIT 1
         """,
-        (f"otec-eod-last-check-{target_date}",),
+        (
+            f"otec-eod-last-check-{target_date}",
+            closing_auction(date.fromisoformat(target_date)).isoformat(),
+        ),
     )
     return row is not None
 
@@ -655,7 +683,26 @@ async def finalize_otec_eod_from_coverage(
             "target_date": target_date,
         }
 
+    activity = await repository.first(
+        """SELECT ma.id, ma.last_price_nok AS price, 'NOK' AS currency,
+                  json_extract(ma.metadata_json,'$.latest_trade_at') AS observed_at,
+                  ma.source_document_id, ma.metadata_json
+           FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
+           JOIN sources s ON s.id=ma.source_id
+           WHERE i.symbol='OTEC' AND ma.trading_date=? AND s.code='EURONEXT'
+             AND ma.quality='DELAYED_TRADE_SUM'
+             AND json_extract(ma.metadata_json,'$.time_selection') IN
+                 ('CURRENT_TRADING_DAY','PREVIOUS_TRADING_DAY')
+           ORDER BY ma.id DESC LIMIT 1""",
+        (target_date,),
+    )
     latest = await _latest_stored_otec_for_date(repository, target_date)
+    if activity and activity.get("observed_at") and activity.get("price"):
+        if latest is None or _parse_utc_timestamp(
+            str(activity["observed_at"]), field="observed_at"
+        ) >= _parse_utc_timestamp(str(latest["observed_at"]), field="observed_at"):
+            latest = activity
+        current_refresh = {**current_refresh, "selected": FULL_DAY_SELECTION}
     if latest is None:
         return {
             "status": "no_trade",
@@ -668,9 +715,21 @@ async def finalize_otec_eod_from_coverage(
             "source_url": TRADES_PAGE_URL,
         }
 
+    close = closing_auction(date.fromisoformat(target_date)).astimezone(UTC)
+    observed = _parse_utc_timestamp(str(latest["observed_at"]), field="observed_at")
+    full_day = current_refresh.get("selected") == FULL_DAY_SELECTION
+    if not full_day and not close <= observed <= close + timedelta(minutes=5):
+        return {
+            "status": "partial",
+            "reason": "incomplete_session_coverage",
+            "target_date": target_date,
+            "retryable": True,
+        }
+
     metadata: dict[str, Any] = {
         "feed": "DELAYED_PUBLIC_TRADE_FILE",
         "feed_mode": "EOD_LAST_TRADE",
+        "latest_trade_at": str(latest["observed_at"]),
         "target_date": target_date,
         "finalization_method": "ROLLING_WINDOW_COVERAGE",
         "current_refresh_status": current_refresh.get("status"),
@@ -749,15 +808,35 @@ async def maybe_finalize_otec_eod(
     current = _as_oslo_datetime(now)
     target_date = current.date().isoformat()
     if not is_oslo_bors_trading_day(current.date()):
-        return {"status": "skipped", "reason": "not_trading_day", "target_date": target_date}
-    if current.time().replace(tzinfo=None) < EOD_FINALIZE_AFTER:
-        return {"status": "skipped", "reason": "before_eod_cutoff", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "not_trading_day",
+            "target_date": target_date,
+        }
+    if current < closing_auction(current.date()) + timedelta(minutes=20):
+        return {
+            "status": "skipped",
+            "reason": "before_eod_cutoff",
+            "target_date": target_date,
+        }
     if await eod_otec_check_done(repository, target_date):
-        return {"status": "skipped", "reason": "eod_already_finalized", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "eod_already_finalized",
+            "target_date": target_date,
+        }
     if not isinstance(current_refresh, dict):
-        return {"status": "skipped", "reason": "missing_current_refresh", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "missing_current_refresh",
+            "target_date": target_date,
+        }
     if current_refresh.get("status") not in {"ok", "no_trade"}:
-        return {"status": "skipped", "reason": "current_refresh_not_healthy", "target_date": target_date}
+        return {
+            "status": "skipped",
+            "reason": "current_refresh_not_healthy",
+            "target_date": target_date,
+        }
 
     return await finalize_otec_eod_from_coverage(
         repository,

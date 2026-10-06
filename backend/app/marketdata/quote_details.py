@@ -198,9 +198,11 @@ def _latest_close(
         (before_date, before_date),
     ).fetchone()
     activity = dict(activity_row) if activity_row is not None else None
+    if market is not None:
+        market = {**market, "close_basis": "OFFICIAL_CLOSE"}
     if activity is None:
         return market
-    if market is None or str(activity["trading_date"]) >= str(market["trading_date"]):
+    if market is None or str(activity["trading_date"]) > str(market["trading_date"]):
         activity["close_basis"] = "COMPLETED_SESSION_LAST_TRADE"
         return activity
     market["close_basis"] = "OFFICIAL_CLOSE"
@@ -209,12 +211,11 @@ def _latest_close(
 
 def _oslo_close_timestamp(trading_date: str) -> str:
     """Returner tidspunktet da den ordinære OTEC-handelen stengte."""
-    local_close = datetime.combine(
-        date.fromisoformat(trading_date),
-        time(hour=16, minute=20),
-        tzinfo=ZoneInfo("Europe/Oslo"),
+    from app.marketdata.oslo_calendar import closing_auction
+
+    return closing_auction(date.fromisoformat(trading_date)).isoformat(
+        timespec="seconds"
     )
-    return local_close.isoformat(timespec="seconds")
 
 
 def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
@@ -320,7 +321,7 @@ def _day_stats(connection, symbol: str, trading_date: str) -> dict[str, Any]:
 def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, Any]]:
     start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
     market_rows = [
-        {**dict(row), "series_priority": 1 if symbol == "OTEC" else 0}
+        {**dict(row), "series_priority": 0}
         for row in connection.execute(
             """
             SELECT mp.id, mp.trading_date, mp.price, mp.quality, mp.metadata_json,
@@ -339,7 +340,7 @@ def _daily_history(connection, symbol: str, as_of_date: str) -> list[dict[str, A
         return _preferred_daily_rows(market_rows, symbol)
 
     activity_rows = [
-        {**dict(row), "series_priority": 0}
+        {**dict(row), "series_priority": 1}
         for row in connection.execute(
             """
             SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
@@ -378,14 +379,17 @@ def _volume_stats(
     latest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if symbol == "OTEC":
-        rows = [dict(row) for row in connection.execute("""
+        rows = [
+            dict(row)
+            for row in connection.execute("""
                 SELECT trading_date, volume_shares
                 FROM market_activity ma
                 JOIN instruments i ON i.id=ma.instrument_id
                 WHERE i.symbol='OTEC' AND ma.volume_shares IS NOT NULL
                 ORDER BY trading_date DESC, ma.id DESC
                 LIMIT 126
-                """)]
+                """)
+        ]
         deduped: dict[str, float] = {}
         for row in rows:
             if row["trading_date"] in deduped:
@@ -533,7 +537,10 @@ def _quote(connection, symbol: str) -> dict[str, Any]:
         str(current_close["trading_date"]) > str(latest["trading_date"])
         or (
             str(current_close["trading_date"]) == str(latest["trading_date"])
-            and latest.get("price_type") != "LAST"
+            and (
+                latest.get("price_type") != "LAST"
+                or current_close.get("close_basis") == "OFFICIAL_CLOSE"
+            )
         )
     ):
         latest = {

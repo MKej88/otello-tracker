@@ -164,7 +164,9 @@ def test_streamed_euronext_parser_rejects_non_finite_numbers(
         latest_otec_trade(payload)
 
 
-def test_worker_import_preserves_reference_provenance_and_direct_last_semantics() -> None:
+def test_worker_import_preserves_reference_provenance_and_direct_last_semantics() -> (
+    None
+):
     payload = _zip_payload(
         [
             _otec_row(
@@ -194,14 +196,22 @@ def test_worker_import_preserves_reference_provenance_and_direct_last_semantics(
     document = repository.documents[0]
     price = repository.prices[0]
     assert document["source_code"] == "EURONEXT"
-    assert document["external_id"].startswith("otec-delayed-last_15_minutes-2026-08-17-")
+    assert document["external_id"].startswith(
+        "otec-delayed-last_15_minutes-2026-08-17-"
+    )
     assert price["symbol"] == "OTEC"
     assert price["price_type"] == "LAST"
     assert price["quality"] == "DIRECT"
     assert price["price"] == "17.25"
     assert price["source_document_id"] == 101
-    assert price["metadata"]["price_semantics"] == "LATEST_REPORTED_TRADE_NOT_OFFICIAL_CLOSE"
-    assert price["metadata"]["payload_policy"] == "BOUNDED_ROLLING_WINDOW_STREAMED_ZIP_MEMBER"
+    assert (
+        price["metadata"]["price_semantics"]
+        == "LATEST_REPORTED_TRADE_NOT_OFFICIAL_CLOSE"
+    )
+    assert (
+        price["metadata"]["payload_policy"]
+        == "BOUNDED_ROLLING_WINDOW_STREAMED_ZIP_MEMBER"
+    )
 
 
 def test_intraday_refresh_falls_back_from_15_minutes_to_last_hour() -> None:
@@ -239,7 +249,9 @@ def test_intraday_refresh_falls_back_from_15_minutes_to_last_hour() -> None:
         raise AssertionError(url)
 
     repository = FakeRepository()
-    result = asyncio.run(refresh_otec_intraday(repository=repository, fetcher=fake_fetch))
+    result = asyncio.run(
+        refresh_otec_intraday(repository=repository, fetcher=fake_fetch)
+    )
 
     assert result["status"] == "ok"
     assert result["selected"] == "LAST_HOUR"
@@ -316,7 +328,9 @@ def test_intraday_refresh_compares_both_windows_before_selecting_trade() -> None
         return FakeResponse(payload)
 
     repository = FakeRepository()
-    result = asyncio.run(refresh_otec_intraday(repository=repository, fetcher=fake_fetch))
+    result = asyncio.run(
+        refresh_otec_intraday(repository=repository, fetcher=fake_fetch)
+    )
 
     assert len(requested) == 2
     assert result["selected"] == "LAST_HOUR"
@@ -327,7 +341,9 @@ def test_intraday_refresh_compares_both_windows_before_selecting_trade() -> None
     assert repository.prices[0]["price"] == "18.52"
 
 
-def test_gap_recovery_skips_day_file_when_recent_otec_poll_has_overlap_coverage() -> None:
+def test_gap_recovery_skips_day_file_when_recent_otec_poll_has_overlap_coverage() -> (
+    None
+):
     no_otec = _zip_payload(
         [
             _otec_row(
@@ -450,7 +466,9 @@ def test_recovery_rejects_oversized_payload_before_buffering_body() -> None:
     assert response.array_buffer_called is False
 
 
-def test_eod_finalizes_latest_stored_trade_from_rolling_coverage_without_day_file() -> None:
+def test_eod_finalizes_latest_stored_trade_from_rolling_coverage_without_day_file() -> (
+    None
+):
     repository = FakeRepository(
         latest_price={
             "id": 77,
@@ -488,3 +506,102 @@ def test_eod_finalizes_latest_stored_trade_from_rolling_coverage_without_day_fil
         "FINAL_REPORTED_TRADE_NOT_OFFICIAL_CLOSE"
     )
     assert repository.prices[0]["metadata"]["original_source_document_id"] == 55
+
+
+def test_old_trade_does_not_prove_completed_session():
+    repository = FakeRepository(
+        latest_price={
+            "id": 77,
+            "observed_at": "2026-08-17T10:00:00Z",
+            "price": "17.4",
+            "currency": "NOK",
+            "source_document_id": 55,
+            "metadata_json": "{}",
+        }
+    )
+    result = asyncio.run(
+        maybe_finalize_otec_eod(
+            repository=repository,
+            now=datetime(2026, 8, 17, 17, 0, tzinfo=ZoneInfo("Europe/Oslo")),
+            current_refresh={"status": "no_trade", "selected": None},
+        )
+    )
+    assert result["reason"] == "incomplete_session_coverage"
+    assert result["retryable"]
+    assert not repository.documents
+    result = asyncio.run(
+        maybe_finalize_otec_eod(
+            repository=repository,
+            now=datetime(2026, 8, 17, 17, 0, tzinfo=ZoneInfo("Europe/Oslo")),
+            current_refresh={"status": "ok", "selected": "CURRENT_TRADING_DAY"},
+        )
+    )
+    assert result["status"] == "ok"
+
+
+def test_full_daily_activity_proves_sparse_session_complete():
+    class ActivityRepository(FakeRepository):
+        async def first(self, sql, parameters=()):
+            if "FROM market_activity" in sql:
+                return {
+                    "id": 1,
+                    "observed_at": "2026-08-17T10:00:00Z",
+                    "price": "17.4",
+                    "currency": "NOK",
+                    "source_document_id": 55,
+                    "metadata_json": "{}",
+                }
+            return await super().first(sql, parameters)
+
+    repository = ActivityRepository()
+    result = asyncio.run(
+        maybe_finalize_otec_eod(
+            repository=repository,
+            now=datetime(2026, 8, 17, 17, 0, tzinfo=ZoneInfo("Europe/Oslo")),
+            current_refresh={"status": "no_trade", "selected": None},
+        )
+    )
+    assert result["status"] == "ok"
+    assert (
+        repository.documents[0]["metadata"]["current_refresh_selected"]
+        == "CURRENT_TRADING_DAY"
+    )
+    assert result["price_type"] == "LAST"
+
+
+def test_legacy_early_eod_marker_is_retried_and_can_be_upgraded():
+    import sqlite3
+    from otec_ingestion import eod_otec_check_done
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript("""CREATE TABLE sources(id INTEGER,code TEXT);
+        CREATE TABLE source_documents(source_id INTEGER,external_id TEXT,published_at TEXT,metadata_json TEXT);
+        INSERT INTO sources VALUES(1,'EURONEXT');
+        INSERT INTO source_documents VALUES(1,'otec-eod-last-check-2026-08-17','2026-08-17T10:00:00Z','{}');""")
+
+    class ReadRepository:
+        async def first(self, sql, parameters):
+            row = db.execute(sql, parameters).fetchone()
+            return dict(row) if row else None
+
+    repo = ReadRepository()
+    assert not asyncio.run(eod_otec_check_done(repo, "2026-08-17"))
+    db.execute(
+        "UPDATE source_documents SET metadata_json=?",
+        (json.dumps({"latest_trade_at": "2026-08-17T14:25:00Z"}),),
+    )
+    assert asyncio.run(eod_otec_check_done(repo, "2026-08-17"))
+    db.execute(
+        "UPDATE source_documents SET metadata_json=?",
+        (
+            json.dumps(
+                {
+                    "latest_trade_at": "2026-08-17T10:00:00Z",
+                    "current_refresh_selected": "CURRENT_TRADING_DAY",
+                }
+            ),
+        ),
+    )
+    assert asyncio.run(eod_otec_check_done(repo, "2026-08-17"))
+    db.close()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 
 def _easter_sunday(year: int) -> date:
@@ -58,3 +59,10 @@ def oslo_bors_trading_days(start: date, end: date) -> list[date]:
         for offset in range((end - start).days + 1)
         if is_oslo_bors_trading_day(start + timedelta(days=offset))
     ]
+
+
+def closing_auction(day: date) -> datetime:
+    half_day = day == _easter_sunday(day.year) - timedelta(days=4)
+    return datetime.combine(
+        day, time(13, 5) if half_day else time(16, 25), ZoneInfo("Europe/Oslo")
+    )

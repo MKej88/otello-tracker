@@ -30,6 +30,7 @@ class Repository:
             CREATE TABLE market_prices(id INTEGER PRIMARY KEY,instrument_id INTEGER,
               source_id INTEGER,price TEXT,observed_at TEXT,trading_date TEXT,
               price_type TEXT,metadata_json TEXT);
+            CREATE TABLE market_activity(id INTEGER PRIMARY KEY,instrument_id INTEGER,source_id INTEGER,trading_date TEXT,last_price_nok TEXT,metadata_json TEXT);
             CREATE TABLE fx_rates(id INTEGER PRIMARY KEY,base_currency TEXT,quote_currency TEXT,
               rate TEXT,observed_at TEXT,source_id INTEGER);
             CREATE TABLE bemobi_holdings(id INTEGER PRIMARY KEY,shares INTEGER,
@@ -339,3 +340,109 @@ def test_effect_uses_nearby_pre_close_last_only_when_close_missing():
     assert result["ready"]
     assert result["otec_price_type"] == "LAST"
     assert result["change_pct"] == pytest.approx(1.5)
+
+
+def test_reference_recovery_uses_only_near_close_delayed_b3_quotes():
+    repo = Repository()
+    repo.quote("2026-10-05T14:25:00Z", 20)
+    repo.quote("2026-10-05T14:45:00Z", 21)
+    result = asyncio.run(
+        feature.recover_reference(repo, now=dt("2026-10-05T15:00:00Z"))
+    )
+    assert result["status"] == "ok"
+    assert result["reference"]["recovered"]
+    repo.quote("2026-10-05T14:24:59Z", 99)
+    again = asyncio.run(feature.recover_reference(repo, now=dt("2026-10-05T15:00:00Z")))
+    assert again["reason"] == "reference_already_captured"
+    assert (
+        asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-05T15:00:00Z")))[
+            "reference"
+        ]["price"]
+        == 20
+    )
+
+
+def test_reference_read_recovery_rejects_yahoo_and_wrong_delay():
+    repo = Repository()
+    repo.quote("2026-10-05T14:25:00Z", 20, source=2)
+    assert (
+        asyncio.run(
+            feature.stored_reference(
+                repo, dt("2026-10-05T14:25:00Z"), dt("2026-10-05T15:00:00Z")
+            )
+        )
+        is None
+    )
+    repo.quote("2026-10-05T14:25:00Z", 20)
+    repo.db.execute("UPDATE market_prices SET metadata_json='{}'")
+    assert (
+        asyncio.run(feature.recover_reference(repo, now=dt("2026-10-05T15:00:00Z")))[
+            "status"
+        ]
+        == "missing"
+    )
+
+
+def test_effect_accepts_illiquid_same_day_trade_but_not_previous_day():
+    repo = effect_repo()
+    repo.db.execute(
+        "UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T08:00:00Z' WHERE instrument_id=2"
+    )
+    assert asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))[
+        "ready"
+    ]
+    repo.db.execute(
+        "UPDATE market_prices SET trading_date='2026-10-02' WHERE instrument_id=2"
+    )
+    assert not asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))[
+        "ready"
+    ]
+
+
+def test_effect_reads_daily_activity_but_prefers_official_close():
+    repo = effect_repo()
+    repo.db.execute(
+        "INSERT INTO market_activity VALUES(1,2,3,'2026-10-05','10',?)",
+        (json.dumps({"latest_trade_at": "2026-10-05T14:25:00Z"}),),
+    )
+    assert (
+        asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))[
+            "otec_price_nok"
+        ]
+        == 20
+    )
+    repo.db.execute("DELETE FROM market_prices WHERE instrument_id=2")
+    result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
+    assert result["ready"] and result["otec_price_nok"] == 10
+    assert result["otec_price_type"] == "LAST"
+    repo.db.execute(
+        "UPDATE market_activity SET metadata_json=?",
+        (json.dumps({"latest_trade_at": "2026-10-05T14:30:00Z"}),),
+    )
+    assert not asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))[
+        "ready"
+    ]
+
+
+def test_reference_job_does_not_require_nav_writer_lock(monkeypatch):
+    import repository as repository_module
+
+    class JobRepository(Repository):
+        async def start_job(self, **kwargs):
+            return 1
+
+        async def finish_job(self, *args, **kwargs):
+            self.finished = kwargs
+
+    repo = JobRepository()
+    monkeypatch.setattr(repository_module, "D1WriteRepository", lambda database: repo)
+
+    async def capture(repository):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(feature, "capture_reference", capture)
+    result = asyncio.run(
+        feature.run_reference_capture(object(), now=dt("2026-10-05T14:40:00Z"))
+    )
+    assert result["status"] == "ok"
+    assert repo.finished["status"] == "SUCCESS"

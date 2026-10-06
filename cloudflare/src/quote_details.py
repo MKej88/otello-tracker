@@ -184,9 +184,11 @@ async def _latest_close(
         """,
         (before_date, before_date),
     )
+    if market is not None:
+        market = {**market, "close_basis": "OFFICIAL_CLOSE"}
     if activity is None:
         return market
-    if market is None or str(activity["trading_date"]) >= str(market["trading_date"]):
+    if market is None or str(activity["trading_date"]) > str(market["trading_date"]):
         activity = dict(activity)
         activity["close_basis"] = "COMPLETED_SESSION_LAST_TRADE"
         return activity
@@ -197,12 +199,11 @@ async def _latest_close(
 
 def _oslo_close_timestamp(trading_date: str) -> str:
     """Returner tidspunktet da den ordinære OTEC-handelen stengte."""
-    local_close = datetime.combine(
-        date.fromisoformat(trading_date),
-        time(hour=16, minute=20),
-        tzinfo=ZoneInfo("Europe/Oslo"),
+    from oslo_calendar import closing_auction
+
+    return closing_auction(date.fromisoformat(trading_date)).isoformat(
+        timespec="seconds"
     )
-    return local_close.isoformat(timespec="seconds")
 
 
 async def _day_stats(repository, symbol: str, trading_date: str) -> dict[str, Any]:
@@ -322,7 +323,7 @@ async def _daily_history(
 ) -> list[dict[str, Any]]:
     start = (date.fromisoformat(as_of_date) - timedelta(days=365)).isoformat()
     market_rows = [
-        {**dict(row), "series_priority": 1 if symbol == "OTEC" else 0}
+        {**dict(row), "series_priority": 0}
         for row in await repository.all(
             """
             SELECT mp.id, mp.trading_date, mp.price, mp.quality, mp.metadata_json,
@@ -341,7 +342,7 @@ async def _daily_history(
         return _preferred_daily_rows(market_rows, symbol)
 
     activity_rows = [
-        {**dict(row), "series_priority": 0}
+        {**dict(row), "series_priority": 1}
         for row in await repository.all(
             """
             SELECT ma.id, ma.trading_date, ma.last_price_nok AS price,
@@ -532,7 +533,10 @@ async def _quote(repository, symbol: str) -> dict[str, Any]:
         str(current_close["trading_date"]) > str(latest["trading_date"])
         or (
             str(current_close["trading_date"]) == str(latest["trading_date"])
-            and latest.get("price_type") != "LAST"
+            and (
+                latest.get("price_type") != "LAST"
+                or current_close.get("close_basis") == "OFFICIAL_CLOSE"
+            )
         )
     ):
         latest = {

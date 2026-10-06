@@ -261,3 +261,29 @@ def test_reconciliation_failure_does_not_forfeit_the_acquired_writer_lock() -> N
     assert result["orphan_reconciliation_error"] == (
         "TimeoutError: database timed out while reconciling"
     )
+
+
+@pytest.mark.parametrize(
+    "started_at,expected",
+    [
+        ("2026-08-21T09:29:00Z", "RUNNING"),
+        ("2026-08-21T09:25:00Z", "RUNNING"),
+        ("2026-08-21T09:24:59Z", "FAILED"),
+    ],
+)
+def test_reference_reconciliation_preserves_live_capture(started_at, expected):
+    repository = FakeRepository()
+    repository.jobs[0].update(
+        job_name="cloudflare_bemobi_oslo_reference", started_at=started_at
+    )
+    result = asyncio.run(
+        acquire_refresh_lock(
+            repository,
+            owner="fast:recovery",
+            ttl_seconds=120,
+            now=datetime(2026, 8, 21, 9, 30, tzinfo=UTC),
+        )
+    )
+    assert result["acquired"]
+    assert result["orphan_reconciliation_error"] is None
+    assert repository.jobs[0]["status"] == expected

@@ -9,8 +9,8 @@ fortsetter hvert 30. minutt; referansejobben henter bare referansen.
 
 ## Referanse
 
-- Ordinær sluttauksjon: 16:25 Europe/Oslo. Innlesing 16:40 med nye forsøk 16:41/16:42.
-- Onsdag før påske: 13:05. Innlesing 13:20 med nye forsøk 13:21/13:22.
+- Ordinær sluttauksjon: 16:25 Europe/Oslo. Innlesing forsøkes hvert minutt 16:37–16:43; bare referansetider innen tre minutter fra sluttauksjonen godtas.
+- Onsdag før påske: 13:05. Innlesing forsøkes 13:17–13:23 med samme tidsvalidering.
 - UTC-cron dekker begge sommertidsalternativene; lokal kalender og klokke filtrerer
   irrelevante kjøringer før nettverkskall. Oslo- og B3-helligdager håndteres.
 - Referansen er **omtrentlig**: B3s svarklokke minus oppgitt forsinkelse på 15 minutter.
@@ -20,10 +20,14 @@ fortsetter hvert 30. minutt; referansejobben henter bare referansen.
   klokkeavvik tillates). Gamle eller ugyldige svar gir ingen referanse.
 - Referansen lagres uforanderlig per Oslo-dato i eksisterende `runtime_state` med
   nøkkel `bemobi_oslo_reference_v1:YYYY-MM-DD`. Ingen migrering er nødvendig.
-- Jobben bruker eksisterende skriverlås og registrerer resultat i `job_runs`.
-  Ved låsekonflikt eller kildefeil kan neste minutt forsøke igjen. Mangler alle
-  forsøk, viser kortet at referansen mangler. Ingen gammel 30-minutterskurs erstattes
-  som om den var kursen ved close på Oslo Børs.
+- Referansejobben skriver idempotent, uavhengig av NAV-skriverlåsen, slik at en lang
+  fulloppdatering ikke blokkerer det korte referansevinduet. Den daglige referansen
+  beskyttes atomisk med INSERT ON CONFLICT DO NOTHING; resultat registreres i job_runs.
+  Lagrede B3 LAST-kurser med eksplisitt 15-minutters forsinkelse og faktisk
+  referansetid innen tre minutter kan gjenopprette en manglende referanse. Dette
+  gjøres av 30-minuttersjobben; API-et kan også lese samme grunnlag uten å skrive.
+  Kurser utenfor tidsvinduet brukes aldri som referanse.
+
 - På halve handelsdager kan B3 fortsatt være stengt ved close på Oslo Børs. Når ingen
   fersk referanse finnes, vises manglende grunnlag fremfor en oppdiktet kurs.
 
@@ -53,7 +57,7 @@ og [Oslo migration guidelines](https://connect2.euronext.com/sites/default/files
 `change_pct = change_per_share_nok / OTEC-kurs ved close på Oslo Børs × 100`.
 
 Grunnlaget leses for samme Oslo-dato. Sluttkurs for OTEC prioriteres; dersom bare
-LAST finnes, brukes siste handel innen 65 minutter før sluttauksjonen og kortet
+LAST finnes, brukes siste tidsstemplede handel fra samme handelsdag, senest ved sluttauksjonen og kortet
 merker grunnlaget som omtrentlig. Senere OTEC-handler brukes ikke. Valutakursen er
 siste tilgjengelige dagskurs med eksisterende kildeprioritet (Norges Bank, ECB),
 tidsstemplet senest ved close på Oslo Børs og høyst sju dager gammel. Den brukes uendret
@@ -63,3 +67,20 @@ Manglende/ugyldig grunnlag skjuler OTEC-effekten uten å skjule gyldig Bemobi-en
 Foreldet Bemobi-kurs og mislykket oppdatering skjuler begge prosenttallene. Kortene
 bruker samme kolonnebredder som NAV/dato-raden og stables på mindre skjermer.
 Ingen migrering eller ny ekstern datakilde er nødvendig.
+
+
+OTEC-grunnlaget inkluderer siste handel fra Euronexts dagsfil (`market_activity`),
+med faktisk handelstid senest ved sluttauksjonen. Eksplisitt CLOSE prioriteres på
+samme dato i både kursvisning, dagshistorikk og OTEC-effekt. En handel tidligere på
+dagen er et merket LAST-grunnlag, ikke en offisiell sluttkurs.
+
+Dagen ferdigstilles fra rullerende filer bare dersom siste handel er ved
+sluttauksjonen; ellers kreves hel dagsfil. Gamle ferdigmarkeringer med en tidligere
+handel og uten hel dagsfil regnes ikke som tilstrekkelig dekning. Dagsaktivitet
+kontrolleres på nytt i to timer etter sluttauksjonen og én gang som forrige
+handelsdag for å ta med forsinkede publikasjoner.
+Alle beregnede Oslo-sluttider følger 16:25 / 13:05 på halv handelsdag.
+
+Kildeprioriteringen kan endre eksisterende kursgrafer og prosentendringer på datoer
+hvor både eksplisitt CLOSE og dagsfilens siste handel finnes og er ulike. Lagrede
+markedsdata og historiske NAV-beregninger omskrives ikke av denne endringen.
