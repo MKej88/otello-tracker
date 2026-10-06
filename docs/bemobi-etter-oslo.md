@@ -1,6 +1,6 @@
-# Bemobi siden Oslo stengte
+# Bemobi siden Oslo Børs stengte
 
-Oversikten viser kursendringen i BMOB3 i BRL fra siste Oslo-slutt til siste
+Oversikten viser kursendringen i BMOB3 i BRL fra siste close på Oslo Børs til siste
 tidsstemplede Bemobi-kurs. Ved siden av vises teoretisk OTEC-effekt fra Bemobi-bevegelsen alene. Valutabevegelser inngår ikke, og effekten er ingen prognose for OTEC-kursen.
 
 Cloudflare-endepunkt: `/api/market/bemobi-after-oslo`. Kortet hentes separat fra
@@ -23,8 +23,8 @@ fortsetter hvert 30. minutt; referansejobben henter bare referansen.
 - Jobben bruker eksisterende skriverlås og registrerer resultat i `job_runs`.
   Ved låsekonflikt eller kildefeil kan neste minutt forsøke igjen. Mangler alle
   forsøk, viser kortet at referansen mangler. Ingen gammel 30-minutterskurs erstattes
-  som om den var kursen ved Oslo-slutt.
-- På halve handelsdager kan B3 fortsatt være stengt ved Oslo-slutt. Når ingen
+  som om den var kursen ved close på Oslo Børs.
+- På halve handelsdager kan B3 fortsatt være stengt ved close på Oslo Børs. Når ingen
   fersk referanse finnes, vises manglende grunnlag fremfor en oppdiktet kurs.
 
 ## Seneste kurs og status
@@ -36,7 +36,7 @@ med Yahoo som eksisterende sekundærkilde. Kurver viser lagrede observasjoner.
 
 For gammel kurs under B3-handel, feil handelsdato eller nettverksfeil i kortet
 undertrykker prosentvisningen. Utenfor B3s handelsvindu beholdes siste tilgjengelige
-kurs og tidspunkt. Referansen beholdes til neste Oslo-slutt, også gjennom helg.
+kurs og tidspunkt. Referansen beholdes til neste close på Oslo Børs, også gjennom helg.
 Når ny sluttauksjon er passert, venter kortet på den nye forsinkede referansen.
 
 Endringen gjelder Cloudflare-produksjonsløsningen. Referanse-backendens lokale API
@@ -50,13 +50,13 @@ og [Oslo migration guidelines](https://connect2.euronext.com/sites/default/files
 ## Teoretisk OTEC-effekt
 
 `change_per_share_nok = change_brl × Bemobi-beholdning × fast BRL/NOK / utestående OTEC-aksjer`.
-`change_pct = change_per_share_nok / OTEC-kurs ved Oslo-slutt × 100`.
+`change_pct = change_per_share_nok / OTEC-kurs ved close på Oslo Børs × 100`.
 
 Grunnlaget leses for samme Oslo-dato. Sluttkurs for OTEC prioriteres; dersom bare
 LAST finnes, brukes siste handel innen 65 minutter før sluttauksjonen og kortet
 merker grunnlaget som omtrentlig. Senere OTEC-handler brukes ikke. Valutakursen er
 siste tilgjengelige dagskurs med eksisterende kildeprioritet (Norges Bank, ECB),
-tidsstemplet senest ved Oslo-slutt og høyst sju dager gammel. Den brukes uendret
+tidsstemplet senest ved close på Oslo Børs og høyst sju dager gammel. Den brukes uendret
 på begge Bemobi-kursene. Beholdning og utestående aksjer gjelder Oslo-datoen.
 
 Manglende/ugyldig grunnlag skjuler OTEC-effekten uten å skjule gyldig Bemobi-endring.

@@ -33,8 +33,8 @@ export function displayedChange(data: BemobiAfterOslo | null, refreshFailed = fa
 export function statusLabel(status?: string, refreshFailed = false): string {
   if (refreshFailed) return "Kunne ikke oppdatere kursdata";
   switch (status) {
-    case "waiting_reference": return "Venter på forsinket kurs ved Oslo-slutt";
-    case "missing_reference": return "Mangler kurs ved Oslo-slutt";
+    case "waiting_reference": return "Venter på forsinket kurs ved close på Oslo Børs";
+    case "missing_reference": return "Mangler kurs ved close på Oslo Børs";
     case "waiting_quote": return "Venter på neste Bemobi-kurs";
     case "stale_quote": return "Siste Bemobi-kurs er for gammel";
     case "ready": return "Endring i BRL";
