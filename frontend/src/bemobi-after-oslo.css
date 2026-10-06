@@ -18,3 +18,7 @@
 .bemobiAfterOsloDetails summary { padding:12px 0 0; cursor:pointer; min-height:44px; }
 .bemobiAfterOsloDetails p { line-height:1.5; margin:8px 0; }
 @media(max-width:620px) { .bemobiAfterOsloMain { grid-template-columns:1fr; gap:18px; } }
+
+.bemobiAfterOsloGrid { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); gap:14px; align-items:stretch; }
+.otecEffectAmount { margin:8px 0; font-size:var(--ot-type-body); font-weight:600; }
+@media(max-width:1000px) { .bemobiAfterOsloGrid { grid-template-columns:1fr; } }

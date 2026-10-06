@@ -1,7 +1,7 @@
 # Bemobi siden Oslo stengte
 
 Oversikten viser kursendringen i BMOB3 i BRL fra siste Oslo-slutt til siste
-tidsstemplede Bemobi-kurs. Den inkluderer ikke BRL/NOK eller forventet OTEC-kurs.
+tidsstemplede Bemobi-kurs. Ved siden av vises teoretisk OTEC-effekt fra Bemobi-bevegelsen alene. Valutabevegelser inngår ikke, og effekten er ingen prognose for OTEC-kursen.
 
 Cloudflare-endepunkt: `/api/market/bemobi-after-oslo`. Kortet hentes separat fra
 førstesidens bootstrap og oppdateres hvert andre minutt. Eksisterende kursinnhenting
@@ -46,3 +46,20 @@ Kilder: eksisterende `cloudflare/src/bmob3_ingestion.py` (B3-forsinkelse),
 [Euronexts børsdagskalender](https://www.euronext.com/en/trading/trading-hours-holidays)
 og [Oslo migration guidelines](https://connect2.euronext.com/sites/default/files/it-documentation/Oslo_Bors_Migration%20Guidelines%20-%20v2.3.1_0.pdf)
 (sluttauksjon og halv dag). Kalenderreglene gjenbruker prosjektets Oslo-kalender.
+
+## Teoretisk OTEC-effekt
+
+`change_per_share_nok = change_brl × Bemobi-beholdning × fast BRL/NOK / utestående OTEC-aksjer`.
+`change_pct = change_per_share_nok / OTEC-kurs ved Oslo-slutt × 100`.
+
+Grunnlaget leses for samme Oslo-dato. Sluttkurs for OTEC prioriteres; dersom bare
+LAST finnes, brukes siste handel innen 65 minutter før sluttauksjonen og kortet
+merker grunnlaget som omtrentlig. Senere OTEC-handler brukes ikke. Valutakursen er
+siste tilgjengelige dagskurs med eksisterende kildeprioritet (Norges Bank, ECB),
+tidsstemplet senest ved Oslo-slutt og høyst sju dager gammel. Den brukes uendret
+på begge Bemobi-kursene. Beholdning og utestående aksjer gjelder Oslo-datoen.
+
+Manglende/ugyldig grunnlag skjuler OTEC-effekten uten å skjule gyldig Bemobi-endring.
+Foreldet Bemobi-kurs og mislykket oppdatering skjuler begge prosenttallene. Kortene
+bruker samme kolonnebredder som NAV/dato-raden og stables på mindre skjermer.
+Ingen migrering eller ny ekstern datakilde er nødvendig.

@@ -7,6 +7,21 @@ export type BemobiAfterOslo = {
   change_brl?: number;
   reference?: { price: number; observed_at: string; source: string; approximate: boolean };
   latest?: { price: number; observed_at: string; source: string; delay_minutes?: number | null };
+  otec_effect?: {
+    ready: boolean;
+    missing?: string[];
+    change_pct?: number;
+    change_per_share_nok?: number;
+    otec_price_nok?: number;
+    otec_price_type?: string;
+    otec_observed_at?: string;
+    otec_source?: string;
+    fixed_brl_nok?: number;
+    fx_observed_at?: string;
+    fx_source?: string;
+    holding_shares?: number;
+    otec_outstanding_shares?: number;
+  };
   points?: Array<{ at: string; change_pct: number }>;
 };
 
@@ -47,4 +62,11 @@ export function movementChart(points: BemobiAfterOslo["points"]) {
     start: valid[0].at,
     end: valid[valid.length - 1].at,
   };
+}
+
+export function displayedOtecEffect(data: BemobiAfterOslo | null, refreshFailed = false) {
+  const effect = data?.otec_effect;
+  return displayedChange(data, refreshFailed) != null && effect?.ready
+    && Number.isFinite(effect.change_pct) && Number.isFinite(effect.change_per_share_nok)
+    ? effect : null;
 }

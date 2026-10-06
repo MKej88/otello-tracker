@@ -10,6 +10,7 @@ import asyncio
 import json
 import math
 from datetime import UTC, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -154,6 +155,87 @@ def _latest_expected_b3_day(now: datetime):
     return day
 
 
+async def otec_effect(repository, close: datetime, change_brl: float) -> dict[str, Any]:
+    """Translate only the Bemobi price move, with FX and capital held at Oslo close."""
+    day = close.astimezone(OSLO_TZ).date().isoformat()
+    otec, fx, holding, shares = await asyncio.gather(
+        repository.first(
+            """SELECT mp.price, mp.price_type, mp.observed_at, s.code AS source
+            FROM market_prices mp
+            JOIN instruments i ON i.id=mp.instrument_id
+            JOIN sources s ON s.id=mp.source_id
+            WHERE i.symbol='OTEC' AND mp.trading_date=?
+              AND (mp.price_type='CLOSE' OR (mp.price_type='LAST'
+                   AND julianday(mp.observed_at) <= julianday(?)
+                   AND julianday(mp.observed_at) >= julianday(?)))
+            ORDER BY CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
+                     CASE s.code WHEN 'EURONEXT' THEN 0 ELSE 1 END,
+                     julianday(mp.observed_at) DESC, mp.id DESC LIMIT 1""",
+            (day, iso(close), iso(close - timedelta(minutes=65))),
+        ),
+        repository.first(
+            """SELECT fr.rate, fr.observed_at, s.code AS source
+            FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+            WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+              AND julianday(fr.observed_at) <= julianday(?)
+              AND julianday(fr.observed_at) >= julianday(?)
+            ORDER BY substr(fr.observed_at,1,10) DESC,
+                     CASE s.code WHEN 'NORGES_BANK' THEN 0 WHEN 'ECB' THEN 1 ELSE 5 END,
+                     julianday(fr.observed_at) DESC, fr.id DESC LIMIT 1""",
+            (iso(close), iso(close - timedelta(days=7))),
+        ),
+        repository.first(
+            """SELECT shares FROM bemobi_holdings WHERE effective_from <= ?
+            AND (effective_to IS NULL OR effective_to >= ?)
+            ORDER BY effective_from DESC, id DESC LIMIT 1""",
+            (day, day),
+        ),
+        repository.first(
+            """SELECT outstanding_shares FROM otello_share_counts WHERE effective_from <= ?
+            AND (effective_to IS NULL OR effective_to >= ?)
+            ORDER BY effective_from DESC, id DESC LIMIT 1""",
+            (day, day),
+        ),
+    )
+    missing = []
+    if otec is None or number(otec.get("price")) is None:
+        missing.append("otec_close")
+    if fx is None or number(fx.get("rate")) is None:
+        missing.append("fixed_fx")
+    holding_number = number(holding.get("shares")) if holding else None
+    if holding_number is None and (
+        not holding or holding.get("shares") not in (0, "0")
+    ):
+        missing.append("bemobi_holding")
+    if shares is None or number(shares.get("outstanding_shares")) is None:
+        missing.append("otec_shares")
+    if missing:
+        return {"ready": False, "missing": missing}
+    delta = (
+        Decimal(str(change_brl))
+        * Decimal(str(holding["shares"]))
+        * Decimal(str(fx["rate"]))
+        / Decimal(str(shares["outstanding_shares"]))
+    )
+    percent = delta / Decimal(str(otec["price"])) * 100
+    if not math.isfinite(float(delta)) or not math.isfinite(float(percent)):
+        return {"ready": False, "missing": ["invalid_calculation"]}
+    return {
+        "ready": True,
+        "change_per_share_nok": float(delta),
+        "change_pct": float(percent),
+        "otec_price_nok": number(otec["price"]),
+        "otec_price_type": otec["price_type"],
+        "otec_observed_at": otec["observed_at"],
+        "otec_source": otec["source"],
+        "fixed_brl_nok": number(fx["rate"]),
+        "fx_observed_at": fx["observed_at"],
+        "fx_source": fx["source"],
+        "holding_shares": holding["shares"],
+        "otec_outstanding_shares": shares["outstanding_shares"],
+    }
+
+
 async def bemobi_after_oslo(
     repository, *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -277,6 +359,9 @@ async def bemobi_after_oslo(
             "change_brl": latest_price - reference_price,
             "points": sorted(points.values(), key=lambda point: point["at"]),
         }
+    )
+    result["otec_effect"] = await otec_effect(
+        repository, close, latest_price - reference_price
     )
     return result
 

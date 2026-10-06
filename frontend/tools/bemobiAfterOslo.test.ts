@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { displayedChange, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
+import { displayedChange, displayedOtecEffect, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
 
 test("Missing, stale and failed refreshes never display a percentage", () => {
   assert.equal(displayedChange(null), null);
@@ -26,4 +26,16 @@ test("Chart uses elapsed time and includes zero in positive and negative domains
   }
   assert.equal(movementChart([]), null);
   assert.equal(movementChart([{ at: "invalid", change_pct: 0 }]), null);
+});
+
+test("OTEC effect shares the Bemobi freshness gate and requires finite results", () => {
+  const data = { ready: true, status: "ready", change_pct: 2.4,
+    otec_effect: { ready: true, change_pct: 1.52, change_per_share_nok: .3 } };
+  assert.equal(displayedOtecEffect(data), data.otec_effect);
+  assert.equal(displayedOtecEffect(data, true), null);
+  assert.equal(displayedOtecEffect({ ...data, status: "stale_quote" }), null);
+  assert.equal(displayedOtecEffect({ ...data, otec_effect: { ready: false } }), null);
+  assert.equal(displayedOtecEffect({ ...data, otec_effect: { ...data.otec_effect, change_pct: Infinity } }), null);
+  assert.equal(displayedOtecEffect({ ...data, otec_effect: { ...data.otec_effect, change_per_share_nok: NaN } }), null);
+  assert.ok(displayedOtecEffect({ ...data, change_pct: 0, otec_effect: { ready: true, change_pct: 0, change_per_share_nok: 0 } }));
 });
