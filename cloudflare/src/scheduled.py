@@ -7,6 +7,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 try:
+    from .bemobi_after_oslo import recover_reference
     from .bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from .brazil_snapshot import refresh_brazil_snapshot
@@ -29,6 +30,7 @@ try:
     from .otello_report_ingestion import process_pending_otello_reports
     from .performance_repository import PerformanceD1WriteRepository
 except ImportError:
+    from bemobi_after_oslo import recover_reference
     from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from brazil_snapshot import refresh_brazil_snapshot
@@ -121,6 +123,7 @@ def _fast_refresh_records_written(steps: dict[str, Any]) -> int:
         if result(step_name).get("status") == "ok"
     )
     total += int(bool(result("otec_delayed").get("found")))
+    total += int(result("bemobi_oslo_reference_recovery").get("status") == "ok")
 
     fx_repair = result("norges_bank_fx_repair")
     if fx_repair.get("repaired"):
@@ -355,6 +358,14 @@ async def run_fast_refresh(
             errors=errors,
             timings_ms=timings_ms,
         )
+
+    await _safe_async_step(
+        "bemobi_oslo_reference_recovery",
+        lambda: recover_reference(repository, now=scheduled_at),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
 
     await renew("after B3")
 

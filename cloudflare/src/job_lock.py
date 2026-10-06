@@ -38,7 +38,7 @@ async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> N
         SET finished_at=?,
             status='FAILED',
             error_message=COALESCE(NULLIF(error_message, ''), ?)
-        WHERE job_name IN (?, ?, ?)
+        WHERE job_name IN (?, ?)
           AND status='RUNNING'
           AND started_at < ?
         """,
@@ -47,7 +47,6 @@ async def _reconcile_orphaned_refresh_jobs(repository, *, finished_at: str) -> N
             ORPHANED_REFRESH_REASON,
             FULL_REFRESH_JOB_NAME,
             FAST_REFRESH_JOB_NAME,
-            REFERENCE_JOB_NAME,
             finished_at,
         ),
     )

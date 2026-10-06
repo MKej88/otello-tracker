@@ -73,7 +73,7 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
     controller = types.SimpleNamespace(cron=cron, scheduledTime=1790654400000)
     modules = {
         "bemobi_after_oslo": types.SimpleNamespace(
-            REFERENCE_CRONS=("40-42 14,15 * * 1-5", "20-22 11,12 * * 1-5"),
+            REFERENCE_CRONS=("37-43 14,15 * * 1-5", "17-23 11,12 * * 1-5"),
             run_reference_capture=AsyncMock(side_effect=reference),
         ),
         "scheduled": types.SimpleNamespace(run_scheduled=AsyncMock(side_effect=fast)),
@@ -117,7 +117,7 @@ def test_unknown_cron_does_not_start_nightly_workflow() -> None:
 
 
 def test_reference_cron_runs_only_bounded_capture() -> None:
-    result, events, nightly, _ = _run_handler("40-42 14,15 * * 1-5", fallback_env=True)
+    result, events, nightly, _ = _run_handler("37-43 14,15 * * 1-5", fallback_env=True)
     assert result["status"] == "ok"
     assert events == ["reference"]
     nightly.assert_not_awaited()

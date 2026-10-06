@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 try:
     from .bounded_response import read_response_bytes
-    from .oslo_calendar import is_oslo_bors_trading_day
+    from .oslo_calendar import closing_auction, is_oslo_bors_trading_day
     from .otec_ingestion import (
         DOWNLOAD_URL,
         FILE_TYPE,
@@ -20,7 +20,7 @@ try:
     )
 except ImportError:
     from bounded_response import read_response_bytes
-    from oslo_calendar import is_oslo_bors_trading_day
+    from oslo_calendar import closing_auction, is_oslo_bors_trading_day
     from otec_ingestion import (
         DOWNLOAD_URL,
         FILE_TYPE,
@@ -91,7 +91,9 @@ async def _download_activity(
     return url, payload
 
 
-async def _official_activity_exists(repository, target_date: str) -> bool:
+async def _official_activity_exists(
+    repository, target_date: str, selection: str | None = None
+) -> bool:
     row = await repository.first(
         """
         SELECT 1 AS ok
@@ -99,9 +101,10 @@ async def _official_activity_exists(repository, target_date: str) -> bool:
         JOIN instruments i ON i.id=ma.instrument_id
         JOIN sources s ON s.id=ma.source_id
         WHERE i.symbol='OTEC' AND ma.trading_date=? AND s.code='EURONEXT'
+          AND (? IS NULL OR json_extract(ma.metadata_json,'$.time_selection')=?)
         LIMIT 1
         """,
-        (target_date,),
+        (target_date, selection, selection),
     )
     return row is not None
 
@@ -116,7 +119,8 @@ async def ingest_otec_daily_activity(
 ) -> dict[str, Any]:
     """Aggregate one finalized Euronext daily file to a single OTEC market_activity row."""
     trades = [
-        item for item in parse_euronext_recovery_trades(payload)
+        item
+        for item in parse_euronext_recovery_trades(payload)
         if item.trading_date == target_date
     ]
     if not trades:
@@ -192,7 +196,9 @@ async def ingest_otec_daily_activity(
     # A one-time secondary backfill may cover a date before official activity becomes
     # available. Once Euronext has supplied the same date, remove only that explicit
     # fallback row so downstream daily-volume sums can never double count the session.
-    fallback = await repository.first("SELECT id FROM sources WHERE code='FT_MARKETS' LIMIT 1")
+    fallback = await repository.first(
+        "SELECT id FROM sources WHERE code='FT_MARKETS' LIMIT 1"
+    )
     replaced_fallback = False
     if fallback is not None:
         existing = await repository.first(
@@ -234,7 +240,9 @@ async def refresh_otec_daily_activity(
     written = 0
 
     previous = _previous_trading_day(local.date()).isoformat()
-    if not await _official_activity_exists(repository, previous):
+    if not await _official_activity_exists(
+        repository, previous, PREVIOUS_DAY_SELECTION
+    ):
         url, payload = await _download_activity(PREVIOUS_DAY_SELECTION, fetcher=fetcher)
         result = await ingest_otec_daily_activity(
             repository,
@@ -246,18 +254,25 @@ async def refresh_otec_daily_activity(
         attempts.append(result)
         written += int(result.get("status") == "ok")
     else:
-        attempts.append({
-            "status": "skipped",
-            "reason": "previous_day_already_stored",
-            "target_date": previous,
-        })
+        attempts.append(
+            {
+                "status": "skipped",
+                "reason": "previous_day_already_stored",
+                "target_date": previous,
+            }
+        )
 
     today = local.date()
-    local_time = local.time().replace(tzinfo=None)
-    if is_oslo_bors_trading_day(today) and local_time >= ACTIVITY_EOD_AFTER:
+    if is_oslo_bors_trading_day(today) and local >= closing_auction(today) + timedelta(
+        minutes=20
+    ):
         target = today.isoformat()
-        if not await _official_activity_exists(repository, target):
-            url, payload = await _download_activity(CURRENT_DAY_SELECTION, fetcher=fetcher)
+        if local <= closing_auction(today) + timedelta(
+            hours=2
+        ) or not await _official_activity_exists(repository, target):
+            url, payload = await _download_activity(
+                CURRENT_DAY_SELECTION, fetcher=fetcher
+            )
             result = await ingest_otec_daily_activity(
                 repository,
                 payload,
@@ -268,11 +283,13 @@ async def refresh_otec_daily_activity(
             attempts.append(result)
             written += int(result.get("status") == "ok")
         else:
-            attempts.append({
-                "status": "skipped",
-                "reason": "current_day_already_stored",
-                "target_date": target,
-            })
+            attempts.append(
+                {
+                    "status": "skipped",
+                    "reason": "late_publication_checks_complete",
+                    "target_date": target,
+                }
+            )
 
     completed = all(item.get("status") in {"ok", "skipped"} for item in attempts)
     status = "ok" if completed else ("partial" if written else "no_trade")

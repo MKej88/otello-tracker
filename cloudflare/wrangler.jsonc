@@ -6,7 +6,7 @@
   "compatibility_flags": ["python_workers", "python_workflows"],
   "ai": { "binding": "AI" },
   "triggers": {
-    "crons": ["*/30 * * * *", "35 3 * * *", "40-42 14,15 * * 1-5", "20-22 11,12 * * 1-5"]
+    "crons": ["*/30 * * * *", "35 3 * * *", "37-43 14,15 * * 1-5", "17-23 11,12 * * 1-5"]
   },
   "workflows": [
     {

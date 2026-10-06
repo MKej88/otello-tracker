@@ -29,6 +29,11 @@ class ScheduledLockRenewalTest(unittest.IsolatedAsyncioTestCase):
         successful_step = AsyncMock(return_value={"status": "ok"})
         patches = (
             patch.object(
+                scheduled,
+                "recover_reference",
+                AsyncMock(return_value={"status": "skipped"}),
+            ),
+            patch.object(
                 scheduled, "PerformanceD1WriteRepository", return_value=_Repository()
             ),
             patch.object(scheduled, "refresh_otec_daily_activity", successful_step),

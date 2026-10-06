@@ -16,14 +16,14 @@ from zoneinfo import ZoneInfo
 
 try:
     from .b3_calendar import is_b3_trading_day
-    from .oslo_calendar import _easter_sunday, is_oslo_bors_trading_day
+    from .oslo_calendar import closing_auction, is_oslo_bors_trading_day
 except ImportError:
     from b3_calendar import is_b3_trading_day
-    from oslo_calendar import _easter_sunday, is_oslo_bors_trading_day
+    from oslo_calendar import closing_auction, is_oslo_bors_trading_day
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
 B3_TZ = ZoneInfo("America/Sao_Paulo")
-REFERENCE_CRONS = ("40-42 14,15 * * 1-5", "20-22 11,12 * * 1-5")
+REFERENCE_CRONS = ("37-43 14,15 * * 1-5", "17-23 11,12 * * 1-5")
 REFERENCE_DELAY = timedelta(minutes=15)
 REFERENCE_TOLERANCE = timedelta(minutes=3)
 STATE_PREFIX = "bemobi_oslo_reference_v1:"
@@ -49,12 +49,6 @@ def number(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
-def closing_auction(day) -> datetime:
-    # Wednesday before Easter is Oslo's recurring half trading day.
-    half_day = day == _easter_sunday(day.year) - timedelta(days=4)
-    return datetime.combine(day, time(13, 5) if half_day else time(16, 25), OSLO_TZ)
-
-
 def latest_oslo_close(now: datetime) -> datetime:
     local = now.astimezone(OSLO_TZ)
     day = local.date()
@@ -72,7 +66,69 @@ def capture_window(now: datetime) -> datetime | None:
         return None
     close = closing_auction(local.date())
     start = close + REFERENCE_DELAY
-    return close if start <= local <= start + REFERENCE_TOLERANCE else None
+    return (
+        close
+        if start - REFERENCE_TOLERANCE <= local <= start + REFERENCE_TOLERANCE
+        else None
+    )
+
+
+async def stored_reference(repository, close: datetime, current: datetime):
+    rows = await repository.all(
+        """SELECT mp.id, mp.price, mp.observed_at, mp.metadata_json
+        FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='BMOB3' AND s.code='B3' AND mp.price_type='LAST'
+          AND mp.trading_date=?
+          AND julianday(mp.observed_at) BETWEEN julianday(?) AND julianday(?)
+          AND julianday(mp.observed_at)<=julianday(?)
+        ORDER BY ABS(julianday(mp.observed_at)-julianday(?)),mp.id ASC LIMIT 20""",
+        (
+            close.astimezone(B3_TZ).date().isoformat(),
+            iso(close - REFERENCE_TOLERANCE),
+            iso(close + REFERENCE_TOLERANCE),
+            iso(current),
+            iso(close),
+        ),
+    )
+    for row in rows:
+        try:
+            metadata = json.loads(row.get("metadata_json") or "{}")
+        except (TypeError, ValueError):
+            continue
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("public_delay_minutes") != 15
+            or number(row.get("price")) is None
+        ):
+            continue
+        return {
+            "price": str(row["price"]),
+            "observed_at": row["observed_at"],
+            "oslo_close_at": iso(close),
+            "source": "B3",
+            "price_id": row["id"],
+            "delay_minutes": 15,
+            "approximate": True,
+            "recovered": True,
+        }
+    return None
+
+
+async def recover_reference(repository, *, now=None):
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    close = latest_oslo_close(current)
+    key = STATE_PREFIX + close.date().isoformat()
+    if await repository.first("SELECT value FROM runtime_state WHERE key=?", (key,)):
+        return {"status": "skipped", "reason": "reference_already_captured"}
+    reference = await stored_reference(repository, close, current)
+    if reference is None:
+        return {"status": "missing", "reason": "no_valid_stored_reference"}
+    await repository.run(
+        "INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO NOTHING",
+        (key, json.dumps(reference, sort_keys=True), iso(current)),
+    )
+    return {"status": "ok", "reference": reference}
 
 
 async def capture_reference(repository, *, now: datetime | None = None, fetcher=None):
@@ -155,24 +211,42 @@ def _latest_expected_b3_day(now: datetime):
     return day
 
 
+async def otec_close_basis(repository, close):
+    day = close.astimezone(OSLO_TZ).date().isoformat()
+    official = await repository.first(
+        """SELECT mp.price,mp.price_type,mp.observed_at,s.code AS source
+        FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='OTEC' AND mp.trading_date=? AND mp.price_type='CLOSE'
+        ORDER BY CASE s.code WHEN 'EURONEXT' THEN 0 ELSE 1 END,mp.id DESC LIMIT 1""",
+        (day,),
+    )
+    if official and number(official.get("price")):
+        return official
+    rows = await repository.all(
+        """SELECT mp.price,'LAST' AS price_type,mp.observed_at,s.code AS source
+        FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
+        JOIN sources s ON s.id=mp.source_id
+        WHERE i.symbol='OTEC' AND mp.trading_date=? AND mp.price_type='LAST'
+          AND julianday(mp.observed_at)<=julianday(?)
+        UNION ALL
+        SELECT ma.last_price_nok AS price,'LAST' AS price_type,
+               json_extract(ma.metadata_json,'$.latest_trade_at') AS observed_at,s.code AS source
+        FROM market_activity ma JOIN instruments i ON i.id=ma.instrument_id
+        JOIN sources s ON s.id=ma.source_id
+        WHERE i.symbol='OTEC' AND ma.trading_date=? AND s.code='EURONEXT'
+          AND julianday(json_extract(ma.metadata_json,'$.latest_trade_at'))<=julianday(?)
+        ORDER BY observed_at DESC""",
+        (day, iso(close), day, iso(close)),
+    )
+    return next((row for row in rows if number(row.get("price"))), None)
+
+
 async def otec_effect(repository, close: datetime, change_brl: float) -> dict[str, Any]:
     """Translate only the Bemobi price move, with FX and capital held at Oslo close."""
     day = close.astimezone(OSLO_TZ).date().isoformat()
     otec, fx, holding, shares = await asyncio.gather(
-        repository.first(
-            """SELECT mp.price, mp.price_type, mp.observed_at, s.code AS source
-            FROM market_prices mp
-            JOIN instruments i ON i.id=mp.instrument_id
-            JOIN sources s ON s.id=mp.source_id
-            WHERE i.symbol='OTEC' AND mp.trading_date=?
-              AND (mp.price_type='CLOSE' OR (mp.price_type='LAST'
-                   AND julianday(mp.observed_at) <= julianday(?)
-                   AND julianday(mp.observed_at) >= julianday(?)))
-            ORDER BY CASE mp.price_type WHEN 'CLOSE' THEN 0 ELSE 1 END,
-                     CASE s.code WHEN 'EURONEXT' THEN 0 ELSE 1 END,
-                     julianday(mp.observed_at) DESC, mp.id DESC LIMIT 1""",
-            (day, iso(close), iso(close - timedelta(minutes=65))),
-        ),
+        otec_close_basis(repository, close),
         repository.first(
             """SELECT fr.rate, fr.observed_at, s.code AS source
             FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
@@ -255,11 +329,18 @@ async def bemobi_after_oslo(
         (STATE_PREFIX + close.date().isoformat(),),
     )
     if row is None:
-        if current <= close + REFERENCE_DELAY + REFERENCE_TOLERANCE:
-            result["status"] = "waiting_reference"
-        return result
+        reference = await stored_reference(repository, close, current)
+        if reference is None:
+            if current <= close + REFERENCE_DELAY + REFERENCE_TOLERANCE:
+                result["status"] = "waiting_reference"
+            return result
+    else:
+        try:
+            reference = json.loads(row["value"])
+        except (TypeError, ValueError):
+            return result
     try:
-        reference = json.loads(row["value"])
+        reference = dict(reference)
     except (TypeError, ValueError):
         return result
     if not isinstance(reference, dict):
@@ -367,21 +448,17 @@ async def bemobi_after_oslo(
 
 
 async def run_reference_capture(database, *, now: datetime | None = None):
-    """Bounded scheduled job using the same writer lease as normal refreshes."""
-    from job_lock import acquire_refresh_lock, release_refresh_lock
+    """Capture independent of NAV refreshes; all writes are idempotent.
+
+    The per-day reference is protected by INSERT ... ON CONFLICT DO NOTHING.
+    A long-running NAV writer must not make us miss the short quote window.
+    """
     from repository import D1WriteRepository
 
     current = (now or datetime.now(UTC)).astimezone(UTC)
     if capture_window(current) is None:
         return {"status": "skipped", "reason": "outside_reference_window"}
     repository = D1WriteRepository(database)
-    lock = await acquire_refresh_lock(
-        repository,
-        owner=f"bemobi-reference:{iso(current)}",
-        ttl_seconds=120,
-    )
-    if not lock.get("acquired"):
-        return {"status": "skipped", "reason": "refresh_lock_held"}
     job_id = None
     try:
         job_id = await repository.start_job(
@@ -408,5 +485,3 @@ async def run_reference_capture(database, *, now: datetime | None = None):
                 error_message=f"{type(exc).__name__}: {str(exc)[:500]}",
             )
         raise
-    finally:
-        await release_refresh_lock(repository, lock.get("token"))

@@ -35,6 +35,11 @@ class ScheduledOtecActivityStatusTest(unittest.IsolatedAsyncioTestCase):
         )
         patches = (
             patch.object(
+                scheduled,
+                "recover_reference",
+                AsyncMock(return_value={"status": "skipped"}),
+            ),
+            patch.object(
                 scheduled, "PerformanceD1WriteRepository", return_value=repository
             ),
             patch.object(scheduled, "refresh_otec_daily_activity", missing_activity),
@@ -85,6 +90,11 @@ class ScheduledOtecActivityStatusTest(unittest.IsolatedAsyncioTestCase):
         successful_step = AsyncMock(return_value={"status": "ok"})
         failing_step = AsyncMock(side_effect=TimeoutError("provider timed out"))
         patches = (
+            patch.object(
+                scheduled,
+                "recover_reference",
+                AsyncMock(return_value={"status": "skipped"}),
+            ),
             patch.object(
                 scheduled, "PerformanceD1WriteRepository", return_value=repository
             ),
