@@ -182,7 +182,7 @@ jobs:
           assert config['r2_buckets'][0]['bucket_name'] == os.environ['CLOUDFLARE_R2_BUCKET_NAME']
           assert config['limits']['cpu_ms'] == 60000
           assert config['limits']['subrequests'] == 50000
-          assert config['triggers']['crons'] == ['*/30 * * * *', '35 3 * * *']
+          assert config['triggers']['crons'] == ['*/30 * * * *', '35 3 * * *', '40-42 14,15 * * 1-5', '20-22 11,12 * * 1-5']
           workflows = {item['binding']: item for item in config['workflows']}
           assert not workflows['FULL_REFRESH'].get('schedules')
           variables = config['vars']

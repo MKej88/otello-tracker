@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -208,6 +209,7 @@ def test_life360_beholdes_i_eksisterende_30_minutters_refresh() -> None:
     wrangler = (ROOT / "cloudflare/wrangler.jsonc").read_text(encoding="utf-8")
     scheduled = (ROOT / "cloudflare/src/scheduled.py").read_text(encoding="utf-8")
 
-    assert '"crons": ["*/30 * * * *", "35 3 * * *"]' in wrangler
+    crons = json.loads(wrangler)["triggers"]["crons"]
+    assert {"*/30 * * * *", "35 3 * * *"} <= set(crons)
     assert "repair_life360_lif_if_stale" in scheduled
     assert "force_refresh=True" in scheduled
