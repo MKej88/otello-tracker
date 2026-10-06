@@ -239,7 +239,8 @@
 }
 
 .overviewV3 .bemobiAfterOsloMain {
-  gap:16px;
+  grid-template-columns:1fr;
+  gap:12px;
 }
 
 .overviewV3 .bemobiAfterOsloMain>div:first-child {

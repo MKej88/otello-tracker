@@ -30,7 +30,13 @@ class Repository:
             CREATE TABLE market_prices(id INTEGER PRIMARY KEY,instrument_id INTEGER,
               source_id INTEGER,price TEXT,observed_at TEXT,trading_date TEXT,
               price_type TEXT,metadata_json TEXT);
-            INSERT INTO instruments VALUES(1,'BMOB3');
+            CREATE TABLE fx_rates(id INTEGER PRIMARY KEY,base_currency TEXT,quote_currency TEXT,
+              rate TEXT,observed_at TEXT,source_id INTEGER);
+            CREATE TABLE bemobi_holdings(id INTEGER PRIMARY KEY,shares INTEGER,
+              effective_from TEXT,effective_to TEXT);
+            CREATE TABLE otello_share_counts(id INTEGER PRIMARY KEY,outstanding_shares INTEGER,
+              effective_from TEXT,effective_to TEXT);
+            INSERT INTO instruments VALUES(1,'BMOB3'),(2,'OTEC');
             INSERT INTO sources VALUES(1,'B3'),(2,'YAHOO_FINANCE');
         """)
 
@@ -249,3 +255,87 @@ def test_database_failure_is_not_disguised_as_missing_reference():
     repo.db.close()
     with pytest.raises(sqlite3.ProgrammingError):
         asyncio.run(feature.bemobi_after_oslo(repo, now=datetime.now(UTC)))
+
+
+def effect_repo():
+    repo = Repository()
+    repo.anchor()
+    repo.db.executescript("""
+        INSERT INTO sources VALUES(3,'EURONEXT'),(4,'NORGES_BANK');
+        INSERT INTO market_prices VALUES(10,2,3,'20','2026-10-05T14:25:00Z','2026-10-05','CLOSE','{}');
+        INSERT INTO fx_rates VALUES(1,'BRL','NOK','2','2026-10-05T12:00:00Z',4);
+        INSERT INTO bemobi_holdings VALUES(1,100,'2026-01-01',NULL);
+        INSERT INTO otello_share_counts VALUES(1,200,'2026-01-01',NULL);
+    """)
+    return repo
+
+
+@pytest.mark.parametrize(
+    ("price", "delta", "percent"),
+    [(20.48, 0.48, 2.4), (19.52, -0.48, -2.4), (20, 0, 0)],
+)
+def test_otec_effect_is_value_change_over_otec_price(price, delta, percent):
+    repo = effect_repo()
+    repo.quote("2026-10-05T14:45:00Z", price)
+    result = asyncio.run(
+        feature.bemobi_after_oslo(repo, now=dt("2026-10-05T15:00:00Z"))
+    )
+    effect = result["otec_effect"]
+    assert effect["ready"]
+    assert effect["change_per_share_nok"] == pytest.approx(delta)
+    assert effect["change_pct"] == pytest.approx(percent)
+
+
+def test_otec_effect_excludes_later_fx_prices_and_capital_changes():
+    repo = effect_repo()
+    repo.db.executescript("""
+        INSERT INTO fx_rates VALUES(2,'BRL','NOK','9','2026-10-05T15:00:00Z',4);
+        INSERT INTO market_prices VALUES(11,2,3,'100','2026-10-06T10:00:00Z','2026-10-06','LAST','{}');
+        INSERT INTO bemobi_holdings VALUES(2,999,'2026-10-06',NULL);
+        INSERT INTO otello_share_counts VALUES(2,999,'2026-10-06',NULL);
+    """)
+    result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
+    assert result["change_pct"] == pytest.approx(1.5)
+    assert result["fixed_brl_nok"] == 2
+    assert result["holding_shares"] == 100
+    assert result["otec_outstanding_shares"] == 200
+
+
+@pytest.mark.parametrize(
+    "table,missing",
+    [
+        ("fx_rates", "fixed_fx"),
+        ("bemobi_holdings", "bemobi_holding"),
+        ("otello_share_counts", "otec_shares"),
+        ("market_prices", "otec_close"),
+    ],
+)
+def test_missing_otec_inputs_never_invent_effect(table, missing):
+    repo = effect_repo()
+    repo.db.execute(f"DELETE FROM {table}")
+    result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
+    assert not result["ready"]
+    assert missing in result["missing"]
+    assert "change_pct" not in result
+
+
+def test_effect_rejects_old_fx_invalid_denominator_and_post_close_last():
+    repo = effect_repo()
+    repo.db.executescript("""
+        UPDATE fx_rates SET observed_at='2026-09-01T12:00:00Z';
+        UPDATE otello_share_counts SET outstanding_shares=0;
+        UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:30:00Z' WHERE instrument_id=2;
+    """)
+    result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
+    assert set(result["missing"]) == {"fixed_fx", "otec_shares", "otec_close"}
+
+
+def test_effect_uses_nearby_pre_close_last_only_when_close_missing():
+    repo = effect_repo()
+    repo.db.execute(
+        "UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:15:00Z' WHERE instrument_id=2"
+    )
+    result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
+    assert result["ready"]
+    assert result["otec_price_type"] == "LAST"
+    assert result["change_pct"] == pytest.approx(1.5)
