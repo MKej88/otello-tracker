@@ -1,6 +1,6 @@
 .overviewV3 {
   display:grid;
-  gap:20px;
+  gap:12px;
 }
 
 .overviewV3 .overviewHeroGrid {
@@ -12,8 +12,8 @@
 .overviewV3 .overviewNavCard,
 .overviewV3 .overviewUpcomingCard {
   min-width:0;
-  min-height:220px;
-  padding:var(--ot-card-primary-padding);
+  min-height:0;
+  padding:16px;
 }
 
 .overviewNavCardV3 {
@@ -22,8 +22,8 @@
 }
 
 .overviewNavCardV3 h2 {
-  margin:7px 0 16px;
-  font-size:clamp(var(--ot-type-key-value-large),4vw,3.35rem);
+  margin:4px 0 10px;
+  font-size:clamp(1.75rem,3vw,2.25rem);
   letter-spacing:-.04em;
 }
 
@@ -36,7 +36,7 @@
 
 .overviewNavSnapshot>div {
   min-width:0;
-  padding:12px 14px;
+  padding:8px 12px;
   border-left:1px solid var(--ot-border-soft);
   border-top:0;
   border-right:0;
@@ -62,7 +62,7 @@
 }
 
 .overviewNavSnapshot>div:nth-child(-n+2) strong {
-  font-size:var(--ot-type-key-value);
+  font-size:1.375rem;
   letter-spacing:-.03em;
 }
 
@@ -72,8 +72,8 @@
 }
 
 .overviewDiscountContext {
-  margin-top:14px;
-  padding-top:12px;
+  margin-top:8px;
+  padding-top:8px;
   border-top:1px solid var(--ot-border-soft);
   font-size:var(--ot-type-meta);
   color:var(--ot-text-secondary);
@@ -81,7 +81,7 @@
 }
 
 .overviewUpdated {
-  margin-top:8px;
+  margin-top:4px;
   color:var(--ot-text-secondary);
   font-size:var(--ot-type-meta);
 }
@@ -89,7 +89,7 @@
 .overviewUpcomingCardV3 {
   display:grid;
   align-content:start;
-  gap:var(--ot-space-md);
+  gap:6px;
 }
 
 .overviewUpcomingHeader h2 {
@@ -100,10 +100,10 @@
 .overviewNextEvent {
   display:grid;
   grid-template-columns:92px minmax(0,1fr);
-  gap:18px;
+  gap:12px;
   align-items:center;
-  margin-top:15px;
-  padding:16px 0;
+  margin-top:0;
+  padding:8px 0;
   border-top:1px solid var(--ot-border-soft);
   border-bottom:1px solid var(--ot-border-soft);
 }
@@ -115,7 +115,7 @@
 }
 
 .overviewNextEventDate strong {
-  font-size:1.35rem;
+  font-size:1.125rem;
   letter-spacing:-.02em;
 }
 
@@ -146,7 +146,7 @@
 
 .overviewNextEventMain small {
   display:block;
-  margin-top:6px;
+  margin-top:2px;
   color:var(--ot-text-secondary);
   font-size:var(--ot-type-meta);
   line-height:1.45;
@@ -161,7 +161,7 @@
   grid-template-columns:72px minmax(0,1fr) auto;
   gap:10px;
   align-items:center;
-  padding:9px 0;
+  padding:6px 0;
   border-bottom:1px solid var(--ot-border-soft);
 }
 
@@ -223,14 +223,64 @@
 .overviewUpcomingEmpty {
   display:grid;
   place-items:center;
-  min-height:120px;
-  margin-top:14px;
-  padding:16px;
+  min-height:0;
+  margin-top:0;
+  padding:12px 0;
   border-top:1px solid var(--ot-border-soft);
   color:var(--ot-text-muted);
   font-size:var(--ot-type-body);
   line-height:1.45;
   text-align:center;
+}
+
+/* Compact overview variant; the full Bemobi page keeps its existing sizing. */
+.overviewV3 .bemobiAfterOslo {
+  padding:12px 16px;
+}
+
+.overviewV3 .bemobiAfterOsloMain {
+  gap:16px;
+}
+
+.overviewV3 .bemobiAfterOsloMain>div:first-child {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  gap:4px 12px;
+  align-items:center;
+}
+
+.overviewV3 .bemobiAfterOsloMain>div:first-child>.label,
+.overviewV3 .bemobiAfterOslo h2,
+.overviewV3 .bemobiAfterOsloMain>div:first-child>small {
+  grid-column:1/-1;
+}
+
+.overviewV3 .bemobiAfterOslo h2 {
+  margin:0 0 4px;
+  font-size:1rem;
+}
+
+.overviewV3 .bemobiAfterOsloValue {
+  font-size:1.75rem;
+  line-height:1.2;
+}
+
+.overviewV3 .bemobiAfterOsloStatus {
+  margin:0;
+}
+
+.overviewV3 .bemobiAfterOsloChart {
+  height:48px;
+  margin-top:6px;
+}
+
+.overviewV3 .bemobiAfterOsloDetails {
+  margin-top:8px;
+}
+
+.overviewV3 .bemobiAfterOsloDetails summary {
+  min-height:44px;
+  padding:10px 0;
 }
 
 .overviewSection {
