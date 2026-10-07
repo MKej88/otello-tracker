@@ -304,12 +304,16 @@ async def otec_close_basis(repository, close):
     )
     if official and number(official.get("price")):
         return official
+    # Match the closing-session window accepted by OTEC EOD finalization.
+    # Euronext auction executions can be timestamped after the 16:25/13:05 anchor.
+    auction_end = close + timedelta(minutes=5)
     rows = await repository.all(
         """SELECT mp.price,'LAST' AS price_type,mp.observed_at,s.code AS source
         FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
         JOIN sources s ON s.id=mp.source_id
         WHERE i.symbol='OTEC' AND mp.trading_date=? AND mp.price_type='LAST'
-          AND julianday(mp.observed_at)<=julianday(?)
+          AND (julianday(mp.observed_at)<=julianday(?)
+               OR (s.code='EURONEXT' AND julianday(mp.observed_at)<=julianday(?)))
         UNION ALL
         SELECT ma.last_price_nok AS price,'LAST' AS price_type,
                json_extract(ma.metadata_json,'$.latest_trade_at') AS observed_at,s.code AS source
@@ -318,7 +322,7 @@ async def otec_close_basis(repository, close):
         WHERE i.symbol='OTEC' AND ma.trading_date=? AND s.code='EURONEXT'
           AND julianday(json_extract(ma.metadata_json,'$.latest_trade_at'))<=julianday(?)
         ORDER BY observed_at DESC""",
-        (day, iso(close), day, iso(close)),
+        (day, iso(close), iso(auction_end), day, iso(auction_end)),
     )
     return next((row for row in rows if number(row.get("price"))), None)
 

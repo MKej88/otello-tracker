@@ -4,7 +4,7 @@ import asyncio
 import json
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -320,12 +320,12 @@ def test_missing_otec_inputs_never_invent_effect(table, missing):
     assert "change_pct" not in result
 
 
-def test_effect_rejects_old_fx_invalid_denominator_and_post_close_last():
+def test_effect_rejects_old_fx_invalid_denominator_and_post_auction_last():
     repo = effect_repo()
     repo.db.executescript("""
         UPDATE fx_rates SET observed_at='2026-09-01T12:00:00Z';
         UPDATE otello_share_counts SET outstanding_shares=0;
-        UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:30:00Z' WHERE instrument_id=2;
+        UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:30:01Z' WHERE instrument_id=2;
     """)
     result = asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))
     assert set(result["missing"]) == {"fixed_fx", "otec_shares", "otec_close"}
@@ -417,7 +417,7 @@ def test_effect_reads_daily_activity_but_prefers_official_close():
     assert result["otec_price_type"] == "LAST"
     repo.db.execute(
         "UPDATE market_activity SET metadata_json=?",
-        (json.dumps({"latest_trade_at": "2026-10-05T14:30:00Z"}),),
+        (json.dumps({"latest_trade_at": "2026-10-05T14:30:01Z"}),),
     )
     assert not asyncio.run(feature.otec_effect(repo, dt("2026-10-05T14:25:00Z"), 0.3))[
         "ready"
@@ -610,3 +610,52 @@ def test_historical_recovery_does_not_hide_persistence_failure(monkeypatch):
         asyncio.run(
             feature.recover_reference(Repository(), now=dt("2026-10-07T15:00:00Z"))
         )
+
+
+@pytest.mark.parametrize("source_table", ["market_prices", "market_activity"])
+@pytest.mark.parametrize("day", ["2026-10-07", "2026-12-07", "2026-04-01"])
+def test_effect_includes_euronext_closing_auction_in_theoretical_price(
+    source_table, day
+):
+    repo = effect_repo()
+    close = feature.closing_auction(dt(day).date())
+    before = feature.iso(close - timedelta(seconds=30))
+    execution = feature.iso(close + timedelta(seconds=30))
+    repo.db.execute(
+        "UPDATE market_prices SET price_type='LAST',price='20.05',trading_date=?,observed_at=? WHERE instrument_id=2",
+        (day, before),
+    )
+    repo.db.execute("UPDATE fx_rates SET observed_at=?", (before,))
+    repo.db.execute("UPDATE bemobi_holdings SET effective_from=?", (day,))
+    repo.db.execute("UPDATE otello_share_counts SET effective_from=?", (day,))
+    if source_table == "market_prices":
+        repo.db.execute(
+            "INSERT INTO market_prices VALUES(11,2,3,'20',?,?,'LAST','{}')",
+            (execution, day),
+        )
+    else:
+        repo.db.execute(
+            "INSERT INTO market_activity VALUES(1,2,3,?,'20',?)",
+            (day, json.dumps({"latest_trade_at": execution})),
+        )
+    result = asyncio.run(feature.otec_effect(repo, close, -0.01))
+    assert result["ready"]
+    assert result["otec_price_nok"] == 20
+    assert result["otec_observed_at"] == execution
+    assert result["change_pct"] == pytest.approx(-0.05)
+    assert result["otec_price_nok"] + result["change_per_share_nok"] == pytest.approx(
+        19.99
+    )
+
+
+def test_effect_keeps_official_close_and_excludes_later_other_source_quotes():
+    repo = effect_repo()
+    repo.db.execute(
+        "INSERT INTO market_prices VALUES(11,2,2,'99','2026-10-05T14:25:30Z','2026-10-05','LAST','{}')"
+    )
+    close = dt("2026-10-05T14:25:00Z")
+    assert asyncio.run(feature.otec_effect(repo, close, -0.01))["otec_price_nok"] == 20
+    repo.db.execute(
+        "UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:24:00Z' WHERE id=10"
+    )
+    assert asyncio.run(feature.otec_effect(repo, close, -0.01))["otec_price_nok"] == 20
