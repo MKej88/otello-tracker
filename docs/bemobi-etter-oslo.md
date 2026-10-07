@@ -75,8 +75,11 @@ mislykket oppdatering eller ugyldig resultat. Dette er bare en justering for
 Bemobi-bevegelsen med fast valutakurs, ikke en prognose for OTEC-kursen.
 
 Grunnlaget leses for samme Oslo-dato. Sluttkurs for OTEC prioriteres; dersom bare
-LAST finnes, brukes siste tidsstemplede handel fra samme handelsdag, senest ved sluttauksjonen og kortet
-merker grunnlaget som omtrentlig. Senere OTEC-handler brukes ikke. Valutakursen er
+LAST finnes, brukes siste tidsstemplede handel fra samme handelsdag. Euronext-handler
+til og med fem minutter etter sluttauksjonens start (16:30 / 13:10 på halv dag)
+godtas, som i eksisterende EOD-ferdigstilling. Andre kilder må være tidsstemplet
+senest ved 16:25 / 13:05. Kortet merker LAST-grunnlaget som omtrentlig.
+Handler etter auksjonsvinduet brukes ikke. Valutakursen er
 siste tilgjengelige dagskurs med eksisterende kildeprioritet (Norges Bank, ECB),
 tidsstemplet senest ved close på Oslo Børs og høyst sju dager gammel. Den brukes uendret
 på begge Bemobi-kursene. Beholdning og utestående aksjer gjelder Oslo-datoen.
@@ -88,7 +91,7 @@ Ingen migrering eller ny ekstern datakilde er nødvendig.
 
 
 OTEC-grunnlaget inkluderer siste handel fra Euronexts dagsfil (`market_activity`),
-med faktisk handelstid senest ved sluttauksjonen. Eksplisitt CLOSE prioriteres på
+med faktisk handelstid innen samme auksjonsvindu. Eksplisitt CLOSE prioriteres på
 samme dato i både kursvisning, dagshistorikk og OTEC-effekt. En handel tidligere på
 dagen er et merket LAST-grunnlag, ikke en offisiell sluttkurs.
 
@@ -97,7 +100,11 @@ sluttauksjonen; ellers kreves hel dagsfil. Gamle ferdigmarkeringer med en tidlig
 handel og uten hel dagsfil regnes ikke som tilstrekkelig dekning. Dagsaktivitet
 kontrolleres på nytt i to timer etter sluttauksjonen og én gang som forrige
 handelsdag for å ta med forsinkede publikasjoner.
-Alle beregnede Oslo-sluttider følger 16:25 / 13:05 på halv handelsdag.
+Bemobi-referansen og fast valutakurs følger fortsatt 16:25 / 13:05 på halv
+handelsdag. Bare OTEC-kursgrunnlaget inkluderer de påfølgende auksjonshandlene.
+Dette retter tilfeller der en tidligere handel på 20,05 ble brukt selv om
+sluttauksjonens siste handel var 20,00; med effekt −0,01 blir teoretisk kurs
+19,99 i stedet for 20,04. Eksisterende lagrede kurser endres ikke.
 
 Kildeprioriteringen kan endre eksisterende kursgrafer og prosentendringer på datoer
 hvor både eksplisitt CLOSE og dagsfilens siste handel finnes og er ulike. Lagrede

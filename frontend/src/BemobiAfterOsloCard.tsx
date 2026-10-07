@@ -93,7 +93,7 @@ export default function BemobiAfterOsloCard() {
           <summary>Vis beregningsgrunnlag</summary>
           {effect && <>
             <p>OTEC ved close på Oslo Børs: {formatNumber(effect.otec_price_nok, 2)} kr · {effect.otec_source}
-              {effect.otec_price_type === "LAST" ? " · siste tilgjengelige handel før close på Oslo Børs (omtrentlig)" : " · sluttkurs"}.</p>
+              {effect.otec_price_type === "LAST" ? " · siste tilgjengelige handel i børsøkten, inkludert sluttauksjonen (omtrentlig)" : " · sluttkurs"}.</p>
             <p>Fast BRL/NOK: {formatNumber(effect.fixed_brl_nok, 4)} · {formatDateTime(effect.fx_observed_at)} · {effect.fx_source}.</p>
             <p>Bemobi-beholdning: {formatNumber(effect.holding_shares, 0)} aksjer. Utestående OTEC-aksjer: {formatNumber(effect.otec_outstanding_shares, 0)}.</p>
           </>}
