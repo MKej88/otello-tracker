@@ -446,3 +446,167 @@ def test_reference_job_does_not_require_nav_writer_lock(monkeypatch):
     )
     assert result["status"] == "ok"
     assert repo.finished["status"] == "SUCCESS"
+
+
+def yahoo_payload(bars, **metadata):
+    return json.dumps(
+        {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {
+                            "symbol": "BMOB3.SA",
+                            "currency": "BRL",
+                            "exchangeTimezoneName": "America/Sao_Paulo",
+                            **metadata,
+                        },
+                        "timestamp": [int(dt(at).timestamp()) for at, _ in bars],
+                        "indicators": {
+                            "quote": [{"close": [price for _, price in bars]}]
+                        },
+                    }
+                ],
+                "error": None,
+            }
+        }
+    ).encode()
+
+
+def test_historical_reference_excludes_bar_starting_at_close_and_later_prices():
+    payload = yahoo_payload(
+        [
+            ("2026-10-07T14:23:00Z", 31.07),
+            ("2026-10-07T14:24:00Z", 31.09),
+            ("2026-10-07T14:25:00Z", 31.05),
+            ("2026-10-07T15:00:00Z", 32),
+        ]
+    )
+    quote = feature.yahoo_reference_quote(
+        payload, dt("2026-10-07T14:25:00Z"), dt("2026-10-07T15:00:00Z")
+    )
+    assert quote.price == feed.Decimal("31.09")
+    assert quote.observed_at == "2026-10-07T14:25:00Z"
+    assert quote.volume_shares is None
+
+
+@pytest.mark.parametrize(
+    "bars",
+    [
+        [("2026-10-07T14:20:00Z", 31)],
+        [("2026-10-06T14:24:00Z", 31)],
+        [("2026-10-07T14:25:00Z", 31)],
+        [("2026-10-07T14:24:00Z", None)],
+        [("2026-10-07T14:24:00Z", float("nan"))],
+    ],
+)
+def test_historical_reference_rejects_missing_old_and_post_close_bars(bars):
+    assert (
+        feature.yahoo_reference_quote(
+            yahoo_payload(bars), dt("2026-10-07T14:25:00Z"), dt("2026-10-07T15:00:00Z")
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"symbol": "OTEC.OL"},
+        {"currency": "NOK"},
+        {"exchangeTimezoneName": "Europe/Oslo"},
+    ],
+)
+def test_historical_reference_validates_instrument_currency_and_timezone(metadata):
+    with pytest.raises(ValueError):
+        feature.yahoo_reference_quote(
+            yahoo_payload([("2026-10-07T14:24:00Z", 31)], **metadata),
+            dt("2026-10-07T14:25:00Z"),
+            dt("2026-10-07T15:00:00Z"),
+        )
+
+
+def test_recovery_backfills_once_after_b3_window_and_makes_card_ready(monkeypatch):
+    repo = Repository()
+    repo.quote("2026-10-07T14:45:00Z", 32)
+    calls = []
+    payload = yahoo_payload(
+        [("2026-10-07T14:24:00Z", 31.09), ("2026-10-07T14:45:00Z", 32)]
+    )
+
+    async def download(**kwargs):
+        calls.append("download")
+        return "https://query1.finance.yahoo.com/chart", payload, None, "query1"
+
+    async def persist(repository, quote, *args, **kwargs):
+        calls.append("persist")
+        repository.quote(quote.observed_at, quote.price, source=2)
+        return 7
+
+    monkeypatch.setattr(feed, "download_bmob3_yahoo_quote", download)
+    monkeypatch.setattr(feed, "_persist_yahoo_quote", persist)
+    early = asyncio.run(feature.recover_reference(repo, now=dt("2026-10-07T14:42:00Z")))
+    assert early["status"] == "missing" and not calls
+    result = asyncio.run(
+        feature.recover_reference(repo, now=dt("2026-10-07T15:00:00Z"))
+    )
+    assert result["reference"]["source"] == "YAHOO_FINANCE"
+    assert result["reference"]["bar_start_at"] == "2026-10-07T14:24:00Z"
+    card = asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-07T15:00:00Z")))
+    assert card["ready"] and card["change_pct"] == pytest.approx((32 / 31.09 - 1) * 100)
+    again = asyncio.run(feature.recover_reference(repo, now=dt("2026-10-07T15:30:00Z")))
+    assert again["reason"] == "reference_already_captured"
+    assert calls == ["download", "persist"]
+
+
+def test_recovery_keeps_b3_priority_and_reports_network_failure(monkeypatch):
+    calls = []
+
+    async def unavailable(**kwargs):
+        calls.append(1)
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(feed, "download_bmob3_yahoo_quote", unavailable)
+    repo = Repository()
+    repo.quote("2026-10-07T14:25:00Z", 31)
+    result = asyncio.run(
+        feature.recover_reference(repo, now=dt("2026-10-07T15:00:00Z"))
+    )
+    assert result["reference"]["source"] == "B3" and not calls
+    result = asyncio.run(
+        feature.recover_reference(Repository(), now=dt("2026-10-07T15:00:00Z"))
+    )
+    assert result["reason"] == "historical_reference_unavailable"
+    assert "change_pct" not in result
+
+
+@pytest.mark.parametrize(
+    "close,bar",
+    [
+        ("2026-11-02T15:25:00Z", "2026-11-02T15:24:00Z"),
+        ("2026-04-01T11:05:00Z", "2026-04-01T11:04:00Z"),
+    ],
+)
+def test_historical_reference_handles_winter_and_half_day(close, bar):
+    quote = feature.yahoo_reference_quote(
+        yahoo_payload([(bar, 31)]), dt(close), dt(close)
+    )
+    assert quote.observed_at == close
+    assert (
+        feature.yahoo_reference_quote(yahoo_payload([(bar, 31)]), dt(close), dt(bar))
+        is None
+    )
+
+
+def test_historical_recovery_does_not_hide_persistence_failure(monkeypatch):
+    async def download(**kwargs):
+        return "yahoo", yahoo_payload([("2026-10-07T14:24:00Z", 31)]), None, "query1"
+
+    async def persist(*args, **kwargs):
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(feed, "download_bmob3_yahoo_quote", download)
+    monkeypatch.setattr(feed, "_persist_yahoo_quote", persist)
+    with pytest.raises(sqlite3.OperationalError):
+        asyncio.run(
+            feature.recover_reference(Repository(), now=dt("2026-10-07T15:00:00Z"))
+        )
