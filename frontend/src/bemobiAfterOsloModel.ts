@@ -70,3 +70,11 @@ export function displayedOtecEffect(data: BemobiAfterOslo | null, refreshFailed 
     && Number.isFinite(effect.change_pct) && Number.isFinite(effect.change_per_share_nok)
     ? effect : null;
 }
+
+export function displayedTheoreticalOtecPrice(data: BemobiAfterOslo | null, refreshFailed = false) {
+  const effect = displayedOtecEffect(data, refreshFailed);
+  const close = effect?.otec_price_nok;
+  if (close == null || !Number.isFinite(close) || close <= 0) return null;
+  const price = close + effect!.change_per_share_nok!;
+  return Number.isFinite(price) && price > 0 ? price : null;
+}

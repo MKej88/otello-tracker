@@ -68,6 +68,12 @@ og [Oslo migration guidelines](https://connect2.euronext.com/sites/default/files
 `change_per_share_nok = change_brl × Bemobi-beholdning × fast BRL/NOK / utestående OTEC-aksjer`.
 `change_pct = change_per_share_nok / OTEC-kurs ved close på Oslo Børs × 100`.
 
+Kortet viser også **Teoretisk OTEC-kurs**: OTEC-kursen ved samme Oslo-slutt pluss
+`change_per_share_nok`. Beregningen bruker uavrundede verdier; bare visningen
+avrundes til to desimaler. Kursen skjules ved manglende eller foreldet grunnlag,
+mislykket oppdatering eller ugyldig resultat. Dette er bare en justering for
+Bemobi-bevegelsen med fast valutakurs, ikke en prognose for OTEC-kursen.
+
 Grunnlaget leses for samme Oslo-dato. Sluttkurs for OTEC prioriteres; dersom bare
 LAST finnes, brukes siste tidsstemplede handel fra samme handelsdag, senest ved sluttauksjonen og kortet
 merker grunnlaget som omtrentlig. Senere OTEC-handler brukes ikke. Valutakursen er
