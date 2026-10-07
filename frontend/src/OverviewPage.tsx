@@ -4,6 +4,7 @@ import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { medianDiscountPriceLine } from "./navMedianPrice";
 import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -408,6 +409,9 @@ export default function OverviewPage() {
   const discountSpread = nav?.discount_pct != null && discountMedian != null
     ? nav.discount_pct - discountMedian
     : null;
+  const medianPriceLine = nav?.ready && history?.estimated?.ready
+    ? medianDiscountPriceLine(nav.nav_per_share, discountMedian, summary?.otec_price, formatNumber)
+    : null;
   const events = upcomingEvents(overviewEvents);
   const nextEvent = events[0];
   const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
@@ -429,6 +433,7 @@ export default function OverviewPage() {
               : discountSpread >= 0
                 ? `Rabatten er ${formatNumber(discountSpread, 1)} pp bredere enn 1-årsmedianen.`
                 : `Rabatten er ${formatNumber(Math.abs(discountSpread), 1)} pp smalere enn 1-årsmedianen.`}
+            {medianPriceLine != null ? <div className="numeric">{medianPriceLine}</div> : null}
           </div>
           <small className="overviewUpdated numeric">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
         </article>
