@@ -1,6 +1,6 @@
 import { usePollingResource } from "./usePollingResource";
 import { formatDateTime, formatNumber } from "./uiFormat";
-import { displayedChange, displayedOtecEffect, movementChart, statusLabel, type BemobiAfterOslo } from "./bemobiAfterOsloModel";
+import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, movementChart, statusLabel, type BemobiAfterOslo } from "./bemobiAfterOsloModel";
 import "./bemobi-after-oslo.css";
 
 function timeLabel(at?: string) {
@@ -20,6 +20,7 @@ export default function BemobiAfterOsloCard() {
   const reference = data?.reference;
   const latest = data?.latest;
   const effect = displayedOtecEffect(data, refreshFailed);
+  const theoreticalPrice = displayedTheoreticalOtecPrice(data, refreshFailed);
   const effectTone = effect?.change_pct == null || effect.change_pct === 0 ? "neutral" : effect.change_pct > 0 ? "positive" : "negative";
   const signed = (value: number, suffix: string) => `${value > 0 ? "+" : ""}${formatNumber(value, 2)}${suffix}`;
   const missingLabels: Record<string, string> = {
@@ -78,12 +79,16 @@ export default function BemobiAfterOsloCard() {
         <div className={`otecEffectAmount numeric ${effectTone}`}>
           {effect ? signed(effect.change_per_share_nok!, " kr per OTEC-aksje") : "—"}
         </div>
+        <div className="otecTheoreticalPrice">
+          <span>Teoretisk OTEC-kurs</span>
+          <strong className="numeric">{theoreticalPrice == null ? "—" : `${formatNumber(theoreticalPrice, 2)} kr`}</strong>
+        </div>
         <div className="bemobiAfterOsloStatus" role="status">
           {effect ? "Beregnet fra Bemobi etter close på Oslo Børs"
             : change == null ? statusLabel(data?.status, refreshFailed)
             : `Mangler ${data?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
         </div>
-        <small>Valutakurs holdt fast · Teoretisk verdiutslag</small>
+        <small>OTEC-kurs ved Oslo-slutt justert for Bemobi-bevegelsen. Valutakurs holdt fast.</small>
         <details className="bemobiAfterOsloDetails">
           <summary>Vis beregningsgrunnlag</summary>
           {effect && <>
@@ -93,6 +98,7 @@ export default function BemobiAfterOsloCard() {
             <p>Bemobi-beholdning: {formatNumber(effect.holding_shares, 0)} aksjer. Utestående OTEC-aksjer: {formatNumber(effect.otec_outstanding_shares, 0)}.</p>
           </>}
           <p>Bemobis kursendring i BRL × Otellos Bemobi-aksjer × fast BRL/NOK ÷ utestående OTEC-aksjer gir kroner per aksje. Beløpet deles på OTEC-kursen ved samme close på Oslo Børs for å beregne prosenten.</p>
+          <p>Teoretisk OTEC-kurs er OTEC-kursen ved Oslo-slutt pluss Bemobi-effekten per aksje. Beregningen bruker uavrundede verdier.</p>
           <p>Valutakurs og aksjegrunnlag fra referansedatoen holdes fast. Dette er et teoretisk verdiutslag, ikke en prognose for OTEC-kursen.</p>
         </details>
       </section>

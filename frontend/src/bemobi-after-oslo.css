@@ -21,4 +21,6 @@
 
 .bemobiAfterOsloGrid { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); gap:14px; align-items:stretch; }
 .otecEffectAmount { margin:8px 0; font-size:var(--ot-type-body); font-weight:600; }
+.otecTheoreticalPrice { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:12px 0; color:var(--ot-text-secondary); font-size:var(--ot-type-body); }
+.otecTheoreticalPrice strong { color:var(--ot-text); }
 @media(max-width:1000px) { .bemobiAfterOsloGrid { grid-template-columns:1fr; } }
