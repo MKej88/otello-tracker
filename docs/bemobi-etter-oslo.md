@@ -28,6 +28,18 @@ fortsetter hvert 30. minutt; referansejobben henter bare referansen.
   gjøres av 30-minuttersjobben; API-et kan også lese samme grunnlag uten å skrive.
   Kurser utenfor tidsvinduet brukes aldri som referanse.
 
+- Hvis referansen fortsatt mangler etter B3-vinduet, forsøker 30-minuttersjobben
+  å gjenopprette den fra eksisterende Yahoo Finance-intradagkilde. Bare siste
+  avsluttede ettminuttsstolpe som slutter senest ved Oslo-sluttauksjonen og
+  høyst tre minutter tidligere godtas. Stolpen som starter kl. 16:25 brukes
+  ikke, fordi den kan inneholde handler etter sluttauksjonen. Symbol, valuta,
+  tidssone og dato valideres. Referansen lagres med kilde, stolpestart,
+  sluttidspunkt og kildehenvisning, og merkes som omtrentlig i kortet.
+  Seneste kurs eller forrige dags sluttkurs erstatter aldri referansen.
+  Lagret B3-grunnlag prioriteres, og en frosset referanse overskrives ikke.
+  Kilden leverer én dags minuttdata; manglende historikk eller nettverksfeil
+  gir fortsatt manglende grunnlag og registreres i recovery-steget.
+
 - På halve handelsdager kan B3 fortsatt være stengt ved close på Oslo Børs. Når ingen
   fersk referanse finnes, vises manglende grunnlag fremfor en oppdiktet kurs.
 

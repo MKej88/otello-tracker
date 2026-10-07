@@ -115,7 +115,47 @@ async def stored_reference(repository, close: datetime, current: datetime):
     return None
 
 
-async def recover_reference(repository, *, now=None):
+def yahoo_reference_quote(payload, close: datetime, current: datetime):
+    """Use only completed 1-minute bars ending at/before the closing auction."""
+    from bmob3_ingestion import Bmob3YahooQuote, _validated_yahoo_result
+
+    result, _, timezone_name = _validated_yahoo_result(json.loads(payload))
+    times = result.get("timestamp")
+    indicators = result.get("indicators")
+    series = indicators.get("quote") if isinstance(indicators, dict) else None
+    closes = (
+        series[0].get("close")
+        if isinstance(series, list) and len(series) == 1 and isinstance(series[0], dict)
+        else None
+    )
+    if (
+        not isinstance(times, list)
+        or not isinstance(closes, list)
+        or len(times) != len(closes)
+    ):
+        return None
+    candidates = []
+    for raw_time, raw_price in zip(times, closes, strict=True):
+        if type(raw_time) is not int or raw_time % 60 or number(raw_price) is None:
+            continue
+        try:
+            start = datetime.fromtimestamp(raw_time, UTC)
+        except (ValueError, OverflowError, OSError):
+            continue
+        end = start + timedelta(minutes=1)
+        if (
+            start.astimezone(B3_TZ).date() == close.astimezone(B3_TZ).date()
+            and close - REFERENCE_TOLERANCE <= end <= close
+            and end <= current
+        ):
+            candidates.append((end, Decimal(str(raw_price))))
+    if not candidates:
+        return None
+    end, price = max(candidates, key=lambda candidate: candidate[0])
+    return Bmob3YahooQuote(price, end, timezone_name, None, None)
+
+
+async def recover_reference(repository, *, now=None, fetcher=None):
     current = (now or datetime.now(UTC)).astimezone(UTC)
     close = latest_oslo_close(current)
     key = STATE_PREFIX + close.date().isoformat()
@@ -123,7 +163,48 @@ async def recover_reference(repository, *, now=None):
         return {"status": "skipped", "reason": "reference_already_captured"}
     reference = await stored_reference(repository, close, current)
     if reference is None:
-        return {"status": "missing", "reason": "no_valid_stored_reference"}
+        # Give the primary B3 capture its full window. Later half-hour runs can
+        # repair a missed capture from historical minute data, not today's LAST.
+        if current <= close + REFERENCE_DELAY + REFERENCE_TOLERANCE:
+            return {"status": "missing", "reason": "no_valid_stored_reference"}
+        if not is_b3_trading_day(close.astimezone(B3_TZ).date()):
+            return {"status": "missing", "reason": "not_b3_trading_day"}
+        from bmob3_ingestion import download_bmob3_yahoo_quote, _persist_yahoo_quote
+
+        try:
+            url, payload, _, base = await asyncio.wait_for(
+                download_bmob3_yahoo_quote(fetcher=fetcher), timeout=20
+            )
+            quote = yahoo_reference_quote(payload, close, current)
+        except Exception as exc:
+            return {
+                "status": "missing",
+                "reason": "historical_reference_unavailable",
+                "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+            }
+        if quote is None:
+            return {"status": "missing", "reason": "no_valid_historical_reference"}
+        # Persistence failures must remain visible to the scheduler.
+        price_id = await _persist_yahoo_quote(
+            repository,
+            quote,
+            payload,
+            source_url=url,
+            provider_base=base,
+            fallback_reason="Missing B3 Oslo close reference; completed pre-close minute bar",
+        )
+        reference = {
+            "price": str(quote.price),
+            "observed_at": quote.observed_at,
+            "oslo_close_at": iso(close),
+            "source": "YAHOO_FINANCE",
+            "source_url": url,
+            "price_id": price_id,
+            "approximate": True,
+            "recovered": True,
+            "basis": "COMPLETED_PRE_CLOSE_1M_BAR",
+            "bar_start_at": iso(quote.provider_datetime - timedelta(minutes=1)),
+        }
     await repository.run(
         "INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO NOTHING",
         (key, json.dumps(reference, sort_keys=True), iso(current)),

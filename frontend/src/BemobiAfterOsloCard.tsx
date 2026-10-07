@@ -61,8 +61,10 @@ export default function BemobiAfterOsloCard() {
         <details className="bemobiAfterOsloDetails">
           <summary>Vis kursgrunnlag</summary>
           <div>
-            {reference && <p>Referansekurs: R$ {formatNumber(reference.price, 2)} · {formatDateTime(reference.observed_at)} · {reference.source}.</p>}
-            <p>Omtrentlig referanse: B3s svartidspunkt minus 15 minutter. Godtas innen tre minutter fra close på Oslo Børs. Alle tidspunkt vises i norsk tid.</p>
+            {reference && <p>Referansekurs: R$ {formatNumber(reference.price, 2)} · {formatDateTime(reference.observed_at)} · {reference.source === "YAHOO_FINANCE" ? "Yahoo Finance" : reference.source}.</p>}
+            <p>{reference?.source === "YAHOO_FINANCE"
+              ? "Omtrentlig referanse fra Yahoo Finance: sluttkursen i siste avsluttede minutt før close på Oslo Børs, høyst tre minutter tidligere."
+              : "Omtrentlig referanse: B3s svartidspunkt minus 15 minutter. Godtas innen tre minutter fra close på Oslo Børs."} Alle tidspunkt vises i norsk tid.</p>
             <p>Endringen gjelder Bemobi-kursen i BRL. Den inkluderer ikke valutaeffekt og er ikke en prognose for Otello-kursen.</p>
           </div>
         </details>
