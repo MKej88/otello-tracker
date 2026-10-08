@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -280,18 +280,6 @@ async def capture_reference(repository, *, now: datetime | None = None, fetcher=
     return {"status": "ok", "reference": reference}
 
 
-def _latest_expected_b3_day(now: datetime):
-    local = now.astimezone(B3_TZ)
-    day = local.date()
-    if local.time().replace(tzinfo=None) < time(10, 15):
-        day -= timedelta(days=1)
-    for _ in range(15):
-        if is_b3_trading_day(day):
-            return day
-        day -= timedelta(days=1)
-    return day
-
-
 async def otec_close_basis(repository, close):
     day = close.astimezone(OSLO_TZ).date().isoformat()
     official = await repository.first(
@@ -478,20 +466,9 @@ async def bemobi_after_oslo(
     latest = valid[0]
     latest_time = timestamp(latest["observed_at"])
     assert latest_time is not None
-    local_now = current.astimezone(B3_TZ)
-    active = is_b3_trading_day(local_now.date()) and time(
-        10, 15
-    ) <= local_now.time().replace(tzinfo=None) < time(19, 15)
-    freshness_clock = (
-        current
-        if active
-        else datetime.combine(
-            _latest_expected_b3_day(current), time(19, 15), B3_TZ
-        ).astimezone(UTC)
-    )
-    stale = latest_time.astimezone(B3_TZ).date() < _latest_expected_b3_day(current) or (
-        freshness_clock - latest_time > timedelta(minutes=65)
-    )
+    # This card measures movement since the latest Oslo close, not live freshness.
+    # Retain the latest validated quote until latest_oslo_close selects a new day;
+    # the UI shows its actual timestamp, including overnight and holiday gaps.
     try:
         metadata = json.loads(latest.get("metadata_json") or "{}")
     except (TypeError, ValueError):
@@ -504,9 +481,6 @@ async def bemobi_after_oslo(
         if isinstance(metadata, dict)
         else None,
     }
-    if stale:
-        result["status"] = "stale_quote"
-        return result
     latest_price = number(latest["price"])
     assert latest_price is not None
     points = {iso(observed): {"at": iso(observed), "change_pct": 0.0}}
