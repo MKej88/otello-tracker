@@ -50,9 +50,13 @@ etter referansen og ikke senere enn faktisk klokke. `CLOSE` med syntetiske
 dagstidspunkt brukes ikke. Nyeste kurstid vinner; B3 prioriteres ved lik kurstid,
 med Yahoo som eksisterende sekundærkilde. Kurver viser lagrede observasjoner.
 
-For gammel kurs under B3-handel, feil handelsdato eller nettverksfeil i kortet
-undertrykker prosentvisningen. Utenfor B3s handelsvindu beholdes siste tilgjengelige
-kurs og tidspunkt. Referansen beholdes til neste close på Oslo Børs, også gjennom helg.
+Siste gyldige, tidsstemplede kurs etter referansen beholdes frem til neste close
+på Oslo Børs, også over natten, før neste B3-åpning og gjennom helger/helligdager.
+Alder alene skjuler ikke Bemobi-endring, OTEC-effekt eller teoretisk OTEC-kurs;
+faktisk siste kurstidspunkt vises fortsatt. Nye gyldige kurser oppdaterer resultatet.
+Fremtidige kurser, ugyldige tall og CLOSE med syntetiske tidspunkt avvises fortsatt.
+Nettverksfeil i kortet undertrykker prosentvisningen. Referansen beholdes til neste
+close på Oslo Børs.
 Når ny sluttauksjon er passert, venter kortet på den nye forsinkede referansen.
 
 Endringen gjelder Cloudflare-produksjonsløsningen. Referanse-backendens lokale API
@@ -85,7 +89,7 @@ tidsstemplet senest ved close på Oslo Børs og høyst sju dager gammel. Den bru
 på begge Bemobi-kursene. Beholdning og utestående aksjer gjelder Oslo-datoen.
 
 Manglende/ugyldig grunnlag skjuler OTEC-effekten uten å skjule gyldig Bemobi-endring.
-Foreldet Bemobi-kurs og mislykket oppdatering skjuler begge prosenttallene. Kortene
+Mislykket oppdatering i kortet skjuler begge prosenttallene. Kortene
 bruker samme kolonnebredder som NAV/dato-raden og stables på mindre skjermer.
 Ingen migrering eller ny ekstern datakilde er nødvendig.
 

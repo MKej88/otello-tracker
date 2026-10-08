@@ -186,26 +186,26 @@ def test_overnight_reference_is_retained_but_new_close_requires_new_reference():
     assert after_close["status"] == "waiting_reference"
 
 
-def test_stale_intraday_quote_suppresses_change():
+def test_latest_valid_quote_is_retained_when_intraday_updates_pause():
     repo = Repository()
     repo.anchor()
     repo.quote("2026-10-05T14:45:00Z", 20.4)
     result = asyncio.run(
         feature.bemobi_after_oslo(repo, now=dt("2026-10-05T17:00:00Z"))
     )
-    assert result["status"] == "stale_quote"
-    assert "change_pct" not in result
+    assert result["status"] == "ready"
+    assert result["change_pct"] == pytest.approx(2)
 
 
-def test_early_afternoon_quote_remains_stale_overnight():
+def test_latest_valid_afternoon_quote_is_retained_overnight():
     repo = Repository()
     repo.anchor()
     repo.quote("2026-10-05T14:45:00Z", 20.4)
     result = asyncio.run(
         feature.bemobi_after_oslo(repo, now=dt("2026-10-06T07:00:00Z"))
     )
-    assert result["status"] == "stale_quote"
-    assert "change_pct" not in result
+    assert result["status"] == "ready"
+    assert result["change_pct"] == pytest.approx(2)
 
 
 def test_capture_delay_validation_and_immutability(monkeypatch):
@@ -659,3 +659,47 @@ def test_effect_keeps_official_close_and_excludes_later_other_source_quotes():
         "UPDATE market_prices SET price_type='LAST',observed_at='2026-10-05T14:24:00Z' WHERE id=10"
     )
     assert asyncio.run(feature.otec_effect(repo, close, -0.01))["otec_price_nok"] == 20
+
+
+@pytest.mark.parametrize(
+    "now",
+    [
+        "2026-10-08T04:06:00Z",  # screenshot: 06:06 Oslo, before B3 opens
+        "2026-10-08T14:24:59Z",  # last second before the next Oslo close
+    ],
+)
+def test_screenshot_quote_and_otec_effect_remain_visible_until_next_close(now):
+    repo = effect_repo()
+    repo.anchor(day="2026-10-07", price=31.09, observed="2026-10-07T14:25:00Z")
+    repo.quote("2026-10-07T20:00:00Z", 30.92, source=2)
+    repo.db.execute(
+        "UPDATE market_prices SET trading_date='2026-10-07',observed_at='2026-10-07T14:25:00Z' WHERE instrument_id=2"
+    )
+    result = asyncio.run(feature.bemobi_after_oslo(repo, now=dt(now)))
+    assert result["ready"] and result["status"] == "ready"
+    assert result["change_pct"] == pytest.approx((30.92 / 31.09 - 1) * 100)
+    assert result["latest"]["observed_at"] == "2026-10-07T20:00:00Z"
+    assert result["otec_effect"]["ready"]
+
+
+def test_previous_result_is_replaced_at_exact_next_oslo_close():
+    repo = Repository()
+    repo.anchor(day="2026-10-07", price=31.09, observed="2026-10-07T14:25:00Z")
+    repo.quote("2026-10-07T20:00:00Z", 30.92, source=2)
+    result = asyncio.run(
+        feature.bemobi_after_oslo(repo, now=dt("2026-10-08T14:25:00Z"))
+    )
+    assert not result["ready"] and result["status"] == "waiting_reference"
+    assert result["oslo_close_at"] == "2026-10-08T14:25:00Z"
+    assert "change_pct" not in result
+
+
+@pytest.mark.parametrize("now", ["2026-10-10T10:00:00Z", "2026-10-12T14:24:59Z"])
+def test_friday_result_is_retained_through_weekend_until_monday_close(now):
+    repo = Repository()
+    repo.anchor(day="2026-10-09", price=31.09, observed="2026-10-09T14:25:00Z")
+    repo.quote("2026-10-09T20:00:00Z", 30.92, source=2)
+    result = asyncio.run(feature.bemobi_after_oslo(repo, now=dt(now)))
+    assert result["ready"]
+    assert result["oslo_close_at"] == "2026-10-09T14:25:00Z"
+    assert result["latest"]["observed_at"] == "2026-10-09T20:00:00Z"
