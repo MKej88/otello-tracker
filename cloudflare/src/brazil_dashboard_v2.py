@@ -255,6 +255,7 @@ async def brazil_dashboard(
             as_of_date=target_date,
             current_focus=result.get("focus"),
             fetcher=fetcher,
+            repository=repository if as_of_date is None else None,
         )
         result["focus_trend"] = focus_trend
         result.setdefault("source_status", {})["focus_trend"] = focus_trend_status

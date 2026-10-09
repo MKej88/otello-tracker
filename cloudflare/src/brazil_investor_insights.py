@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
 
 import brazil_dashboard as base
 
 FOCUS_KEYS = ("selic", "ipca", "gdp")
+TREND_STATE_KEY = "brazil_focus_trend_history_v1"
 
 
 def _finite(value: Any) -> float | None:
@@ -65,6 +67,7 @@ async def build_focus_trend(
     as_of_date: str,
     current_focus: Any,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    repository: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Compare current Focus medians with snapshots around 7 and 30 days earlier.
 
@@ -96,6 +99,36 @@ async def build_focus_trend(
         "7d": (target - timedelta(days=7)).isoformat(),
         "30d": (target - timedelta(days=30)).isoformat(),
     }
+    history: dict[str, Any] = {}
+    cache_errors: list[str] = []
+    if repository is not None:
+        try:
+            row = await repository.first(
+                "SELECT value FROM runtime_state WHERE key = ?", (TREND_STATE_KEY,)
+            )
+            stored = json.loads(row["value"]) if row else {}
+            if isinstance(stored, dict):
+                history = stored
+        except Exception as exc:
+            cache_errors.append(f"{type(exc).__name__}: {exc}")
+    live_history: dict[str, Any] = {}
+    cached_comparisons: list[str] = []
+
+    def historical_values(payload: Any, target_date: str) -> tuple[str, dict[str, Any]]:
+        if not isinstance(payload, dict):
+            raise ValueError("BCB Focus mangler historiske forventninger")
+        values = payload.get("values")
+        historical_meta = payload.get("focus_meta") or {}
+        if not isinstance(historical_meta, dict):
+            raise ValueError("BCB Focus mangler gyldig historisk metadata")
+        ref_date = str(historical_meta.get("ref_date") or target_date)
+        if (
+            not isinstance(values, dict)
+            or not base._focus_snapshot_is_complete(values, (current_year, current_year + 1))
+            or date.fromisoformat(ref_date) > date.fromisoformat(target_date)
+        ):
+            raise ValueError("BCB Focus mangler komplett historisk snapshot")
+        return ref_date, values
 
     async def load(
         label: str, target_date: str
@@ -107,27 +140,54 @@ async def build_focus_trend(
                 require_complete=True,
                 fetcher=fetcher,
             )
-            values = payload.get("values") if isinstance(payload, dict) else None
-            if not isinstance(values, dict) or not values:
-                raise ValueError("BCB Focus mangler historiske forventninger")
-            historical_meta = payload.get("focus_meta") or {}
-            return (
-                label,
-                str(historical_meta.get("ref_date") or target_date),
-                values,
-                None,
-            )
+            ref_date, values = historical_values(payload, target_date)
+            live_history[f"{current_year}:{label}:{target_date}"] = payload
+            return label, ref_date, values, None
         except Exception as exc:  # noqa: BLE001 - comparisons are independent
-            return label, target_date, None, f"{type(exc).__name__}: {exc}"
+            error = f"{type(exc).__name__}: {exc}"
+            try:
+                ref_date, values = historical_values(
+                    history.get(f"{current_year}:{label}:{target_date}"), target_date
+                )
+                cached_comparisons.append(label)
+                return label, ref_date, values, error
+            except (TypeError, ValueError):
+                return label, target_date, None, error
 
     loaded = await asyncio.gather(
         *(load(label, target_date) for label, target_date in comparison_dates.items())
     )
+    if repository is not None and live_history:
+        # Keep four recent pairs of exact date/year queries. Never reuse a delta:
+        # calculate it again from today's Focus values and the stored raw medians.
+        history.update(live_history)
+        retained = {
+            key for label in comparison_dates
+            for key in sorted(key for key in history if f":{label}:" in key)[-4:]
+        }
+        # Merge fresh entries atomically so simultaneous requests cannot erase a
+        # historical snapshot another request fetched successfully.
+        obsolete_paths = [f'$."{key}"' for key in history if key not in retained]
+        merged = "json_patch(CASE WHEN json_valid(runtime_state.value) THEN runtime_state.value ELSE '{}' END, excluded.value)"
+        if obsolete_paths:
+            merged = f"json_remove({merged}, {', '.join('?' for _ in obsolete_paths)})"
+        try:
+            await repository.run(
+                f"""INSERT INTO runtime_state(key, value, updated_at)
+                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value={merged}, updated_at=excluded.updated_at""",
+                (TREND_STATE_KEY, json.dumps(live_history, ensure_ascii=False), *obsolete_paths),
+            )
+        except Exception as exc:
+            cache_errors.append(f"{type(exc).__name__}: {exc}")
     next_year = current_year + 1
     comparison_years = (current_year, next_year)
     comparisons: dict[str, Any] = {}
     errors: dict[str, str] = {}
     for label, target_date, values, error in loaded:
+        if error:
+            errors[label] = error
         if values is None:
             errors[label] = str(error or "unknown error")
             comparisons[label] = {
@@ -143,6 +203,7 @@ async def build_focus_trend(
         }
         comparisons[label] = {
             "ready": True,
+            "fallback_cached": label in cached_comparisons,
             "target_date": target_date,
             "ref_date": target_date,
             # Keep the legacy next-year shape for callers that have not migrated yet.
@@ -164,6 +225,9 @@ async def build_focus_trend(
             "ready": ready,
             "comparison_dates": comparison_dates,
             "errors": errors,
+            "fallback": bool(cached_comparisons),
+            "cached_comparisons": sorted(cached_comparisons),
+            "cache_errors": cache_errors,
         },
     )
 

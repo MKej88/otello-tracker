@@ -810,6 +810,16 @@ async def brazil_dashboard(
         metrics["brl_nok"] = fx
     source_status["brl_nok"] = {"ready": bool(fx.get("ready")), "date": fx.get("date"), "reason": fx.get("reason")}
 
+    generated_at = datetime.now(UTC).isoformat()
+    if as_of_date is None:
+        from brazil_macro_resilience import resolve_macro_metrics
+
+        resolved = {
+            "as_of_date": target_date, "generated_at": generated_at,
+            "metrics": metrics, "source_status": source_status,
+        }
+        await resolve_macro_metrics(repository, resolved)
+
     for key, metric in metrics.items():
         metric["signal"] = _metric_signal(key, metric, focus, target.year)
         if key == "selic":
@@ -825,7 +835,7 @@ async def brazil_dashboard(
     return {
         "ready": bool(metrics),
         "as_of_date": target_date,
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": generated_at,
         "metrics": metrics,
         "focus": focus_result,
         "calendar": calendar,
