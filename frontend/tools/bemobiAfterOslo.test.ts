@@ -28,6 +28,15 @@ test("Chart uses elapsed time and includes zero in positive and negative domains
   assert.equal(movementChart([{ at: "invalid", change_pct: 0 }]), null);
 });
 
+test("Waiting for Oslo close suppresses Bemobi and OTEC values", () => {
+  const data = { ready: false, status: "waiting_oslo_close", change_pct: 6.87,
+    otec_effect: { ready: true, change_pct: 2, change_per_share_nok: .4, otec_price_nok: 20 } };
+  assert.equal(statusLabel(data.status), "Venter på at Oslo Børs stenger");
+  assert.equal(displayedChange(data), null);
+  assert.equal(displayedOtecEffect(data), null);
+  assert.equal(displayedTheoreticalOtecPrice(data), null);
+});
+
 test("OTEC effect shares the Bemobi freshness gate and requires finite results", () => {
   const data = { ready: true, status: "ready", change_pct: 2.4,
     otec_effect: { ready: true, change_pct: 1.52, change_per_share_nok: .3 } };

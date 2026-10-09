@@ -50,8 +50,14 @@ etter referansen og ikke senere enn faktisk klokke. `CLOSE` med syntetiske
 dagstidspunkt brukes ikke. Nyeste kurstid vinner; B3 prioriteres ved lik kurstid,
 med Yahoo som eksisterende sekundærkilde. Kurver viser lagrede observasjoner.
 
-Siste gyldige, tidsstemplede kurs etter referansen beholdes frem til neste close
-på Oslo Børs, også over natten, før neste B3-åpning og gjennom helger/helligdager.
+Siste gyldige, tidsstemplede kurs etter referansen beholdes over natten, før neste
+B3-åpning og gjennom helger/helligdager. Når B3 åpner mens Oslo Børs fortsatt
+handler, viser kortet «Venter på at Oslo Børs stenger». Kurs, prosent, graf,
+gårsdagens referanse og beregnet OTEC-effekt skjules frem til dagens Oslo-slutt.
+Dette styres av faktisk B3-åpning (10:00 i São Paulo, 13:00 på askeonsdag), ikke
+ankomsten av forsinkede kursdata. Begge børsenes handelskalendere og lokale
+tidssoner brukes; hvis Oslo allerede har stengt på en halv børsdag, skjules ikke
+dagens etter-close-resultat når B3 åpner.
 Alder alene skjuler ikke Bemobi-endring, OTEC-effekt eller teoretisk OTEC-kurs;
 faktisk siste kurstidspunkt vises fortsatt. Nye gyldige kurser oppdaterer resultatet.
 Fremtidige kurser, ugyldige tall og CLOSE med syntetiske tidspunkt avvises fortsatt.

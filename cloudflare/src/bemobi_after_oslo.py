@@ -15,10 +15,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 try:
-    from .b3_calendar import is_b3_trading_day
+    from .b3_calendar import b3_opening, is_b3_trading_day
     from .oslo_calendar import closing_auction, is_oslo_bors_trading_day
 except ImportError:
-    from b3_calendar import is_b3_trading_day
+    from b3_calendar import b3_opening, is_b3_trading_day
     from oslo_calendar import closing_auction, is_oslo_bors_trading_day
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
@@ -387,6 +387,24 @@ async def bemobi_after_oslo(
     repository, *, now: datetime | None = None
 ) -> dict[str, Any]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
+    oslo_day = current.astimezone(OSLO_TZ).date()
+    b3_day = current.astimezone(B3_TZ).date()
+    if (
+        is_oslo_bors_trading_day(oslo_day)
+        and is_b3_trading_day(b3_day)
+        and b3_opening(b3_day) <= current < closing_auction(oslo_day)
+    ):
+        # Today's B3 trading must never be measured against yesterday's Oslo
+        # reference while Oslo is still trading. Gate on the actual opening,
+        # independently of delayed quotes and without exposing the old basis.
+        return {
+            "ready": False,
+            "status": "waiting_oslo_close",
+            "symbol": "BMOB3",
+            "currency": "BRL",
+            "generated_at": iso(current),
+            "points": [],
+        }
     close = latest_oslo_close(current)
     result: dict[str, Any] = {
         "ready": False,
@@ -467,8 +485,8 @@ async def bemobi_after_oslo(
     latest_time = timestamp(latest["observed_at"])
     assert latest_time is not None
     # This card measures movement since the latest Oslo close, not live freshness.
-    # Retain the latest validated quote until latest_oslo_close selects a new day;
-    # the UI shows its actual timestamp, including overnight and holiday gaps.
+    # Outside overlapping trading hours, retain the latest validated quote until
+    # a new Oslo close; the UI shows its actual timestamp across overnight gaps.
     try:
         metadata = json.loads(latest.get("metadata_json") or "{}")
     except (TypeError, ValueError):
