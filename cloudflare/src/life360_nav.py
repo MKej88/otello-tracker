@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -237,11 +238,28 @@ async def life360_nav_adjustment(repository, *, as_of_date: str) -> dict[str, An
             "adjustment_nok": Decimal("0"),
         }
 
-    current_holding = await _life360_holding(repository, as_of_date)
-    anchor_holding = await _life360_holding(repository, anchor_date)
-    current_price = await _lif_price(repository, as_of_date)
-    anchor_price = await _lif_price(repository, anchor_date)
-    usd_nok = await _usd_nok(repository, as_of_date)
+    current_holding_read = _life360_holding(repository, as_of_date)
+    current_price_read = _lif_price(repository, as_of_date)
+    # Identical dates share the same awaitable so concurrent cache misses do not
+    # issue duplicate queries. All other reads depend only on the resolved dates.
+    results = await asyncio.gather(
+        current_holding_read,
+        current_holding_read
+        if anchor_date == as_of_date
+        else _life360_holding(repository, anchor_date),
+        current_price_read,
+        current_price_read
+        if anchor_date == as_of_date
+        else _lif_price(repository, anchor_date),
+        _usd_nok(repository, as_of_date),
+        return_exceptions=True,
+    )
+    # Preserve the sequential implementation's first error even when a later
+    # read fails sooner. Missing rows still follow the existing readiness path.
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    current_holding, anchor_holding, current_price, anchor_price, usd_nok = results
     if (
         current_holding is None
         or anchor_holding is None
