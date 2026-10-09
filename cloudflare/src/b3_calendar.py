@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 
 def _easter_sunday(year: int) -> date:
@@ -49,3 +50,10 @@ def is_b3_trading_day(day: date) -> bool:
 
 def is_ash_wednesday(day: date) -> bool:
     return day == _easter_sunday(day.year) - timedelta(days=46)
+
+
+def b3_opening(day: date) -> datetime:
+    return datetime.combine(
+        day, time(13) if is_ash_wednesday(day) else time(10),
+        ZoneInfo("America/Sao_Paulo"),
+    )
