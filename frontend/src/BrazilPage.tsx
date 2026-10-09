@@ -115,6 +115,7 @@ type BrazilPayload = {
   ready: boolean;
   as_of_date: string;
   generated_at?: string;
+  source_status?: Record<string, { ready?: boolean; fallback?: boolean }>;
   metrics?: Record<string, Metric>;
   focus?: {
     ready?: boolean;
@@ -152,6 +153,25 @@ type EconomicNavPayload = {
 };
 
 const REFRESH_MS = 30 * 60 * 1000;
+
+function hasMissingBrazilData(data: BrazilPayload) {
+  const year = data.focus?.focus_meta?.current_year ?? Number(data.as_of_date.slice(0, 4));
+  return !data.ready
+    || ["selic", "ipca_12m", "ibc_br", "ibc_services", "brl_nok"].some((key) => data.metrics?.[key]?.value == null)
+    || !data.focus?.ready
+    || [year, year + 1].some((y) => ["selic", "ipca", "gdp"].some((key) => (
+      data.focus_trend?.comparisons?.["30d"]?.points_by_year?.[String(y)]?.[key]?.change == null
+    )));
+}
+
+function hasCachedBrazilData(data: BrazilPayload) {
+  return Boolean(data.focus?.fallback)
+    || Object.values(data.source_status ?? {}).some((status) => status.fallback);
+}
+
+function shouldRetryBrazil(data: BrazilPayload) {
+  return hasMissingBrazilData(data) || hasCachedBrazilData(data);
+}
 
 const METRIC_LABELS: Record<string, string> = {
   brl_nok: "Valutakurs for brasilianske real",
@@ -381,6 +401,7 @@ export default function BrazilPage() {
     "/api/brazil/dashboard",
     REFRESH_MS,
     true,
+    shouldRetryBrazil,
   );
   const { data: economicNav } = usePollingResource<EconomicNavPayload>(
     "/api/dashboard/economic",
@@ -429,10 +450,12 @@ export default function BrazilPage() {
             <span className={`brazilRegime ${summary?.tone ?? "neutral"}`}>{toneLabel(summary?.tone)}</span>
           </div>
           <p>Tre kanaler betyr mest for Otello: rentebanen påvirker Bemobi-verdsettelsen, aktiviteten påvirker driften og BRL/NOK slår direkte inn i NAV.</p>
+          {hasCachedBrazilData(data) ? <p className="sourceWarn" role="status"><small>Enkelte datakilder er midlertidig utilgjengelige. Siste vellykkede tall vises med opprinnelig måledato. Nye forsøk gjøres automatisk.</small></p> : null}
+          {hasMissingBrazilData(data) ? <p className="sourceWarn" role="status"><small>Enkelte tall mangler foreløpig. Nye forsøk gjøres automatisk.</small></p> : null}
         </div>
         <div className="brazilFreshness">
           <span className="label">SIST HENTET</span>
-          <strong className="numeric">{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
+          <strong className="numeric">{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
           <small className="numeric">{refreshFailed ? "Forrige data beholdt" : dateLabel(data.as_of_date)}</small>
         </div>
       </section>

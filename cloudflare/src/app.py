@@ -64,6 +64,10 @@ async def add_response_hardening(request: Request, call_next):
     browser_policy, edge_policy = CACHE_POLICIES.get(
         request.url.path, ("no-store", "no-store")
     )
+    if request.url.path == "/api/brazil/dashboard" and (
+        response.status_code >= 400 or getattr(request.state, "brazil_degraded", False)
+    ):
+        browser_policy = edge_policy = "no-store"
     response.headers["Cache-Control"] = browser_policy
     response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
     return response
@@ -325,10 +329,12 @@ async def get_brazil_dashboard(
     request: Request,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
-    from brazil_snapshot import cached_brazil_dashboard
+    from brazil_snapshot import cached_brazil_dashboard, snapshot_degraded
 
     try:
-        return await cached_brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
+        payload = await cached_brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
+        request.state.brazil_degraded = snapshot_degraded(payload)
+        return payload
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
 
