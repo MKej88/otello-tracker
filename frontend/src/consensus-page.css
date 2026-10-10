@@ -754,6 +754,18 @@
   white-space: nowrap;
 }
 
+.consensusMetricToggle {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 6px;
+  background: var(--ot-surface-raised);
+  color: var(--ot-text);
+  font: inherit;
+  font-size: var(--ot-type-meta);
+  cursor: pointer;
+}
+
 @media (max-width: 640px) {
   .consensusBrokerTable th,
   .consensusBrokerTable td {
