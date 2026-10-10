@@ -227,7 +227,7 @@ function QuarterBrokerTable({
       <table className="consensusTable consensusNextTable consensusBrokerTable">
         <thead>
           <tr>
-            <th scope="col">Måltall</th>
+            <th scope="col">Måltall<small>Beløp i R$ mill.</small></th>
             {preview.brokers.map((broker) => (
               <th scope="col" key={broker.broker}>
                 <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
@@ -241,14 +241,14 @@ function QuarterBrokerTable({
         <tbody>
           {columns.map((column) => (
             <tr key={column.key}>
-              <th scope="row">{column.label}<small>{column.unit === "mbrl" ? "R$ mill." : "%"}</small></th>
+              <th scope="row">{column.label}</th>
               {preview.brokers.map((broker) => {
                 const cell = broker.values[column.key];
                 return <td className="numeric" key={broker.broker} title={cell?.derived ? "Beregnet fra dette meglerhusets justerte EBITDA og omsetning" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
               })}
               <td className="numeric consensusAverageCell">
                 <strong>{format(preview.averages[column.key]?.value, column)}</strong>
-                {preview.averages[column.key]?.count ? <small>n = {preview.averages[column.key].count}</small> : null}
+                {preview.averages[column.key]?.count ? <small className="consensusAverageCount">n = {preview.averages[column.key].count}</small> : null}
               </td>
             </tr>
           ))}
@@ -385,7 +385,7 @@ export default function ConsensusPage() {
         {hasPublicPreview ? (
           <>
             <QuarterBrokerTable preview={previewMatrix} columns={previewMatrix.columns} />
-            <p className="consensusNote">Snittet er likt vektet per meglerhus for hvert måltall. Manglende tall holdes utenfor; n viser antall estimater i snittet. Snittet dekker meglerhusene som er vist her.</p>
+            <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
             {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
             <details className="consensusPreviewDetails">
               <summary>Sammenligning med siste rapport</summary>
