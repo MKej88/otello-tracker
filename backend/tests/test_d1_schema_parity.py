@@ -34,6 +34,7 @@ D1_BEMOBI_TRANSLATIONS = (
     ROOT / "cloudflare" / "migrations" / "0033_bemobi_norwegian_translations.sql"
 )
 D1_XP_MODEL = ROOT / "cloudflare" / "migrations" / "0034_replace_btg_with_xp_model.sql"
+D1_BTG_Q3_PREVIEW = ROOT / "cloudflare" / "migrations" / "0035_btg_q3_preview.sql"
 
 
 def _connect_reference(tmp_path: Path) -> sqlite3.Connection:
@@ -170,6 +171,7 @@ def test_d1_reference_data_matches_sqlite_reference_seed(tmp_path: Path) -> None
         d1.executescript(D1_LIFE360_PRICE_BACKFILL.read_text(encoding="utf-8"))
         d1.executescript(D1_BROKER_MODEL.read_text(encoding="utf-8"))
         d1.executescript(D1_XP_MODEL.read_text(encoding="utf-8"))
+        d1.executescript(D1_BTG_Q3_PREVIEW.read_text(encoding="utf-8"))
 
         source_columns = "code, name, source_type, base_url, is_official, is_active, terms_notes"
         reference_sources = [
@@ -348,6 +350,7 @@ def test_d1_migrations_do_not_take_over_wrangler_migration_tracking() -> None:
             D1_ESTIMATED_NAV_HISTORY,
             D1_ESTIMATED_NAV_HISTORY_RETRY_QUEUE,
             D1_XP_MODEL,
+            D1_BTG_Q3_PREVIEW,
         )
     ).upper()
 

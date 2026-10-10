@@ -4,6 +4,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_ROOT = ROOT / "cloudflare"
 CLOUDFLARE_SRC = CLOUDFLARE_ROOT / "src"
@@ -14,6 +16,14 @@ for path in (CLOUDFLARE_ROOT, CLOUDFLARE_SRC):
 import bemobi_web_refresh_runtime as runtime  # noqa: E402
 import bemobi_web_refresh_v2 as legacy_v2  # noqa: E402
 from src import full_refresh as full_refresh_runtime  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def stub_daily_q3_watch(monkeypatch):
+    async def skipped(*args, **kwargs):
+        return {"status": "skipped", "reason": "q3_watch_not_pending", "rows_written": 0}
+
+    monkeypatch.setattr(runtime, "sync_q3_previews", skipped)
 
 
 async def _no_distribution_cash(*args, **kwargs):

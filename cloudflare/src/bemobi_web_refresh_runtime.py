@@ -1,7 +1,7 @@
 """Aktiv Bemobi web-orkestrering for Cloudflare Full Workflow.
 
-Offisiell Bemobi IR oppdateres daglig. Tyngre sekundærkilder roteres mellom
-resultatdokumenter og offentlige XP-previews. Årsmodeller kommer fra
+Offisiell Bemobi IR oppdateres daglig. Q3-forventninger fra XP og BTG sjekkes
+daglig fram til resultatet foreligger; øvrige sekundærkilder roteres. Årsmodeller kommer fra
 kildeverifisert offentlig meglerresearch og hentes ikke fra anonyme aggregatorer.
 """
 
@@ -15,6 +15,7 @@ from bemobi_cvm_post_result import refresh_cvm_financials_after_new_result
 from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
 from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_agenda import refresh_agenda
+from bemobi_public_previews import sync_q3_previews
 from bemobi_web_refresh import (
     BEMOBI_ANALYST_URL,
     BEMOBI_OWNERSHIP_URL,
@@ -270,6 +271,17 @@ async def refresh_bemobi_web(
                     "rows_written": 0,
                 }
     else:
+        xp = {"status": "skipped", "reason": "checked_by_daily_q3_watch", "rows_written": 0}
+
+    # Q3 previews are checked every night, including official-result nights.
+    q3_previews = await sync_q3_previews(
+        repository, target_date=target_date, archive_bucket=archive_bucket, fetcher=fetcher,
+    )
+    if q3_previews.get("status") != "skipped":
+        xp = q3_previews["xp_preview"]
+    btg = q3_previews.get("btg_preview") or {"status": "skipped", "reason": "q3_watch_not_pending", "rows_written": 0}
+
+    if active_slot == "xp_preview" and q3_previews.get("status") == "skipped":
         xp = await sync_xp_preview(
             repository,
             target_date=target_date,
@@ -284,9 +296,14 @@ async def refresh_bemobi_web(
             "reason": item.get("reason"),
             "error": item.get("error"),
         }
-        for name, item in (("result_release", result), ("xp_preview", xp))
+        for name, item in (("result_release", result), ("xp_preview", xp), ("btg_preview", btg))
         if item.get("status") == "not_available"
     ]
+    if btg.get("discovery_status") == "degraded":
+        best_effort_warnings.append({
+            "source": "btg_preview_discovery", "status": "not_available",
+            "reason": "index_discovery_incomplete", "error": "; ".join(btg.get("discovery_errors") or []),
+        })
     if post_result_cvm.get("status") in {"error", "partial"}:
         best_effort_warnings.append(
             {
@@ -313,7 +330,7 @@ async def refresh_bemobi_web(
         ir_failed and not result_release_degraded and not distribution_degraded
     )
     rows_written = (
-        sum(int(item.get("rows_written") or 0) for item in (ir, result, xp))
+        sum(int(item.get("rows_written") or 0) for item in (ir, result, xp, btg))
         + event_rows
         + int(post_result_cvm.get("rows_written") or 0)
         + int(distribution_cash.get("rows_written") or 0)
@@ -333,6 +350,8 @@ async def refresh_bemobi_web(
         "consensus": broker_models,
         "broker_models": broker_models,
         "xp_preview": xp,
+        "btg_preview": btg,
+        "q3_preview_watch": q3_previews,
         "secondary_status": "degraded" if secondary_warnings else "ok",
         "secondary_warnings": secondary_warnings,
         "best_effort_status": "degraded" if best_effort_warnings else "ok",

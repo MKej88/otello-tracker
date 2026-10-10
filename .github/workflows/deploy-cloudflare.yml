@@ -493,6 +493,12 @@ jobs:
           assert isinstance(buyback_backtest.get('weeks'), list), buyback_dashboard
           assert bemobi_dashboard.get('ready') is True, bemobi_dashboard
           assert bemobi_consensus.get('ready') is True, bemobi_consensus
+          next_quarter = bemobi_consensus.get('next_quarter') or {}
+          print('Production Bemobi next-quarter estimates:', json.dumps({
+              'period': next_quarter.get('period'),
+              'status': next_quarter.get('status'),
+              'estimates': next_quarter.get('estimates') or [],
+          }, ensure_ascii=False, sort_keys=True))
           assert bemobi_source_status.get('overall_status') in {'OK', 'PARTIAL', 'ERROR', 'UNKNOWN'}, bemobi_source_status
           expected_source_keys = [
               'norges_bank',

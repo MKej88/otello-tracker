@@ -33,7 +33,8 @@ type BrokerYear = {
 type NextQuarterEstimate = {
   metric: string;
   label: string;
-  value_mbrl: number;
+  value_mbrl?: number;
+  value_pct?: number;
   broker?: string | null;
   source_url?: string | null;
   published_date?: string | null;
@@ -204,12 +205,7 @@ function actualForEstimate(estimate: NextQuarterEstimate, latest?: BeatMissPerio
   if (!latest) return null;
   const exact = latest.metrics.find((metric) => metric.metric === estimate.metric);
   if (exact) return exact.actual;
-  const label = estimate.label.toLowerCase();
-  const loose = latest.metrics.find((metric) => {
-    const candidate = metric.label.toLowerCase();
-    return candidate === label || candidate.includes(label) || label.includes(candidate);
-  });
-  return loose?.actual ?? null;
+  return null;
 }
 
 function forwardMetricValue(metric: string, year: BrokerYear) {
@@ -274,17 +270,18 @@ export default function ConsensusPage() {
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
   const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && nextQuarterEstimates.length > 0;
-  const previewSourceUrl = nextQuarterEstimates.find((estimate) => estimate.source_url)?.source_url;
-  const previewPublishedDate = nextQuarterEstimates.find((estimate) => estimate.published_date)?.published_date;
-  const previewBroker = nextQuarterEstimates.find((estimate) => estimate.broker)?.broker ?? "Meglerhus";
+  const previewBrokers = [...new Set(nextQuarterEstimates.map((estimate) => estimate.broker ?? "Meglerhus"))];
+  const previewBroker = previewBrokers.join(" / ");
+  const previewSources = previewBrokers.map((broker) => nextQuarterEstimates.find((estimate) => (estimate.broker ?? "Meglerhus") === broker)!);
   const analysts = data.analysts ?? [];
   const beatMiss = data.beat_miss ?? [];
   const latestBeat = beatMiss.length > 0 ? beatMiss[beatMiss.length - 1] : undefined;
-  const revenueEstimate = findEstimate(nextQuarterEstimates, "revenue") ?? findEstimate(nextQuarterEstimates, "omset");
-  const ebitdaEstimate = findEstimate(nextQuarterEstimates, "ebitda");
+  const firstBrokerEstimates = nextQuarterEstimates.filter((estimate) => estimate.broker === nextQuarterEstimates[0]?.broker && finite(estimate.value_mbrl));
+  const revenueEstimate = findEstimate(firstBrokerEstimates, "revenue") ?? findEstimate(firstBrokerEstimates, "omset");
+  const ebitdaEstimate = findEstimate(firstBrokerEstimates, "ebitda");
   const latestRevenue = latestBeat ? (findMetric(latestBeat.metrics, "revenue") ?? findMetric(latestBeat.metrics, "omset")) : undefined;
   const latestEbitda = latestBeat ? findMetric(latestBeat.metrics, "ebitda") : undefined;
-  const previewMargin = revenueEstimate && ebitdaEstimate && revenueEstimate.value_mbrl !== 0
+  const previewMargin = previewBrokers.length === 1 && revenueEstimate && ebitdaEstimate && finite(revenueEstimate.value_mbrl) && finite(ebitdaEstimate.value_mbrl) && revenueEstimate.value_mbrl !== 0
     ? ebitdaEstimate.value_mbrl / revenueEstimate.value_mbrl * 100
     : null;
   const latestMargin = latestRevenue && latestEbitda && latestRevenue.actual !== 0
@@ -353,25 +350,29 @@ export default function ConsensusPage() {
             <div className="consensusTableWrap consensusNextTableWrap">
               <table className="consensusTable consensusNextTable">
                 <thead>
-                  <tr><th>Metric</th><th>Estimat</th><th>{latestBeat?.period ?? "Siste rapport"}</th><th>Vs. siste rapport</th><th>Beat-grense</th></tr>
+                  <tr><th>Måltall</th><th>Meglerhus</th><th>Estimat</th><th>{latestBeat?.period ?? "Siste rapport"}</th><th>Vs. siste rapport</th><th>Beat-grense</th></tr>
                 </thead>
                 <tbody>
                   {nextQuarterEstimates.map((estimate) => {
-                    const actual = actualForEstimate(estimate, latestBeat);
+                    const isAmount = finite(estimate.value_mbrl);
+                    const actual = isAmount ? actualForEstimate(estimate, latestBeat) : null;
                     const change = pctChange(actual, estimate.value_mbrl);
+                    const formattedEstimate = isAmount ? `R$ ${value(estimate.value_mbrl, 1)}m` : `${value(estimate.value_pct, 1)} %`;
                     return (
-                      <tr key={estimate.metric}>
+                      <tr key={`${estimate.broker ?? "broker"}:${estimate.metric}`}>
                         <td><strong>{estimate.label}</strong></td>
-                        <td className="numeric">R$ {value(estimate.value_mbrl, 1)}m</td>
+                        <td>{estimate.broker ?? "–"}</td>
+                        <td className="numeric">{formattedEstimate}</td>
                         <td className="numeric">{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
                         <td className={`numeric ${tone(change)}`}>{signedPct(change)}</td>
-                        <td className="numeric">&gt; R$ {value(estimate.value_mbrl, 1)}m</td>
+                        <td className="numeric">{isAmount ? `> ${formattedEstimate}` : "–"}</td>
                       </tr>
                     );
                   })}
                   {finite(previewMargin) && (
                     <tr>
                       <td><strong>EBITDA-margin</strong></td>
+                      <td>{previewBroker}</td>
                       <td className="numeric">{value(previewMargin, 1)} %</td>
                       <td className="numeric">{finite(latestMargin) ? `${value(latestMargin, 1)} %` : "–"}</td>
                       <td className={`numeric ${tone(pctChange(latestMargin, previewMargin))}`}>{signedPct(pctChange(latestMargin, previewMargin))}</td>
@@ -383,9 +384,11 @@ export default function ConsensusPage() {
             </div>
             <div className="consensusPreviewMeta">
               <span>Beat = faktisk resultat over offentlig preview-estimat.</span>
-              <SourceLink url={previewSourceUrl}>Kilde: {previewBroker}{previewPublishedDate ? ` · ${dateLabel(previewPublishedDate)}` : ""} →</SourceLink>
+              {previewSources.map((estimate) => (
+                <SourceLink key={estimate.broker ?? "broker"} url={estimate.source_url}>Kilde: {estimate.broker}{estimate.published_date ? ` · ${dateLabel(estimate.published_date)}` : ""} →</SourceLink>
+              ))}
             </div>
-            <p className="consensusNote">Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus.</p>
+            <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
           </>
         ) : (
           <div className="cardSecondary consensusWaitingPreview">
