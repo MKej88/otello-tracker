@@ -17,6 +17,7 @@ CORE_TABLES = (
     "bemobi_holdings",
     "life360_holding_anchors",
     "bemobi_investor_facts",
+    "bemobi_quarter_actuals",
     "bemobi_forward_consensus_snapshots",
     "bemobi_consensus_events",
     "otello_share_counts",

@@ -822,6 +822,12 @@
   white-space: nowrap;
 }
 
+.consensusComparisonTable td small {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--ot-type-label);
+}
+
 .consensusComparisonCard .consensusPreviewMeta {
   flex-direction: column;
   gap: 6px;

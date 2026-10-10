@@ -23,6 +23,7 @@ _SNAPSHOT_TABLES: tuple[tuple[str, str], ...] = (
     ("fx_rates", "id"),
     ("bemobi_holdings", "id"),
     ("bemobi_investor_facts", "id"),
+    ("bemobi_quarter_actuals", "period"),
     ("bemobi_forward_consensus_snapshots", "id"),
     ("bemobi_consensus_events", "id"),
     ("corporate_actions", "id"),
