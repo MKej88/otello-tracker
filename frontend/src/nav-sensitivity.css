@@ -16,9 +16,9 @@
 .sensitivityMatrixHeader h2,.sensitivitySectionHeader h2 { margin:5px 0 0; }
 .sensitivityMatrixHeader p { margin:6px 0 0; font-size:12px; color:var(--ot-text-muted); }
 .sensitivityMatrixActions { display:grid; justify-items:end; gap:9px; }
-.sensitivityModeButtons,.targetSolveButtons { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
-.sensitivityModeButtons button,.targetSolveButtons button,.selectedHeader button,.sensitivityRangeActions button,.rangeEditorButtons button,.rangeClose,.targetResult button { border:1px solid var(--ot-border-strong); background:var(--ot-control-soft); color:var(--ot-text-secondary); border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
-.sensitivityModeButtons button.active,.targetSolveButtons button.active,.rangeEditorButtons .primary { background:var(--ot-accent-soft); border-color:var(--ot-accent-border); color:var(--ot-text); }
+.sensitivityModeButtons { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+.sensitivityModeButtons button,.selectedHeader button,.sensitivityRangeActions button,.rangeEditorButtons button,.rangeClose { border:1px solid var(--ot-border-strong); background:var(--ot-control-soft); color:var(--ot-text-secondary); border-radius:9px; padding:8px 11px; font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
+.sensitivityModeButtons button.active,.rangeEditorButtons .primary { background:var(--ot-accent-soft); border-color:var(--ot-accent-border); color:var(--ot-text); }
 .sensitivityRangeActions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
 .sensitivityRangeActions .secondary { color:var(--ot-text-muted); }
 
@@ -30,9 +30,9 @@
 .rangeEditorGroups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .rangeEditorGroups fieldset { margin:0; min-width:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; border:1px solid var(--ot-border-soft); border-radius:10px; padding:11px 12px 12px; }
 .rangeEditorGroups legend { padding:0 5px; font-size: var(--ot-type-meta); font-weight:750; color:var(--ot-text-secondary); }
-.rangeEditorGroups label,.targetInputs label { display:grid; gap:6px; min-width:0; font-size: var(--ot-type-label); color:var(--ot-text-secondary); }
-.rangeEditorGroups input,.targetInputs input { min-width:0; width:100%; box-sizing:border-box; border:1px solid var(--ot-border-strong); background:var(--ot-surface-muted); color:var(--ot-text); border-radius:8px; padding:9px 10px; font:inherit; font-size:14px; font-variant-numeric:tabular-nums; outline:none; }
-.rangeEditorGroups input:focus,.targetInputs input:focus { border-color:var(--ot-accent-strong); box-shadow:0 0 0 2px var(--ot-accent-soft); }
+.rangeEditorGroups label { display:grid; gap:6px; min-width:0; font-size: var(--ot-type-label); color:var(--ot-text-secondary); }
+.rangeEditorGroups input { min-width:0; width:100%; box-sizing:border-box; border:1px solid var(--ot-border-strong); background:var(--ot-surface-muted); color:var(--ot-text); border-radius:8px; padding:9px 10px; font:inherit; font-size:14px; font-variant-numeric:tabular-nums; outline:none; }
+.rangeEditorGroups input:focus { border-color:var(--ot-accent-strong); box-shadow:0 0 0 2px var(--ot-accent-soft); }
 .rangeError { margin:0; padding:9px 11px; border:1px solid var(--ot-negative-border); background:var(--ot-negative-soft); border-radius:9px; font-size: var(--ot-type-meta); color:var(--ot-negative); }
 .rangeEditorButtons { display:flex; flex-wrap:wrap; gap:8px; }
 
@@ -58,32 +58,10 @@
 .sensitivityLegend { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
 .sensitivityLegend span { border:1px solid var(--ot-border-soft); border-radius:999px; padding:5px 8px; font-size: var(--ot-type-meta); color:var(--ot-text-secondary); }
 
-.targetCalculator { padding:22px 24px; }
-.targetCalculatorHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:22px; }
-.targetCalculatorHeader h2 { margin:5px 0 7px; }
-.targetCalculatorHeader p { margin:0; font-size:12px; color:var(--ot-text-muted); }
-.targetCalculatorBody { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr); gap:18px; margin-top:18px; }
-.targetInputs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-content:start; }
-.targetInputs label > span { font-size: var(--ot-type-label); font-weight:650; }
-.targetInputs label > small { font-size: var(--ot-type-label); color:var(--ot-text-muted); }
-.inputWithSuffix { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; border:1px solid var(--ot-border-soft); border-radius:9px; overflow:hidden; background:var(--ot-control-soft); }
-.inputWithSuffix input { border:0; border-radius:0; background:transparent; }
-.inputWithSuffix input:focus { box-shadow:none; }
-.inputWithSuffix em { padding:0 10px; font-size: var(--ot-type-meta); font-style:normal; font-weight:750; color:var(--ot-text-muted); white-space:nowrap; }
-.targetResult { min-height:112px; display:grid; align-content:center; gap:5px; padding:16px 18px; border:1px solid var(--ot-border-soft); border-radius:12px; background:var(--ot-surface-raised); }
-.targetResult > span { font-size: var(--ot-type-meta); color:var(--ot-text-muted); }
-.targetResult > strong { font-size:29px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-.targetResult > small { font-size: var(--ot-type-help); line-height: var(--ot-line-help); color:var(--ot-text-muted); }
-.targetResult button { justify-self:start; margin-top:5px; }
-
-.sensitivityDetailGrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
-.sensitivityBreakEven,.sensitivitySelected { padding:22px 24px; }
+.sensitivityDetailGrid { display:grid; grid-template-columns:1fr; gap:14px; }
+.sensitivitySelected { padding:22px 24px; }
 .sensitivitySectionHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
 .selectedHeader button { white-space:nowrap; }
-.breakEvenGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:18px; }
-.breakEvenGrid > div { display:grid; gap:5px; padding:14px; border:1px solid var(--ot-border-soft); border-radius:11px; background:var(--ot-surface-raised); }
-.breakEvenGrid span,.breakEvenGrid small { font-size: var(--ot-type-help); color:var(--ot-text-muted); }
-.breakEvenGrid strong { font-size:21px; font-variant-numeric:tabular-nums; }
 .scenarioRows { display:grid; margin-top:16px; }
 .scenarioRows > div { display:flex; align-items:baseline; justify-content:space-between; gap:20px; padding:10px 0; border-top:1px solid var(--ot-border-soft); }
 .scenarioRows span { font-size:12px; color:var(--ot-text-secondary); }
@@ -97,14 +75,10 @@
 
 @media (max-width:1200px) {
   .sensitivityKpis { grid-template-columns:repeat(3,minmax(0,1fr)); }
-  .sensitivityDetailGrid { grid-template-columns:1fr; }
-  .targetCalculatorBody { grid-template-columns:1fr; }
 }
 
 @media (max-width:900px) {
   .rangeEditorGroups { grid-template-columns:1fr; }
-  .targetCalculatorHeader { flex-direction:column; }
-  .targetSolveButtons { justify-content:flex-start; }
 }
 
 @media (max-width:760px) {
@@ -116,7 +90,5 @@
   .sensitivityMatrixActions { justify-items:start; width:100%; }
   .sensitivityModeButtons,.sensitivityRangeActions { justify-content:flex-start; }
   .rangeEditorGroups fieldset { grid-template-columns:1fr; }
-  .targetInputs { grid-template-columns:1fr; }
-  .breakEvenGrid { grid-template-columns:1fr; }
   .selectedHeader { flex-direction:column; }
 }

@@ -72,7 +72,7 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
         "consensus-history.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-accent-strong)"),
         "brazil-page.css": ("var(--ot-surface-raised)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
         "data-quality.css": ("var(--ot-surface-raised)", "var(--ot-positive-soft)", "var(--ot-warning-soft)"),
-        "nav-sensitivity.css": ("var(--ot-surface-raised)", "var(--ot-accent-soft)", "var(--ot-negative-soft)"),
+        "nav-sensitivity.css": ("var(--ot-surface-muted)", "var(--ot-accent-soft)", "var(--ot-negative-soft)"),
         "market-quote-panel.css": ("var(--ot-surface)", "var(--ot-track)", "var(--ot-positive)"),
         "economic-nav.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-positive-border)"),
         "styles.css": ("var(--ot-border-soft)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
