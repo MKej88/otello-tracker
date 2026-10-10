@@ -5,6 +5,7 @@ import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { medianDiscountPriceLine } from "./navMedianPrice";
+import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstimate } from "./nextQuarterConsensus";
 import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
@@ -77,6 +78,13 @@ type NewsEvent = {
   importance: "HIGH" | "MEDIUM" | "LOW";
   confirmed: boolean;
   source?: string | null;
+  quarter_preview?: QuarterPreview | null;
+};
+
+type QuarterPreview = {
+  period: string;
+  status?: string | null;
+  estimates?: NextQuarterEstimate[];
 };
 
 type OverviewEventsPayload = {
@@ -115,7 +123,37 @@ type OverviewEvent = {
   source?: string | null;
   importance: number;
   macroExpectation?: BrazilCalendarExpectation | null;
+  quarterPreview?: QuarterPreview | null;
 };
+
+function ReportEventPreview({ event }: { event: OverviewEvent }) {
+  if (event.scopeClass !== "bemobi" || event.typeBadge !== "Rapport") return null;
+  const preview = event.quarterPreview;
+  const matrix = buildNextQuarterConsensus(preview?.status === "PUBLIC_ESTIMATES_AVAILABLE" ? preview.estimates ?? [] : []);
+  const derivedMargin = matrix.brokers.some((row) => row.values["ebitda_margin_pct:pct"]?.derived);
+  const labels = ["Omsetning (netto)", "Justert EBITDA", "Justert nettoresultat", "Justert EBITDA-margin"];
+  return (
+    <section className="overviewEventPreview" aria-label="Viktigste Bemobi-estimater">
+      {matrix.brokers.length > 0 ? <>
+        <div className="overviewEventPreviewHeading">
+          {preview?.period} estimater · {matrix.brokers.length === 1 ? matrix.brokers[0].broker : `Snitt av ${matrix.brokers.length} meglerhus`}
+        </div>
+        <dl>
+          {MAIN_QUARTER_METRICS.map((metric, index) => {
+            const isMargin = metric === "ebitda_margin_pct";
+            const average = matrix.averages[`${metric}:${isMargin ? "pct" : "mbrl"}`];
+            return <div key={metric}>
+              <dt>{labels[index]}{isMargin && derivedMargin ? " *" : ""}</dt>
+              <dd className="numeric">{average?.value == null ? "–" : isMargin ? `${formatNumber(average.value, 1)} %` : `R$ ${formatNumber(average.value, 1)} mill.`}</dd>
+            </div>;
+          })}
+        </dl>
+        {derivedMargin && <span className="overviewEventPreviewHeading">* Margin beregnet fra samme meglerhusets EBITDA og omsetning.</span>}
+      </> : <span className="overviewEventPreviewHeading">Venter på verifiserte kvartalsestimater.</span>}
+      <a className="overviewConsensusLink" href="#konsensus">Gå til konsensus <span aria-hidden="true">→</span></a>
+    </section>
+  );
+}
 
 function finiteNumber(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
@@ -268,6 +306,7 @@ function upcomingEvents(payload?: OverviewEventsPayload | null): OverviewEvent[]
       eventKind: "company",
       confirmed: event.confirmed,
       source: event.source,
+      quarterPreview: event.quarter_preview,
       importance: event.importance === "HIGH" ? 0 : event.importance === "MEDIUM" ? 1 : 2,
     });
   }
@@ -458,6 +497,7 @@ export default function OverviewPage() {
                     </span>
                   </div>
                   {eventMetaLabel(nextEvent) ? <small>{eventMetaLabel(nextEvent)}</small> : null}
+                  <ReportEventPreview event={nextEvent} />
                 </div>
               </div>
               {events.length > 1 && (
@@ -470,6 +510,7 @@ export default function OverviewPage() {
                         <span className="overviewEventBadge type">{event.typeBadge}</span>
                         <span className={`overviewEventBadge ${event.scopeClass}`}>{event.scopeBadge}</span>
                       </span>
+                      <ReportEventPreview event={event} />
                     </div>
                   ))}
                 </div>

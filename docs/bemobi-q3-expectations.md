@@ -109,3 +109,15 @@ BTGs vekstkolonner basert på uavrundede verdier (35,7−34,9 = 0,8 pp.).
 
 Produksjon følger eksisterende PR → CI → merge → produksjons-CI → deploy,
 inkludert D1-migreringen før Worker/asset-deploy. Se `ci-auto-deploy.md`.
+
+Oversiktens rapporthendelse viser de fire hovedestimatene under Bemobis
+rapportdato, med «Gå til konsensus» til `#konsensus`. Tallene kommer fra det
+samme NEXT_QUARTER-settet og bruker samme snittberegning som konsensussiden.
+Med ett meglerhus vises navnet; med flere vises snittet. Manglende hovedtall
+vises som manglende, og beregnet margin merkes med stjerne. Oversikten gjør
+ingen ekstra konsensus- eller eksterne API-kall for dette. Estimatene knyttes
+bare til riktig kvartals resultatrapport, etter at offisiell kalender har
+bestemt datoen; presentasjoner og andre kvartaler får ikke tallene.
+Førstesidens hot snapshot er versjon 10, slik at versjon 9 uten estimater
+ikke kan gjenbrukes etter deploy. Produksjonskontrollen sammenligner
+rapporthendelsens estimater med konsensus-API-et.
