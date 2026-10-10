@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
 
-import { historicalScenarioRange } from "./sensitivityRange";
-
 import { preloadJson } from "./navigationDataPreload";
 import { usePollingResource } from "./usePollingResource";
 import { usePageUpdate } from "./pageUpdateStatus";
@@ -20,9 +18,6 @@ type Summary = {
   brl_nok?: number | null;
   bemobi_shares?: number | null;
   bemobi_value_mnok?: number | null;
-  brl_nok_insights?: {
-    range_1y?: { low?: number | null; high?: number | null } | null;
-  } | null;
   bemobi_insights?: {
     price_brl?: number | null;
     holding_shares?: number | null;
@@ -297,19 +292,9 @@ export default function NavSensitivityPage() {
     () => inputs ? buildSeries(inputs.currentBemobiPrice, 9, 2.5, 2.5) : [],
     [inputs],
   );
-  const historicalBrlRates = useMemo(
-    () => inputs ? historicalScenarioRange(
-      summary?.brl_nok_insights?.range_1y?.low,
-      summary?.brl_nok_insights?.range_1y?.high,
-      inputs.currentBrlNok,
-      7,
-    ) : [],
-    [inputs, summary],
-  );
   const autoBrlRates = useMemo(
-    () => historicalBrlRates.length ? historicalBrlRates
-      : inputs ? buildSeries(inputs.currentBrlNok, 7, 0.1, 0.1) : [],
-    [inputs, historicalBrlRates],
+    () => inputs ? buildSeries(inputs.currentBrlNok, 7, 0.1, 0.1) : [],
+    [inputs],
   );
   const bemobiPrices = useMemo(
     () => customRange
@@ -462,9 +447,6 @@ export default function NavSensitivityPage() {
             <span className="label">SCENARIOMATRISE</span>
             <h2>Bemobi × BRL/NOK</h2>
             <p>BRL/NOK betyr norske kroner per brasiliansk real.</p>
-            {!customRange && <p>{historicalBrlRates.length
-              ? "BRL/NOK-intervallet følger automatisk siste 52 ukers laveste og høyeste kurs."
-              : "52-ukersintervallet for BRL/NOK mangler. Viser foreløpig et intervall rundt dagens kurs."}</p>}
           </div>
           <div className="sensitivityMatrixActions">
             <div className="sensitivityModeButtons" aria-label="Velg hva matrisen skal vise">
@@ -483,7 +465,7 @@ export default function NavSensitivityPage() {
               <button onClick={openRangeEditor} type="button">
                 {customRange ? "Endre intervaller" : "Tilpass intervaller"}
               </button>
-              {customRange && <button className="secondary" onClick={resetRange} type="button">Standardintervall</button>}
+              {customRange && <button className="secondary" onClick={resetRange} type="button">Rundt marked</button>}
             </div>
           </div>
         </div>
@@ -514,7 +496,7 @@ export default function NavSensitivityPage() {
             {rangeError && <p className="rangeError" role="alert">{rangeError}</p>}
             <div className="rangeEditorButtons">
               <button className="primary" type="submit">Bruk intervaller</button>
-              <button onClick={resetRange} type="button">Tilbakestill standardintervall</button>
+              <button onClick={resetRange} type="button">Tilbakestill rundt marked</button>
             </div>
           </form>
         )}
@@ -534,7 +516,7 @@ export default function NavSensitivityPage() {
             <tbody>
               {brlRates.map((fx, fxIndex) => (
                 <tr key={fx}>
-                  <th className={marketBrlInRange && fxIndex === nearestBrl ? "nearestAxis" : ""}>{formatNumber(fx, 4)}</th>
+                  <th className={marketBrlInRange && fxIndex === nearestBrl ? "nearestAxis" : ""}>{formatNumber(fx, 2)}</th>
                   {bemobiPrices.map((price, priceIndex) => {
                     const scenario = makeScenario(inputs, price, fx);
                     const isNearestMarket = marketBemobiInRange
@@ -545,7 +527,7 @@ export default function NavSensitivityPage() {
                     return (
                       <td key={`${fx}-${price}`}>
                         <button
-                          aria-label={`Bemobi R$ ${formatNumber(price, 1)}, BRL/NOK ${formatNumber(fx, 4)}: ${modeValue(mode, scenario)}`}
+                          aria-label={`Bemobi R$ ${formatNumber(price, 1)}, BRL/NOK ${formatNumber(fx, 2)}: ${modeValue(mode, scenario)}`}
                           className={`sensitivityCell ${scenarioTone(scenario.upsidePct)}${isSelected ? " selected" : ""}`}
                           onClick={() => setSelected({ bemobiPrice: price, brlNok: fx })}
                           type="button"
@@ -575,7 +557,7 @@ export default function NavSensitivityPage() {
           <div className="sensitivitySectionHeader selectedHeader">
             <div>
               <span className="label">VALGT SCENARIO</span>
-              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 1)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 4)}</h2>
+              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 1)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 2)}</h2>
             </div>
             <button onClick={() => setSelected(null)} type="button">Tilbake til matrise</button>
           </div>
