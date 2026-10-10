@@ -67,8 +67,10 @@ meglerhus og publikasjon; den merkes med stjerne. Standardvisningen viser
 omsetning, justert EBITDA, justert nettoresultat og justert EBITDA-margin.
 «Vis flere måltall» utvider tabellen med resten av de 11 BTG-måltallene;
 «Vis færre måltall» gjenoppretter standardvisningen. Kortet har begrenset
-bredde og kompakte rader. Tidligere sammenligning med siste rapport
-er bevart i en egen utfellbar tabell.
+bredde og kompakte rader. Sammenligningen med siste rapport vises i et
+eget kort til høyre på brede skjermer og under forventningene på mindre
+skjermer. Sammenligningskortet har også fire måltall som standard og en
+egen knapp for å vise resten.
 
 Produksjon følger eksisterende PR → CI → merge → produksjons-CI → deploy,
 inkludert D1-migreringen før Worker/asset-deploy. Se `ci-auto-deploy.md`.

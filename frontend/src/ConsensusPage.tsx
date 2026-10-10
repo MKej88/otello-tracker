@@ -262,6 +262,7 @@ export default function ConsensusPage() {
   const [data, setData] = useState<ConsensusPayload | null>(null);
   const [failed, setFailed] = useState(false);
   const [showAllQuarterMetrics, setShowAllQuarterMetrics] = useState(false);
+  const [showAllComparisonMetrics, setShowAllComparisonMetrics] = useState(false);
   usePageUpdate(data?.as_of_date, "daily");
 
   useEffect(() => {
@@ -379,30 +380,46 @@ export default function ConsensusPage() {
         </article>
       </section>
 
-      <section className="card cardStandard consensusNextReport">
-        <div className="cardHeader">
-          <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
-          <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
-        </div>
-        {hasPublicPreview ? (
-          <>
-            <QuarterBrokerTable preview={previewMatrix} columns={showAllQuarterMetrics ? previewMatrix.columns : primaryPreviewColumns} />
-            {previewMatrix.columns.length > primaryPreviewColumns.length && (
-              <button type="button" className="consensusMetricToggle" aria-expanded={showAllQuarterMetrics} aria-controls="quarter-expectations-table" onClick={() => setShowAllQuarterMetrics((current) => !current)}>
-                {showAllQuarterMetrics ? "Vis færre måltall" : "Vis flere måltall"}
-              </button>
-            )}
-            <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
-            {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
-            <details className="consensusPreviewDetails">
-              <summary>Sammenligning med siste rapport</summary>
+      <div className={`consensusQuarterCards${hasPublicPreview ? " hasComparison" : ""}`}>
+        <section className="card cardStandard consensusNextReport">
+          <div className="cardHeader">
+            <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
+            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
+          </div>
+          {hasPublicPreview ? (
+            <>
+              <QuarterBrokerTable preview={previewMatrix} columns={showAllQuarterMetrics ? previewMatrix.columns : primaryPreviewColumns} />
+              {previewMatrix.columns.length > primaryPreviewColumns.length && (
+                <button type="button" className="consensusMetricToggle" aria-expanded={showAllQuarterMetrics} aria-controls="quarter-expectations-table" onClick={() => setShowAllQuarterMetrics((current) => !current)}>
+                  {showAllQuarterMetrics ? "Vis færre måltall" : "Vis flere måltall"}
+                </button>
+              )}
+              <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
+              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
+              <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
+            </>
+          ) : (
+            <div className="cardSecondary consensusWaitingPreview">
+              <strong>Ingen verifisert offentlig preview ennå.</strong>
+              <p>{nextQuarter?.note ?? "Estimatene fylles inn når de kan verifiseres mot en offentlig meglerkilde."}</p>
+              <div className="trackedMetrics">{(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}</div>
+            </div>
+          )}
+        </section>
+
+        {hasPublicPreview && (
+          <section className="card cardStandard consensusComparisonCard">
+            <div className="cardHeader">
+              <div><span className="label">SISTE RAPPORT</span><h2>Sammenligning med siste rapport</h2></div>
+            </div>
             <div className="consensusTableWrap consensusNextTableWrap">
-              <table className="consensusTable consensusNextTable">
+              <table id="quarter-comparison-table" className="consensusTable consensusComparisonTable">
                 <thead>
                   <tr><th>Måltall</th><th>Meglerhus</th><th>Estimat</th><th>{latestBeat?.period ?? "Siste rapport"}</th><th>Vs. siste rapport</th><th>Beat-grense</th></tr>
                 </thead>
                 <tbody>
                   {nextQuarterEstimates.map((estimate) => {
+                    if (!showAllComparisonMetrics && !MAIN_QUARTER_METRICS.includes(estimate.metric)) return null;
                     const isAmount = finite(estimate.value_mbrl);
                     const hasBeatThreshold = isAmount && estimate.metric !== "capex_mbrl";
                     const actual = isAmount ? actualForEstimate(estimate, latestBeat) : null;
@@ -432,23 +449,20 @@ export default function ConsensusPage() {
                 </tbody>
               </table>
             </div>
+            {previewMatrix.columns.length > primaryPreviewColumns.length && (
+              <button type="button" className="consensusMetricToggle" aria-expanded={showAllComparisonMetrics} aria-controls="quarter-comparison-table" onClick={() => setShowAllComparisonMetrics((current) => !current)}>
+                {showAllComparisonMetrics ? "Vis færre måltall" : "Vis flere måltall"}
+              </button>
+            )}
             <div className="consensusPreviewMeta">
               <span>Beat = faktisk resultat over offentlig preview-estimat.</span>
               {previewSources.map((estimate) => (
                 <SourceLink key={estimate.broker ?? "broker"} url={estimate.source_url}>Kilde: {estimate.broker}{estimate.published_date ? ` · ${dateLabel(estimate.published_date)}` : ""} →</SourceLink>
               ))}
             </div>
-            </details>
-            <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
-          </>
-        ) : (
-          <div className="cardSecondary consensusWaitingPreview">
-            <strong>Ingen verifisert offentlig preview ennå.</strong>
-            <p>{nextQuarter?.note ?? "Estimatene fylles inn når de kan verifiseres mot en offentlig meglerkilde."}</p>
-            <div className="trackedMetrics">{(nextQuarter?.tracked_metrics ?? []).map((metric) => <span key={metric}>{metric}</span>)}</div>
-          </div>
+          </section>
         )}
-      </section>
+      </div>
 
       <section className="card cardStandard consensusBeatSummary">
         <div className="cardHeader">
