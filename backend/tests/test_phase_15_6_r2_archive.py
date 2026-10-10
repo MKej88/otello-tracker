@@ -252,6 +252,7 @@ class _SnapshotRepository:
                 "table": table,
                 "id": 1,
                 "estimate_date": "2026-08-17",
+                "period": "2Q26",
                 "key": "test-key",
                 "value": "x",
             }

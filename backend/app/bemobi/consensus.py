@@ -5,6 +5,7 @@ from typing import Any
 from app.bemobi.consensus_history import build_consensus_history
 from app.bemobi.dashboard import bemobi_dashboard
 from app.bemobi.facts import latest_bemobi_fact, load_bemobi_facts, public_fact
+from app.bemobi.quarter_comparison import build_quarter_comparison
 from app.db.connection import get_connection
 
 
@@ -166,6 +167,11 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
         beat_miss_facts = load_bemobi_facts(connection, "BEAT_MISS")
         next_quarter_fact = latest_bemobi_fact(connection, "NEXT_QUARTER")
         reference_model_fact = latest_bemobi_fact(connection, "REFERENCE_MODEL")
+        result_facts = load_bemobi_facts(connection, "RESULT")
+        actual_rows = [dict(row) for row in connection.execute(
+            "SELECT period, period_end, published_date, source_name, source_url, source_page, "
+            "source_evidence, metrics_json, notes FROM bemobi_quarter_actuals ORDER BY period_end"
+        ).fetchall()]
 
     if not analyst_facts or not broker_facts or next_quarter_fact is None or reference_model_fact is None:
         return {"ready": False, "reason": "bemobi_consensus_facts_not_ready"}
@@ -206,6 +212,7 @@ def bemobi_consensus(database_path: str | None = None) -> dict[str, Any]:
             "note": broker_source.get("_notes"),
         },
         "next_quarter": next_quarter,
+        "quarter_comparison": build_quarter_comparison(result_facts, actual_rows, next_quarter.get("period")),
         "beat_miss": beat_miss,
         "history_link": build_consensus_history(
             beat_miss,

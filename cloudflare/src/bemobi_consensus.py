@@ -6,6 +6,7 @@ from typing import Any
 from bemobi_consensus_history import build_consensus_history
 from bemobi_dashboard import bemobi_dashboard
 from bemobi_facts import latest_bemobi_fact, load_bemobi_facts, public_fact
+from bemobi_quarter_comparison import build_quarter_comparison
 
 
 def _number(value: Any) -> float | None:
@@ -114,12 +115,19 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
         beat_miss_facts,
         next_quarter_fact,
         reference_model_fact,
+        result_facts,
+        actual_rows,
     ) = await asyncio.gather(
         load_bemobi_facts(repository, "ANALYST"),
         load_bemobi_facts(repository, "FORWARD_CONSENSUS"),
         load_bemobi_facts(repository, "BEAT_MISS"),
         latest_bemobi_fact(repository, "NEXT_QUARTER"),
         latest_bemobi_fact(repository, "REFERENCE_MODEL"),
+        load_bemobi_facts(repository, "RESULT"),
+        repository.all(
+            "SELECT period, period_end, published_date, source_name, source_url, source_page, "
+            "source_evidence, metrics_json, notes FROM bemobi_quarter_actuals ORDER BY period_end"
+        ),
     )
     broker_facts = [
         item
@@ -161,6 +169,7 @@ async def bemobi_consensus(repository) -> dict[str, Any]:
             "note": broker_source.get("_notes"),
         },
         "next_quarter": next_quarter,
+        "quarter_comparison": build_quarter_comparison(result_facts, actual_rows, next_quarter.get("period")),
         "beat_miss": beat_miss,
         "history_link": await build_consensus_history(beat_miss, repository, current_forward=broker_years),
         "reference_model": reference_model,

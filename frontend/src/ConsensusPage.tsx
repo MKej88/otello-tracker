@@ -5,6 +5,7 @@ import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstimate, type QuarterColumn } from "./nextQuarterConsensus";
+import { compareQuarterMetric, type ReportedQuarter } from "./quarterComparison";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -89,6 +90,10 @@ type ConsensusPayload = {
     note?: string | null;
   };
   beat_miss?: BeatMissPeriod[];
+  quarter_comparison?: {
+    latest_report?: ReportedQuarter | null;
+    prior_year?: ReportedQuarter | null;
+  };
   history_link?: ConsensusHistoryLink;
   sources?: Array<{ label: string; source: string; url?: string | null }>;
 };
@@ -184,19 +189,11 @@ function beatSummary(periods: BeatMissPeriod[]): BeatSummary[] {
     .slice(0, 4);
 }
 
-function findMetric(metrics: BeatMissMetric[], needle: string) {
-  return metrics.find((metric) => metric.metric.toLowerCase().includes(needle) || metric.label.toLowerCase().includes(needle));
-}
-
-function findEstimate(estimates: NextQuarterEstimate[], needle: string) {
-  return estimates.find((estimate) => estimate.metric.toLowerCase().includes(needle) || estimate.label.toLowerCase().includes(needle));
-}
-
-function actualForEstimate(estimate: NextQuarterEstimate, latest?: BeatMissPeriod) {
-  if (!latest) return null;
-  const exact = latest.metrics.find((metric) => metric.metric === estimate.metric);
-  if (exact) return exact.actual;
-  return null;
+function quarterChangeLabel(change: number | null, isPercent: boolean) {
+  if (!finite(change)) return "–";
+  if (!isPercent) return signedPct(change);
+  const prefix = change > 0 ? "+" : change < 0 ? "−" : "";
+  return `${prefix}${value(Math.abs(change), 1)} pp.`;
 }
 
 function forwardMetricValue(metric: string, year: BrokerYear) {
@@ -314,19 +311,13 @@ export default function ConsensusPage() {
   const previewSources = previewBrokers.map((broker) => nextQuarterEstimates.find((estimate) => (estimate.broker ?? "Meglerhus") === broker)!);
   const analysts = data.analysts ?? [];
   const beatMiss = data.beat_miss ?? [];
-  const latestBeat = beatMiss.length > 0 ? beatMiss[beatMiss.length - 1] : undefined;
-  const firstBrokerEstimates = nextQuarterEstimates.filter((estimate) => estimate.broker === nextQuarterEstimates[0]?.broker && finite(estimate.value_mbrl));
-  const revenueEstimate = findEstimate(firstBrokerEstimates, "revenue") ?? findEstimate(firstBrokerEstimates, "omset");
-  const ebitdaEstimate = findEstimate(firstBrokerEstimates, "ebitda");
-  const latestRevenue = latestBeat ? (findMetric(latestBeat.metrics, "revenue") ?? findMetric(latestBeat.metrics, "omset")) : undefined;
-  const latestEbitda = latestBeat ? findMetric(latestBeat.metrics, "ebitda") : undefined;
-  const hasExplicitPreviewMargin = nextQuarterEstimates.some((estimate) => estimate.metric === "ebitda_margin_pct" && finite(estimate.value_pct));
-  const previewMargin = !hasExplicitPreviewMargin && previewBrokers.length === 1 && revenueEstimate && ebitdaEstimate && finite(revenueEstimate.value_mbrl) && finite(ebitdaEstimate.value_mbrl) && revenueEstimate.value_mbrl !== 0
-    ? ebitdaEstimate.value_mbrl / revenueEstimate.value_mbrl * 100
-    : null;
-  const latestMargin = latestRevenue && latestEbitda && latestRevenue.actual !== 0
-    ? latestEbitda.actual / latestRevenue.actual * 100
-    : null;
+  const latestReport = data.quarter_comparison?.latest_report;
+  const priorYearReport = data.quarter_comparison?.prior_year;
+  const comparisonReports = [latestReport, priorYearReport].filter((report): report is ReportedQuarter => report != null);
+  const quarterComparisonEstimates = [...nextQuarterEstimates, ...previewMatrix.brokers.flatMap((row): NextQuarterEstimate[] => {
+    const margin = row.values["ebitda_margin_pct:pct"];
+    return margin?.derived ? [{ metric: "ebitda_margin_pct", label: "Justert EBITDA-margin *", broker: row.broker, value_pct: margin.value }] : [];
+  })];
   const targetLow = coverage?.low_target_brl;
   const targetHigh = coverage?.high_target_brl;
   const targetAverage = coverage?.average_target_brl;
@@ -415,37 +406,30 @@ export default function ConsensusPage() {
             <div className="consensusTableWrap consensusNextTableWrap">
               <table id="quarter-comparison-table" className="consensusTable consensusComparisonTable">
                 <thead>
-                  <tr><th>Måltall</th><th>Meglerhus</th><th>Estimat</th><th>{latestBeat?.period ?? "Siste rapport"}</th><th>Vs. siste rapport</th><th>Beat-grense</th></tr>
+                  <tr><th>Måltall</th><th>Meglerhus</th><th>{nextQuarter?.period ?? "Neste kvartal"} estimat</th><th>{latestReport?.period ?? "Siste rapport"}</th><th>{priorYearReport?.period ?? "Samme kvartal i fjor"}</th><th>Beat-grense</th></tr>
                 </thead>
                 <tbody>
-                  {nextQuarterEstimates.map((estimate) => {
+                  {quarterComparisonEstimates.map((estimate) => {
                     if (!showAllComparisonMetrics && !MAIN_QUARTER_METRICS.includes(estimate.metric)) return null;
                     const isAmount = finite(estimate.value_mbrl);
-                    const hasBeatThreshold = isAmount && estimate.metric !== "capex_mbrl";
-                    const actual = isAmount ? actualForEstimate(estimate, latestBeat) : null;
-                    const change = pctChange(actual, estimate.value_mbrl);
+                    const hasBeatThreshold = (isAmount && estimate.metric !== "capex_mbrl") || estimate.metric === "ebitda_margin_pct";
                     const formattedEstimate = isAmount ? `R$ ${value(estimate.value_mbrl, 1)}m` : `${value(estimate.value_pct, 1)} %`;
                     return (
                       <tr key={`${estimate.broker ?? "broker"}:${estimate.metric}`}>
                         <td><strong>{estimate.label}</strong></td>
                         <td>{estimate.broker ?? "–"}</td>
                         <td className="numeric">{formattedEstimate}</td>
-                        <td className="numeric">{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
-                        <td className={`numeric ${tone(change)}`}>{signedPct(change)}</td>
+                        {[latestReport, priorYearReport].map((report, index) => {
+                          const comparison = compareQuarterMetric(estimate, report);
+                          return <td className="numeric" key={index}>
+                            {finite(comparison.actual) ? isAmount ? `R$ ${value(comparison.actual, 1)}m` : `${value(comparison.actual, 1)} %` : "–"}
+                            <small className={tone(comparison.change)}>{quarterChangeLabel(comparison.change, comparison.isPercent)}</small>
+                          </td>;
+                        })}
                         <td className="numeric">{hasBeatThreshold ? `> ${formattedEstimate}` : "–"}</td>
                       </tr>
                     );
                   })}
-                  {finite(previewMargin) && (
-                    <tr>
-                      <td><strong>EBITDA-margin</strong></td>
-                      <td>{previewBroker}</td>
-                      <td className="numeric">{value(previewMargin, 1)} %</td>
-                      <td className="numeric">{finite(latestMargin) ? `${value(latestMargin, 1)} %` : "–"}</td>
-                      <td className={`numeric ${tone(pctChange(latestMargin, previewMargin))}`}>{signedPct(pctChange(latestMargin, previewMargin))}</td>
-                      <td className="numeric">&gt; {value(previewMargin, 1)} %</td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
@@ -455,7 +439,11 @@ export default function ConsensusPage() {
               </button>
             )}
             <div className="consensusPreviewMeta">
+              <span>Endring under rapporttallene viser estimatet mot perioden. Prosentpoeng (pp.) for marginer; prosent for beløp. Beregnet fra viste, avrundede tall.</span>
               <span>Beat = faktisk resultat over offentlig preview-estimat.</span>
+              {comparisonReports.map((report) => (
+                <SourceLink key={report.period} url={report.source_url}>Rapporttall {report.period}: {report.source_name}{report.source_page ? ` · side ${report.source_page}` : ""} →</SourceLink>
+              ))}
               {previewSources.map((estimate) => (
                 <SourceLink key={estimate.broker ?? "broker"} url={estimate.source_url}>Kilde: {estimate.broker}{estimate.published_date ? ` · ${dateLabel(estimate.published_date)}` : ""} →</SourceLink>
               ))}
