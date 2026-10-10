@@ -54,16 +54,17 @@ rapporten kan leses. Dette er ikke en fullstendig BTG-katalog; et supplerende
 nettsøk er nødvendig for nye rapporter som ikke eksponeres i HTML.
 Bildetabeller blir ikke automatisk OCR-behandlet av Worker-parseren.
 
-Kvartalsvisningen viser én rad per meglerhus, med publiseringsdato og kilde,
-og en snittrad til slutt. Nye XP-estimater får automatisk egen rad når de
+Kvartalsvisningen viser måltallene nedover i én samlet tabell, med én kolonne
+per meglerhus, publiseringsdato og kilde i kolonneoverskriften, og snittet
+i siste kolonne. Nye XP-estimater får automatisk egen kolonne når de
 lagres i NEXT_QUARTER. Hvert meglerhus har lik vekt per måltall; manglende
 verdier utelates, og n viser antall bidrag i hver kolonne. Med bare BTG
 tilgjengelig er snittet lik BTGs tall. Flere kilder fra samme meglerhus gir
 ikke ekstra vekt. Nyeste publikasjon brukes uten utfylling fra eldre noter.
 Beløp og prosenter, justert nettoresultat, ordinært nettoresultat og cash
 profit holdes adskilt. En manglende EBITDA-margin kan beregnes fra samme
-meglerhus og publikasjon; den merkes med stjerne. Alle 11 BTG-måltall finnes
-under «Alle kvartalsestimater», og tidligere sammenligning med siste rapport
+meglerhus og publikasjon; den merkes med stjerne. Alle 11 BTG-måltall vises
+direkte, og tidligere sammenligning med siste rapport
 er bevart i en egen utfellbar tabell.
 
 Produksjon følger eksisterende PR → CI → merge → produksjons-CI → deploy,
