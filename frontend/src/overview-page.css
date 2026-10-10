@@ -5,7 +5,7 @@
 
 .overviewV3 .overviewHeroGrid {
   display:grid;
-  align-items:start;
+  align-items:stretch;
   grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);
   gap:14px;
 }
@@ -18,8 +18,8 @@
 }
 
 .overviewNavCardV3 {
-  display:grid;
-  align-content:start;
+  display:flex;
+  flex-direction:column;
 }
 
 .overviewNavCardV3 h2 {
@@ -81,8 +81,32 @@
   line-height:1.45;
 }
 
+.overviewNavUpside {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:6px 12px;
+  margin:12px 0 0;
+  padding:12px;
+  border-radius:var(--ot-card-secondary-radius);
+  background:var(--ot-surface-muted);
+}
+
+.overviewNavUpside dt {
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-body);
+}
+
+.overviewNavUpside dd {
+  margin:0;
+  font-size:1.125rem;
+  font-weight:700;
+}
+
 .overviewUpdated {
-  margin-top:4px;
+  margin-top:auto;
+  padding-top:12px;
   color:var(--ot-text-secondary);
   font-size:var(--ot-type-meta);
 }
