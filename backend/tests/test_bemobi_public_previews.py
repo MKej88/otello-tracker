@@ -211,4 +211,95 @@ def test_btg_preview_is_available_after_full_schema_migration(tmp_path):
     payload = json.loads(row[0])
     assert payload["status"] == "PUBLIC_ESTIMATES_AVAILABLE"
     assert payload["estimates"][0]["broker"] == "BTG Pactual"
-    assert payload["estimates"][-1]["value_mbrl"] == 48
+    values = {item["metric"]: item for item in payload["estimates"]}
+    assert values["revenue_mbrl"]["value_mbrl"] == 239.8
+    assert values["adjusted_ebitda_mbrl"]["value_mbrl"] == 85.5
+    assert values["adjusted_net_income_mbrl"]["value_mbrl"] == 48
+    assert values["operating_free_cash_flow_mbrl"]["value_mbrl"] == 69.9
+    assert len(values) == 11
+
+
+def test_pdf_amount_migration_is_repeatable_and_preserves_other_brokers():
+    migration = (ROOT / "backend/app/db/migrations/0039_btg_q3_amounts.sql").read_text()
+    assert (
+        migration
+        == (ROOT / "cloudflare/migrations/0036_btg_q3_amounts.sql").read_text()
+    )
+    repository = Repository()
+    xp = {"metric": "revenue_mbrl", "broker": "XP", "value_mbrl": 250}
+    payload = {"report_date": "2026-11-12", "estimates": [xp]}
+    repository.connection.execute(
+        "UPDATE bemobi_investor_facts SET payload_json=?", (json.dumps(payload),)
+    )
+    repository.connection.executescript(migration)
+    repository.connection.executescript(migration)
+    result = repository.payload()
+    assert result["report_date"] == payload["report_date"]
+    assert result["estimates"][0] == xp
+    btg = {
+        item["metric"]: item
+        for item in result["estimates"]
+        if item["broker"] == "BTG Pactual"
+    }
+    expected = {
+        "revenue_mbrl": 239.8,
+        "adjusted_ebitda_mbrl": 85.5,
+        "adjusted_net_income_mbrl": 48,
+        "payments_revenue_mbrl": 121.3,
+        "saas_revenue_mbrl": 47.8,
+        "subscriptions_revenue_mbrl": 49.9,
+        "microfinance_revenue_mbrl": 20.8,
+        "capex_mbrl": 15.6,
+        "operating_free_cash_flow_mbrl": 69.9,
+    }
+    assert {key: btg[key]["value_mbrl"] for key in expected} == expected
+    assert btg["ebitda_margin_pct"]["value_pct"] == 35.7
+    assert btg["capex_to_sales_pct"]["value_pct"] == 6.5
+    assert all(
+        item["source_page"] == 3 and item["source_url"].endswith(".pdf")
+        for item in btg.values()
+    )
+    newer = {
+        "estimates": [
+            {"broker": "BTG Pactual", "published_date": "2026-10-09", "value_mbrl": 240}
+        ]
+    }
+    repository.connection.execute(
+        "UPDATE bemobi_investor_facts SET payload_json=?", (json.dumps(newer),)
+    )
+    repository.connection.executescript(migration)
+    assert repository.payload() == newer
+
+
+def test_nightly_prose_does_not_erase_verified_pdf_amounts_but_newer_note_replaces_them():
+    repository = Repository()
+    migration = (ROOT / "backend/app/db/migrations/0039_btg_q3_amounts.sql").read_text()
+    repository.connection.executescript(migration)
+    original = repository.payload()
+
+    async def write(preview):
+        latest = await repository.first(
+            "SELECT fact_key,payload_json FROM bemobi_investor_facts"
+        )
+        return await previews.store_public_preview(
+            repository,
+            latest=latest,
+            preview=preview,
+            broker="BTG Pactual",
+            url=previews.BTG_Q3_URL,
+            document_id=1,
+            target_date="2026-10-10",
+        )
+
+    prose = previews.parse_btg_preview_html(BTG_HTML)
+    assert not asyncio.run(write(prose))
+    assert repository.payload() == original
+    prose["published_date"] = "2026-10-09"
+    assert asyncio.run(write(prose))
+    assert all(
+        item["published_date"] == "2026-10-09"
+        for item in repository.payload()["estimates"]
+    )
+    assert "revenue_mbrl" not in {
+        item["metric"] for item in repository.payload()["estimates"]
+    }
