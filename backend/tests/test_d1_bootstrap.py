@@ -51,6 +51,7 @@ D1_BEMOBI_TRANSLATIONS = (
 )
 D1_XP_MODEL = ROOT / "cloudflare" / "migrations" / "0034_replace_btg_with_xp_model.sql"
 D1_BTG_Q3_PREVIEW = ROOT / "cloudflare" / "migrations" / "0035_btg_q3_preview.sql"
+D1_BTG_Q3_AMOUNTS = ROOT / "cloudflare" / "migrations" / "0036_btg_q3_amounts.sql"
 D1_BOOTSTRAP_TOOL = ROOT / "cloudflare" / "tools" / "d1_bootstrap.py"
 FIXTURE_BUILDER = ROOT / "cloudflare" / "tools" / "build_d1_bootstrap_fixture.py"
 
@@ -94,6 +95,7 @@ def _import_into_d1_shape(sql_text: str, target: Path) -> None:
         connection.executescript(D1_BEMOBI_TRANSLATIONS.read_text(encoding="utf-8"))
         connection.executescript(D1_XP_MODEL.read_text(encoding="utf-8"))
         connection.executescript(D1_BTG_Q3_PREVIEW.read_text(encoding="utf-8"))
+        connection.executescript(D1_BTG_Q3_AMOUNTS.read_text(encoding="utf-8"))
         connection.executescript(sql_text)
         connection.commit()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

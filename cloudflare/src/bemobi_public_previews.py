@@ -133,6 +133,16 @@ async def store_public_preview(
         or (old_dates and published < max(old_dates))
     ):
         return False
+    # The HTML prose omits the image table. Do not replace a verified PDF
+    # table with that partial view of the same publication; newer notes can
+    # still replace the broker's estimates normally.
+    if any(
+        item.get("broker") == broker
+        and item.get("published_date") == published
+        and item.get("source_evidence") == "PDF_TABLE_VERIFIED"
+        for item in estimates
+    ):
+        return False
     updated = {
         **existing,
         "period": preview["period"],

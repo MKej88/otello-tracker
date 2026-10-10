@@ -281,7 +281,8 @@ export default function ConsensusPage() {
   const ebitdaEstimate = findEstimate(firstBrokerEstimates, "ebitda");
   const latestRevenue = latestBeat ? (findMetric(latestBeat.metrics, "revenue") ?? findMetric(latestBeat.metrics, "omset")) : undefined;
   const latestEbitda = latestBeat ? findMetric(latestBeat.metrics, "ebitda") : undefined;
-  const previewMargin = previewBrokers.length === 1 && revenueEstimate && ebitdaEstimate && finite(revenueEstimate.value_mbrl) && finite(ebitdaEstimate.value_mbrl) && revenueEstimate.value_mbrl !== 0
+  const hasExplicitPreviewMargin = nextQuarterEstimates.some((estimate) => estimate.metric === "ebitda_margin_pct" && finite(estimate.value_pct));
+  const previewMargin = !hasExplicitPreviewMargin && previewBrokers.length === 1 && revenueEstimate && ebitdaEstimate && finite(revenueEstimate.value_mbrl) && finite(ebitdaEstimate.value_mbrl) && revenueEstimate.value_mbrl !== 0
     ? ebitdaEstimate.value_mbrl / revenueEstimate.value_mbrl * 100
     : null;
   const latestMargin = latestRevenue && latestEbitda && latestRevenue.actual !== 0
@@ -355,6 +356,7 @@ export default function ConsensusPage() {
                 <tbody>
                   {nextQuarterEstimates.map((estimate) => {
                     const isAmount = finite(estimate.value_mbrl);
+                    const hasBeatThreshold = isAmount && estimate.metric !== "capex_mbrl";
                     const actual = isAmount ? actualForEstimate(estimate, latestBeat) : null;
                     const change = pctChange(actual, estimate.value_mbrl);
                     const formattedEstimate = isAmount ? `R$ ${value(estimate.value_mbrl, 1)}m` : `${value(estimate.value_pct, 1)} %`;
@@ -365,7 +367,7 @@ export default function ConsensusPage() {
                         <td className="numeric">{formattedEstimate}</td>
                         <td className="numeric">{finite(actual) ? `R$ ${value(actual, 1)}m` : "–"}</td>
                         <td className={`numeric ${tone(change)}`}>{signedPct(change)}</td>
-                        <td className="numeric">{isAmount ? `> ${formattedEstimate}` : "–"}</td>
+                        <td className="numeric">{hasBeatThreshold ? `> ${formattedEstimate}` : "–"}</td>
                       </tr>
                     );
                   })}

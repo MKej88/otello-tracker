@@ -3,10 +3,36 @@
 BTG publiserte «Telecom & Tech – Prévia 3T26 (II)» 08.10.2026:
 https://content.btgpactual.com/research/home/relatorio/6ac79ea65a2606707e77d83d/Telecom-Tech-Previa-3T26-II
 
-Bemobi-avsnittet oppgir omsetningsvekst 28 % år/år, EBITDA-vekst 36 % år/år,
-EBITDA-margin 35,7 % og cash profit R$ 48 millioner. Migreringene lagrer de
-eksplisitte tekstverdiene. Absolutt omsetning og EBITDA er ikke beregnet fra
-vekstratene, og cash profit er ikke ommerket til justert nettoresultat.
+Vedlagt original-PDF er visuelt kontrollert: tabell 3 på side 3, kolonne 3Q26.
+SQLite 0039 og D1 0036 erstatter den tidligere tekstbaserte BTG-oppføringen
+med alle 11 måltall fra denne tabellen. Beløp er i millioner BRL:
+
+| Måltall | 3Q26-estimat |
+| --- | ---: |
+| Nettoomsetning | 239,8 |
+| Payments | 121,3 |
+| SaaS | 47,8 |
+| Subscriptions | 49,9 |
+| Microfinance | 20,8 |
+| Justert EBITDA | 85,5 |
+| Justert EBITDA-margin | 35,7 % |
+| Justert nettoresultat (Adj. Net Income) | 48,0 |
+| Capex | 15,6 |
+| Capex / omsetning | 6,5 % |
+| OpFCF | 69,9 |
+
+PDF-kilde:
+https://content.btgpactual.com/research/files/file/pt-BR/2026-10-08T104612.283_Telecom___Tech___Pr_vias_de_TMT___Parte_II__Intelbras__Totvs__Bemobi_e_LWSA_.pdf
+
+Beløpene er avlest direkte, ikke beregnet fra avrundede vekstrater.
+Justert nettoresultat er nå kildebelagt i tabellen; den tidligere
+tekstoppføringen «cash profit» ommerkes ikke uten denne separate evidensen.
+Hver verdi har kilde, publiseringsdato, side 3 og PDF_TABLE_VERIFIED.
+Nattlig HTML-kontroll erstatter ikke et PDF-verifisert estimatsett med bare
+prosenttall fra samme publiseringsdato. En nyere rapport erstatter det gamle
+settet, slik at tall fra ulike publikasjoner ikke blandes. Andre meglerhus og
+rapportdato bevares. Den eksplisitte marginen vises én gang, og capex får
+ikke en beat-grense som feilaktig gjør høyere investeringer til et bedre resultat.
 
 Tidligere sjekket den aktive innhentingen bare XP og bare annenhver natt.
 XP-lenkene måtte dessuten inneholde BMOB3; sektorrapporter kunne derfor bli

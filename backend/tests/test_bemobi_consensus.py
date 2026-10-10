@@ -82,7 +82,7 @@ def test_bemobi_consensus_builds_targets_broker_multiples_and_beat_miss(tmp_path
     assert result["next_quarter"]["period"] == "3Q26"
     assert result["next_quarter"]["status"] == "PUBLIC_ESTIMATES_AVAILABLE"
     assert result["next_quarter"]["estimates"][0]["broker"] == "BTG Pactual"
-    assert result["next_quarter"]["estimates"][0]["value_pct"] == 28.0
+    assert result["next_quarter"]["estimates"][0]["value_mbrl"] == 239.8
 
     history = result["beat_miss"]
     assert [item["period"] for item in history] == ["3Q25", "4Q25", "2Q26"]
