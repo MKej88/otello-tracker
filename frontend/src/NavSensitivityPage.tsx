@@ -49,7 +49,6 @@ type EconomicNav = {
 };
 
 type DisplayMode = "nav" | "discount" | "upside" | "bemobi";
-type TargetSolveFor = "bemobi" | "fx";
 
 type Scenario = {
   bemobiPrice: number;
@@ -209,32 +208,6 @@ function makeScenario(inputs: ScenarioInputs, bemobiPrice: number, brlNok: numbe
   };
 }
 
-function solveMonotonicTarget(
-  targetNav: number,
-  navAt: (input: number) => number,
-  initialHigh: number,
-) {
-  if (!Number.isFinite(targetNav) || targetNav <= 0) return null;
-  let low = 0.0001;
-  let high = Math.max(initialHigh, low * 2);
-  const lowNav = navAt(low);
-  if (!Number.isFinite(lowNav) || lowNav > targetNav) return null;
-
-  let highNav = navAt(high);
-  for (let attempt = 0; attempt < 16 && highNav < targetNav; attempt += 1) {
-    high *= 2;
-    highNav = navAt(high);
-  }
-  if (!Number.isFinite(highNav) || highNav < targetNav) return null;
-
-  for (let iteration = 0; iteration < 70; iteration += 1) {
-    const mid = (low + high) / 2;
-    if (navAt(mid) < targetNav) low = mid;
-    else high = mid;
-  }
-  return (low + high) / 2;
-}
-
 function scenarioTone(upsidePct: number | null) {
   if (!finite(upsidePct)) return "toneNeutral";
   if (upsidePct < 0) return "toneNegative";
@@ -267,13 +240,12 @@ export default function NavSensitivityPage() {
   usePageUpdate(economic?.calculated_at ?? economic?.as_of_date ?? summary?.as_of_date, "intraday");
   const [mode, setMode] = useState<DisplayMode>("nav");
   const [selected, setSelected] = useState<{ bemobiPrice: number; brlNok: number } | null>(null);
+  const [scenarioDraft, setScenarioDraft] = useState<{ bemobiPrice: string; brlNok: string } | null>(null);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [rangeEditorOpen, setRangeEditorOpen] = useState(false);
   const [customRange, setCustomRange] = useState<MatrixRange | null>(null);
   const [rangeDraft, setRangeDraft] = useState<MatrixRangeDraft | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
-  const [targetNavText, setTargetNavText] = useState("30");
-  const [targetSolveFor, setTargetSolveFor] = useState<TargetSolveFor>("bemobi");
-  const [targetFixedText, setTargetFixedText] = useState("");
 
   const inputs = useMemo<ScenarioInputs | null>(() => {
     const currentBemobiPrice = summary?.bemobi_insights?.price_brl ?? summary?.bmob3_price;
@@ -367,50 +339,34 @@ export default function NavSensitivityPage() {
   const selectedScenario = makeScenario(inputs, selectedPoint.bemobiPrice, selectedPoint.brlNok);
   const currentScenario = makeScenario(inputs, inputs.currentBemobiPrice, inputs.currentBrlNok);
 
-  const breakEvenBemobi = solveMonotonicTarget(
-    inputs.otecPrice,
-    (price) => makeScenario(inputs, price, inputs.currentBrlNok).navPerShare,
-    Math.max(50, inputs.currentBemobiPrice * 2),
-  );
-  const breakEvenBrl = solveMonotonicTarget(
-    inputs.otecPrice,
-    (fx) => makeScenario(inputs, inputs.currentBemobiPrice, fx).navPerShare,
-    Math.max(4, inputs.currentBrlNok * 2),
-  );
-  const bemobiForThirtyPctUpside = solveMonotonicTarget(
-    inputs.otecPrice * 1.3,
-    (price) => makeScenario(inputs, price, inputs.currentBrlNok).navPerShare,
-    Math.max(50, inputs.currentBemobiPrice * 2),
-  );
-
-  const targetNav = parsePositiveInput(targetNavText);
-  const targetFixedDefault = targetSolveFor === "bemobi"
-    ? inputs.currentBrlNok
-    : inputs.currentBemobiPrice;
-  const targetFixed = targetFixedText.trim() === ""
-    ? targetFixedDefault
-    : parsePositiveInput(targetFixedText);
-  const targetResult = targetNav != null && targetFixed != null
-    ? targetSolveFor === "bemobi"
-      ? solveMonotonicTarget(
-          targetNav,
-          (price) => makeScenario(inputs, price, targetFixed).navPerShare,
-          Math.max(50, inputs.currentBemobiPrice * 2),
-        )
-      : solveMonotonicTarget(
-          targetNav,
-          (fx) => makeScenario(inputs, targetFixed, fx).navPerShare,
-          Math.max(4, inputs.currentBrlNok * 2),
-        )
-    : null;
-  const targetScenario = targetResult == null || targetFixed == null
-    ? null
-    : targetSolveFor === "bemobi"
-      ? makeScenario(inputs, targetResult, targetFixed)
-      : makeScenario(inputs, targetFixed, targetResult);
-
   const fixedPreOptionM = inputs.currentPreOptionTotalM - inputs.currentBemobiValueM;
   const refreshFailed = summaryRefreshFailed || economicRefreshFailed;
+
+  const scenarioFields = scenarioDraft ?? {
+    bemobiPrice: String(selectedPoint.bemobiPrice).replace(".", ","),
+    brlNok: String(selectedPoint.brlNok).replace(".", ","),
+  };
+
+  function selectScenario(point: { bemobiPrice: number; brlNok: number } | null) {
+    setSelected(point);
+    setScenarioDraft(null);
+    setScenarioError(null);
+  }
+
+  function applyExactScenario() {
+    const bemobiPrice = parsePositiveInput(scenarioFields.bemobiPrice);
+    const brlNok = parsePositiveInput(scenarioFields.brlNok);
+    if (bemobiPrice == null || brlNok == null) {
+      setScenarioError("Legg inn positive tall for Bemobi og BRL/NOK.");
+      return;
+    }
+    const scenario = makeScenario(inputs!, bemobiPrice, brlNok);
+    if (!Number.isFinite(scenario.navPerShare) || !Number.isFinite(scenario.bemobiValueM)) {
+      setScenarioError("Verdiene er for store til å beregne et scenario.");
+      return;
+    }
+    selectScenario({ bemobiPrice, brlNok });
+  }
 
   function openRangeEditor() {
     const bemobiStep = customRange?.bemobiStep ?? (bemobiPrices[1] - bemobiPrices[0]);
@@ -460,21 +416,16 @@ export default function NavSensitivityPage() {
     }
 
     setCustomRange(validRange);
-    setSelected(null);
+    selectScenario(null);
     setRangeEditorOpen(false);
     setRangeError(null);
   }
 
   function resetRange() {
     setCustomRange(null);
-    setSelected(null);
+    selectScenario(null);
     setRangeEditorOpen(false);
     setRangeError(null);
-  }
-
-  function showTargetScenario() {
-    if (!targetScenario) return;
-    setSelected({ bemobiPrice: targetScenario.bemobiPrice, brlNok: targetScenario.brlNok });
   }
 
   return (
@@ -606,7 +557,7 @@ export default function NavSensitivityPage() {
                         <button
                           aria-label={`Bemobi R$ ${formatNumber(price, 1)}, BRL/NOK ${formatNumber(fx, 2)}: ${modeValue(mode, scenario)}`}
                           className={`sensitivityCell ${scenarioTone(scenario.upsidePct)}${isSelected ? " selected" : ""}`}
-                          onClick={() => setSelected({ bemobiPrice: price, brlNok: fx })}
+                          onClick={() => selectScenario({ bemobiPrice: price, brlNok: fx })}
                           type="button"
                         >
                           <strong>{modeValue(mode, scenario)}</strong>
@@ -629,94 +580,35 @@ export default function NavSensitivityPage() {
         </div>
       </section>
 
-      <section className="card targetCalculator">
-        <div className="targetCalculatorHeader">
-          <div>
-            <span className="label">MÅLBEREGNER</span>
-            <h2>Hva må Bemobi eller BRL/NOK være for en bestemt NAV?</h2>
-            <p>Velg ønsket NAV per OTEC-aksje og hvilken markedsdriver som skal beregnes.</p>
-          </div>
-          <div className="targetSolveButtons" aria-label="Velg hva målberegneren skal løse for">
-            <button className={targetSolveFor === "bemobi" ? "active" : ""} onClick={() => { setTargetSolveFor("bemobi"); setTargetFixedText(""); }} type="button">Finn Bemobi-kurs</button>
-            <button className={targetSolveFor === "fx" ? "active" : ""} onClick={() => { setTargetSolveFor("fx"); setTargetFixedText(""); }} type="button">Finn BRL/NOK</button>
-          </div>
-        </div>
-        <div className="targetCalculatorBody">
-          <div className="targetInputs">
-            <label>
-              <span>Mål: NAV per OTEC-aksje</span>
-              <div className="inputWithSuffix"><input inputMode="decimal" min="0.01" step="any" value={targetNavText} onChange={(event) => setTargetNavText(event.target.value)} /><em>kr</em></div>
-            </label>
-            <label>
-              <span>{targetSolveFor === "bemobi" ? "Hold BRL/NOK konstant" : "Hold Bemobi-kurs konstant"}</span>
-              <div className="inputWithSuffix">
-                <input
-                  inputMode="decimal"
-                  min="0.01"
-                  placeholder={targetSolveFor === "bemobi" ? formatNumber(inputs.currentBrlNok, 4) : formatNumber(inputs.currentBemobiPrice, 2)}
-                  step="any"
-                  value={targetFixedText}
-                  onChange={(event) => setTargetFixedText(event.target.value)}
-                />
-                <em>{targetSolveFor === "bemobi" ? "NOK/BRL" : "R$"}</em>
-              </div>
-              <small>Tomt felt bruker dagens markedsverdi.</small>
-            </label>
-          </div>
-          <div className="targetResult" aria-live="polite">
-            <span>{targetSolveFor === "bemobi" ? "Nødvendig Bemobi-kurs" : "Nødvendig BRL/NOK"}</span>
-            {targetNav == null || targetFixed == null ? (
-              <><strong>—</strong><small>Legg inn positive tall.</small></>
-            ) : targetResult == null || targetScenario == null ? (
-              <><strong>Ikke oppnåelig</strong><small>Målet kan ikke nås ved bare å endre denne driveren.</small></>
-            ) : (
-              <>
-                <strong>{targetSolveFor === "bemobi" ? `R$ ${formatNumber(targetResult)}` : formatNumber(targetResult, 4)}</strong>
-                <small>
-                  Gir NAV {formatNumber(targetScenario.navPerShare)} kr · oppside {signedPercent(targetScenario.upsidePct)}
-                </small>
-                <button onClick={showTargetScenario} type="button">Vis som valgt scenario</button>
-              </>
-            )}
-          </div>
-        </div>
-      </section>
-
       <section className="sensitivityDetailGrid">
-        <article className="card sensitivityBreakEven">
-          <div className="sensitivitySectionHeader">
-            <div>
-              <span className="label">HVA MÅ TIL?</span>
-              <h2>Break-even og oppside</h2>
-            </div>
-          </div>
-          <div className="breakEvenGrid">
-            <div>
-              <span>Bemobi for NAV = OTEC</span>
-              <strong>{breakEvenBemobi == null ? "—" : `R$ ${formatNumber(breakEvenBemobi)}`}</strong>
-              <small>ved dagens BRL/NOK</small>
-            </div>
-            <div>
-              <span>BRL/NOK for NAV = OTEC</span>
-              <strong>{breakEvenBrl == null ? "—" : formatNumber(breakEvenBrl, 4)}</strong>
-              <small>ved dagens Bemobi-kurs</small>
-            </div>
-            <div>
-              <span>Bemobi for +30 % oppside</span>
-              <strong>{bemobiForThirtyPctUpside == null ? "—" : `R$ ${formatNumber(bemobiForThirtyPctUpside)}`}</strong>
-              <small>ved dagens BRL/NOK</small>
-            </div>
-          </div>
-        </article>
-
         <article className="card sensitivitySelected">
           <div className="sensitivitySectionHeader selectedHeader">
             <div>
               <span className="label">VALGT SCENARIO</span>
-              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 1)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 2)}</h2>
+              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 2)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 4)}</h2>
             </div>
-            <button onClick={() => setSelected(null)} type="button">Tilbake til matrise</button>
+            <button onClick={() => selectScenario(null)} type="button">Tilbake til matrise</button>
           </div>
+          <form className="exactScenarioForm" onSubmit={(event) => { event.preventDefault(); applyExactScenario(); }}>
+            <div className="exactScenarioFields">
+              <label>
+                Bemobi-kurs (R$)
+                <input inputMode="decimal" value={scenarioFields.bemobiPrice} onChange={(event) => {
+                  setScenarioDraft({ ...scenarioFields, bemobiPrice: event.target.value });
+                  setScenarioError(null);
+                }} aria-invalid={scenarioError ? true : undefined} />
+              </label>
+              <label>
+                BRL/NOK (kr per real)
+                <input inputMode="decimal" value={scenarioFields.brlNok} onChange={(event) => {
+                  setScenarioDraft({ ...scenarioFields, brlNok: event.target.value });
+                  setScenarioError(null);
+                }} aria-invalid={scenarioError ? true : undefined} />
+              </label>
+              <button type="submit">Bruk eget scenario</button>
+            </div>
+            {scenarioError && <p className="rangeError" role="alert">{scenarioError}</p>}
+          </form>
           <div className="scenarioRows">
             <div><span>Bemobi-post</span><strong>{formatNumber(selectedScenario.bemobiValueM, 1)} mill. kr</strong></div>
             <div><span>Andre komponenter før opsjoner</span><strong>{formatNumber(fixedPreOptionM, 1)} mill. kr</strong></div>
