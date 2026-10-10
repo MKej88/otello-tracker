@@ -484,14 +484,24 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
 
 def parse_xp_preview_html(html: str) -> dict[str, Any] | None:
     parser = _html_parser(html)
+    from bemobi_public_previews import bemobi_preview_text
+
     text = _clean(re.sub(r"<[^>]+>", " ", html))
     period = _period_from_text(text)
-    if period is None or not any(token in text.lower() for token in ("prévia", "previa", "preview")):
+    section = bemobi_preview_text(html)
+    if period is None or section is None or not any(token in text.lower() for token in ("prévia", "previa", "preview")):
         return None
-    ebitda = _extract_metric(text, (r"EBITDA ajustad[oa]", r"adjusted EBITDA"))
-    net_income = _extract_metric(text, (r"lucro l[ií]quido ajustad[oa]", r"adjusted net income"))
-    revenue = _extract_metric(text, (r"receita l[ií]quida", r"net revenue"))
-    if ebitda is None or net_income is None:
+    text = section
+    def amount(label: str) -> float | None:
+        match = re.search(label + r"\s*(?:de|:)?\s*(?:R\$)?\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:milh[õo]es|million|m\b)", text, re.I)
+        return None if match is None else _number(match.group(1))
+
+    ebitda = amount(r"(?:EBITDA ajustad[oa]|adjusted EBITDA)")
+    net_income = amount(r"(?:lucro l[ií]quido ajustad[oa]|adjusted net income)")
+    revenue = amount(r"(?:receita l[ií]quida|net revenue)")
+    if ebitda is None or net_income is None or not (0 < ebitda < 2_000 and -500 < net_income < 1_000):
+        return None
+    if revenue is not None and not (ebitda < revenue < 10_000):
         return None
     published = parser.meta.get("article:published_time") or parser.meta.get("date")
     published_date = str(published)[:10] if published and re.match(r"20\d{2}-\d{2}-\d{2}", str(published)) else None
@@ -1077,6 +1087,9 @@ async def sync_latest_result_release(
                     metrics.append({
                         "metric": metric,
                         "label": estimate.get("label") or metric,
+                        "broker": estimate.get("broker"),
+                        "source_url": estimate.get("source_url"),
+                        "estimate_published_date": estimate.get("published_date"),
                         "estimate": estimate["value_mbrl"],
                         "actual": actual_by_metric[metric],
                     })
@@ -1084,8 +1097,8 @@ async def sync_latest_result_release(
                 await _upsert_fact(
                     repository, fact_type="BEAT_MISS", fact_key=period, as_of_date=result["period_end"],
                     published_date=published_date,
-                    payload={"period": period, "broker": "XP", "published_date": published_date, "metrics": metrics},
-                    source_name="XP + Bemobi/CVM", source_url=source_url,
+                    payload={"period": period, "broker": " / ".join(dict.fromkeys(str(item.get("broker") or "Meglerhus") for item in metrics)), "published_date": published_date, "metrics": metrics},
+                    source_name="Offentlige meglerhus + Bemobi/CVM", source_url=source_url,
                     source_document_id=int(candidate["id"]), quality="AUTO_PREVIEW_VS_RESULT",
                     notes="Automatisk sammenligning av lagret offentlig forhåndsestimat mot rapportert resultat.",
                 )
@@ -1143,7 +1156,7 @@ async def sync_xp_preview(
         for href, label in parser.links:
             absolute = urljoin(XP_BMOB3_REPORTS_URL, href)
             haystack = f"{absolute} {label}".lower()
-            if "xpi.com.br" in urlparse(absolute).netloc and "bmob3" in haystack and any(token in haystack for token in ("previa", "prévia", "preview")):
+            if urlparse(absolute).scheme == "https" and (urlparse(absolute).hostname or "").lower() in {"conteudos.xpi.com.br", "www.conteudos.xpi.com.br"} and any(token in haystack for token in ("previa", "prévia", "preview")):
                 candidates.append(absolute)
         for url in list(dict.fromkeys(candidates))[:8]:
             raw = await _fetch_bytes(url, label="XP Bemobi preview", max_bytes=MAX_HTML_BYTES, fetcher=fetcher)
@@ -1154,24 +1167,13 @@ async def sync_xp_preview(
                 repository, archive_bucket, source_code="XP", url=url, kind="bemobi-preview",
                 title=f"XP Bemobi preview {expected_period}", target_date=target_date, payload=raw,
             )
-            existing = json.loads(str(latest.get("payload_json") or "{}"))
-            updated = {
-                **existing,
-                "period": expected_period,
-                "status": "PUBLIC_ESTIMATES_AVAILABLE",
-                "estimates": [
-                    {**item, "broker": "XP", "source_url": url, "published_date": preview.get("published_date")}
-                    for item in preview["estimates"]
-                ],
-                "note": "Offentlig XP-forhåndsestimat hentet automatisk; ikke markedskonsensus.",
-            }
-            await _upsert_fact(
-                repository, fact_type="NEXT_QUARTER", fact_key=expected_period, as_of_date=target_date,
-                published_date=preview.get("published_date"), payload=updated, source_name="XP",
-                source_url=url, source_document_id=document_id, quality="PUBLIC_BROKER_PREVIEW_AUTO",
-                notes="Automatisk hentet offentlig XP-preview uten innlogging eller betalingsmur.",
+            from bemobi_public_previews import store_public_preview
+
+            written = await store_public_preview(
+                repository, latest=latest, preview=preview, broker="XP", url=url,
+                document_id=document_id, target_date=target_date,
             )
-            return {"status": "ok", "period": expected_period, "rows_written": 1, "source_url": url}
+            return {"status": "ok", "period": expected_period, "rows_written": int(written), "source_url": url}
         return {"status": "not_available", "reason": "no_public_preview_for_next_quarter", "rows_written": 0}
     except Exception as exc:
         return {"status": "not_available", "error": str(exc)[:700], "rows_written": 0}
