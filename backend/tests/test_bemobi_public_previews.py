@@ -5,6 +5,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.db.migration_runner import init_database
 
@@ -152,7 +153,7 @@ def test_daily_q3_discovery_accepts_sector_title_and_stops_after_result():
             return Response(
                 '<a href="/research/home/relatorio/new/Telecom-Tech-Previa-3T26-II">TMT Prévia 3T26</a>'
             )
-        if "btgpactual.com" in url:
+        if urlparse(url).hostname == "content.btgpactual.com":
             return Response(BTG_HTML)
         return Response("<h1>No public XP preview yet</h1>")
 
