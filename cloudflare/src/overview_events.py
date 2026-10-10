@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -177,6 +178,7 @@ async def _company_events(repository: Any, *, today: date) -> list[dict[str, Any
                     url=next_quarter.get("source_url"),
                 )
             )
+            events[-1]["period"] = next_quarter["fact_key"]
 
     active_program = next(
         (
@@ -208,6 +210,24 @@ async def _company_events(repository: Any, *, today: date) -> list[dict[str, Any
     events = merge_agenda_events(
         events, await agenda_events(repository, as_of_date=today_iso)
     )
+    # Attach estimates after the official agenda has replaced/rescheduled dates.
+    # Agenda periods are YYYYQn; estimate periods are nQyy. Never attach another
+    # quarter's financial forecasts or make an extra external/API request here.
+    if next_quarter:
+        period = str(next_quarter.get("fact_key") or "")
+        match = re.fullmatch(r"([1-4])Q(\d{2})", period)
+        comparable_periods = {period}
+        if match:
+            comparable_periods.add(f"20{match[2]}Q{match[1]}")
+        payload = _decode_payload(next_quarter.get("payload_json"))
+        for event in events:
+            if (event.get("company") == "Bemobi" and event.get("category") == "RESULTS"
+                    and event.get("period") in comparable_periods):
+                event["quarter_preview"] = {
+                    "period": period,
+                    "status": payload.get("status"),
+                    "estimates": payload.get("estimates") or [],
+                }
     return events[:40]
 
 

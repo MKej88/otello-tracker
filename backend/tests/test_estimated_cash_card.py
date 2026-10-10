@@ -128,8 +128,8 @@ def test_worker_invalidates_old_cached_economic_payload() -> None:
         encoding="utf-8"
     )
 
-    assert 'STATE_KEY = "dashboard_hot_snapshot_v9"' in source
-    assert "SNAPSHOT_VERSION = 9" in source
+    assert 'STATE_KEY = "dashboard_hot_snapshot_v10"' in source
+    assert "SNAPSHOT_VERSION = 10" in source
 
 
 def test_worker_reference_fixture_supports_report_anchors_in_original_currency(

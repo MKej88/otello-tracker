@@ -494,6 +494,21 @@ jobs:
           assert bemobi_dashboard.get('ready') is True, bemobi_dashboard
           assert bemobi_consensus.get('ready') is True, bemobi_consensus
           next_quarter = bemobi_consensus.get('next_quarter') or {}
+          preview_period = str(next_quarter.get('period') or '')
+          report_periods = {preview_period}
+          if len(preview_period) == 4 and preview_period[1] == 'Q':
+              report_periods.add(f'20{preview_period[-2:]}Q{preview_period[0]}')
+          overview_reports = [
+              item for item in (bootstrap.get('events') or {}).get('events') or []
+              if item.get('company') == 'Bemobi' and item.get('category') == 'RESULTS'
+              and item.get('period') in report_periods
+          ]
+          for report in overview_reports:
+              preview = report.get('quarter_preview') or {}
+              assert preview.get('period') == preview_period, report
+              assert preview.get('status') == next_quarter.get('status'), report
+              assert preview.get('estimates') == (next_quarter.get('estimates') or []), report
+          print('Production overview Bemobi previews:', json.dumps(overview_reports, ensure_ascii=False, sort_keys=True))
           print('Production Bemobi next-quarter estimates:', json.dumps({
               'period': next_quarter.get('period'),
               'status': next_quarter.get('status'),
