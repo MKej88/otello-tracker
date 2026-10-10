@@ -4,6 +4,7 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstimate, type QuarterColumn } from "./nextQuarterConsensus";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -28,16 +29,6 @@ type BrokerYear = {
   earnings_yield_pct?: number | null;
   ev_ebitda?: number | null;
   ev_ebit?: number | null;
-};
-
-type NextQuarterEstimate = {
-  metric: string;
-  label: string;
-  value_mbrl?: number;
-  value_pct?: number;
-  broker?: string | null;
-  source_url?: string | null;
-  published_date?: string | null;
 };
 
 type BeatMissMetric = {
@@ -223,6 +214,50 @@ function forwardMetricValue(metric: string, year: BrokerYear) {
   return "–";
 }
 
+function QuarterBrokerTable({
+  preview, columns,
+}: {
+  preview: ReturnType<typeof buildNextQuarterConsensus>;
+  columns: QuarterColumn[];
+}) {
+  const format = (input: number | null | undefined, column: QuarterColumn) =>
+    finite(input) ? `${value(input, 1)}${column.unit === "pct" ? " %" : ""}` : "–";
+  return (
+    <div className="consensusTableWrap consensusNextTableWrap">
+      <table className="consensusTable consensusNextTable consensusBrokerTable">
+        <thead>
+          <tr>
+            <th scope="col">Meglerhus</th><th scope="col">Publisert</th>
+            {columns.map((column) => <th scope="col" key={column.key}>{column.label}<small>{column.unit === "mbrl" ? "R$ mill." : "%"}</small></th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {preview.brokers.map((row) => (
+            <tr key={row.broker}>
+              <th scope="row">
+                <SourceLink url={row.sourceUrls[0]}>{row.broker}</SourceLink>
+                {row.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2} →</SourceLink></small>)}
+              </th>
+              <td className="numeric">{dateLabel(row.publishedDate)}</td>
+              {columns.map((column) => {
+                const cell = row.values[column.key];
+                return <td className="numeric" key={column.key} title={cell?.derived ? "Beregnet fra dette meglerhusets justerte EBITDA og omsetning" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
+              })}
+            </tr>
+          ))}
+          <tr className="consensusAverageRow">
+            <th scope="row">Snitt</th><td>{preview.brokers.length} meglerhus</td>
+            {columns.map((column) => {
+              const average = preview.averages[column.key];
+              return <td className="numeric" key={column.key}><strong>{format(average?.value, column)}</strong>{average?.count ? <small>n = {average.count}</small> : null}</td>;
+            })}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function ConsensusPage() {
   const [data, setData] = useState<ConsensusPayload | null>(null);
   const [failed, setFailed] = useState(false);
@@ -269,7 +304,9 @@ export default function ConsensusPage() {
   const brokerYears = broker?.years ?? [];
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
-  const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && nextQuarterEstimates.length > 0;
+  const previewMatrix = buildNextQuarterConsensus(nextQuarterEstimates);
+  const primaryPreviewColumns = previewMatrix.columns.filter((column) => MAIN_QUARTER_METRICS.includes(column.metric));
+  const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && previewMatrix.brokers.length > 0;
   const previewBrokers = [...new Set(nextQuarterEstimates.map((estimate) => estimate.broker ?? "Meglerhus"))];
   const previewBroker = previewBrokers.join(" / ");
   const previewSources = previewBrokers.map((broker) => nextQuarterEstimates.find((estimate) => (estimate.broker ?? "Meglerhus") === broker)!);
@@ -348,6 +385,17 @@ export default function ConsensusPage() {
         </div>
         {hasPublicPreview ? (
           <>
+            <QuarterBrokerTable preview={previewMatrix} columns={primaryPreviewColumns.length ? primaryPreviewColumns : previewMatrix.columns} />
+            <p className="consensusNote">Snittet er likt vektet per meglerhus for hvert måltall. Manglende tall holdes utenfor; n viser antall estimater i snittet. Snittet dekker meglerhusene som er vist her.</p>
+            {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
+            {previewMatrix.columns.length > primaryPreviewColumns.length && primaryPreviewColumns.length > 0 && (
+              <details className="consensusPreviewDetails">
+                <summary>Alle kvartalsestimater</summary>
+                <QuarterBrokerTable preview={previewMatrix} columns={previewMatrix.columns} />
+              </details>
+            )}
+            <details className="consensusPreviewDetails">
+              <summary>Sammenligning med siste rapport</summary>
             <div className="consensusTableWrap consensusNextTableWrap">
               <table className="consensusTable consensusNextTable">
                 <thead>
@@ -390,6 +438,7 @@ export default function ConsensusPage() {
                 <SourceLink key={estimate.broker ?? "broker"} url={estimate.source_url}>Kilde: {estimate.broker}{estimate.published_date ? ` · ${dateLabel(estimate.published_date)}` : ""} →</SourceLink>
               ))}
             </div>
+            </details>
             <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
           </>
         ) : (
