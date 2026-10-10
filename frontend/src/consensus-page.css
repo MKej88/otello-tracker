@@ -695,3 +695,45 @@
     flex-direction: column;
   }
 }
+
+.consensusBrokerTable th small,
+.consensusBrokerTable td small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ot-text-muted);
+  font-size: var(--ot-type-label);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.consensusBrokerTable tbody th {
+  top: auto;
+  font-size: var(--ot-type-meta);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--ot-surface);
+  color: var(--ot-text);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.consensusBrokerTable .consensusAverageRow th,
+.consensusBrokerTable .consensusAverageRow td {
+  background: var(--ot-surface-raised);
+  border-top: 2px solid var(--ot-border-soft);
+  font-weight: 600;
+}
+
+.consensusPreviewDetails {
+  margin-top: 16px;
+}
+
+.consensusPreviewDetails > summary {
+  cursor: pointer;
+  color: var(--ot-text);
+  font-size: var(--ot-type-meta);
+  font-weight: 600;
+}
