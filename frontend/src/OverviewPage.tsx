@@ -136,7 +136,7 @@ function ReportEventPreview({ event }: { event: OverviewEvent }) {
     <section className="overviewEventPreview" aria-label="Viktigste Bemobi-estimater">
       {matrix.brokers.length > 0 ? <>
         <div className="overviewEventPreviewHeading">
-          {preview?.period} estimater · {matrix.brokers.length === 1 ? matrix.brokers[0].broker : `Snitt av ${matrix.brokers.length} meglerhus`}
+          {preview?.period} estimater · {matrix.brokers.length === 1 ? matrix.brokers[0].broker : `Snitt av ${matrix.brokers.length} meglerhus`} · R$ mill.
         </div>
         <dl>
           {MAIN_QUARTER_METRICS.map((metric, index) => {
@@ -144,7 +144,7 @@ function ReportEventPreview({ event }: { event: OverviewEvent }) {
             const average = matrix.averages[`${metric}:${isMargin ? "pct" : "mbrl"}`];
             return <div key={metric}>
               <dt>{labels[index]}{isMargin && derivedMargin ? " *" : ""}</dt>
-              <dd className="numeric">{average?.value == null ? "–" : isMargin ? `${formatNumber(average.value, 1)} %` : `R$ ${formatNumber(average.value, 1)} mill.`}</dd>
+              <dd className="numeric">{average?.value == null ? "–" : `${formatNumber(average.value, 1)}${isMargin ? " %" : ""}`}</dd>
             </div>;
           })}
         </dl>
