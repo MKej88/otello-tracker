@@ -4,7 +4,7 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import ConsensusHistoryPanel, { type ConsensusHistoryLink } from "./ConsensusHistoryPanel";
 import { usePageUpdate } from "./pageUpdateStatus";
-import { buildNextQuarterConsensus, type NextQuarterEstimate, type QuarterColumn } from "./nextQuarterConsensus";
+import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstimate, type QuarterColumn } from "./nextQuarterConsensus";
 import "./consensus-page.css";
 
 type Analyst = {
@@ -224,10 +224,10 @@ function QuarterBrokerTable({
     finite(input) ? `${value(input, 1)}${column.unit === "pct" ? " %" : ""}` : "–";
   return (
     <div className="consensusTableWrap consensusNextTableWrap">
-      <table className="consensusTable consensusNextTable consensusBrokerTable">
+      <table id="quarter-expectations-table" className="consensusTable consensusNextTable consensusBrokerTable">
         <thead>
           <tr>
-            <th scope="col">Måltall</th>
+            <th scope="col">Måltall<small>Beløp i R$ mill.</small></th>
             {preview.brokers.map((broker) => (
               <th scope="col" key={broker.broker}>
                 <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
@@ -241,14 +241,14 @@ function QuarterBrokerTable({
         <tbody>
           {columns.map((column) => (
             <tr key={column.key}>
-              <th scope="row">{column.label}<small>{column.unit === "mbrl" ? "R$ mill." : "%"}</small></th>
+              <th scope="row">{column.label}</th>
               {preview.brokers.map((broker) => {
                 const cell = broker.values[column.key];
                 return <td className="numeric" key={broker.broker} title={cell?.derived ? "Beregnet fra dette meglerhusets justerte EBITDA og omsetning" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
               })}
               <td className="numeric consensusAverageCell">
                 <strong>{format(preview.averages[column.key]?.value, column)}</strong>
-                {preview.averages[column.key]?.count ? <small>n = {preview.averages[column.key].count}</small> : null}
+                {preview.averages[column.key]?.count ? <small className="consensusAverageCount">n = {preview.averages[column.key].count}</small> : null}
               </td>
             </tr>
           ))}
@@ -261,6 +261,7 @@ function QuarterBrokerTable({
 export default function ConsensusPage() {
   const [data, setData] = useState<ConsensusPayload | null>(null);
   const [failed, setFailed] = useState(false);
+  const [showAllQuarterMetrics, setShowAllQuarterMetrics] = useState(false);
   usePageUpdate(data?.as_of_date, "daily");
 
   useEffect(() => {
@@ -305,6 +306,7 @@ export default function ConsensusPage() {
   const nextQuarter = data.next_quarter;
   const nextQuarterEstimates = nextQuarter?.estimates ?? [];
   const previewMatrix = buildNextQuarterConsensus(nextQuarterEstimates);
+  const primaryPreviewColumns = previewMatrix.columns.filter((column) => MAIN_QUARTER_METRICS.includes(column.metric));
   const hasPublicPreview = nextQuarter?.status === "PUBLIC_ESTIMATES_AVAILABLE" && previewMatrix.brokers.length > 0;
   const previewBrokers = [...new Set(nextQuarterEstimates.map((estimate) => estimate.broker ?? "Meglerhus"))];
   const previewBroker = previewBrokers.join(" / ");
@@ -384,8 +386,13 @@ export default function ConsensusPage() {
         </div>
         {hasPublicPreview ? (
           <>
-            <QuarterBrokerTable preview={previewMatrix} columns={previewMatrix.columns} />
-            <p className="consensusNote">Snittet er likt vektet per meglerhus for hvert måltall. Manglende tall holdes utenfor; n viser antall estimater i snittet. Snittet dekker meglerhusene som er vist her.</p>
+            <QuarterBrokerTable preview={previewMatrix} columns={showAllQuarterMetrics ? previewMatrix.columns : primaryPreviewColumns} />
+            {previewMatrix.columns.length > primaryPreviewColumns.length && (
+              <button type="button" className="consensusMetricToggle" aria-expanded={showAllQuarterMetrics} aria-controls="quarter-expectations-table" onClick={() => setShowAllQuarterMetrics((current) => !current)}>
+                {showAllQuarterMetrics ? "Vis færre måltall" : "Vis flere måltall"}
+              </button>
+            )}
+            <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
             {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
             <details className="consensusPreviewDetails">
               <summary>Sammenligning med siste rapport</summary>

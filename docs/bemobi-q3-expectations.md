@@ -63,8 +63,11 @@ tilgjengelig er snittet lik BTGs tall. Flere kilder fra samme meglerhus gir
 ikke ekstra vekt. Nyeste publikasjon brukes uten utfylling fra eldre noter.
 Beløp og prosenter, justert nettoresultat, ordinært nettoresultat og cash
 profit holdes adskilt. En manglende EBITDA-margin kan beregnes fra samme
-meglerhus og publikasjon; den merkes med stjerne. Alle 11 BTG-måltall vises
-direkte, og tidligere sammenligning med siste rapport
+meglerhus og publikasjon; den merkes med stjerne. Standardvisningen viser
+omsetning, justert EBITDA, justert nettoresultat og justert EBITDA-margin.
+«Vis flere måltall» utvider tabellen med resten av de 11 BTG-måltallene;
+«Vis færre måltall» gjenoppretter standardvisningen. Kortet har begrenset
+bredde og kompakte rader. Tidligere sammenligning med siste rapport
 er bevart i en egen utfellbar tabell.
 
 Produksjon følger eksisterende PR → CI → merge → produksjons-CI → deploy,

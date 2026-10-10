@@ -701,12 +701,21 @@
   min-width: 0;
 }
 
+.consensusNextReport {
+  max-width: 760px;
+}
+
+.consensusBrokerTable th,
+.consensusBrokerTable td {
+  padding: 7px 10px;
+}
+
 .consensusBrokerTable th {
   white-space: normal;
 }
 
 .consensusBrokerTable th:first-child {
-  width: 40%;
+  width: 50%;
 }
 
 .consensusBrokerTable th small,
@@ -739,10 +748,37 @@
   font-weight: 600;
 }
 
+.consensusBrokerTable .consensusAverageCount {
+  display: inline;
+  margin: 0 0 0 8px;
+  white-space: nowrap;
+}
+
+.consensusMetricToggle {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--ot-border-soft);
+  border-radius: 6px;
+  background: var(--ot-surface-raised);
+  color: var(--ot-text);
+  font: inherit;
+  font-size: var(--ot-type-meta);
+  cursor: pointer;
+}
+
 @media (max-width: 640px) {
   .consensusBrokerTable th,
   .consensusBrokerTable td {
-    padding: 10px 8px;
+    padding: 7px 8px;
+  }
+
+  .consensusBrokerTable th:first-child {
+    width: 40%;
+  }
+
+  .consensusBrokerTable .consensusAverageCount {
+    display: block;
+    margin: 2px 0 0;
   }
 }
 
