@@ -240,6 +240,8 @@ export default function NavSensitivityPage() {
   usePageUpdate(economic?.calculated_at ?? economic?.as_of_date ?? summary?.as_of_date, "intraday");
   const [mode, setMode] = useState<DisplayMode>("nav");
   const [selected, setSelected] = useState<{ bemobiPrice: number; brlNok: number } | null>(null);
+  const [scenarioDraft, setScenarioDraft] = useState<{ bemobiPrice: string; brlNok: string } | null>(null);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [rangeEditorOpen, setRangeEditorOpen] = useState(false);
   const [customRange, setCustomRange] = useState<MatrixRange | null>(null);
   const [rangeDraft, setRangeDraft] = useState<MatrixRangeDraft | null>(null);
@@ -340,6 +342,32 @@ export default function NavSensitivityPage() {
   const fixedPreOptionM = inputs.currentPreOptionTotalM - inputs.currentBemobiValueM;
   const refreshFailed = summaryRefreshFailed || economicRefreshFailed;
 
+  const scenarioFields = scenarioDraft ?? {
+    bemobiPrice: String(selectedPoint.bemobiPrice).replace(".", ","),
+    brlNok: String(selectedPoint.brlNok).replace(".", ","),
+  };
+
+  function selectScenario(point: { bemobiPrice: number; brlNok: number } | null) {
+    setSelected(point);
+    setScenarioDraft(null);
+    setScenarioError(null);
+  }
+
+  function applyExactScenario() {
+    const bemobiPrice = parsePositiveInput(scenarioFields.bemobiPrice);
+    const brlNok = parsePositiveInput(scenarioFields.brlNok);
+    if (bemobiPrice == null || brlNok == null) {
+      setScenarioError("Legg inn positive tall for Bemobi og BRL/NOK.");
+      return;
+    }
+    const scenario = makeScenario(inputs!, bemobiPrice, brlNok);
+    if (!Number.isFinite(scenario.navPerShare) || !Number.isFinite(scenario.bemobiValueM)) {
+      setScenarioError("Verdiene er for store til å beregne et scenario.");
+      return;
+    }
+    selectScenario({ bemobiPrice, brlNok });
+  }
+
   function openRangeEditor() {
     const bemobiStep = customRange?.bemobiStep ?? (bemobiPrices[1] - bemobiPrices[0]);
     const brlStep = customRange?.brlStep ?? (brlRates[1] - brlRates[0]);
@@ -388,14 +416,14 @@ export default function NavSensitivityPage() {
     }
 
     setCustomRange(validRange);
-    setSelected(null);
+    selectScenario(null);
     setRangeEditorOpen(false);
     setRangeError(null);
   }
 
   function resetRange() {
     setCustomRange(null);
-    setSelected(null);
+    selectScenario(null);
     setRangeEditorOpen(false);
     setRangeError(null);
   }
@@ -529,7 +557,7 @@ export default function NavSensitivityPage() {
                         <button
                           aria-label={`Bemobi R$ ${formatNumber(price, 1)}, BRL/NOK ${formatNumber(fx, 2)}: ${modeValue(mode, scenario)}`}
                           className={`sensitivityCell ${scenarioTone(scenario.upsidePct)}${isSelected ? " selected" : ""}`}
-                          onClick={() => setSelected({ bemobiPrice: price, brlNok: fx })}
+                          onClick={() => selectScenario({ bemobiPrice: price, brlNok: fx })}
                           type="button"
                         >
                           <strong>{modeValue(mode, scenario)}</strong>
@@ -557,10 +585,30 @@ export default function NavSensitivityPage() {
           <div className="sensitivitySectionHeader selectedHeader">
             <div>
               <span className="label">VALGT SCENARIO</span>
-              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 1)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 2)}</h2>
+              <h2>R$ {formatNumber(selectedScenario.bemobiPrice, 2)} · BRL/NOK {formatNumber(selectedScenario.brlNok, 4)}</h2>
             </div>
-            <button onClick={() => setSelected(null)} type="button">Tilbake til matrise</button>
+            <button onClick={() => selectScenario(null)} type="button">Tilbake til matrise</button>
           </div>
+          <form className="exactScenarioForm" onSubmit={(event) => { event.preventDefault(); applyExactScenario(); }}>
+            <div className="exactScenarioFields">
+              <label>
+                Bemobi-kurs (R$)
+                <input inputMode="decimal" value={scenarioFields.bemobiPrice} onChange={(event) => {
+                  setScenarioDraft({ ...scenarioFields, bemobiPrice: event.target.value });
+                  setScenarioError(null);
+                }} aria-invalid={scenarioError ? true : undefined} />
+              </label>
+              <label>
+                BRL/NOK (kr per real)
+                <input inputMode="decimal" value={scenarioFields.brlNok} onChange={(event) => {
+                  setScenarioDraft({ ...scenarioFields, brlNok: event.target.value });
+                  setScenarioError(null);
+                }} aria-invalid={scenarioError ? true : undefined} />
+              </label>
+              <button type="submit">Bruk eget scenario</button>
+            </div>
+            {scenarioError && <p className="rangeError" role="alert">{scenarioError}</p>}
+          </form>
           <div className="scenarioRows">
             <div><span>Bemobi-post</span><strong>{formatNumber(selectedScenario.bemobiValueM, 1)} mill. kr</strong></div>
             <div><span>Andre komponenter før opsjoner</span><strong>{formatNumber(fixedPreOptionM, 1)} mill. kr</strong></div>
