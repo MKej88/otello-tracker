@@ -5,6 +5,7 @@ import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { medianDiscountPriceLine } from "./navMedianPrice";
+import { navUpsideLine } from "./navUpside";
 import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstimate } from "./nextQuarterConsensus";
 import "./overview-page.css";
 
@@ -451,6 +452,9 @@ export default function OverviewPage() {
   const medianPriceLine = nav?.ready && history?.estimated?.ready
     ? medianDiscountPriceLine(nav.nav_per_share, discountMedian, summary?.otec_price, formatNumber)
     : null;
+  const navUpside = nav?.ready && summary?.ready
+    ? navUpsideLine(nav.nav_per_share, summary.otec_price, formatNumber)
+    : null;
   const events = upcomingEvents(overviewEvents);
   const nextEvent = events[0];
   const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
@@ -466,6 +470,10 @@ export default function OverviewPage() {
             <div className="cardSecondary"><span>Rabatt</span><strong className="numeric">{nav?.discount_pct == null ? "—" : `${formatNumber(nav.discount_pct, 1)} %`}</strong></div>
             <div className="cardSecondary"><span>1 års median</span><strong className="numeric">{discountMedian == null ? "—" : `${formatNumber(discountMedian, 1)} %`}</strong></div>
           </div>
+          <dl className="overviewNavUpside">
+            <dt>Oppside til NAV</dt>
+            <dd className="numeric">{navUpside ?? "—"}</dd>
+          </dl>
           <div className="overviewDiscountContext">
             {discountSpread == null
               ? "Historisk rabatt sammenlignes når data er tilgjengelige."
