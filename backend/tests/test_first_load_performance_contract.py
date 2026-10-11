@@ -208,18 +208,13 @@ def test_inline_preload_script_is_allowed_by_content_security_policy() -> None:
         assert f"'sha256-{digest}'" in config_path.read_text(encoding="utf-8")
 
 
-def test_overview_module_is_only_loaded_for_the_overview_route() -> None:
+def test_standard_overview_avoids_a_second_module_request_phase() -> None:
     source = (FRONTEND_SRC / "InvestorApp.tsx").read_text(encoding="utf-8")
 
-    assert 'import OverviewPage from "./OverviewPage";' not in source
-    assert 'const loadOverviewPage = () => import("./OverviewPage");' in source
-    overview_preload = source.split('if (view === "Oversikt")', 1)[1].split(
-        'if (view === "NAV")', 1
-    )[0]
-    assert "void loadOverviewPage();" in overview_preload
-    assert overview_preload.index("void loadOverviewPage();") < overview_preload.index(
-        "installDashboardBootstrapFetch();"
-    )
+    assert 'import OverviewPage from "./OverviewPage";' in source
+    assert 'import("./OverviewPage")' not in source
+    assert 'const NavPageV2 = lazy(loadNavPage);' in source
+    assert 'const NavSensitivityPage = lazy(loadNavSensitivityPage);' in source
 
 
 def test_overview_requests_only_start_when_overview_is_preloaded() -> None:

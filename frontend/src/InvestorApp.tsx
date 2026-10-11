@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type MouseEvent } from "react";
 import InvestorNavigation from "./InvestorNavigation";
 import LoadingPlaceholder from "./LoadingPlaceholder";
+import OverviewPage from "./OverviewPage";
 import {
   type View,
   viewFromHash,
@@ -18,7 +19,6 @@ import {
   type PageUpdate,
 } from "./pageUpdateStatus";
 
-const loadOverviewPage = () => import("./OverviewPage");
 const loadNavPage = () => import("./NavPageV2");
 const loadNavSensitivityPage = () => import("./NavSensitivityPage");
 const loadHistoryPage = () => import("./EstimatedHistoryPage");
@@ -31,7 +31,6 @@ const loadConsensusPage = () => import("./ConsensusPage");
 const loadDataQualityPage = () => import("./DataQualityPage");
 const loadNewsEventsPage = () => import("./NewsEventsPage");
 
-const OverviewPage = lazy(loadOverviewPage);
 const NavPageV2 = lazy(loadNavPage);
 const NavSensitivityPage = lazy(loadNavSensitivityPage);
 const EstimatedHistoryPage = lazy(loadHistoryPage);
@@ -50,7 +49,6 @@ function ViewFallback() {
 
 function preload(view: View) {
   if (view === "Oversikt") {
-    void loadOverviewPage();
     installDashboardBootstrapFetch();
     preloadJson("/api/dashboard/discount-history?days=365&max_points=72");
   }

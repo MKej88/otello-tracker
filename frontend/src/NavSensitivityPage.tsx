@@ -107,12 +107,19 @@ function finite(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value);
 }
 
+const numberFormatters = new Map<number, Intl.NumberFormat>();
+
 function formatNumber(value: number | null | undefined, digits = 2) {
   if (!finite(value)) return "—";
-  return value.toLocaleString("nb-NO", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  let formatter = numberFormatters.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("nb-NO", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+    numberFormatters.set(digits, formatter);
+  }
+  return formatter.format(value);
 }
 
 function inputNumber(value: number, digits: number) {
