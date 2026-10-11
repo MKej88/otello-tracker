@@ -59,6 +59,9 @@ class CountingRepository:
     async def run(self, sql: str, parameters: tuple[object, ...] = ()) -> None:
         self.write_calls += 1
 
+    async def run_batch(self, statements) -> None:
+        self.write_calls += 1
+
 
 def test_distribution_reference_data_does_not_cause_n_plus_one_reads() -> None:
     repository = CountingRepository(action_count=100)
