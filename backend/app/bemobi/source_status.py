@@ -84,6 +84,17 @@ def _display_status(key: str, result: dict[str, Any]) -> tuple[str, str, bool]:
         )
         return "OK", detail, False
     if status == "not_available":
+        if key == "xp_preview" and (
+            reason == "xp_access_denied" or "HTTP 403" in error
+        ):
+            return (
+                "BLOCKED",
+                "XP avviste automatisk tilgang (HTTP 403). "
+                "Den offentlige rapportoversikten kan åpnes manuelt. "
+                "Ingen nye XP-estimater er bekreftet; eventuelle tidligere "
+                "validerte estimater beholdes.",
+                True,
+            )
         if key == "xp_preview" and error:
             detail = (
                 "Den valgfrie kontrollen hos XP kunne ikke fullføres. "
@@ -250,7 +261,10 @@ def _status_for_connection(connection) -> dict[str, Any]:
             "last_good_at": None if fact is None else fact.get("updated_at"),
             "data_date": None if fact is None else (fact.get("as_of_date") or fact.get("published_date")),
             "quality": None if fact is None else fact.get("quality"),
-            "url": None if fact is None else fact.get("source_url"),
+            "url": (fact or {}).get("source_url") or (
+                "https://conteudos.xpi.com.br/acoes/bmob3/relatorios/"
+                if source.key == "xp_preview" else None
+            ),
             "uses_last_good": uses_last_good and fact is not None,
             "detail": detail,
         })
