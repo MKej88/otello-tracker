@@ -155,7 +155,7 @@ jobs:
       - name: Install pinned Python Worker tooling
         working-directory: cloudflare
         run: |
-          python -m pip install --require-hashes -r cloudflare/worker-tooling.lock.txt
+          python -m pip install --require-hashes -r worker-tooling.lock.txt
           npm install --no-save wrangler@4.123.0
 
       - name: Render production Wrangler config
