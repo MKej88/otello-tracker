@@ -64,4 +64,10 @@ updates:
       day: "monday"
       time: "07:15"
       timezone: "Europe/Oslo"
+    # Stay within frontend/package.json engines: >=22.12 <23.
+    # Dependabot can still propose Node 22 patch/tag or digest updates.
+    ignore:
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     open-pull-requests-limit: 3
