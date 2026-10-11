@@ -1,0 +1,39 @@
+name: Temporary Wrangler lock refresh (remove before merge)
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare/package.json"
+      - ".github/workflows/generate-ci-locks.yml"
+permissions:
+  contents: read
+jobs:
+  generate:
+    name: Regenerate patched Wrangler npm lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Refresh npm lock and emit JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --prefix cloudflare
+          node - <<'JS'
+          const fs = require('fs');
+          const file = 'cloudflare/package-lock.json';
+          const obj = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (obj.packages['node_modules/sharp']?.version !== '0.35.5') {
+            throw new Error('Expected patched sharp 0.35.5');
+          }
+          console.log('OTELLO_LOCK_BEGIN ' + file);
+          for (const line of fs.readFileSync(file, 'utf8').match(/.*(?:\n|$)/g)) {
+            if (line) console.log('OTELLO_LOCK_LINE ' + JSON.stringify(line));
+          }
+          console.log('OTELLO_LOCK_END ' + file);
+          JS
