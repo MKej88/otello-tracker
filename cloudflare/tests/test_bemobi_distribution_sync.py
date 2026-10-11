@@ -31,6 +31,11 @@ class SQLiteRepository:
     async def run(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         self.connection.execute(sql, params)
 
+    async def run_batch(self, statements) -> None:
+        with self.connection:
+            for sql, params in statements:
+                self.connection.execute(sql, params)
+
 
 def test_distribution_cash_prefers_explicit_gross_amount_per_share() -> None:
     repository = SQLiteRepository()

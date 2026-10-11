@@ -40,6 +40,7 @@ async def _upsert_receipt(
     action: dict[str, Any],
     holding: dict[str, Any],
     fx: dict[str, Any],
+    writes: list[tuple[str, tuple[Any, ...]]],
 ) -> str:
     gross_per_share = Decimal(str(action["amount_per_share"]))
     shares = Decimal(int(holding["shares"]))
@@ -88,29 +89,33 @@ async def _upsert_receipt(
         int(action["id"]),
     )
     if existing is None:
-        await repository.run(
-            """
+        writes.append(
+            (
+                """
             INSERT INTO cash_movements(
                 movement_date, movement_type, amount_nok, amount_original,
                 currency, fx_rate_to_nok, description, source_document_id,
                 confidence, corporate_action_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            values,
+                values,
+            )
         )
         return "written"
     if _row_matches(existing, expected):
         return "unchanged"
 
-    await repository.run(
-        """
+    writes.append(
+        (
+            """
         UPDATE cash_movements
         SET movement_date=?, movement_type=?, amount_nok=?, amount_original=?,
             currency=?, fx_rate_to_nok=?, description=?, source_document_id=?,
             confidence=?
         WHERE corporate_action_id=?
         """,
-        values,
+            values,
+        )
     )
     return "updated"
 
@@ -121,6 +126,7 @@ async def _upsert_withholding(
     action: dict[str, Any],
     holding: dict[str, Any],
     fx: dict[str, Any],
+    writes: list[tuple[str, tuple[Any, ...]]],
 ) -> str | None:
     if action["action_type"] != "JCP":
         return None
@@ -177,29 +183,33 @@ async def _upsert_withholding(
         external_movement_id,
     )
     if existing is None:
-        await repository.run(
-            """
+        writes.append(
+            (
+                """
             INSERT INTO cash_movements(
                 movement_date, movement_type, amount_nok, amount_original,
                 currency, fx_rate_to_nok, description, source_document_id,
                 confidence, external_movement_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            values,
+                values,
+            )
         )
         return "written"
     if _row_matches(existing, expected):
         return "unchanged"
 
-    await repository.run(
-        """
+    writes.append(
+        (
+            """
         UPDATE cash_movements
         SET movement_date=?, movement_type=?, amount_nok=?, amount_original=?,
             currency=?, fx_rate_to_nok=?, description=?, source_document_id=?,
             confidence=?
         WHERE external_movement_id=?
         """,
-        values,
+            values,
+        )
     )
     return "updated"
 
@@ -313,11 +323,13 @@ async def sync_confirmed_bemobi_distribution_cash(
             )
             continue
 
+        writes: list[tuple[str, tuple[Any, ...]]] = []
         receipt_result = await _upsert_receipt(
             repository,
             action=action,
             holding=holding,
             fx=fx,
+            writes=writes,
         )
         written += int(receipt_result == "written")
         updated += int(receipt_result == "updated")
@@ -328,7 +340,12 @@ async def sync_confirmed_bemobi_distribution_cash(
             action=action,
             holding=holding,
             fx=fx,
+            writes=writes,
         )
+        # A receipt and its withholding form one net payment. D1 batches roll
+        # back together, so a failed tax write cannot leave gross-only cash.
+        if writes:
+            await repository.run_batch(writes)
         written += int(tax_result == "written")
         updated += int(tax_result == "updated")
         unchanged += int(tax_result == "unchanged")
