@@ -23,6 +23,6 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements-dev.lock.txt
       - name: Run strict full-history validation
         run: PYTHONPATH=. python -m app.jobs.backtest_buyback_model --refresh-newsweb
