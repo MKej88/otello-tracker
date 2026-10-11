@@ -53,9 +53,11 @@ Cloudflare CLI bruker `cloudflare/package.json` med direkte fastversjon
 
 For Wrangler 4.123.0 blir den transitive `sharp`-avhengigheten fastsatt
 til `0.35.5` med npm `overrides`, fordi `0.35.2` er berørt av
-GHSA-rgj7-g3m4-5g8c og GHSA-wq5f-xc86-pv6w. Ved en senere Wrangler-
-oppgradering må denne overstyringen vurderes på nytt og Dependency Review
-fortsatt være bestått.
+GHSA-rgj7-g3m4-5g8c og GHSA-wq5f-xc86-pv6w.
+Den transitive `undici`-avhengigheten er tilsvarende låst til `7.29.1`,
+som retter GHSA-w293-vg96-wgc3 og GHSA-rfgv-xxqx-mfg5.
+Begge overstyringene må vurderes på nytt ved en senere Wrangler-oppgradering,
+og Dependency Review må fortsatt være bestått.
 
 Installer alltid med `npm ci --no-audit --no-fund` fra `cloudflare/`;
 ikke `npm install --no-save wrangler@...`, som kan velge nye
