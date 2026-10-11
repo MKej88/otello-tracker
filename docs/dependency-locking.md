@@ -51,6 +51,12 @@ Cloudflare CLI bruker `cloudflare/package.json` med direkte fastversjon
 `wrangler@4.123.0` (i npm-manifestet: `"wrangler": "4.123.0"`).
 `cloudflare/package-lock.json` låser underavhengigheter og deres SRI-hasher.
 
+For Wrangler 4.123.0 blir den transitive `sharp`-avhengigheten fastsatt
+til `0.35.5` med npm `overrides`, fordi `0.35.2` er berørt av
+GHSA-rgj7-g3m4-5g8c og GHSA-wq5f-xc86-pv6w. Ved en senere Wrangler-
+oppgradering må denne overstyringen vurderes på nytt og Dependency Review
+fortsatt være bestått.
+
 Installer alltid med `npm ci --no-audit --no-fund` fra `cloudflare/`;
 ikke `npm install --no-save wrangler@...`, som kan velge nye
 transitive pakker. Produksjonsdeploy, testbygg og R2-snapshot-drill
