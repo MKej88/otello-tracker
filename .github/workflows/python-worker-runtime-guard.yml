@@ -5,11 +5,15 @@ on:
     branches: ["main"]
     paths:
       - "cloudflare/pyproject.toml"
+      - "cloudflare/package.json"
+      - "cloudflare/package-lock.json"
       - "cloudflare/src/**"
       - ".github/workflows/python-worker-runtime-guard.yml"
   pull_request:
     paths:
       - "cloudflare/pyproject.toml"
+      - "cloudflare/package.json"
+      - "cloudflare/package-lock.json"
       - "cloudflare/src/**"
       - ".github/workflows/python-worker-runtime-guard.yml"
 
