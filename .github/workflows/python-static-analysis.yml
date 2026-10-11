@@ -6,12 +6,16 @@ on:
       - "backend/app/**"
       - "cloudflare/src/**"
       - ".github/workflows/python-static-analysis.yml"
+      - "tools/ruff.in"
+      - "tools/ruff.lock.txt"
   push:
     branches: ["main"]
     paths:
       - "backend/app/**"
       - "cloudflare/src/**"
       - ".github/workflows/python-static-analysis.yml"
+      - "tools/ruff.in"
+      - "tools/ruff.lock.txt"
 
 permissions:
   contents: read
@@ -29,7 +33,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install pinned Ruff
-        run: python -m pip install ruff==0.16.3
+        run: python -m pip install --require-hashes -r tools/ruff.lock.txt
       - name: Run expanded correctness checks
         # newsweb_daily_buybacks validates target_date by assigning date.fromisoformat;
         # keep this one deliberate F841 exception local to that proven parser.

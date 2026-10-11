@@ -5,11 +5,15 @@ on:
     branches: ["main"]
     paths:
       - "cloudflare/pyproject.toml"
+      - "cloudflare/package.json"
+      - "cloudflare/package-lock.json"
       - "cloudflare/src/**"
       - ".github/workflows/python-worker-runtime-guard.yml"
   pull_request:
     paths:
       - "cloudflare/pyproject.toml"
+      - "cloudflare/package.json"
+      - "cloudflare/package-lock.json"
       - "cloudflare/src/**"
       - ".github/workflows/python-worker-runtime-guard.yml"
 
@@ -44,7 +48,7 @@ jobs:
         working-directory: cloudflare
         run: |
           python -m pip install --require-hashes -r worker-tooling.lock.txt
-          npm install --no-save wrangler@4.123.0
+          npm ci --no-audit --no-fund
 
       - name: Build Python Worker bundle without deploying
         working-directory: cloudflare

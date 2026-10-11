@@ -54,7 +54,7 @@ jobs:
 
       - name: Install pinned Wrangler
         working-directory: cloudflare
-        run: npm install --no-save wrangler@4.123.0
+        run: npm ci --no-audit --no-fund
 
       - name: Render production Wrangler config
         run: python cloudflare/tools/render_production_config.py

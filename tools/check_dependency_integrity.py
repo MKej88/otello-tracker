@@ -13,6 +13,8 @@ LOCK_INPUTS = {
     "backend/requirements.lock.txt": "backend/requirements.txt",
     "backend/requirements-dev.lock.txt": "backend/requirements-dev.txt",
     "cloudflare/worker-tooling.lock.txt": "cloudflare/worker-tooling.in",
+    "tools/pip-audit.lock.txt": "tools/pip-audit.in",
+    "tools/ruff.lock.txt": "tools/ruff.in",
 }
 PIN = re.compile(r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?==([^\s;]+)")
 LOCK_PIN = re.compile(r"(?m)^([A-Za-z0-9_.-]+)==([^\s\\]+)")
@@ -71,22 +73,27 @@ def check_python() -> None:
 
 
 def check_npm() -> None:
-    manifest = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
-    lock = json.loads((ROOT / "frontend/package-lock.json").read_text(encoding="utf-8"))
+    for directory in ("frontend", "cloudflare"):
+        check_npm_lock(directory)
+
+
+def check_npm_lock(directory: str) -> None:
+    manifest = json.loads((ROOT / directory / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((ROOT / directory / "package-lock.json").read_text(encoding="utf-8"))
     if lock.get("lockfileVersion") != 3:
-        raise ValueError("frontend/package-lock.json must use lockfileVersion 3")
+        raise ValueError(f"{directory}/package-lock.json must use lockfileVersion 3")
     for kind in ("dependencies", "devDependencies", "optionalDependencies"):
         if manifest.get(kind, {}) != lock["packages"][""].get(kind, {}):
-            raise ValueError(f"frontend/package-lock.json: {kind} differs from package.json")
+            raise ValueError(f"{directory}/package-lock.json: {kind} differs from package.json")
     count = 0
     for name, package in lock["packages"].items():
         if not name or not package.get("resolved"):
             continue
         integrity = package.get("integrity", "")
         if not re.fullmatch(r"sha(256|384|512)-[A-Za-z0-9+/]+={0,2}", integrity):
-            raise ValueError(f"frontend/package-lock.json: {name} has no SRI digest")
+            raise ValueError(f"{directory}/package-lock.json: {name} has no SRI digest")
         count += 1
-    print(f"frontend/package-lock.json: {count} packages with npm integrity hashes")
+    print(f"{directory}/package-lock.json: {count} packages with npm integrity hashes")
 
 
 if __name__ == "__main__":

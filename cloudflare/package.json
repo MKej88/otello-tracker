@@ -1,0 +1,13 @@
+{
+  "name": "otello-tracker-cloudflare-tooling",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Reproducible Wrangler CLI dependencies for OtelloTracker Worker build and deploy",
+  "dependencies": {
+    "wrangler": "4.123.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.29.1"
+  }
+}

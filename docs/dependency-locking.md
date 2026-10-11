@@ -45,8 +45,37 @@ OpenSSF Scorecard kan rapportere `npmCommand not pinned by hash` på `npm ci`,
 selv når `package-lock.json` inneholder SHA-baserte integrity-felter.
 Dette er ikke grunn til å erstatte korrekt bruk av `npm ci`.
 
-**Begrensning:** Wrangler installeres ennå med eksplisitt direkteversjon
-`wrangler@4.123.0`, men uten en transitive lockfil for det separate
-Cloudflare-verktøyoppsettet. Dette krever egen vurdering og testing før
-produksjonsworkflowen endres. Scorecard-varsler som gjelder dette kan
-derfor fortsatt være åpne.
+## Cloudflare Wrangler – låst npm-verktøykjede
+
+Cloudflare CLI bruker `cloudflare/package.json` med direkte fastversjon
+`wrangler@4.123.0` (i npm-manifestet: `"wrangler": "4.123.0"`).
+`cloudflare/package-lock.json` låser underavhengigheter og deres SRI-hasher.
+
+For Wrangler 4.123.0 blir den transitive `sharp`-avhengigheten fastsatt
+til `0.35.5` med npm `overrides`, fordi `0.35.2` er berørt av
+GHSA-rgj7-g3m4-5g8c og GHSA-wq5f-xc86-pv6w.
+Den transitive `undici`-avhengigheten er tilsvarende låst til `7.29.1`,
+som retter GHSA-w293-vg96-wgc3 og GHSA-rfgv-xxqx-mfg5.
+Begge overstyringene må vurderes på nytt ved en senere Wrangler-oppgradering,
+og Dependency Review må fortsatt være bestått.
+
+Installer alltid med `npm ci --no-audit --no-fund` fra `cloudflare/`;
+ikke `npm install --no-save wrangler@...`, som kan velge nye
+transitive pakker. Produksjonsdeploy, testbygg og R2-snapshot-drill
+skal bruke identisk lockfile.
+
+For å oppdatere Wrangler: endre nøyaktig versjon i `cloudflare/package.json`,
+kjør `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`
+i `cloudflare/` og kontroller endringen i PR. CI sjekker både npm-
+og Python-hasher og kjører Cloudflare dry-run før merge.
+
+## Verktøy for sikkerhetsskanning
+
+`tools/pip-audit.in` og `tools/ruff.in` har eksakte versjoner. Tilsvarende
+`tools/*.lock.txt` inneholder transitiv låsing og SHA-256-hasher, generert
+med samme uv-kommando som over (med riktig input/output-sti).
+Sikkerhetsanalysene installerer via `pip --require-hashes`.
+
+OpenSSF Scorecard kan fortsatt rapportere utviklingsprosess-relaterte
+kontroller; målet her er reproducerbar og verifiserbar installasjon,
+ikke bare et lavere antall varsler.
