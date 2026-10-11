@@ -82,11 +82,15 @@ def test_api_rejects_out_of_range_or_malformed_numbers(
     values.extend(str(-rng.randint(1, 100_000)) for _ in range(12))
     values.extend(str(maximum + rng.randint(1, 100_000)) for _ in range(12))
 
-    # FastAPI must reject invalid query parameters *before* invoking DB handlers.
-    with TestClient(app) as client:
+    # Without a context manager, TestClient does not run the DB-seeding lifespan.
+    # FastAPI must reject these values before invoking any database handler.
+    client = TestClient(app)
+    try:
         for value in values:
             result = client.get(endpoint, params={key: value})
             assert result.status_code == 422, (endpoint, key, value, result.status_code)
+    finally:
+        client.close()
 
 
 @pytest.mark.parametrize(
@@ -111,10 +115,13 @@ def test_api_rejects_malformed_calendar_dates(endpoint: str) -> None:
         "<script>alert(1)</script>",
         "2" * 150,
     ]
-    with TestClient(app) as client:
+    client = TestClient(app)
+    try:
         for value in invalid:
             result = client.get(endpoint, params={"as_of_date": value})
             assert result.status_code == 422, (endpoint, value, result.status_code)
+    finally:
+        client.close()
 
 
 def test_worker_response_size_limit_with_adversarial_chunk_boundaries() -> None:
