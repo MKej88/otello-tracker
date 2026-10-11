@@ -1,0 +1,42 @@
+name: Temporary CI lock generator (remove before merge)
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/generate-ci-locks.yml"
+      - "cloudflare/package.json"
+      - "tools/pip-audit.in"
+      - "tools/ruff.in"
+permissions:
+  contents: read
+jobs:
+  generate-locks:
+    name: Generate exact npm and pip lockfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Generate npm lockfile and Python SHA-256 locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --prefix cloudflare
+          python -m pip install uv==0.12.3
+          uv pip compile tools/pip-audit.in --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file tools/pip-audit.lock.txt
+          uv pip compile tools/ruff.in --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file tools/ruff.lock.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for file in ["cloudflare/package-lock.json", "tools/pip-audit.lock.txt", "tools/ruff.lock.txt"]:
+              print("OTELLO_LOCK_BEGIN " + file)
+              for line in Path(file).read_text().splitlines(keepends=True):
+                  print("OTELLO_LOCK_LINE " + json.dumps(line, ensure_ascii=True))
+              print("OTELLO_LOCK_END " + file)
+          PY
