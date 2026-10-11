@@ -11,11 +11,15 @@ Python, mens nettsiden er bygget med React og Vite.
 
 Den aktive investorvisningen består av:
 
-- **Oversikt** – nøkkeltall for OTEC, NAV, rabatt og investeringene;
+- **Oversikt** – nøkkeltall for OTEC, NAV, rabatt og investeringene, oppside til
+  NAV, teoretisk OTEC-kurs ved ettårsmedianen for NAV-rabatt og kommende hendelser
+  med Bemobis kvartalsestimater;
 - **NAV** – estimert økonomisk NAV og forklaring av endringene;
-- **NAV-sensitivitet** – scenarioer for hvordan Bemobi-kurs og BRL/NOK påvirker
-  NAV, rabatt og oppside;
-- **Historikk** – historisk NAV-rabatt for valgte perioder;
+- **NAV-sensitivitet** – scenariomatrise og eksakte inndata for hvordan
+  Bemobi-kurs og BRL/NOK påvirker NAV, rabatt og oppside, med justerbare
+  intervaller og steg;
+- **Historikk** – historisk NAV-rabatt og OTEC-kurs for valgte perioder, median
+  og persentiler;
 - **Tilbakekjøpsprogram** – gjennomførte kjøp, fremdrift og estimater;
 - **Cash** – kontantbeholdning, kapitalallokering og estimerte utdelinger fra
   Bemobi;
@@ -23,9 +27,18 @@ Den aktive investorvisningen består av:
 - **BRL/NOK** – valutautvikling, drivere og beregnet effekt på NAV;
 - **Brasil** – renter, inflasjon, valuta og markedssignaler som er relevante for
   Bemobi;
-- **Konsensus** – offentlige analytikerestimater for Bemobi;
-- **Nyheter** – Otello- og Bemobi-meldinger og hendelseskalender;
+- **Konsensus** – offentlige analytikerestimater for Bemobi, kvartalsforventninger
+  per meglerhus, snitt og sammenligning med rapporterte kvartalstall;
+- **Nyheter** – Otello- og Bemobi-meldinger, offisiell Bemobi-kalender og norske
+  PDF-oversettelser når de er tilgjengelige;
 - **Datakvalitet** – status for kilder, rapporter og oppdateringsjobber.
+
+Oversikten viser også **Bemobi siden Oslo Børs stengte**, med kursendring i BRL,
+teoretisk OTEC-effekt og teoretisk OTEC-kurs. Beregningen bruker fast valutakurs
+og en omtrentlig Bemobi-referanse rundt Oslo-sluttauksjonen. Kortet beholder
+siste gyldige resultat frem til neste handelssesjon og venter på dagens
+Oslo-stenging når begge børsene handler. Manglende grunnlag vises tydelig.
+Se [`docs/bemobi-etter-oslo.md`](docs/bemobi-etter-oslo.md) for metode og forbehold.
 
 ## Hvordan løsningen henger sammen
 
@@ -40,8 +53,9 @@ Cloudflare Worker + Static Assets
    |
    +-- D1: produksjonsdatabase
    +-- R2: råkilder, PDF-er og revisjonssnapshots
-   +-- Cron: rask oppdatering hvert 30. minutt
-   +-- Workflow: full oppdatering kl. 03:35 UTC hver dag
+   +-- Workers AI: norske Bemobi-dokumentoversettelser
+   +-- Cron: rask oppdatering og Bemobi-referanse ved Oslo-stenging
+   +-- Cron -> Workflow: full oppdatering kl. 03:35 UTC hver dag
 ```
 
 `cloudflare/` er produksjonsimplementasjonen. `backend/` er en lokal
@@ -86,19 +100,35 @@ påvirker beregningene skal kunne spores.
   inkrementelle data som markedspriser og NewsWeb-meldinger.
 - Den fulle oppdateringen kjører daglig kl. 03:35 UTC og håndterer tyngre
   kilder, avstemming, historikk, NAV-beregninger og R2-arkivering.
-- Begge oppdateringsbanene bruker samme D1-baserte skrivelås for å unngå at de
-  endrer de samme dataene samtidig.
+  Det tilsvarer kl. 05:35 norsk sommertid og kl. 04:35 norsk vintertid.
+  Worker-cron starter Workflow for foregående kalenderdag; etter hver raske
+  oppdatering kontrolleres det om nattkjøringen mangler. En fast instans-ID
+  hindrer duplikater. Feilede eller terminerte instanser restartes ikke automatisk.
+- Rask og full oppdatering bruker samme D1-baserte skrivelås for å unngå at de
+  endrer de samme dataene samtidig. Bemobi-referansen ved Oslo-stenging lagres
+  separat og idempotent, slik at fulloppdateringen ikke blokkerer tidsvinduet.
+- Bemobi-referansen forsøkes hentet hvert minutt kl. 16:37–16:43 norsk tid på
+  ordinære Oslo-børsdager, og kl. 13:17–13:23 onsdag før påske. Kalender og lokal
+  klokke filtrerer de ekstra UTC-triggerne før innhenting. Kortet i nettleseren
+  oppdateres hvert andre minutt; ordinær kursinnhenting skjer hvert 30. minutt.
+- Den fulle oppdateringen kontrollerer offentlige XP- og BTG-estimater for
+  Bemobis Q3 2026 hver natt frem til kvartalet er rapportert eller rullet videre.
+  Konsensusvisningen gir hvert meglerhus lik vekt per måltall og holder ulike
+  resultatdefinisjoner adskilt. Se
+  [`docs/bemobi-q3-expectations.md`](docs/bemobi-q3-expectations.md).
 - En skrivebeskyttet GitHub Actions-diagnose kontrollerer nattkjøringen og
   sentrale produksjonsdata.
 - D1 Time Travel er primær databasegjenoppretting. Logiske R2-snapshots er et
   ekstra revisjons- og gjenopprettingslag.
 
 Praktiske driftsrutiner står i [`docs/runbook.md`](docs/runbook.md).
+Oppstart og gjenoppretting av nattkjøringen er beskrevet i
+[`docs/nightly-trigger-recovery.md`](docs/nightly-trigger-recovery.md).
 
 ## API
 
-Cloudflare-API-et har versjon **0.13.2**. De aktive endepunktene som brukes av
-investorvisningen er:
+Cloudflare-API-et har versjon **0.13.2**. Endepunktene for investorvisningen og
+driftskontroll er:
 
 ```text
 GET /api/health
@@ -114,6 +144,7 @@ GET /api/dashboard/discount-history
 GET /api/dashboard/nav-periods
 GET /api/fx/dashboard
 GET /api/market/quotes
+GET /api/market/bemobi-after-oslo
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/buybacks/overview-status
@@ -130,6 +161,8 @@ Bemobi-dokumenter kan i tillegg ha en norsk PDF-oversettelse tilgjengelig via
 
 Den lokale referanse-API-en i `backend/` har versjon **0.12.1**. Den brukes til
 å teste finansielle beregninger og er ikke en kopi av hele produksjonsmiljøet.
+Den har blant annet ikke bootstrap, Bemobi-etter-Oslo, Brasil-dashboard eller
+produksjonens driftsstatusendepunkter.
 
 ## Lokal bruk med bare Python
 
@@ -146,6 +179,9 @@ PYTHONPATH=. python -m uvicorn app.main:app --reload
 
 API-et blir tilgjengelig på `http://127.0.0.1:8000`. Interaktiv
 API-dokumentasjon finnes på `http://127.0.0.1:8000/docs`.
+Ved oppstart opprettes og migreres lokal SQLite automatisk, med kuratert
+historikk som referansegrunnlag. Standardstien er `backend/data/otello.db`
+når kommandoen kjøres fra `backend/`; den kan overstyres med `DATABASE_PATH`.
 
 Kjør testene i et eget terminalvindu med det samme virtuelle miljøet aktivert:
 
@@ -175,6 +211,13 @@ referanse-API-et på `http://localhost:8000`. Fordi referanse-API-et ikke er en
 full kopi av produksjonen, kan enkelte produksjonsdata eller statusfelt mangle
 lokalt.
 
+Frontend-tester og produksjonsbygg kan kjøres fra `frontend/`:
+
+```bash
+npm test
+npm run build
+```
+
 ## Deploy og sikkerhet
 
 Endringer går via pull request og obligatorisk CI. Etter grønn CI på `main`
@@ -194,6 +237,10 @@ GitHub eller Cloudflare, aldri i Git.
 - [`docs/economic-nav.md`](docs/economic-nav.md) – økonomisk NAV
 - [`docs/option-liability.md`](docs/option-liability.md) – opsjonsmodellen
 - [`docs/buyback-forecast.md`](docs/buyback-forecast.md) – tilbakekjøpsmodellen
+- [`docs/bemobi-etter-oslo.md`](docs/bemobi-etter-oslo.md) – Bemobi-bevegelse og teoretisk OTEC-effekt etter Oslo-stenging
+- [`docs/bemobi-q3-expectations.md`](docs/bemobi-q3-expectations.md) – offentlige kvartalsestimater og rapporterte sammenligningstall
+- [`docs/bemobi-norsk-oversettelse.md`](docs/bemobi-norsk-oversettelse.md) – norske PDF-oversettelser via Workers AI
+- [`docs/nightly-trigger-recovery.md`](docs/nightly-trigger-recovery.md) – nattkjøring, duplikatvern og gjenoppretting
 - [`docs/cloudflare-paid-cost-guard.md`](docs/cloudflare-paid-cost-guard.md) – kostnadsvern
 - [`docs/ci-auto-deploy.md`](docs/ci-auto-deploy.md) – automatisk produksjonsdeploy
 - [`cloudflare/README.md`](cloudflare/README.md) – Cloudflare-implementasjonen
