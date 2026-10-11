@@ -6,6 +6,8 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from app.db.connection import get_connection
 from app.db.migration_runner import init_database
 
@@ -46,6 +48,15 @@ class SQLiteAsyncWriteRepository:
         finally:
             connection.close()
 
+    async def run_batch(self, statements):
+        connection = self._connect()
+        try:
+            with connection:
+                for sql, parameters in statements:
+                    connection.execute(sql, parameters)
+        finally:
+            connection.close()
+
 
 def _source_id(connection, code: str) -> int:
     return int(connection.execute("SELECT id FROM sources WHERE code=?", (code,)).fetchone()["id"])
@@ -55,9 +66,16 @@ def _instrument_id(connection, symbol: str) -> int:
     return int(connection.execute("SELECT id FROM instruments WHERE symbol=?", (symbol,)).fetchone()["id"])
 
 
-def _fixture(tmp_path: Path, *, include_fx: bool = True) -> str:
+def _fixture(
+    tmp_path: Path, *, include_fx: bool = True, d1_schema: bool = False
+) -> str:
     database = str(tmp_path / "bemobi-distribution-sync.db")
-    init_database(database)
+    if d1_schema:
+        with sqlite3.connect(database) as connection:
+            for migration in sorted((CLOUDFLARE / "migrations").glob("*.sql")):
+                connection.executescript(migration.read_text(encoding="utf-8"))
+    else:
+        init_database(database)
     with get_connection(database) as connection:
         source_id = _source_id(connection, "CVM")
         document_id = connection.execute(
@@ -150,6 +168,80 @@ def test_confirmed_jcp_is_receivable_until_payment_then_net_cash(tmp_path: Path)
     assert again["rows_unchanged"] == 2
     with get_connection(database) as connection:
         assert connection.execute("SELECT COUNT(*) FROM cash_movements").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("existing_payment", [False, True])
+@pytest.mark.parametrize("failure_phase", ["read", "write"])
+@pytest.mark.parametrize("d1_schema", [False, True])
+def test_jcp_failure_preserves_complete_payment_and_retry_is_idempotent(
+    tmp_path: Path, existing_payment: bool, failure_phase: str, d1_schema: bool
+) -> None:
+    database = _fixture(tmp_path, d1_schema=d1_schema)
+    repository = SQLiteAsyncWriteRepository(database)
+    if existing_payment:
+        asyncio.run(
+            sync_confirmed_bemobi_distribution_cash(repository, target_date="2026-08-28")
+        )
+
+    with get_connection(database) as connection:
+        before = [
+            dict(row)
+            for row in connection.execute("SELECT * FROM cash_movements ORDER BY id")
+        ]
+        # A corrected FX rate must update both sides of an existing net payment.
+        connection.execute("UPDATE fx_rates SET rate='2' WHERE base_currency='BRL'")
+        if failure_phase == "write":
+            for operation in ("INSERT", "UPDATE"):
+                connection.execute(
+                    f"""
+                    CREATE TRIGGER fail_tax_{operation.lower()}
+                    BEFORE {operation} ON cash_movements
+                    WHEN NEW.movement_type='TAX'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'temporary withholding failure');
+                    END
+                    """
+                )
+        connection.commit()
+
+    class FailingReadRepository(SQLiteAsyncWriteRepository):
+        async def first(self, sql: str, parameters=()):
+            if "WHERE external_movement_id=?" in sql:
+                raise sqlite3.OperationalError("temporary withholding failure")
+            return await super().first(sql, parameters)
+
+    failing = FailingReadRepository(database) if failure_phase == "read" else repository
+    with pytest.raises(sqlite3.DatabaseError, match="temporary withholding failure"):
+        asyncio.run(
+            sync_confirmed_bemobi_distribution_cash(failing, target_date="2026-08-28")
+        )
+
+    with get_connection(database) as connection:
+        after = [
+            dict(row)
+            for row in connection.execute("SELECT * FROM cash_movements ORDER BY id")
+        ]
+        assert after == before
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        if failure_phase == "write":
+            connection.execute("DROP TRIGGER fail_tax_insert")
+            connection.execute("DROP TRIGGER fail_tax_update")
+        connection.commit()
+
+    retried = asyncio.run(
+        sync_confirmed_bemobi_distribution_cash(repository, target_date="2026-08-28")
+    )
+    assert retried["rows_updated" if existing_payment else "rows_written"] == 2
+    with get_connection(database) as connection:
+        rows = connection.execute("SELECT amount_nok FROM cash_movements").fetchall()
+        assert len(rows) == 2
+        assert sum(Decimal(row["amount_nok"]) for row in rows) == Decimal("316.44182000")
+
+    again = asyncio.run(
+        sync_confirmed_bemobi_distribution_cash(repository, target_date="2026-08-28")
+    )
+    assert again["rows_written"] == again["rows_updated"] == 0
+    assert again["rows_unchanged"] == 2
 
 
 def test_due_distribution_without_payment_fx_is_not_guessed(tmp_path: Path) -> None:
