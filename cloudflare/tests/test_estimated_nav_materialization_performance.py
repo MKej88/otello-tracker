@@ -67,8 +67,9 @@ def test_successful_days_batch_point_and_retry_cleanup_per_day() -> None:
     assert result["written"] == 10
     assert repository.batch_calls == 10
     assert repository.write_calls == 1  # The scan cursor is still one separate write.
-    assert all(len(statements) == 2 for statements in repository.batched_statements)
+    assert all(len(statements) == 3 for statements in repository.batched_statements)
     for statements, day in zip(repository.batched_statements, dates, strict=True):
-        point_write, retry_cleanup = statements
+        point_write, retry_cleanup, period_invalidation = statements
         assert point_write[1][0] == day
         assert retry_cleanup[1][0] == day
+        assert len(period_invalidation[1]) == 6
