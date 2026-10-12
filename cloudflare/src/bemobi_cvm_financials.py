@@ -377,6 +377,9 @@ def parse_capex_accounts_archive(
     )
     try:
         for row in reader:
+            # The archive covers the whole market; only analyze Bemobi's labels.
+            if _clean_cvm_code(row.get("CD_CVM")) != BEMOBI_CVM_CODE:
+                continue
             if not _is_capex_label(row.get("DS_CONTA")):
                 continue
             item = _row_to_observation(
