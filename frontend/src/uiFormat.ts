@@ -1,11 +1,17 @@
 const NUMBER_LOCALE = "nb-NO";
+const numberFormatters = new Map<number, Intl.NumberFormat>();
 
 export function formatNumber(input: number | null | undefined, digits = 2): string {
   if (input == null || !Number.isFinite(input)) return "–";
-  return input.toLocaleString(NUMBER_LOCALE, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  let formatter = numberFormatters.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(NUMBER_LOCALE, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+    numberFormatters.set(digits, formatter);
+  }
+  return formatter.format(input);
 }
 
 export function formatInteger(input: number | null | undefined): string {
