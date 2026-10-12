@@ -209,6 +209,60 @@ def test_cvm_capex_sums_split_tangible_and_intangible_lines_when_no_combined_lin
     assert rows[0].value_mbrl == -12.0
 
 
+def test_cvm_capex_filters_other_issuers_before_analyzing_descriptions() -> None:
+    from unittest.mock import patch
+
+    import bemobi_cvm_financials as financials
+
+    bemobi = _row(
+        year=2026,
+        period_end="2026-06-30",
+        account="6.02.10",
+        value="-5000",
+        statement="DFC",
+        label="Aquisição de imobilizado e intangível",
+    )
+    # CVM codes may contain leading zeros or surrounding whitespace.
+    bemobi["CD_CVM"] = " 025500 "
+    unrelated = {
+        **bemobi,
+        "CD_CVM": "10000",
+        "DS_CONTA": "Aquisição de intangível de outra companhia",
+        "VL_CONTA": "invalid",
+    }
+    payload = _archive(
+        year=2026, document_type="itr", files={"DFC": [unrelated] * 1000 + [bemobi]}
+    )
+    with patch.object(financials, "_is_capex_label", wraps=financials._is_capex_label) as match:
+        rows = parse_capex_accounts_archive(payload, year=2026, document_type="itr")
+
+    assert len(rows) == 1
+    assert rows[0].value_mbrl == -5.0
+    # One match while reading and one while selecting the combined capex line.
+    assert match.call_count == 2
+    assert all(call.args == (bemobi["DS_CONTA"],) for call in match.call_args_list)
+
+
+def test_cvm_capex_still_rejects_invalid_bemobi_amounts_and_conflicting_rows() -> None:
+    from unittest import TestCase
+
+    row = _row(
+        year=2026,
+        period_end="2026-06-30",
+        account="6.02.10",
+        value="-5000",
+        statement="DFC",
+        label="Aquisição de imobilizado e intangível",
+    )
+    for rows, message in (
+        ([{**row, "VL_CONTA": "invalid"}], "Ugyldig CVM VL_CONTA"),
+        ([row, {**row, "VL_CONTA": "-6000"}], "Motstridende CVM-verdier"),
+    ):
+        payload = _archive(year=2026, document_type="itr", files={"DFC": rows})
+        with TestCase().assertRaisesRegex(ValueError, message):
+            parse_capex_accounts_archive(payload, year=2026, document_type="itr")
+
+
 def test_cvm_balance_builds_cash_borrowings_and_net_debt() -> None:
     payload = _archive(
         year=2026,
