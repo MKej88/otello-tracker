@@ -28,11 +28,11 @@ def test_optional_xp_access_error_is_waiting_not_data_degradation() -> None:
         },
     )
 
-    assert status == "WAITING"
-    assert "valgfrie kontrollen" in detail
+    assert status == "BLOCKED"
+    assert "XP avviste automatisk tilgang" in detail
     assert "HTTP 403" in detail
-    assert "Ingen nye estimater er hentet" in detail
-    assert uses_last_good is False
+    assert "Ingen nye XP-estimater er bekreftet" in detail
+    assert uses_last_good is True
 
 
 class _CountingRepository:

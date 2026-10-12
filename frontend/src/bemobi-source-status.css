@@ -9,6 +9,7 @@
 .sourceStatusBadge i { width:8px; height:8px; border-radius:50%; background:currentColor; }
 .sourceStatus-ok { color: var(--ot-positive); border-color: var(--ot-positive-border); }
 .sourceStatus-degraded, .sourceStatus-waiting { color: var(--ot-warning); border-color: var(--ot-warning-border); }
+.sourceStatus-blocked { color: var(--ot-warning); border-color: var(--ot-warning-border); }
 .sourceStatus-error { color: var(--ot-negative); border-color: var(--ot-negative-border); }
 .sourceStatusDetail { grid-column: 1 / -1; color: var(--ot-text-muted); line-height: 1.4; }
 .mobileSourceLabel { display: none; }
