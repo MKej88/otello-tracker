@@ -66,6 +66,7 @@ function statusLabel(status: string) {
     DEGRADED: "SISTE GODE DATA",
     ERROR: "FEIL",
     WAITING: "VENTER",
+    BLOCKED: "TILGANG AVVIST",
     UNKNOWN: "IKKE KONTROLLERT"
   };
   return labels[status] ?? status;
