@@ -1139,6 +1139,7 @@ async def sync_xp_preview(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
+    """Try bounded official XP catalogues; never invent or replace unverified estimates."""
     latest = await repository.first(
         """
         SELECT fact_key, payload_json FROM bemobi_investor_facts
@@ -1149,17 +1150,41 @@ async def sync_xp_preview(
     if latest is None:
         return {"status": "skipped", "reason": "next_quarter_not_initialized", "rows_written": 0}
     expected_period = str(latest["fact_key"])
-    try:
-        index_raw = await _fetch_bytes(XP_BMOB3_REPORTS_URL, label="XP BMOB3 reports", max_bytes=MAX_HTML_BYTES, fetcher=fetcher)
-        parser = _html_parser(_decode_html(index_raw))
-        candidates = []
-        for href, label in parser.links:
-            absolute = urljoin(XP_BMOB3_REPORTS_URL, href)
-            haystack = f"{absolute} {label}".lower()
-            if urlparse(absolute).scheme == "https" and (urlparse(absolute).hostname or "").lower() in {"conteudos.xpi.com.br", "www.conteudos.xpi.com.br"} and any(token in haystack for token in ("previa", "prévia", "preview")):
-                candidates.append(absolute)
-        for url in list(dict.fromkeys(candidates))[:8]:
-            raw = await _fetch_bytes(url, label="XP Bemobi preview", max_bytes=MAX_HTML_BYTES, fetcher=fetcher)
+    # The BMOB3 catalogue sometimes rejects Worker requests. The general,
+    # publicly listed XP reports catalogue is a legitimate secondary discovery
+    # route. A rejected catalogue must not prevent checking the other one.
+    catalogues = (
+        XP_BMOB3_REPORTS_URL,
+        "https://conteudos.xpi.com.br/acoes/relatorios/",
+    )
+    errors: list[str] = []
+    candidates: list[str] = []
+    for catalogue in catalogues:
+        try:
+            index_raw = await _fetch_bytes(
+                catalogue, label="XP reports", max_bytes=MAX_HTML_BYTES, fetcher=fetcher
+            )
+            parser = _html_parser(_decode_html(index_raw))
+            for href, label in parser.links:
+                absolute = urljoin(catalogue, href)
+                parsed = urlparse(absolute)
+                haystack = f"{absolute} {label}".lower()
+                if (
+                    parsed.scheme == "https"
+                    and (parsed.hostname or "").lower() in {
+                        "conteudos.xpi.com.br", "www.conteudos.xpi.com.br"
+                    }
+                    and any(token in haystack for token in ("previa", "prévia", "preview"))
+                ):
+                    candidates.append(absolute)
+        except Exception as exc:  # noqa: BLE001 - optional publisher access
+            errors.append(f"{catalogue}: {str(exc)[:180]}")
+
+    for url in list(dict.fromkeys(candidates))[:8]:
+        try:
+            raw = await _fetch_bytes(
+                url, label="XP Bemobi preview", max_bytes=MAX_HTML_BYTES, fetcher=fetcher
+            )
             preview = parse_xp_preview_html(_decode_html(raw))
             if preview is None or preview["period"] != expected_period:
                 continue
@@ -1173,10 +1198,22 @@ async def sync_xp_preview(
                 repository, latest=latest, preview=preview, broker="XP", url=url,
                 document_id=document_id, target_date=target_date,
             )
-            return {"status": "ok", "period": expected_period, "rows_written": int(written), "source_url": url}
-        return {"status": "not_available", "reason": "no_public_preview_for_next_quarter", "rows_written": 0}
-    except Exception as exc:
-        return {"status": "not_available", "error": str(exc)[:700], "rows_written": 0}
+            return {
+                "status": "ok", "period": expected_period,
+                "rows_written": int(written), "source_url": url,
+            }
+        except Exception as exc:  # noqa: BLE001 - continue with other official XP publications
+            errors.append(f"{url}: {str(exc)[:180]}")
+
+    if errors:
+        # Never report that XP has not published a preview when a publisher
+        # access denial means that the catalogue could not be verified.
+        reason = "xp_access_denied" if any("HTTP 403" in e for e in errors) else "xp_fetch_failed"
+        return {
+            "status": "not_available", "reason": reason,
+            "error": "; ".join(errors)[:700], "rows_written": 0,
+        }
+    return {"status": "not_available", "reason": "no_public_preview_for_next_quarter", "rows_written": 0}
 
 
 async def refresh_bemobi_web(

@@ -63,6 +63,12 @@ async def _write_point_and_remove_retry(
     repository, day: str, point: dict[str, Any]
 ) -> None:
     """Persist one successful day with one atomic D1 round trip."""
+    try:
+        from .materialized_discount_history import PERIOD_KEYS, _cache_key
+    except ImportError:
+        from materialized_discount_history import PERIOD_KEYS, _cache_key
+
+    period_keys = tuple(_cache_key(key) for key in PERIOD_KEYS)
     await repository.run_batch(
         [
             (
@@ -101,6 +107,15 @@ async def _write_point_and_remove_retry(
                 """DELETE FROM estimated_nav_history_retry_queue
                    WHERE date=? AND calculation_version=?""",
                 (day, ESTIMATED_NAV_CALCULATION_VERSION),
+            ),
+            # Corrections and retries can change history without advancing MAX(date).
+            # Invalidate atomically so a deferred/failed period build cannot serve
+            # the previous values as a current, ready payload.
+            (
+                "DELETE FROM runtime_state WHERE key IN ("
+                + ",".join("?" for _ in period_keys)
+                + ")",
+                period_keys,
             ),
         ]
     )

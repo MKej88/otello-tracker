@@ -303,3 +303,118 @@ def test_nightly_prose_does_not_erase_verified_pdf_amounts_but_newer_note_replac
     assert "revenue_mbrl" not in {
         item["metric"] for item in repository.payload()["estimates"]
     }
+
+
+
+def test_xp_403_tries_other_official_catalogue_and_uses_verified_preview():
+    repository = Repository()
+    calls = []
+    general_catalogue = "https://conteudos.xpi.com.br/acoes/relatorios/"
+    preview_url = "https://conteudos.xpi.com.br/acoes/relatorios/tmt-previa-3t26/"
+    xp_html = """<meta property="article:published_time" content="2026-10-09T12:00:00Z">
+    <h1>TMT prévia 3Q26</h1><h2>Bemobi: preview</h2>
+    <p>Receita líquida de R$ 250 milhões, EBITDA ajustado de R$ 86 milhões
+    e lucro líquido ajustado de R$ 49 milhões.</p>"""
+
+    class Response:
+        def __init__(self, body="", status=200):
+            self.payload = body.encode()
+            self.status = status
+            self.ok = status == 200
+
+        async def arrayBuffer(self):
+            return self.payload
+
+    async def fetcher(url, **kwargs):
+        calls.append(url)
+        if url == previews.sync_xp_preview.__globals__["XP_BMOB3_REPORTS_URL"]:
+            return Response(status=403)
+        if url == general_catalogue:
+            return Response('<a href="/acoes/relatorios/tmt-previa-3t26/">TMT Prévia 3T26</a>')
+        if url == preview_url:
+            return Response(xp_html)
+        raise AssertionError(f"Unexpected XP source: {url}")
+
+    result = asyncio.run(
+        previews.sync_xp_preview(
+            repository, target_date="2026-10-11", fetcher=fetcher,
+        )
+    )
+    assert result["status"] == "ok"
+    assert result["source_url"] == preview_url
+    assert calls == [
+        previews.sync_xp_preview.__globals__["XP_BMOB3_REPORTS_URL"],
+        general_catalogue, preview_url,
+    ]
+    assert {item["metric"] for item in repository.payload()["estimates"]} == {
+        "adjusted_net_revenue_mbrl", "adjusted_ebitda_mbrl",
+        "adjusted_net_income_mbrl",
+    }
+
+
+def test_xp_all_official_catalogues_denied_returns_explicit_access_failure():
+    repository = Repository()
+    calls = []
+
+    class ForbiddenResponse:
+        status = 403
+        ok = False
+
+    async def fetcher(url, **kwargs):
+        calls.append(url)
+        return ForbiddenResponse()
+
+    result = asyncio.run(
+        previews.sync_xp_preview(
+            repository, target_date="2026-10-11", fetcher=fetcher,
+        )
+    )
+    assert result["status"] == "not_available"
+    assert result["reason"] == "xp_access_denied"
+    assert "HTTP 403" in result["error"]
+    assert len(calls) == 2
+    assert repository.payload()["estimates"] == []
+
+
+def test_xp_candidate_error_does_not_hide_later_verified_report():
+    repository = Repository()
+    general_catalogue = "https://conteudos.xpi.com.br/acoes/relatorios/"
+    blocked = "https://conteudos.xpi.com.br/acoes/relatorios/first-previa/"
+    valid = "https://conteudos.xpi.com.br/acoes/relatorios/second-previa/"
+
+    class Response:
+        def __init__(self, body="", status=200):
+            self.payload = body.encode()
+            self.status = status
+            self.ok = status == 200
+
+        async def arrayBuffer(self):
+            return self.payload
+
+    async def fetcher(url, **kwargs):
+        if url == previews.sync_xp_preview.__globals__["XP_BMOB3_REPORTS_URL"]:
+            return Response("<div>Ingen forhåndsestimater</div>")
+        if url == general_catalogue:
+            return Response(
+                '<a href="/acoes/relatorios/first-previa/">Prévia 3T26</a>'
+                '<a href="/acoes/relatorios/second-previa/">Prévia 3T26</a>'
+            )
+        if url == blocked:
+            return Response(status=403)
+        if url == valid:
+            return Response(
+                '<meta property="article:published_time" content="2026-10-10T12:00:00Z">'
+                '<h1>Bemobi prévia 3Q26</h1>'
+                '<p>Receita líquida de R$ 240 milhões, EBITDA ajustado de R$ 85 milhões'
+                ' e lucro líquido ajustado de R$ 48 milhões.</p>'
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    result = asyncio.run(
+        previews.sync_xp_preview(
+            repository, target_date="2026-10-11", fetcher=fetcher,
+        )
+    )
+    assert result["status"] == "ok"
+    assert result["source_url"] == valid
+    assert len(repository.payload()["estimates"]) == 3
