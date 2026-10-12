@@ -8,6 +8,14 @@ type NavPeriodBundle = {
   periods?: Record<string, unknown>;
 };
 
+/** Keep navigation consumers in sync when a cached bootstrap is revalidated. */
+export function cachePreloadedJson(url: string, value: unknown): void {
+  resolvedJson.set(url, {
+    expiresAt: Date.now() + NAVIGATION_CACHE_MS,
+    value,
+  });
+}
+
 function startJsonRequest(url: string): Promise<unknown> {
   const cached = resolvedJson.get(url);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
@@ -22,10 +30,10 @@ function startJsonRequest(url: string): Promise<unknown> {
       return response.json() as Promise<unknown>;
     })
     .then((value) => {
-      resolvedJson.set(url, {
-        expiresAt: Date.now() + NAVIGATION_CACHE_MS,
-        value,
-      });
+      // Revalidation may have replaced this response while its body was loading.
+      const revalidated = resolvedJson.get(url);
+      if (revalidated && revalidated.expiresAt > Date.now()) return revalidated.value;
+      cachePreloadedJson(url, value);
       return value;
     })
     .catch((error: unknown) => {

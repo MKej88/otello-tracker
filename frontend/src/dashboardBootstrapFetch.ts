@@ -1,3 +1,5 @@
+import { cachePreloadedJson } from "./navigationDataPreload.ts";
+
 export type BootstrapComponent = "summary" | "economic" | "quotes" | "buyback" | "events";
 
 type BootstrapPayload = {
@@ -172,6 +174,9 @@ function publishRevalidatedComponent(
 ): void {
   const value = payload[component];
   if (!isObject(value)) return;
+  for (const [path, mappedComponent] of Object.entries(COMPONENT_BY_PATH)) {
+    if (mappedComponent === component) cachePreloadedJson(path, value);
+  }
   for (const listener of revalidationListeners.get(component) ?? []) listener(value);
 }
 
