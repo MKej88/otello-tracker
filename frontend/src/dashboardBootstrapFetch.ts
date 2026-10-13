@@ -172,6 +172,8 @@ function publishRevalidatedComponent(
   component: BootstrapComponent,
   payload: BootstrapPayload,
 ): void {
+  // A dedicated refresh can finish while this startup publication is queued.
+  if (!servedFromClientCache.has(component)) return;
   const value = payload[component];
   if (!isObject(value)) return;
   for (const [path, mappedComponent] of Object.entries(COMPONENT_BY_PATH)) {
@@ -261,7 +263,13 @@ export function installDashboardBootstrapFetch(): void {
       && !servedFromBootstrap.has(component);
 
     if (!canBootstrap || component == null) {
-      return originalFetch(input, init);
+      const response = await originalFetch(input, init);
+      if (component != null && requestMethod(input, init) === "GET" && response.ok) {
+        // Startup revalidation must not overwrite a completed later refresh,
+        // including when a consumer remounts and subscribes again.
+        servedFromClientCache.delete(component);
+      }
+      return response;
     }
 
     const cachedComponent = cached?.payload[component];
