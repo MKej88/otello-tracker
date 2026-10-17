@@ -42,7 +42,7 @@ beholdes. Eksisterende publisering av diagnosestatus beholdes.
 Kontrollene er testet med manglende/doble jobber, recovery, datoovergang, frist,
 helg og ulik norsk/brasiliansk børsfridag, gamle og fremtidsdaterte observasjoner,
 CVM-filalder og en nyhetsfeed uten nye meldinger. Workflowens faktiske Python-
-blokker testes med ni spørringer og både OK- og avviksresultat.
+blokker testes med tolv spørringer og både OK- og avviksresultat.
 
 Kilder:
 - .github/workflows/cloudflare-workflow-diagnostics.yml
@@ -66,3 +66,10 @@ forsøk, endrede tidspunkter eller en annen datadato omfattes ikke av kvittering
 
 Diagnosegrunnlag: https://github.com/MKej88/otello-tracker/actions/runs/39014079779
 Rettelse: https://github.com/MKej88/otello-tracker/pull/784
+
+## NAV og mellomlagrede data
+
+Diagnosen avstemmer også NAV-aritmetikk, grunnlagsrader og de viste tallene mot
+D1, og kontrollerer cache-versjon, alder og nettsidens faktiske bootstrap-svar.
+Se [nav-cache-audit.md](nav-cache-audit.md) for modeller, toleranser og håndtering
+av oppdateringer som pågår.
