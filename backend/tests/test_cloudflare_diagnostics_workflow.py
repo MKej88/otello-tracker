@@ -79,8 +79,18 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     workflow = _workflow_text()
     assert 'cloudflare/src/production_monitor.py' in workflow
     assert 'batch.extend(monitoring_queries(' in workflow
-    assert 'len(result) != 9' in workflow
+    assert 'len(result) != 12' in workflow
     assert 'monitoring = assess_production(' in workflow
-    assert 'if monitoring["unhealthy"]:' in workflow
+    assert 'if monitoring["unhealthy"] or nav_audit["unhealthy"]:' in workflow
     assert 'render_monitoring(monitoring)' in workflow
     assert "github.event_name == 'schedule' || github.event_name == 'push'" in workflow
+
+
+def test_nav_cache_audit_reads_public_bootstrap_and_database_without_extra_secrets():
+    workflow = _workflow_text()
+    assert 'audit_queries(audit_contract())' in workflow
+    assert '/api/dashboard/bootstrap' in workflow
+    assert 'Cache-Control: no-cache' in workflow
+    assert 'nav_audit = assess_nav_cache(' in workflow
+    assert 'render_audit(nav_audit)' in workflow
+    assert 'cloudflare/src/nav_cache_audit.py' in workflow
