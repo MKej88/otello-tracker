@@ -49,3 +49,20 @@ Kilder:
 - cloudflare/src/production_monitor.py
 - cloudflare/src/oslo_calendar.py og cloudflare/src/b3_calendar.py
 - cloudflare/src/life360_market_data.py og cloudflare/src/cvm_full_refresh.py
+
+## Innføring 17. oktober: historikk og første måling
+
+Den første diagnosen i PR 785/786 krevde nye ferskhetsfelter fra nattjobben som
+allerede hadde kjørt før feltene ble innført i PR 783. Manglende felt vises derfor
+som AVVENTER frem til første forventede natt med datadato 17. oktober. Fristen er
+18. oktober kl. 06.30 norsk tid. Fra denne fristen gir manglende felt AVVIK.
+Eksisterende ugyldige/gamle felt og kildefeil får ingen slik utsettelse.
+
+Dobbeltkjøringen for datadato 16. oktober er en avsluttet hendelse: rettelsen i
+PR 784 er publisert, og den gamle tidsplanen er bekreftet fjernet. Akkurat de to
+dokumenterte kjøringene med start/slutt 03.36.00.356–03.38.59.833 UTC og
+03.43.04.680–03.46.36.876 UTC markeres HISTORISK. Historikken beholdes. Et nytt
+forsøk, endrede tidspunkter eller en annen datadato omfattes ikke av kvitteringen.
+
+Diagnosegrunnlag: https://github.com/MKej88/otello-tracker/actions/runs/39014079779
+Rettelse: https://github.com/MKej88/otello-tracker/pull/784
