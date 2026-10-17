@@ -11,6 +11,16 @@ from oslo_calendar import is_oslo_bors_trading_day
 
 REQUIRED_SOURCES = ('NORGES_BANK', 'YAHOO_FINANCE', 'B3', 'CVM', 'BEMOBI_IR', 'NEWSWEB', 'EURONEXT')
 MAX_SOURCE_AGE = timedelta(hours=36)
+# PR 783 added these observations after the October 17 overnight run.
+NEWS_FRESHNESS_FIRST_TARGET = date(2026, 10, 17)
+# Closed incident: PR 784 removed the native schedule and verified the deployment.
+# Match the exact two observed runs; a third/new run must still alert.
+CLOSED_DUPLICATE_RUNS = {
+    '2026-10-16': frozenset({
+        ('2026-10-17T03:36:00.356Z', '2026-10-17T03:38:59.833Z'),
+        ('2026-10-17T03:43:04.680Z', '2026-10-17T03:46:36.876Z'),
+    }),
+}
 
 
 def monitoring_queries(now: datetime) -> list[dict]:
@@ -75,14 +85,22 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
     target = expected_nightly_date(now)
     checks = []
 
-    def add(name, ok, actual, expected):
-        checks.append({'name': name, 'ok': bool(ok), 'actual': str(actual), 'expected': str(expected)})
+    def add(name, ok, actual, expected, state=None):
+        checks.append({'name': name, 'ok': bool(ok), 'actual': str(actual),
+                       'expected': str(expected), 'state': state or ('OK' if ok else 'AVVIK')})
 
     target_jobs = [r for r in jobs if _json(r.get('metadata_json')).get('target_date') == target.isoformat()]
     successful = [r for r in target_jobs if r.get('status') == 'SUCCESS']
     add('Nattkjøring ferdig', bool(successful), f'{len(successful)} vellykkede', f'datadato {target}')
     # Count actual database jobs, not harmless SKIPPED Workflow instances.
-    add('Ingen dobbel nattkjøring', len(successful) <= 1, f'{len(successful)} vellykkede, {len(target_jobs)} forsøk totalt', 'maksimalt 1 vellykket; manuelle omkjøringer må vurderes')
+    closed_runs = CLOSED_DUPLICATE_RUNS.get(target.isoformat())
+    observed_runs = frozenset((r.get('started_at'), r.get('finished_at')) for r in successful)
+    closed_incident = bool(closed_runs and len(target_jobs) == len(closed_runs) and len(successful) == len(closed_runs) and observed_runs == closed_runs)
+    if closed_incident:
+        add('Ingen dobbel nattkjøring', True, '2 kjøringer fra avsluttet hendelse; rettet i PR 784',
+            'nye dobbeltkjøringer varsles fortsatt', state='HISTORISK')
+    else:
+        add('Ingen dobbel nattkjøring', len(successful) <= 1, f'{len(successful)} vellykkede, {len(target_jobs)} forsøk totalt', 'maksimalt 1 vellykket; manuelle omkjøringer må vurderes')
 
     by_source = {r.get('code'): r for r in sources}
     for code in REQUIRED_SOURCES:
@@ -106,6 +124,13 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
     by_key = {r.get('key'): r for r in states}
     for key, label in [('bemobi_official_news_v1', 'Bemobi IR'), ('cvm_ipe_archive_freshness', 'CVM')]:
         row = by_key.get(key, {})
+        if not row and target < NEWS_FRESHNESS_FIRST_TARGET:
+            deadline = '18.10.2026 06:30 norsk tid (første frist etter innføring)'
+            add(f'Nyhetskilde sjekket: {label}', True, 'avventer første nattkjøring med nye ferskhetsfelter',
+                deadline, state='AVVENTER')
+            if label == 'CVM':
+                add('CVM-filens datadato', True, 'ennå ikke registrert', deadline, state='AVVENTER')
+            continue
         data = _json(row.get('value'))
         checked = _date(data.get('checked_date'))
         updated = _time(row.get('updated_at'))
@@ -134,7 +159,7 @@ def render_monitoring(report: dict) -> str:
              '- Tidspunkter nedenfor vises i Europe/Oslo.', '',
              '| Kontroll | Resultat | Faktisk | Forventet |', '|---|---|---|---|']
     for c in report['checks']:
-        lines.append(f"| {cell(c['name'])} | {'OK' if c['ok'] else 'AVVIK'} | {cell(c['actual'])} | {cell(c['expected'])} |")
+        lines.append(f"| {cell(c['name'])} | {cell(c['state'])} | {cell(c['actual'])} | {cell(c['expected'])} |")
     lines += ['', '### Fullkjøringer siste åtte døgn', '',
               '| Start (norsk tid) | Slutt (norsk tid) | Status | Datadato |', '|---|---|---|---|']
     for row in report['jobs']:
