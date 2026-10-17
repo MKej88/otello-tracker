@@ -210,7 +210,6 @@ def assess_nav_cache(*, now: datetime, contract: dict, nav_rows: list[dict],
             component_shares_ok = all(_close(r.get('per_share_nok'), value * MILLION / shares, PER_SHARE_TOLERANCE) for r, value in zip(composition, amounts))
         add(f'{label}: komposisjon per aksje', component_shares_ok, 'hver post avstemmes fra mill. NOK til NOK per aksje')
 
-        option = _object(economic.get('option'))
         option_db = _object(_object(_object(full.get('components_json')).get('other_net_assets')).get('option_liability'))
         option_inputs = _object(option_db.get('inputs'))
         count = _number(option_inputs.get('option_count'))
