@@ -73,3 +73,14 @@ def test_cloudflare_diagnostics_sanitizes_d1_errors_before_logging() -> None:
     assert "d1-query.json" in workflow
     assert "print(payload)" not in workflow
     assert "print(result)" not in workflow
+
+
+def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
+    workflow = _workflow_text()
+    assert 'cloudflare/src/production_monitor.py' in workflow
+    assert 'batch.extend(monitoring_queries(' in workflow
+    assert 'len(result) != 9' in workflow
+    assert 'monitoring = assess_production(' in workflow
+    assert 'if monitoring["unhealthy"]:' in workflow
+    assert 'render_monitoring(monitoring)' in workflow
+    assert "github.event_name == 'schedule' || github.event_name == 'push'" in workflow
