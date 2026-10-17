@@ -14,7 +14,11 @@ Manuell kjøring er fortsatt tilgjengelig og viser avvik uten å feile proben.
   recovery og regnes ikke som duplisert suksess. En bevisst manuell omkjøring som
   gir to SUCCESS vises også som avvik og må vurderes.
 - Alle sju kildegrupper må ha OK og en gyldig kontroll siste 36 timer.
-- OTEC og BMOB3 må ha sluttkurs fra siste forventede børsdag. Eksisterende Oslo-
+- OTEC må ha offisiell CLOSE eller en Euronext-LAST eksplisitt merket som
+  EOD_LAST_TRADE/WORKFLOW_R2_RECOVERY fra siste forventede børsdag. Vilkårlige
+  intradagshandler godtas ikke. OTEC-kontrollen heter «kurs ved dagsavslutning»;
+  siste rapporterte handel fremstilles ikke som offisiell sluttkurs. BMOB3 må ha
+  CLOSE fra siste forventede børsdag. Eksisterende Oslo-
   og B3-kalendere brukes. Life360 LIF bruker eksisterende toleranse på sju
   kalenderdager, siden prosjektet ikke har en egen amerikansk børskalender.
 - Bemobi IR og CVM må være kontrollert for forventet datadato og lagret siste
