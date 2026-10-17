@@ -121,3 +121,13 @@ bestemt datoen; presentasjoner og andre kvartaler får ikke tallene.
 Førstesidens hot snapshot er versjon 10, slik at versjon 9 uten estimater
 ikke kan gjenbrukes etter deploy. Produksjonskontrollen sammenligner
 rapporthendelsens estimater med konsensus-API-et.
+
+
+XP publiserte Brazil Tech 3Q26 Preview 16.10.2026. Side 2, BMOB3-tabellens
+3Q26e-kolonne er visuelt verifisert: nettoomsetning 239 mill. BRL, justert
+EBITDA 82 mill. BRL, justert EBITDA-margin 34,5 % og ordinært nettoresultat
+41 mill. BRL. SQLite 0041 / D1 0038 legger til XP uten å endre BTG eller
+bekreftet rapportdato. Nettoresultatet lagres som net_income_mbrl, ikke som
+justert resultat; det vises under flere måltall og inngår ikke i snittet for
+justert nettoresultat. Samme dags HTML erstatter ikke PDF-verifiserte tall.
+Kilde: https://conteudos.xpi.com.br/wp-content/uploads/2026/10/Tech_3Q26-Preview-1.pdf

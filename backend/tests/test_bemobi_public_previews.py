@@ -211,7 +211,7 @@ def test_btg_preview_is_available_after_full_schema_migration(tmp_path):
     payload = json.loads(row[0])
     assert payload["status"] == "PUBLIC_ESTIMATES_AVAILABLE"
     assert payload["estimates"][0]["broker"] == "BTG Pactual"
-    values = {item["metric"]: item for item in payload["estimates"]}
+    values = {item["metric"]: item for item in payload["estimates"] if item["broker"] == "BTG Pactual"}
     assert values["revenue_mbrl"]["value_mbrl"] == 239.8
     assert values["adjusted_ebitda_mbrl"]["value_mbrl"] == 85.5
     assert values["adjusted_net_income_mbrl"]["value_mbrl"] == 48
@@ -418,3 +418,29 @@ def test_xp_candidate_error_does_not_hide_later_verified_report():
     assert result["status"] == "ok"
     assert result["source_url"] == valid
     assert len(repository.payload()["estimates"]) == 3
+
+
+def test_xp_pdf_migration_preserves_btg_and_result_definitions():
+    migration = (ROOT / "backend/app/db/migrations/0041_xp_q3_amounts.sql").read_text()
+    assert migration == (ROOT / "cloudflare/migrations/0038_xp_q3_amounts.sql").read_text()
+    repository = Repository()
+    btg = {"metric": "adjusted_net_income_mbrl", "broker": "BTG Pactual", "value_mbrl": 48}
+    payload = {"report_date": "2026-11-12", "estimates": [btg]}
+    repository.connection.execute("UPDATE bemobi_investor_facts SET payload_json=?", (json.dumps(payload),))
+    repository.connection.executescript(migration)
+    repository.connection.executescript(migration)
+    result = repository.payload()
+    assert result["report_date"] == payload["report_date"]
+    assert result["estimates"][0] == btg
+    xp = {item["metric"]: item for item in result["estimates"] if item["broker"] == "XP"}
+    assert len(result["estimates"]) == 5
+    assert xp["revenue_mbrl"]["value_mbrl"] == 239
+    assert xp["adjusted_ebitda_mbrl"]["value_mbrl"] == 82
+    assert xp["ebitda_margin_pct"]["value_pct"] == 34.5
+    assert xp["net_income_mbrl"]["value_mbrl"] == 41
+    assert "adjusted_net_income_mbrl" not in xp
+    assert all(item["source_page"] == 2 and item["source_evidence"] == "PDF_TABLE_VERIFIED" for item in xp.values())
+    newer = {"estimates": [{"broker": "XP", "published_date": "2026-10-18", "value_mbrl": 250}]}
+    repository.connection.execute("UPDATE bemobi_investor_facts SET payload_json=?", (json.dumps(newer),))
+    repository.connection.executescript(migration)
+    assert repository.payload() == newer
