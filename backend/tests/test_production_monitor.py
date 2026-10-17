@@ -69,7 +69,7 @@ def test_ok_health_cannot_hide_stale_prices_or_stale_polling():
     data = fixture()
     data['prices'][0]['data_date'] = '2026-10-14'
     data['sources'][0]['checked_at'] = '2026-10-14T03:39:00Z'
-    assert {'Sluttkurs: OTEC', 'Kildekontakt: NORGES_BANK'} <= set(failures(data))
+    assert {'Kurs ved dagsavslutning: OTEC', 'Kildekontakt: NORGES_BANK'} <= set(failures(data))
 
 
 def test_market_weekend_and_distinct_brazilian_holiday():
@@ -78,10 +78,10 @@ def test_market_weekend_and_distinct_brazilian_holiday():
     data['prices'] = [dict(symbol='OTEC', data_date='2026-10-12'),
                       dict(symbol='BMOB3', data_date='2026-10-09'), dict(symbol='LIF', data_date='2026-10-09')]
     assert 'Sluttkurs: BMOB3' not in failures(data)  # B3 closed October 12.
-    assert 'Sluttkurs: OTEC' not in failures(data)
+    assert 'Kurs ved dagsavslutning: OTEC' not in failures(data)
     data['now'] = datetime(2026, 10, 19, 4, 30, tzinfo=UTC)
     data['prices'] = [dict(symbol=s, data_date='2026-10-16') for s in ['OTEC', 'BMOB3', 'LIF']]
-    assert not any(name.startswith('Sluttkurs') for name in failures(data))
+    assert not any(name.startswith(('Sluttkurs', 'Kurs ved dagsavslutning')) for name in failures(data))
 
 
 def test_missing_down_and_future_source_checks_are_detected():
@@ -107,13 +107,14 @@ def test_news_archive_age_separate_from_successful_contact():
 def test_missing_and_future_prices_fail_and_lif_uses_existing_seven_day_limit():
     data = fixture()
     data['prices'] = [dict(symbol='LIF', data_date='2026-10-08'), dict(symbol='BMOB3', data_date='2026-10-18')]
-    assert {'Sluttkurs: OTEC', 'Sluttkurs: BMOB3', 'Sluttkurs: LIF'} <= set(failures(data))
+    assert {'Kurs ved dagsavslutning: OTEC', 'Sluttkurs: BMOB3', 'Sluttkurs: LIF'} <= set(failures(data))
 
 
 def test_queries_execute_read_only_and_bound_historical_window():
     db = sqlite3.connect(':memory:')
     db.executescript('''CREATE TABLE job_runs(id INTEGER, job_name TEXT, started_at TEXT, finished_at TEXT, status TEXT, metadata_json TEXT);
-    CREATE TABLE market_prices(instrument_id INTEGER, trading_date TEXT, price_type TEXT);
+    CREATE TABLE market_prices(instrument_id INTEGER, trading_date TEXT, price_type TEXT, source_id INTEGER, metadata_json TEXT);
+    CREATE TABLE sources(id INTEGER, code TEXT);
     CREATE TABLE instruments(id INTEGER, symbol TEXT);
     CREATE TABLE runtime_state(key TEXT, value TEXT, updated_at TEXT);''')
     db.execute('PRAGMA query_only=ON')
@@ -162,3 +163,25 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     exec(compile(report_script, '<report>', 'exec'), {})
     assert (tmp_path / 'output').read_text().endswith('d1_unhealthy=true\n')
     assert 'Ingen dobbel nattkjøring | AVVIK' in (tmp_path / 'summary').read_text()
+
+
+def test_otec_end_of_day_last_trade_is_used_without_accepting_intraday_quotes():
+    db = sqlite3.connect(':memory:')
+    db.row_factory = sqlite3.Row
+    db.executescript("""CREATE TABLE market_prices(instrument_id INTEGER, trading_date TEXT, price_type TEXT, source_id INTEGER, metadata_json TEXT);
+    CREATE TABLE instruments(id INTEGER, symbol TEXT);
+    CREATE TABLE sources(id INTEGER, code TEXT);
+    INSERT INTO instruments VALUES (1,'OTEC');
+    INSERT INTO sources VALUES (1,'EURONEXT');
+    INSERT INTO sources VALUES (2,'OTHER');""")
+    query = monitoring_queries(NOW)[1]['sql']
+    def price(day, kind, mode, source=1):
+        db.execute('INSERT INTO market_prices VALUES (1,?,?,?,?)', (day, kind, source, json.dumps({'feed_mode': mode})))
+    price('2026-08-14', 'CLOSE', '')
+    price('2026-10-16', 'LAST', 'EOD_LAST_TRADE')
+    price('2026-10-17', 'LAST', 'ROLLING_WINDOW')
+    price('2026-10-18', 'LAST', 'EOD_LAST_TRADE', source=2)
+    assert dict(db.execute(query).fetchone()) == {'symbol': 'OTEC', 'data_date': '2026-10-16'}
+    price('2026-10-19', 'LAST', 'WORKFLOW_R2_RECOVERY')
+    assert dict(db.execute(query).fetchone()) == {'symbol': 'OTEC', 'data_date': '2026-10-19'}
+    db.close()
