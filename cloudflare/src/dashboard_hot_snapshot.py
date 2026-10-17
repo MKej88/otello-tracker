@@ -68,7 +68,7 @@ async def overview_events(repository: Any) -> dict[str, Any]:
 # and version whenever response semantics change so a newly deployed Worker cannot
 # serve a payload produced by the previous application version.
 STATE_KEY = "dashboard_hot_snapshot_v10"
-SNAPSHOT_VERSION = 10
+SNAPSHOT_VERSION = 11
 SNAPSHOT_MAX_AGE_SECONDS = 90 * 60
 _COMPONENTS = {"summary", "economic", "quotes", "buyback", "events"}
 

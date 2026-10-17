@@ -68,4 +68,4 @@ def test_hot_snapshot_version_is_bumped_for_new_economic_response_shape() -> Non
     source = HOT_SNAPSHOT.read_text(encoding="utf-8")
 
     assert 'STATE_KEY = "dashboard_hot_snapshot_v10"' in source
-    assert "SNAPSHOT_VERSION = 10" in source
+    assert "SNAPSHOT_VERSION = 11" in source
