@@ -16,6 +16,9 @@ from news_events import _company_name, _news_item, news_and_events, news_source_
 class NewsFreshnessTest(unittest.IsolatedAsyncioTestCase):
     async def test_uses_oldest_source_check_and_does_not_require_new_announcements(self):
         class Repository:
+            async def first(self, query, parameters=()):
+                return None
+
             async def all(self, query, parameters):
                 return [
                     {"code": "NEWSWEB", "checked_at": "2026-09-30T11:00:00Z", "status": "OK"},
@@ -28,6 +31,9 @@ class NewsFreshnessTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_new_newsweb_check_does_not_hide_delayed_or_failed_sources(self):
         class Repository:
+            async def first(self, query, parameters=()):
+                return None
+
             async def all(self, query, parameters):
                 return [
                     {"code": "NEWSWEB", "checked_at": "2026-09-30T11:00:00Z", "status": "OK"},
@@ -40,11 +46,26 @@ class NewsFreshnessTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_checks_never_use_current_time_as_a_successful_check(self):
         class Repository:
+            async def first(self, query, parameters=()):
+                return None
+
             async def all(self, query, parameters):
                 return [{"code": "NEWSWEB", "checked_at": "invalid", "status": "OK"}]
         result = await news_source_freshness(Repository())
         self.assertIsNone(result["checked_at"])
         self.assertIn("kontrolltidspunkt mangler", result["warning"])
+
+
+    async def test_successful_http_check_does_not_hide_old_cvm_archive(self):
+        class Repository:
+            async def all(self, query, parameters):
+                return [{"code": code, "checked_at": "2026-10-17T08:00:00Z", "status": "OK"}
+                        for code in ("NEWSWEB", "CVM", "BEMOBI_IR")]
+            async def first(self, query, parameters=()):
+                return {"value": '{"data_date":"2026-10-11","checked_date":"2026-10-17"}'}
+        result = await news_source_freshness(Repository(), now=datetime(2026, 10, 17, 8, 10, tzinfo=UTC))
+        self.assertIn("CVM: kildefilen er sist oppdatert 2026-10-11", result["warning"])
+
 
 
 class CompanyNameTest(unittest.TestCase):

@@ -312,7 +312,7 @@ def test_worker_cvm_refresh_rejects_header_only_archive(monkeypatch) -> None:
     async def fake_years_due(_repository, *, target_date):
         return [2026]
 
-    async def fake_download(_year, *, fetcher=None):
+    async def fake_download(_year, *, fetcher=None, metadata_out=None):
         return payload
 
     monkeypatch.setattr(worker_cvm_refresh, "years_due", fake_years_due)

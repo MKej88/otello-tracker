@@ -12,6 +12,7 @@ import zipfile
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, Awaitable, Callable, Iterable
 
 try:
@@ -314,6 +315,7 @@ def _latest_versions(records: Iterable[CVMIPERecord]) -> dict[str, int]:
 async def _download_year(
     year: int,
     *,
+    metadata_out: dict | None = None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> bytes:
     if fetcher is None:
@@ -330,6 +332,14 @@ async def _download_year(
     )
     if not bool(getattr(response, "ok", False)):
         raise RuntimeError(f"CVM IPE {year} feilet med HTTP {getattr(response, 'status', 'unknown')}")
+    headers = getattr(response, "headers", None)
+    getter = getattr(headers, "get", None)
+    modified = getter("last-modified") if callable(getter) else None
+    if metadata_out is not None and modified:
+        try:
+            metadata_out["data_date"] = parsedate_to_datetime(str(modified)).date().isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
     return await read_response_bytes(
         response,
         max_bytes=MAX_DOWNLOAD_BYTES,
@@ -511,12 +521,16 @@ async def refresh_bemobi_cvm(
 
     for year in selected:
         try:
-            payload = await _download_year(year, fetcher=fetcher)
+            archive_metadata: dict = {}
+            payload = await _download_year(year, fetcher=fetcher, metadata_out=archive_metadata)
             records = parse_cvm_ipe_archive(payload, year=year)
             if not records:
                 raise ValueError(
                     f"CVM IPE {year} inneholdt ingen Bemobi-rader"
                 )
+            if year == date.fromisoformat(target_date).year:
+                archive_metadata["checked_date"] = target_date
+                await _set_runtime_value(repository, "cvm_ipe_archive_freshness", json.dumps(archive_metadata))
             discovered += len(records)
             relevant_records = [record for record in records if _is_relevant(record)]
             relevant += len(relevant_records)
@@ -530,6 +544,12 @@ async def refresh_bemobi_cvm(
                     )
                 )
             successful_years.append(year)
+            if year == date.fromisoformat(target_date).year:
+                data_date = archive_metadata.get("data_date")
+                if data_date and (date.fromisoformat(target_date) - date.fromisoformat(data_date)).days > 3:
+                    errors.append({"year": year, "error": f"CVM IPE kildefilen er sist oppdatert {data_date}; nedlastingen lyktes, men kildedataene er forsinket."})
+                elif not data_date and fetcher is None:
+                    errors.append({"year": year, "error": "CVM IPE kildefilens alder kunne ikke bekreftes (Last-Modified mangler)."})
             await _set_runtime_value(
                 repository,
                 f"{_LAST_SUCCESS_PREFIX}{year}",

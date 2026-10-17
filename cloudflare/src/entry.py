@@ -207,6 +207,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             process_pending_translations,
         )
         from cvm_full_refresh import refresh_bemobi_cvm
+        from bemobi_ir_news import refresh_ir_news
         from full_refresh import (
             MAX_HISTORY_MATERIALIZATION_BATCHES,
             error_result,
@@ -443,6 +444,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             async def cvm_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
                 result = await refresh_bemobi_cvm(repository, target_date=target_date)
+                ir_news = await refresh_ir_news(repository, target_date=target_date)
+                result["ir_news"] = ir_news
+                if ir_news.get("status") != "ok" and result.get("status") == "ok":
+                    result["status"] = "partial"
                 return {**result, "repository": repository.performance_metrics()}
 
             try:
