@@ -185,3 +185,57 @@ def test_otec_end_of_day_last_trade_is_used_without_accepting_intraday_quotes():
     price('2026-10-19', 'LAST', 'WORKFLOW_R2_RECOVERY')
     assert dict(db.execute(query).fetchone()) == {'symbol': 'OTEC', 'data_date': '2026-10-19'}
     db.close()
+
+
+def closed_incident_fixture():
+    data = fixture()
+    data['jobs'] = [
+        dict(status='SUCCESS', started_at='2026-10-17T03:36:00.356Z', finished_at='2026-10-17T03:38:59.833Z', metadata_json='{"target_date":"2026-10-16"}'),
+        dict(status='SUCCESS', started_at='2026-10-17T03:43:04.680Z', finished_at='2026-10-17T03:46:36.876Z', metadata_json='{"target_date":"2026-10-16"}'),
+    ]
+    data['states'] = []
+    return data
+
+
+def test_closed_incident_and_first_night_rollout_are_visible_without_repeated_alarm():
+    report = assess_production(**closed_incident_fixture())
+    assert not report['unhealthy']
+    checks = {r['name']: r for r in report['checks']}
+    assert checks['Ingen dobbel nattkjøring']['state'] == 'HISTORISK'
+    assert checks['Nyhetskilde sjekket: Bemobi IR']['state'] == 'AVVENTER'
+    assert checks['CVM-filens datadato']['state'] == 'AVVENTER'
+    rendered = render_monitoring(report)
+    assert 'HISTORISK' in rendered and 'AVVENTER' in rendered
+    assert '18.10.2026 06:30' in rendered
+    assert len(report['jobs']) == 2  # History is retained.
+
+
+def test_new_or_changed_duplicate_is_never_covered_by_closed_incident():
+    data = closed_incident_fixture()
+    new_run = copy.deepcopy(data['jobs'][0])
+    new_run.update(started_at='2026-10-17T10:00:00Z', finished_at='2026-10-17T10:03:00Z')
+    data['jobs'].append(new_run)
+    assert 'Ingen dobbel nattkjøring' in failures(data)
+    data['jobs'] = [data['jobs'][0], new_run]
+    assert 'Ingen dobbel nattkjøring' in failures(data)
+    for row in data['jobs']:
+        row['metadata_json'] = '{"target_date":"2026-10-17"}'
+    data['now'] = datetime(2026, 10, 18, 4, 30, tzinfo=UTC)
+    assert 'Ingen dobbel nattkjøring' in failures(data)
+
+
+def test_missing_metrics_become_errors_at_first_post_rollout_deadline():
+    data = fixture()
+    data['states'] = []
+    data['now'] = datetime(2026, 10, 18, 4, 29, tzinfo=UTC)
+    assert not any('Nyhetskilde' in n or 'CVM-filens' in n for n in failures(data))
+    data['now'] = datetime(2026, 10, 18, 4, 30, tzinfo=UTC)
+    assert {'Nyhetskilde sjekket: Bemobi IR', 'Nyhetskilde sjekket: CVM', 'CVM-filens datadato'} <= set(failures(data))
+
+
+def test_rollout_does_not_excuse_corrupt_records_or_unhealthy_sources():
+    data = closed_incident_fixture()
+    data['states'] = [dict(key='cvm_ipe_archive_freshness', value='invalid')]
+    assert {'Nyhetskilde sjekket: CVM', 'CVM-filens datadato'} <= set(failures(data))
+    data['sources'][0]['status'] = 'DOWN'
+    assert 'Kildekontakt: NORGES_BANK' in failures(data)
