@@ -314,10 +314,16 @@ export default function ConsensusPage() {
   const latestReport = data.quarter_comparison?.latest_report;
   const priorYearReport = data.quarter_comparison?.prior_year;
   const comparisonReports = [latestReport, priorYearReport].filter((report): report is ReportedQuarter => report != null);
-  const quarterComparisonEstimates = [...nextQuarterEstimates, ...previewMatrix.brokers.flatMap((row): NextQuarterEstimate[] => {
-    const margin = row.values["ebitda_margin_pct:pct"];
-    return margin?.derived ? [{ metric: "ebitda_margin_pct", label: "Justert EBITDA-margin *", broker: row.broker, value_pct: margin.value }] : [];
-  })];
+  const quarterComparisonEstimates = previewMatrix.columns.flatMap<NextQuarterEstimate & { brokerCount: number }>((column) => {
+    const average = previewMatrix.averages[column.key];
+    if (!average || average.value == null) return [];
+    return [{
+      metric: column.metric,
+      label: column.label,
+      ...(column.unit === "mbrl" ? { value_mbrl: average.value } : { value_pct: average.value }),
+      brokerCount: average.count,
+    }];
+  });
   const targetLow = coverage?.low_target_brl;
   const targetHigh = coverage?.high_target_brl;
   const targetAverage = coverage?.average_target_brl;
@@ -406,7 +412,7 @@ export default function ConsensusPage() {
             <div className="consensusTableWrap consensusNextTableWrap">
               <table id="quarter-comparison-table" className="consensusTable consensusComparisonTable">
                 <thead>
-                  <tr><th>Måltall</th><th>Meglerhus</th><th>{nextQuarter?.period ?? "Neste kvartal"} estimat</th><th>{latestReport?.period ?? "Siste rapport"}</th><th>{priorYearReport?.period ?? "Samme kvartal i fjor"}</th><th>Beat-grense</th></tr>
+                  <tr><th>Måltall</th><th>{nextQuarter?.period ?? "Neste kvartal"} snitt</th><th>{latestReport?.period ?? "Siste rapport"}</th><th>{priorYearReport?.period ?? "Samme kvartal i fjor"}</th><th>Beat-grense</th></tr>
                 </thead>
                 <tbody>
                   {quarterComparisonEstimates.map((estimate) => {
@@ -415,10 +421,9 @@ export default function ConsensusPage() {
                     const hasBeatThreshold = (isAmount && estimate.metric !== "capex_mbrl") || estimate.metric === "ebitda_margin_pct";
                     const formattedEstimate = isAmount ? `R$ ${value(estimate.value_mbrl, 1)}m` : `${value(estimate.value_pct, 1)} %`;
                     return (
-                      <tr key={`${estimate.broker ?? "broker"}:${estimate.metric}`}>
+                      <tr key={`${estimate.metric}:${isAmount ? "mbrl" : "pct"}`}>
                         <td><strong>{estimate.label}</strong></td>
-                        <td>{estimate.broker ?? "–"}</td>
-                        <td className="numeric">{formattedEstimate}</td>
+                        <td className="numeric">{formattedEstimate}<small className="consensusAverageCount">n = {estimate.brokerCount}</small></td>
                         {[latestReport, priorYearReport].map((report, index) => {
                           const comparison = compareQuarterMetric(estimate, report);
                           return <td className="numeric" key={index}>
@@ -440,7 +445,8 @@ export default function ConsensusPage() {
             )}
             <div className="consensusPreviewMeta">
               <span>Endring under rapporttallene viser estimatet mot perioden. Prosentpoeng (pp.) for marginer; prosent for beløp. Beregnet fra viste, avrundede tall.</span>
-              <span>Beat = faktisk resultat over offentlig preview-estimat.</span>
+              <span>Snittet gir lik vekt til hvert meglerhus. n viser antall bidrag per måltall; manglende tall utelates. Ordinært og justert nettoresultat holdes adskilt.</span>
+              <span>Beat = faktisk resultat over snittet av sammenlignbare meglerestimater.</span>
               {comparisonReports.map((report) => (
                 <SourceLink key={report.period} url={report.source_url}>Rapporttall {report.period}: {report.source_name}{report.source_page ? ` · side ${report.source_page}` : ""} →</SourceLink>
               ))}

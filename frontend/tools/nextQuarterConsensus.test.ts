@@ -81,3 +81,20 @@ test("verifisert PDF-verdi beholdes ved duplikat fra samme publikasjon", () => {
   ]);
   assert.deepEqual(result.averages["revenue_mbrl:mbrl"], { value: 239.8, count: 1 });
 });
+
+
+test("publiserte Q3-estimater gir ett snitt per måltall med separate resultatdefinisjoner", () => {
+  const publishedXp = [
+    amount("XP", "revenue_mbrl", 239, "2026-10-16"),
+    amount("XP", "adjusted_ebitda_mbrl", 82, "2026-10-16"),
+    amount("XP", "net_income_mbrl", 41, "2026-10-16"),
+    { broker: "XP", metric: "ebitda_margin_pct", label: "Justert EBITDA-margin", value_pct: 34.5, published_date: "2026-10-16" },
+  ];
+  const result = buildNextQuarterConsensus([...btg, ...publishedXp]);
+  assert.deepEqual(result.averages["revenue_mbrl:mbrl"], { value: 239.4, count: 2 });
+  assert.deepEqual(result.averages["adjusted_ebitda_mbrl:mbrl"], { value: 83.75, count: 2 });
+  assert.deepEqual(result.averages["ebitda_margin_pct:pct"], { value: 35.1, count: 2 });
+  assert.deepEqual(result.averages["adjusted_net_income_mbrl:mbrl"], { value: 48, count: 1 });
+  assert.deepEqual(result.averages["net_income_mbrl:mbrl"], { value: 41, count: 1 });
+  assert.equal(new Set(result.columns.map((column) => column.key)).size, result.columns.length);
+});
