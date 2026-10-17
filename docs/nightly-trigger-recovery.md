@@ -38,3 +38,23 @@ hver tidligere manglende natt.
 - https://github.com/MKej88/otello-tracker/actions/runs/36413699885
 - https://developers.cloudflare.com/workflows/python/bindings/
 - https://developers.cloudflare.com/workflows/build/trigger-workflows/
+
+## Dobbeltkjøring 17. oktober 2026
+
+Diagnose 39014079779 viste både den native instansen `35 3 * * *-1792208100000`
+og Worker-instansen `nightly-2026-10-16`. Den siste ventet på skrivelåsen og
+kjørte deretter samme datadato på nytt. Begge fullførte og sendte statusmail.
+
+- Native `workflow_schedule:`-oppstarter avsluttes nå som SKIPPED før skrivelås,
+  innhenting eller e-post. Worker cron og reservekontrollen beholdes.
+- Under skrivelåsen kontrolleres SUCCESS for samme datadato på nytt. En automatisk
+  duplikat avsluttes uten ny jobb eller e-post, og låsen slippes i finally.
+- Manuelle omkjøringer og recovery etter PARTIAL/FAILED beholdes.
+- Deploy tømmer fortsatt native schedules via PUT, men leser nå også Workflow
+  tilbake og feiler dersom en tidsplan fortsatt finnes. Ingen historikk slettes.
+
+Regresjonstester kjører de faktiske tidlige returene i Workflow-orkestreringen,
+kontrollerer at låsen slippes og at ingen ny innhenting/e-post starter, og sjekker
+SUCCESS/PARTIAL/FAILED, datodifferanser, ugyldig metadata og manuell omkjøring.
+
+Kilde: https://github.com/MKej88/otello-tracker/actions/runs/39014079779
