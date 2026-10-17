@@ -21,7 +21,12 @@ def monitoring_queries(now: datetime) -> list[dict]:
          'params': [(now.astimezone(UTC) - timedelta(days=8)).isoformat()]},
         {'sql': """SELECT i.symbol, MAX(mp.trading_date) AS data_date
                    FROM market_prices mp JOIN instruments i ON i.id=mp.instrument_id
-                   WHERE i.symbol IN ('OTEC','BMOB3','LIF') AND mp.price_type='CLOSE'
+                   JOIN sources s ON s.id=mp.source_id
+                   WHERE (i.symbol IN ('OTEC','BMOB3','LIF') AND mp.price_type='CLOSE')
+                      OR (i.symbol='OTEC' AND s.code='EURONEXT' AND mp.price_type='LAST'
+                          AND json_valid(mp.metadata_json)
+                          AND json_extract(mp.metadata_json,'$.feed_mode') IN
+                              ('EOD_LAST_TRADE','WORKFLOW_R2_RECOVERY'))
                    GROUP BY i.symbol"""},
         {'sql': """SELECT key, value, updated_at FROM runtime_state
                    WHERE key IN ('bemobi_official_news_v1','cvm_ipe_archive_freshness')"""},
@@ -92,7 +97,8 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
     for symbol, calendar in [('OTEC', is_oslo_bors_trading_day), ('BMOB3', is_b3_trading_day)]:
         expected = _last_session(target, calendar)
         actual = by_symbol.get(symbol)
-        add(f'Sluttkurs: {symbol}', actual is not None and expected <= actual <= now.date(), actual or 'MANGLER', f'minst {expected} (børskalender)')
+        label = 'Kurs ved dagsavslutning: OTEC' if symbol == 'OTEC' else f'Sluttkurs: {symbol}'
+        add(label, actual is not None and expected <= actual <= now.date(), actual or 'MANGLER', f'minst {expected} (børskalender)')
     # Retain the existing Life360 freshness tolerance; do not invent a US holiday calendar.
     lif = by_symbol.get('LIF')
     add('Sluttkurs: LIF', lif is not None and target - timedelta(days=7) <= lif <= now.date(), lif or 'MANGLER', f'høyst 7 kalenderdager før {target}')
