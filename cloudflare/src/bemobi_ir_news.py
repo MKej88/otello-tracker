@@ -96,8 +96,10 @@ async def official_ir_news(repository, *, target_date: str) -> tuple[list[dict],
         try:
             snapshot = json.loads(row["value"])
             records = snapshot["rows"]
-            checked = snapshot["checked_date"]
-            if not isinstance(records, list):
+            checked = date.fromisoformat(snapshot["checked_date"]).isoformat()
+            if checked > target_date:
+                raise ValueError("future observation")
+            if not isinstance(records, list) or any(not isinstance(item, dict) or not all(key in item for key in ("id", "date", "title", "original_title", "url")) for item in records):
                 raise ValueError("invalid rows")
         except (KeyError, ValueError, TypeError):
             return [], "Bemobi IR meldinger: lagrede data kunne ikke leses"
