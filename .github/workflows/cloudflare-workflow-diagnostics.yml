@@ -16,6 +16,11 @@ on:
         required: true
         default: latest
         type: string
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/cloudflare-workflow-diagnostics.yml
+      - cloudflare/src/production_monitor.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
@@ -285,6 +290,11 @@ jobs:
 
           python - <<'PY'
           import json
+          import sys
+          from datetime import UTC, datetime
+
+          sys.path.insert(0, "cloudflare/src")
+          from production_monitor import monitoring_queries
 
           job_columns = """
               SELECT id, job_name, started_at, finished_at, status,
@@ -354,6 +364,7 @@ jobs:
               },
           ]
 
+          batch.extend(monitoring_queries(datetime.now(UTC)))
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -380,6 +391,7 @@ jobs:
           sys.path.insert(0, "cloudflare/src")
           from oslo_calendar import is_oslo_bors_trading_day
           from nightly_trigger import nightly_is_overdue
+          from production_monitor import assess_production, render_monitoring
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -450,7 +462,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 6 or any(item.get("success") is False for item in result):
+          if len(result) != 9 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -511,6 +523,12 @@ jobs:
           if not fx_current or full_stale or fast_stale:
               d1_status = "AVVIK"
 
+          monitoring = assess_production(
+              now=now, jobs=result[6].get("results") or [], sources=sources,
+              prices=result[7].get("results") or [], states=result[8].get("results") or [],
+          )
+          if monitoring["unhealthy"]:
+              d1_status = "AVVIK"
           d1_unhealthy = d1_status != "OK"
           full_age_minutes = (
               int(full_age.total_seconds() // 60)
@@ -584,7 +602,7 @@ jobs:
                   f"{cell(row.get('rate'), 40)} | {cell(row.get('fetched_at'), 60)} |"
               )
 
-          report = "\n".join(lines) + "\n"
+          report = "\n".join(lines) + "\n" + render_monitoring(monitoring)
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
@@ -597,7 +615,7 @@ jobs:
       - name: Alert on unhealthy scheduled production
         if: >-
           always() &&
-          github.event_name == 'schedule' &&
+          (github.event_name == 'schedule' || github.event_name == 'push') &&
           (steps.workflow_report.outputs.production_unhealthy == 'true' ||
            steps.d1_report.outputs.d1_unhealthy == 'true')
         shell: bash
