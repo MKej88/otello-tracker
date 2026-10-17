@@ -265,7 +265,18 @@ jobs:
               payload = json.load(response)
           if payload.get('success') is not True:
               raise SystemExit('Could not clear legacy full-refresh schedule')
-          print('Legacy Workflow schedule cleared; Worker cron owns nightly startup.')
+          # A successful PUT alone does not prove that the native trigger is gone.
+          verify = Request(url, headers={
+              'Authorization': 'Bearer ' + os.environ['CLOUDFLARE_API_TOKEN'],
+              'Accept': 'application/json',
+          })
+          with urlopen(verify, timeout=30) as response:
+              state = json.load(response)
+          if state.get('success') is not True or not isinstance(state.get('result'), dict):
+              raise SystemExit('Could not verify legacy full-refresh schedule removal')
+          if state['result'].get('schedules'):
+              raise SystemExit('Legacy full-refresh schedule is still active after removal')
+          print('Verified: no native Workflow schedules; Worker cron owns nightly startup.')
           PYTHON
 
       - name: Production HTTP acceptance
