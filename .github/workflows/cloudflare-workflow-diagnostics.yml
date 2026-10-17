@@ -21,6 +21,7 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/nav_cache_audit.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
@@ -43,6 +44,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WORKFLOW_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.workflow_name || 'otello-full-refresh' }}
       REQUESTED_INSTANCE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.instance_id || 'latest' }}
+      PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL || 'https://otellotracker.com' }}
       D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
 
     steps:
@@ -295,6 +297,7 @@ jobs:
 
           sys.path.insert(0, "cloudflare/src")
           from production_monitor import monitoring_queries
+          from nav_cache_audit import audit_contract, audit_queries
 
           job_columns = """
               SELECT id, job_name, started_at, finished_at, status,
@@ -365,6 +368,7 @@ jobs:
           ]
 
           batch.extend(monitoring_queries(datetime.now(UTC)))
+          batch.extend(audit_queries(audit_contract()))
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -380,6 +384,14 @@ jobs:
             "$query_url" \
             --output d1-query.json
 
+          # Public read only; a unique query avoids reusing an older CDN response.
+          if ! curl --fail --silent --show-error --max-time 30 --max-filesize 2097152 \
+            --retry 1 --header 'Cache-Control: no-cache' --get \
+            --data-urlencode "monitor=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "${PUBLIC_URL%/}/api/dashboard/bootstrap" --output public-bootstrap.json; then
+            printf '{}' > public-bootstrap.json
+          fi
+
           python - <<'PY'
           import json
           import os
@@ -392,6 +404,7 @@ jobs:
           from oslo_calendar import is_oslo_bors_trading_day
           from nightly_trigger import nightly_is_overdue
           from production_monitor import assess_production, render_monitoring
+          from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -462,7 +475,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 9 or any(item.get("success") is False for item in result):
+          if len(result) != 12 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -527,7 +540,17 @@ jobs:
               now=now, jobs=result[6].get("results") or [], sources=sources,
               prices=result[7].get("results") or [], states=result[8].get("results") or [],
           )
-          if monitoring["unhealthy"]:
+          try:
+              with open("public-bootstrap.json", encoding="utf-8") as handle:
+                  public_bootstrap = json.load(handle)
+          except (OSError, ValueError):
+              public_bootstrap = {}
+          nav_audit = assess_nav_cache(
+              now=now, contract=audit_contract(), nav_rows=result[9].get("results") or [],
+              cache_rows=result[10].get("results") or [], lock_rows=result[11].get("results") or [],
+              public=public_bootstrap,
+          )
+          if monitoring["unhealthy"] or nav_audit["unhealthy"]:
               d1_status = "AVVIK"
           d1_unhealthy = d1_status != "OK"
           full_age_minutes = (
@@ -602,7 +625,7 @@ jobs:
                   f"{cell(row.get('rate'), 40)} | {cell(row.get('fetched_at'), 60)} |"
               )
 
-          report = "\n".join(lines) + "\n" + render_monitoring(monitoring)
+          report = "\n".join(lines) + "\n" + render_monitoring(monitoring) + render_audit(nav_audit)
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
