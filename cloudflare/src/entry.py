@@ -194,6 +194,14 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
     """Durable full refresh protected from concurrent fast-path writes."""
 
     async def run(self, event, step):
+        # Worker cron owns nightly startup. A lingering native schedule must be harmless.
+        if _workflow_trigger(event).startswith("workflow_schedule:"):
+            return {
+                "status": "SKIPPED",
+                "reason": "legacy_schedule_disabled",
+                "target_date": _workflow_target_date(event),
+            }
+
         from b3_full_refresh import (
             BMOB3_VOLUME_HISTORY_BATCH_SIZE,
             BMOB3_VOLUME_HISTORY_SESSIONS,
@@ -229,6 +237,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from performance_repository import PerformanceD1WriteRepository
         from r2_snapshot import archive_d1_snapshot
         from status_email import send_full_refresh_status_email
+        from nightly_trigger import completed_nightly_job
 
         target_date = _workflow_target_date(event)
         trigger = _workflow_trigger(event)
@@ -293,6 +302,26 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             return {"released": released, "owner": lock_owner}
 
         try:
+            @step.do(
+                "check completed nightly refresh after writer lock",
+                config={"retries": {"limit": 2, "delay": "5 seconds"}, "timeout": "2 minutes"},
+            )
+            async def duplicate_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                return await completed_nightly_job(
+                    repository, target_date=target_date, trigger=trigger,
+                )
+
+            completed = await duplicate_step()
+            if completed is not None:
+                # The finally block releases our lease; no writes or duplicate mail follow.
+                return {
+                    "status": "SKIPPED",
+                    "reason": "already_completed",
+                    "target_date": target_date,
+                    "existing_job_id": completed["id"],
+                }
+
             @step.do(
                 "start full refresh",
                 config={"retries": {"limit": 2, "delay": "5 seconds"}, "timeout": "2 minutes"},

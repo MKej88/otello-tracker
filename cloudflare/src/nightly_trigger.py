@@ -76,3 +76,20 @@ async def ensure_nightly_refresh(
             ) from create_error
         return {"status": "EXISTS", "instance_id": instance_id}
     return {"status": "STARTED", "instance_id": instance_id, "target_date": target_date}
+
+
+async def completed_nightly_job(repository: Any, *, target_date: str, trigger: str) -> dict | None:
+    """Recheck under the writer lease: another instance may have completed while we waited.
+
+    Manual reruns remain available, and PARTIAL/FAILED runs may still be recovered.
+    """
+    if not trigger.startswith(("worker_cron:", "workflow_schedule:")):
+        return None
+    return await repository.first(
+        """SELECT id FROM job_runs
+           WHERE job_name='cloudflare_full_refresh' AND status='SUCCESS'
+             AND json_valid(metadata_json)
+             AND json_extract(metadata_json, '$.target_date')=?
+           ORDER BY id DESC LIMIT 1""",
+        (target_date,),
+    )

@@ -67,3 +67,12 @@ def test_production_acceptance_does_not_hardcode_hot_snapshot_version() -> None:
     assert "snapshot_version = bootstrap_meta.get('snapshot_version')" in source
     assert "isinstance(snapshot_version, int) and snapshot_version > 0" in source
     assert "bootstrap_meta.get('snapshot_version') ==" not in source
+
+
+def test_native_workflow_schedule_removal_is_verified_from_cloudflare():
+    source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    cleanup = source.split('      - name: Clear legacy Workflow schedule', 1)[1].split('      - name: Production HTTP acceptance', 1)[0]
+    assert "'schedules': []" in cleanup
+    assert 'with urlopen(verify, timeout=30)' in cleanup
+    assert "state['result'].get('schedules')" in cleanup
+    assert 'still active after removal' in cleanup
