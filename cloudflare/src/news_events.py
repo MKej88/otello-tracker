@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from bemobi_news_translation import translate_bemobi_news
+from bemobi_ir_news import official_ir_news, filing_key
 from bemobi_agenda import agenda_events, merge_agenda_events
 
 CATEGORY_LABELS = {
@@ -233,6 +234,17 @@ async def news_source_freshness(repository, *, now: datetime | None = None) -> d
             problems.append(f"{label}: avvik ved siste kontroll")
         elif current - checked > timedelta(hours=max_hours):
             problems.append(f"{label}: kontrollen er forsinket")
+    archive = await repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", ("cvm_ipe_archive_freshness",))
+    if archive:
+        try:
+            observed = json.loads(archive["value"])
+            modified = date.fromisoformat(observed["data_date"])
+            if (current.date() - modified).days > 3:
+                problems.append(f"CVM: kildefilen er sist oppdatert {modified.isoformat()}")
+        except (KeyError, ValueError, TypeError):
+            problems.append("CVM: kildefilens alder kunne ikke bekreftes")
+    elif current.date().isoformat() >= "2026-10-17":
+        problems.append("CVM: kildefilens alder er ikke kontrollert ennå")
     return {
         # All sources have been checked at least this recently. A fast NewsWeb check
         # must not make a stopped nightly CVM/IR ingestion look current.
@@ -251,6 +263,7 @@ async def news_and_events(
     safe_limit = max(1, min(news_limit, 100))
     news = []
     seen_documents: set[str] = set()
+    ir_equivalents: dict[str, int] = {}
     batch_size = safe_limit * 3
     offset = 0
 
@@ -324,6 +337,9 @@ async def news_and_events(
             if deduplication_key in seen_documents:
                 continue
             seen_documents.add(deduplication_key)
+            if row.get("symbol") == "BMOB3" and metadata.get("cvm_subject"):
+                equivalent = filing_key(str(metadata["cvm_subject"]), str(row.get("published_at") or ""))
+                ir_equivalents[equivalent] = ir_equivalents.get(equivalent, 0) + 1
             news.append(item)
             if len(news) >= safe_limit:
                 break
@@ -435,6 +451,25 @@ async def news_and_events(
                 )
             )
 
+    ir_items, ir_warning = await official_ir_news(repository, target_date=today.isoformat())
+    # Existing CVM records win when the same notice reaches both sources.
+    ir_counts = {}
+    for item in ir_items:
+        key = item["deduplication_key"]
+        ir_counts[key] = ir_counts.get(key, 0) + 1
+    for item in ir_items:
+        key = item.pop("deduplication_key")
+        # Suppress only an unambiguous one-to-one cross-source match. Multiple
+        # notices of the same type on one day may describe different investors.
+        if ir_equivalents.get(key) == 1 and ir_counts[key] == 1:
+            continue
+        if item["id"] not in seen_documents:
+            seen_documents.add(item["id"])
+            news.append(item)
+    news.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+    news = news[:safe_limit]
+    if ir_warning:
+        freshness["warning"] = "; ".join(filter(None, (freshness.get("warning"), ir_warning)))
     events = merge_agenda_events(events, agenda)
     return {
         "ready": True,
