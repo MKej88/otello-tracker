@@ -3,6 +3,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+try:
+    from .status_email_report import (
+        dashboard_url,
+        operational_lines,
+        oslo_time,
+        render_html,
+    )
+except ImportError:
+    from status_email_report import (
+        dashboard_url,
+        operational_lines,
+        oslo_time,
+        render_html,
+    )
+
 _STATUS_LABELS = {
     "SUCCESS": "OK",
     "PARTIAL": "DELVIS",
@@ -32,7 +47,8 @@ def _parse_time(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=parsed.tzinfo or UTC)
     except ValueError:
         return None
 
@@ -85,6 +101,8 @@ def build_status_email(
         f"Status: {status}",
         f"Datadato: {target_date}",
     ]
+    lines.append(f"Startet: {oslo_time(started_at)}")
+    lines.append(f"Fullført: {oslo_time(finished_at)}")
     if duration:
         lines.append(f"Kjøretid: {duration}")
     lines.append(f"Oppdaterte datapunkter: {int(result.get('records_written') or 0)}")
@@ -141,23 +159,23 @@ def build_status_email(
         reason = str(economic.get("reason") or "ikke tilgjengelig")
         lines.extend(["", f"Investor-NAV: ikke klar ({reason})"])
 
-    errors = result.get("critical_errors") or result.get("errors") or []
-    if errors:
-        lines.extend(["", "Feil / avvik:"])
-        for item in errors[:5]:
-            if isinstance(item, dict):
-                step = str(item.get("step") or "ukjent steg")
-                error = str(item.get("error") or "ukjent feil")
-                lines.append(f"- {step}: {error[:500]}")
-            else:
-                lines.append(f"- {str(item)[:500]}")
-
-    clean_url = public_url.strip().rstrip("/")
+    details, incidents = operational_lines(result)
+    lines.extend(details)
+    if incidents and raw_status == "SUCCESS":
+        subject = f"Otello Tracker – nattkjøring OK med avvik – {target_date}"
+    clean_url = dashboard_url(public_url)
     if clean_url:
         lines.extend(["", f"Dashboard: {clean_url}/"])
 
     lines.extend(["", "Automatisk statusmelding fra Otello Tracker."])
-    return {"subject": subject, "text": "\n".join(lines)}
+    text = "\n".join(lines)
+    return {
+        "subject": subject,
+        "text": text,
+        "html": render_html(
+            text, status=status, incidents=incidents, public_url=clean_url
+        ),
+    }
 
 
 async def _finalize_failed_job(env: Any, result: dict[str, Any]) -> dict[str, Any]:
@@ -178,11 +196,15 @@ async def _finalize_failed_job(env: Any, result: dict[str, Any]) -> dict[str, An
         message_parts: list[str] = []
         for item in errors[:5]:
             if isinstance(item, dict):
-                message_parts.append(str(item.get("error") or item.get("step") or "workflow failed"))
+                message_parts.append(
+                    str(item.get("error") or item.get("step") or "workflow failed")
+                )
             else:
                 message_parts.append(str(item))
         error_message = "; ".join(message_parts)[:4000] or "Cloudflare Workflow failed"
-        finished_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        finished_at = (
+            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
         await repository.finish_job(
             int(job_id),
             finished_at=finished_at,
@@ -205,7 +227,9 @@ async def _finalize_failed_job(env: Any, result: dict[str, Any]) -> dict[str, An
         }
 
 
-async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> dict[str, Any]:
+async def send_full_refresh_status_email(
+    env: Any, result: dict[str, Any]
+) -> dict[str, Any]:
     """Finalize failure state and send one best-effort status email when configured."""
     finalization = await _finalize_failed_job(env, result)
 
@@ -236,7 +260,10 @@ async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> di
         try:
             economic = await economic_nav_summary(repository)
         except Exception as exc:
-            economic = {"ready": False, "reason": f"NAV-oppsummering feilet: {type(exc).__name__}"}
+            economic = {
+                "ready": False,
+                "reason": f"NAV-oppsummering feilet: {type(exc).__name__}",
+            }
 
         job_id = result.get("job_id")
         if job_id is not None:
@@ -248,7 +275,10 @@ async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> di
                 started_at = timing.get("started_at")
                 finished_at = timing.get("finished_at") or finished_at
     except Exception as exc:
-        economic = {"ready": False, "reason": f"statusgrunnlag feilet: {type(exc).__name__}"}
+        economic = {
+            "ready": False,
+            "reason": f"statusgrunnlag feilet: {type(exc).__name__}",
+        }
 
     message = build_status_email(
         result,
@@ -268,6 +298,7 @@ async def send_full_refresh_status_email(env: Any, result: dict[str, Any]) -> di
                 "from": {"email": sender, "name": "Otello Tracker"},
                 "subject": message["subject"],
                 "text": message["text"],
+                "html": message["html"],
             },
             dict_converter=Object.fromEntries,
         )

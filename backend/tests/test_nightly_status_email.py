@@ -21,7 +21,9 @@ from status_email import _finalize_failed_job, build_status_email  # noqa: E402
 
 
 def _base_config() -> dict:
-    return json.loads((ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8"))
+    return json.loads(
+        (ROOT / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8")
+    )
 
 
 def _render(**overrides) -> dict:
@@ -84,7 +86,11 @@ def test_failure_email_surfaces_critical_error_without_nav() -> None:
             "target_date": "2026-08-21",
             "source_health": {"NEWSWEB": "DOWN"},
             "critical_errors": [{"step": "newsweb", "error": "source unavailable"}],
-            "preflight": {"ready": False, "blockers": [{"name": "source"}], "warnings": []},
+            "preflight": {
+                "ready": False,
+                "blockers": [{"name": "source"}],
+                "warnings": [],
+            },
         },
         economic={"ready": False, "reason": "missing_full_nav_row"},
     )
@@ -111,7 +117,10 @@ def test_production_email_binding_is_required_and_restricted() -> None:
     assert config["vars"]["STATUS_EMAIL_TO"] == "owner@example.net"
     assert config["vars"]["STATUS_EMAIL_FROM"] == "status@nav.example.com"
     assert config["vars"]["PUBLIC_URL"] == "https://nav.example.com"
-    assert config["vars"]["DEPLOYMENT_REVISION"] == "0123456789abcdef0123456789abcdef01234567"
+    assert (
+        config["vars"]["DEPLOYMENT_REVISION"]
+        == "0123456789abcdef0123456789abcdef01234567"
+    )
 
 
 def test_worker_dev_config_can_still_omit_status_email() -> None:
@@ -132,7 +141,9 @@ def test_production_worker_keeps_bounded_headroom_for_historical_rebuild() -> No
     assert config["limits"] == {"cpu_ms": 60000, "subrequests": 50000}
 
 
-def test_production_email_configuration_requires_sender_and_recipient_together() -> None:
+def test_production_email_configuration_requires_sender_and_recipient_together() -> (
+    None
+):
     with pytest.raises(ValueError, match="må settes sammen"):
         _render(status_email_to="owner@example.net", status_email_from=None)
 
@@ -140,7 +151,9 @@ def test_production_email_configuration_requires_sender_and_recipient_together()
         _render(status_email_to=None, status_email_from="status@nav.example.com")
 
 
-def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch) -> None:
+def test_failed_workflow_job_is_finalized_even_without_email_binding(
+    monkeypatch,
+) -> None:
     calls: list[dict] = []
 
     class _Repository:
@@ -150,7 +163,9 @@ def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch
         async def finish_job(self, job_id, **kwargs):
             calls.append({"job_id": job_id, **kwargs})
 
-    monkeypatch.setattr(performance_repository, "PerformanceD1WriteRepository", _Repository)
+    monkeypatch.setattr(
+        performance_repository, "PerformanceD1WriteRepository", _Repository
+    )
     result = asyncio.run(
         _finalize_failed_job(
             SimpleNamespace(DB="DB"),
@@ -160,7 +175,10 @@ def test_failed_workflow_job_is_finalized_even_without_email_binding(monkeypatch
                 "target_date": "2026-08-21",
                 "records_written": 0,
                 "critical_errors": [
-                    {"step": "workflow", "error": "Too many API requests by single Worker invocation"}
+                    {
+                        "step": "workflow",
+                        "error": "Too many API requests by single Worker invocation",
+                    }
                 ],
             },
         )
@@ -182,7 +200,9 @@ def test_controlled_failed_result_is_not_finalized_twice(monkeypatch) -> None:
         def __init__(self, database) -> None:
             calls.append({"database": database})
 
-    monkeypatch.setattr(performance_repository, "PerformanceD1WriteRepository", _Repository)
+    monkeypatch.setattr(
+        performance_repository, "PerformanceD1WriteRepository", _Repository
+    )
     result = asyncio.run(
         _finalize_failed_job(
             SimpleNamespace(DB="DB"),
@@ -198,3 +218,114 @@ def test_controlled_failed_result_is_not_finalized_twice(monkeypatch) -> None:
 
     assert result == {"status": "skipped", "reason": "already_finalized"}
     assert calls == []
+
+
+def test_html_report_escapes_errors_and_exposes_noncritical_cache_failure():
+    message = build_status_email(
+        {
+            "status": "SUCCESS",
+            "job_id": 123,
+            "target_date": "2026-10-16",
+            "dashboard_hot_snapshot": {
+                "status": "error",
+                "error": '<script>alert("x")</script> token=private-value',
+            },
+            "archive": {"status": "ok"},
+            "nav": {"status": "ok"},
+        },
+        started_at="2026-10-17T03:35:00Z",
+        finished_at="2026-10-17T03:40:00Z",
+        public_url="https://otellotracker.com/",
+    )
+    assert "OK med avvik" in message["subject"]
+    assert "17.10.2026 kl. 05:35 CEST" in message["text"]
+    assert "Dashboard-cache: FEILET" in message["text"]
+    assert "Nettsiden kan vise eldre data" in message["text"]
+    assert "private-value" not in message["text"] + message["html"]
+    assert "<script>" not in message["html"]
+    assert "&lt;script&gt;" in message["html"]
+    assert '<html lang="nb">' in message["html"]
+    assert 'href="https://otellotracker.com/"' in message["html"]
+    assert "Separate GitHub-kontroller" in message["text"]
+
+
+def test_all_error_lists_warnings_and_auxiliary_failures_are_reported():
+    message = build_status_email(
+        {
+            "status": "FAILED",
+            "critical_errors": [{"step": "nav", "error": "missing input"}],
+            "errors": [
+                {"step": "nav", "error": "missing input"},
+                {"step": "archive", "error": "R2 failed"},
+            ],
+            "preflight": {
+                "ready": False,
+                "checks": [{"name": "fx", "status": "FAIL"}],
+                "blockers": [{"name": "fx", "details": "missing USD/NOK"}],
+                "warnings": [{"name": "news", "details": "old date"}],
+            },
+            "estimated_nav_history": {
+                "status": "error",
+                "error": "history unavailable",
+            },
+        }
+    )
+    assert message["text"].count("- nav: missing input") == 1
+    for detail in (
+        "R2 failed",
+        "missing USD/NOK",
+        "old date",
+        "history unavailable",
+        "Datakontroller bestått: 0/1",
+    ):
+        assert detail in message["text"]
+
+
+def test_unexecuted_checks_are_not_reported_as_success_and_urls_are_restricted():
+    message = build_status_email({"status": "FAILED"}, public_url="javascript:alert(1)")
+    assert "Dashboard-cache: ikke rapportert" in message["text"]
+    assert "javascript:" not in message["html"]
+    assert "href=" not in message["html"]
+
+
+def test_email_has_plaintext_and_html_in_one_send(monkeypatch):
+    import status_email
+
+    calls = []
+
+    class Binding:
+        async def send(self, payload):
+            calls.append(payload)
+            return SimpleNamespace(messageId="test-message")
+
+    class Repository:
+        def __init__(self, database):
+            pass
+
+    async def economic(repository):
+        return {"ready": False, "reason": "test"}
+
+    monkeypatch.setattr(performance_repository, "PerformanceD1Repository", Repository)
+    import economic_nav_investor
+
+    monkeypatch.setattr(economic_nav_investor, "economic_nav_summary", economic)
+    monkeypatch.setitem(
+        sys.modules, "js", SimpleNamespace(Object=SimpleNamespace(fromEntries=None))
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pyodide.ffi",
+        SimpleNamespace(to_js=lambda payload, **kwargs: payload),
+    )
+    env = SimpleNamespace(
+        DB="DB",
+        STATUS_EMAIL_TO="owner@example.net",
+        STATUS_EMAIL_FROM="status@example.net",
+        STATUS_EMAIL=Binding(),
+    )
+    result = asyncio.run(
+        status_email.send_full_refresh_status_email(env, {"status": "SUCCESS"})
+    )
+    assert result["status"] == "sent"
+    assert len(calls) == 1
+    assert calls[0]["text"] and calls[0]["html"]
