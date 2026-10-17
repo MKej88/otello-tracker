@@ -148,12 +148,16 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     monkeypatch.setenv('GITHUB_OUTPUT', str(tmp_path / 'output'))
     exec(compile(pack_script, '<query-pack>', 'exec'), {})
     batch = json.loads((tmp_path / 'd1-query-request.json').read_text())['batch']
-    assert len(batch) == 9
-    assert all(q['sql'].strip().upper().startswith('SELECT ') for q in batch)
+    assert len(batch) == 12
+    assert all(q['sql'].strip().upper().startswith(('SELECT ', 'WITH ')) for q in batch)
     data = fixture()
     rows = [[data['jobs'][0]], [dict(status='SUCCESS', started_at='2026-10-17T04:00:00Z', finished_at='2026-10-17T04:01:00Z')],
             [], data['sources'], [dict(base_currency=c, observed_date='2026-10-16') for c in ['BRL', 'USD']],
             [], data['jobs'], data['prices'], data['states']]
+    from test_nav_cache_audit import audit_fixture
+    nav_data = audit_fixture()
+    rows.extend([nav_data['nav_rows'], nav_data['cache_rows'], nav_data['lock_rows']])
+    (tmp_path / 'public-bootstrap.json').write_text(json.dumps(nav_data['public']))
     (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
     report_script = report_script.replace('now = datetime.now(UTC)', 'now = datetime(2026, 10, 17, 4, 30, tzinfo=UTC)')
     exec(compile(report_script, '<report>', 'exec'), {})
