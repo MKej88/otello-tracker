@@ -17,7 +17,7 @@ for (const [, policy] of policies) {
   if (sources.has("'unsafe-inline'")) {
     throw new Error("Inline scripts must use explicit CSP hashes, not unsafe-inline");
   }
-  for (const [, attributes, script] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+  for (const [, attributes, script] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)) {
     if (/\bsrc\s*=/i.test(attributes)) continue;
     const hash = `sha256-${createHash("sha256").update(script).digest("base64")}`;
     if (!sources.has(`'${hash}'`)) {
