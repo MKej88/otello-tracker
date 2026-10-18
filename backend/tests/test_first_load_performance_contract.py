@@ -195,7 +195,8 @@ def test_cash_view_publishes_independent_responses_without_waiting_for_slowest()
 
 def test_inline_preload_script_is_allowed_by_content_security_policy() -> None:
     source = FRONTEND_INDEX.read_text(encoding="utf-8")
-    match = re.search(r"<script>\n([\s\S]*?)</script>", source)
+    # CSP hashes every byte between the tags, including the leading newline.
+    match = re.search(r"<script>([\s\S]*?)</script>", source)
     assert match is not None
     digest = base64.b64encode(
         hashlib.sha256(match.group(1).encode("utf-8")).digest()
