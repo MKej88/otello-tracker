@@ -397,7 +397,7 @@ function OverviewRange({
       </div>
       <div className="overviewRange52Scale">
         <span className="numeric">{prefix}{formatNumber(low, digits)}</span>
-        <div className="overviewRange52Track" aria-label="Posisjon i 52-ukersintervallet">
+        <div className="overviewRange52Track" aria-hidden="true">
           {position != null ? <i style={{ left: `${position}%` }} /> : null}
         </div>
         <span className="numeric">{prefix}{formatNumber(high, digits)}</span>

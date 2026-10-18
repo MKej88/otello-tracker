@@ -1,0 +1,15 @@
+# OtelloTracker
+
+> Analyse- og overvåkingsverktøy for Otello Corporation (OTEC).
+
+Siden viser estimert NAV, aksjekurs, NAV-rabatt, historikk og relevante nyheter. Tallene er estimater og kan være forsinket. Se kilder og oppdateringstidspunkt i nettsiden. Innholdet er ikke personlig investeringsrådgivning.
+
+## Oversikter
+
+- [Forside](https://otellotracker.com/): NAV, kurs og viktige datoer.
+- [NAV](https://otellotracker.com/#nav): NAV-utvikling og beregningsgrunnlag.
+- [Historikk](https://otellotracker.com/#historikk): Historisk utvikling.
+- [Tilbakekjøp](https://otellotracker.com/#tilbakekjop): Selskapets tilbakekjøp.
+- [Nyheter](https://otellotracker.com/#nyheter): Nyheter og hendelser.
+
+Nettsiden krever JavaScript for å vise løpende data. Dette dokumentet inneholder ingen oppdaterte kurser eller NAV-verdier.
