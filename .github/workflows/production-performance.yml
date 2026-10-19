@@ -50,14 +50,20 @@ jobs:
           fi
           echo "CHROME_BIN=$chrome_bin" >> "$GITHUB_ENV"
 
-      - name: Validate trend detection
-        run: node --test frontend/tools/performance-trends.test.mjs
+      - name: Validate trend detection and script syntax
+        run: |
+          node --check frontend/tools/production-performance.mjs
+          node --check frontend/tools/performance-trends.mjs
+          node --test frontend/tools/performance-trends.test.mjs
 
+      # PRs only test the scripts locally. Repeated PR pushes otherwise trigger
+      # a burst of ~100 production requests and hit Cloudflare rate limits.
       - name: Measure live frontend and API response times
+        if: github.event_name != 'pull_request'
         run: node frontend/tools/production-performance.mjs
 
       - name: Compare with last 14 days and report trend
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
