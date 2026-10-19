@@ -157,6 +157,7 @@ type EconomicNavPayload = {
 const REFRESH_MS = 30 * 60 * 1000;
 
 function hasMissingBrazilData(data: BrazilPayload) {
+  if (data.snapshot_unavailable || !data.as_of_date) return true;
   const year = data.focus?.focus_meta?.current_year ?? Number(data.as_of_date.slice(0, 4));
   return !data.ready
     || ["selic", "ipca_12m", "ibc_br", "ibc_services", "brl_nok"].some((key) => data.metrics?.[key]?.value == null)
