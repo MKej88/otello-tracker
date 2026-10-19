@@ -247,3 +247,105 @@ def test_index_series_is_presented_as_monthly_change() -> None:
     assert result["value"] == 1.0
     assert result["unit"] == "% m/m"
     assert result["series"][-1]["value"] == 101.0
+
+
+class _DiagnosticResponse:
+    def __init__(
+        self, body: bytes, *, status: int, content_type: str | None
+    ) -> None:
+        self.body_bytes = body
+        self.status = status
+        self.ok = 200 <= status < 300
+        self.headers = {"content-type": content_type} if content_type else {}
+
+    async def text(self) -> str:
+        return self.body_bytes.decode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("body", "status", "mime", "kind", "error_kind"),
+    [
+        (b"<html><body>PRIVATE_HTML_TOKEN</body></html>", 200,
+         "text/html; charset=utf-8", "html", "invalid_json"),
+        (b"", 200, "application/json", "empty", "invalid_json"),
+        (b"<html><body>PRIVATE_DENIAL_TOKEN</body></html>", 403,
+         "text/html", "html", "upstream_http_error"),
+        (b"PRIVATE_PLAINTEXT_TOKEN", 200, "text/plain", "other", "invalid_json"),
+        (b"{PRIVATE_INVALID_JSON_TOKEN", 200, "application/json",
+         "json", "invalid_json"),
+        (b"<HTML>PRIVATE_MISLABELLED_TOKEN</HTML>", 200,
+         "application/json", "html", "invalid_json"),
+    ],
+)
+def test_upstream_http_failures_record_only_safe_metadata(
+    body: bytes, status: int, mime: str, kind: str, error_kind: str
+) -> None:
+    import asyncio
+    import json
+
+    from brazil_dashboard import UpstreamJsonError, _fetch_json, upstream_error_metadata
+
+    async def fetcher(_url: str, **_kwargs: object) -> _DiagnosticResponse:
+        return _DiagnosticResponse(body, status=status, content_type=mime)
+
+    with pytest.raises(UpstreamJsonError) as caught:
+        asyncio.run(_fetch_json("https://api.bcb.gov.br/test", fetcher=fetcher))
+    error = caught.value
+    meta = upstream_error_metadata(error)
+    assert meta == {
+        "error_kind": error_kind,
+        "http_status": status,
+        "content_type": mime.split(";", 1)[0],
+        "response_bytes": len(body),
+        "response_kind": kind,
+    }
+    # No body excerpts in exception messages or serialized source statuses.
+    serialized = json.dumps({"error": str(error), **meta})
+    assert "PRIVATE_" not in serialized
+    assert "response_excerpt" not in serialized
+
+
+def test_sgs_source_status_keeps_http_diagnostics_without_body() -> None:
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock, patch
+
+    from brazil_dashboard import UpstreamJsonError, brazil_dashboard
+
+    error = UpstreamJsonError(
+        "Upstream returnerte ugyldig JSON: JSONDecodeError",
+        kind="invalid_json", http_status=200, content_type="text/html",
+        response_bytes=57, response_kind="html",
+    )
+    with patch("brazil_dashboard._load_sgs_series", new_callable=AsyncMock,
+               side_effect=error), patch(
+                   "brazil_dashboard._load_focus", new_callable=AsyncMock,
+                   return_value={"values": {}}
+               ), patch(
+                   "brazil_dashboard._brl_nok", new_callable=AsyncMock,
+                   return_value={"ready": False}
+               ):
+        dashboard = asyncio.run(brazil_dashboard(object(), as_of_date="2026-10-19"))
+    for key in ("selic", "ipca_12m", "ibc_br", "ibc_services"):
+        source = dashboard["source_status"][key]
+        assert source["ready"] is False
+        assert source["error_kind"] == "invalid_json"
+        assert source["http_status"] == 200
+        assert source["content_type"] == "text/html"
+        assert source["response_bytes"] == 57
+        assert source["response_kind"] == "html"
+        assert "response_excerpt" not in source
+    assert "response_excerpt" not in json.dumps(dashboard["source_status"])
+
+def test_upstream_connection_failure_is_not_misreported_as_empty_http_body() -> None:
+    import asyncio
+    from brazil_dashboard import UpstreamJsonError, _fetch_json, upstream_error_metadata
+
+    async def unavailable(_url: str, **_kwargs: object) -> None:
+        raise TimeoutError("PRIVATE_INTERNAL_ROUTE")
+
+    with pytest.raises(UpstreamJsonError) as caught:
+        asyncio.run(_fetch_json("https://api.bcb.gov.br/test", fetcher=unavailable))
+    diagnostic = upstream_error_metadata(caught.value)
+    assert diagnostic == {"error_kind": "fetch_error", "response_kind": "no_response"}
+    assert "PRIVATE_INTERNAL_ROUTE" not in str(caught.value)

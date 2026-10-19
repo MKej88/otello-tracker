@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import unicodedata
 import urllib.parse
 from datetime import UTC, date, datetime, timedelta
@@ -14,7 +15,6 @@ from bounded_response import read_response_bytes
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados"
 FOCUS_URL = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-ERROR_RESPONSE_BYTES = 512
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 SERIES = {
@@ -65,7 +65,7 @@ def _float(value: Decimal | None) -> float | None:
 
 
 class UpstreamJsonError(RuntimeError):
-    """A diagnostic-safe error returned by an upstream JSON service."""
+    """Safe metadata from an upstream response; never retain raw response bodies."""
 
     def __init__(
         self,
@@ -73,19 +73,51 @@ class UpstreamJsonError(RuntimeError):
         *,
         kind: str,
         http_status: int | None = None,
-        response_excerpt: str | None = None,
+        content_type: str | None = None,
+        response_bytes: int | None = None,
+        response_kind: str | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         self.http_status = http_status
-        self.response_excerpt = response_excerpt
+        self.content_type = content_type
+        self.response_bytes = response_bytes
+        self.response_kind = response_kind
 
 
-def _safe_response_excerpt(payload: bytes) -> str:
-    """Return a short, single-line excerpt without reflecting request data."""
-    return payload[:ERROR_RESPONSE_BYTES].decode("utf-8", errors="replace").replace(
-        "\n", " "
-    ).replace("\r", " ")
+def _content_type(response: Any) -> str | None:
+    headers = getattr(response, "headers", None)
+    get = getattr(headers, "get", None)
+    if not callable(get):
+        return None
+    raw = str(get("content-type") or "").split(";", 1)[0].strip().lower()
+    # No arbitrary header values are persisted. Keep only an ordinary MIME type.
+    return raw if len(raw) <= 100 and re.fullmatch(r"[a-z0-9.+_-]+/[a-z0-9.+_-]+", raw) else None
+
+
+def _response_kind(payload: bytes, content_type: str | None) -> str:
+    if not payload:
+        return "empty"
+    prefix = payload[:256].lstrip().lower()
+    if content_type in ("text/html", "application/xhtml+xml") or prefix.startswith(
+        (b"<!doctype html", b"<html", b"<head", b"<body")
+    ):
+        return "html"
+    if content_type and (content_type == "application/json" or content_type.endswith("+json")):
+        return "json"
+    if prefix.startswith((b"{", b"[")):
+        return "json"
+    return "other"
+
+
+def upstream_error_metadata(exc: Exception) -> dict[str, Any]:
+    """Whitelist stable, non-sensitive fields for persisted source diagnostics."""
+    result: dict[str, Any] = {"error_kind": getattr(exc, "kind", "source_error")}
+    for key in ("http_status", "content_type", "response_bytes", "response_kind"):
+        value = getattr(exc, key, None)
+        if value is not None:
+            result[key] = value
+    return result
 
 
 async def _fetch_json(
@@ -97,27 +129,50 @@ async def _fetch_json(
         from workers import fetch
 
         fetcher = fetch
-    response = await fetcher(
-        url,
-        headers={
-            "Accept": "application/json,*/*;q=0.8",
-            "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
-        },
-    )
-    payload = await read_response_bytes(
-        response,
-        max_bytes=MAX_RESPONSE_BYTES,
-        label="Brazil macro JSON",
-    )
-    status = getattr(response, "status", None)
-    if not bool(getattr(response, "ok", False)):
-        excerpt = _safe_response_excerpt(payload)
+    try:
+        response = await fetcher(
+            url,
+            headers={
+                "Accept": "application/json,*/*;q=0.8",
+                "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
+            },
+        )
+    except Exception as exc:
+        # A connection failure has no HTTP response; keep it distinct from an
+        # empty HTTP 200 response and never expose upstream exception text.
         raise UpstreamJsonError(
-            f"Upstream HTTP {status if status is not None else 'unknown'}"
-            + (f": {excerpt}" if excerpt else ""),
+            f"Upstream-forespørsel feilet: {type(exc).__name__}",
+            kind="fetch_error",
+            response_kind="no_response",
+        ) from exc
+    status = getattr(response, "status", None)
+    mime = _content_type(response)
+    metadata = {
+        "http_status": status if isinstance(status, int) else None,
+        "content_type": mime,
+    }
+    try:
+        # Bound the read; do not save or include upstream response text in errors.
+        payload = await read_response_bytes(
+            response,
+            max_bytes=MAX_RESPONSE_BYTES,
+            label="Brazil macro JSON",
+        )
+    except (ValueError, TypeError) as exc:
+        raise UpstreamJsonError(
+            f"Upstream response kunne ikke leses: {type(exc).__name__}",
+            kind="response_read_error",
+            **metadata,
+        ) from exc
+    metadata.update({
+        "response_bytes": len(payload),
+        "response_kind": _response_kind(payload, mime),
+    })
+    if not bool(getattr(response, "ok", False)):
+        raise UpstreamJsonError(
+            f"Upstream HTTP {status if isinstance(status, int) else 'unknown'}",
             kind="upstream_http_error",
-            http_status=status if isinstance(status, int) else None,
-            response_excerpt=excerpt or None,
+            **metadata,
         )
     try:
         return json.loads(payload.decode("utf-8-sig"))
@@ -125,8 +180,7 @@ async def _fetch_json(
         raise UpstreamJsonError(
             f"Upstream returnerte ugyldig JSON: {type(exc).__name__}",
             kind="invalid_json",
-            http_status=status if isinstance(status, int) else None,
-            response_excerpt=_safe_response_excerpt(payload) or None,
+            **metadata,
         ) from exc
 
 
@@ -767,7 +821,11 @@ async def brazil_dashboard(
     source_status: dict[str, Any] = {}
     for key, result in zip(SERIES, results):
         if isinstance(result, Exception):
-            source_status[key] = {"ready": False, "error": f"{type(result).__name__}: {result}"}
+            source_status[key] = {
+                "ready": False,
+                "error": f"{type(result).__name__}: {result}",
+                **upstream_error_metadata(result),
+            }
         else:
             metrics[key] = result
             source_status[key] = {"ready": True, "date": result.get("date")}
@@ -796,14 +854,8 @@ async def brazil_dashboard(
         source_status["focus"] = {
             "ready": False,
             "error": f"{type(exc).__name__}: {exc}",
-            "error_kind": getattr(exc, "kind", "focus_processing_error"),
+            **upstream_error_metadata(exc),
         }
-        http_status = getattr(exc, "http_status", None)
-        if http_status is not None:
-            source_status["focus"]["http_status"] = http_status
-        response_excerpt = getattr(exc, "response_excerpt", None)
-        if response_excerpt:
-            source_status["focus"]["response_excerpt"] = response_excerpt
 
     fx = await _brl_nok(repository, target_date)
     if fx.get("ready"):

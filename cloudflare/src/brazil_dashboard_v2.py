@@ -231,7 +231,7 @@ async def brazil_dashboard(
         resilience_status["report_errors"] = supplemented.get("report_errors", [])
         if live_status.get("error"):
             resilience_status["live_error"] = live_status.get("error")
-        for diagnostic_key in ("error_kind", "http_status", "response_excerpt"):
+        for diagnostic_key in ("error_kind", "http_status", "content_type", "response_bytes", "response_kind"):
             if live_status.get(diagnostic_key) is not None:
                 resilience_status[diagnostic_key] = live_status[diagnostic_key]
         focus_meta = focus.get("focus_meta") if isinstance(focus, dict) else None

@@ -7,6 +7,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 STATE_KEY = "brazil_dashboard_snapshot_v1"
+SGS_DIAGNOSTICS_STATE_KEY = "brazil_sgs_http_diagnostics_v1"
+SGS_KEYS = ("selic", "ipca_12m", "ibc_br", "ibc_services")
+# Only the following structured fields are persisted. Never store raw upstream bodies.
+SGS_DIAGNOSTIC_FIELDS = (
+    "error_kind", "http_status", "content_type", "response_bytes",
+    "response_kind", "date", "last_success_at",
+)
 MAX_AGE_SECONDS = 90 * 60
 PARTIAL_MAX_AGE_SECONDS = 35 * 60
 # Stale-while-revalidate safety window: show clearly-labelled data, never wait on upstream.
@@ -151,11 +158,55 @@ async def cached_brazil_dashboard(repository: Any, *, as_of_date: str | None = N
     }
 
 
+async def save_sgs_diagnostics(repository: Any, payload: dict) -> None:
+    """Always persist the last SGS attempt, even if a complete dashboard is protected."""
+    generated_at = payload.get("generated_at")
+    statuses = payload.get("source_status")
+    if not generated_at or not isinstance(statuses, dict):
+        return
+    sources = {}
+    for key in SGS_KEYS:
+        status = statuses.get(key)
+        if not isinstance(status, dict):
+            continue
+        # A fallback may be 'ready' on screen without a successful live fetch.
+        sources[key] = {
+            "live_ready": bool(status.get("live_ready", status.get("ready"))),
+            **{field: status[field] for field in SGS_DIAGNOSTIC_FIELDS
+               if status.get(field) is not None},
+        }
+    if not sources:
+        return
+    diagnostic = {
+        "generated_at": generated_at,
+        "as_of_date": payload.get("as_of_date"),
+        "sources": sources,
+    }
+    await repository.run(
+        """INSERT INTO runtime_state(key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+        WHERE julianday(excluded.updated_at) >= julianday(runtime_state.updated_at)""",
+        (
+            SGS_DIAGNOSTICS_STATE_KEY,
+            json.dumps(diagnostic, ensure_ascii=False, separators=(",", ":")),
+            generated_at,
+        ),
+    )
+
+
 async def refresh_brazil_snapshot(repository: Any) -> dict:
     # Bound this optional cron step so unavailable sources cannot stall market refreshes.
     payload = await asyncio.wait_for(
         build_dashboard(repository), timeout=REFRESH_TIMEOUT_SECONDS
     )
+    # Separate from the main snapshot: its 24-hour complete-snapshot protection
+    # must never hide current HTTP diagnostics for failing SGS requests.
+    try:
+        await save_sgs_diagnostics(repository, payload)
+    except Exception:
+        pass  # Best effort, like the other optional dashboard cache writes.
     if not payload.get("ready"):
         return {"status": "error", "reason": "Brazil sources unavailable"}
     await save_snapshot(repository, payload)
