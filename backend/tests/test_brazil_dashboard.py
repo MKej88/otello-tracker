@@ -336,3 +336,16 @@ def test_sgs_source_status_keeps_http_diagnostics_without_body() -> None:
         assert source["response_kind"] == "html"
         assert "response_excerpt" not in source
     assert "response_excerpt" not in json.dumps(dashboard["source_status"])
+
+def test_upstream_connection_failure_is_not_misreported_as_empty_http_body() -> None:
+    import asyncio
+    from brazil_dashboard import UpstreamJsonError, _fetch_json, upstream_error_metadata
+
+    async def unavailable(_url: str, **_kwargs: object) -> None:
+        raise TimeoutError("PRIVATE_INTERNAL_ROUTE")
+
+    with pytest.raises(UpstreamJsonError) as caught:
+        asyncio.run(_fetch_json("https://api.bcb.gov.br/test", fetcher=unavailable))
+    diagnostic = upstream_error_metadata(caught.value)
+    assert diagnostic == {"error_kind": "fetch_error", "response_kind": "no_response"}
+    assert "PRIVATE_INTERNAL_ROUTE" not in str(caught.value)
