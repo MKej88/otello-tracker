@@ -35,6 +35,20 @@ updates:
       timezone: "Europe/Oslo"
     cooldown:
       default-days: 7
+    # Pydantic pins pydantic-core to an exact version: update them together.
+    groups:
+      pydantic-family:
+        applies-to: version-updates
+        patterns:
+          - "pydantic"
+          - "pydantic-core"
+          - "pydantic-settings"
+      pydantic-family-security:
+        applies-to: security-updates
+        patterns:
+          - "pydantic"
+          - "pydantic-core"
+          - "pydantic-settings"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "npm"
