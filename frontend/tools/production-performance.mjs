@@ -202,12 +202,9 @@ async function probeBrowser(hash) {
     }
     if (!finalState?.ready) throw new Error("No first-screen data after 25s on " + hash);
     const metrics = await session.evaluate(
-      "(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); return (" +
-      extractBrowserMetrics.toString() + ")(); })()"
-      // Function refers to screenState; inject both functions below instead.
-        .replace("return (" + extractBrowserMetrics.toString() + ")();",
-          "const screenState = " + screenState.toString() +
-          "; return (" + extractBrowserMetrics.toString() + ")();")
+      "(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); " +
+      "const screenState = (" + screenState.toString() + "); " +
+      "return (" + extractBrowserMetrics.toString() + ")(); })()"
     );
     if (!metrics?.status?.ready) throw new Error("First screen lost valid data on " + hash);
     return { route: hash, ...metrics };
