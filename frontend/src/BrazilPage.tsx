@@ -116,6 +116,8 @@ type BrazilPayload = {
   as_of_date: string;
   generated_at?: string;
   source_status?: Record<string, { ready?: boolean; fallback?: boolean }>;
+  snapshot_stale?: boolean;
+  snapshot_unavailable?: boolean;
   metrics?: Record<string, Metric>;
   focus?: {
     ready?: boolean;
@@ -162,6 +164,34 @@ function hasMissingBrazilData(data: BrazilPayload) {
     || [year, year + 1].some((y) => ["selic", "ipca", "gdp"].some((key) => (
       data.focus_trend?.comparisons?.["30d"]?.points_by_year?.[String(y)]?.[key]?.change == null
     )));
+}
+
+// Cached optional calendar sources are informational, not broken core macro data.
+const CORE_SOURCE_NAMES: Record<string, string> = {
+  selic: "styringsrente",
+  ipca_12m: "inflasjon",
+  ibc_br: "økonomisk aktivitet",
+  ibc_services: "tjenesteaktivitet",
+  brl_nok: "BRL/NOK",
+  focus: "Focus-prognoser",
+};
+
+const OPTIONAL_SOURCE_NAMES: Record<string, string> = {
+  focus_trend: "Focus-historikk",
+  focus_event_expectations: "hendelsesprognoser",
+  investing_event_expectations: "kalenderdata fra Investing.com",
+  latest_high_macro: "siste makropublisering",
+};
+
+function fallbackSources(data: BrazilPayload) {
+  const sourceStatus = data.source_status ?? {};
+  const core = Object.entries(CORE_SOURCE_NAMES)
+    .filter(([key]) => sourceStatus[key]?.fallback || (key === "focus" && data.focus?.fallback))
+    .map(([, label]) => label);
+  const optional = Object.entries(sourceStatus)
+    .filter(([key, status]) => !(key in CORE_SOURCE_NAMES) && status.fallback)
+    .map(([key]) => OPTIONAL_SOURCE_NAMES[key] ?? key.replaceAll("_", " "));
+  return { core, optional };
 }
 
 function hasCachedBrazilData(data: BrazilPayload) {
@@ -413,10 +443,17 @@ export default function BrazilPage() {
   if (!data && !refreshFailed) {
     return <LoadingPlaceholder className="loadingPlaceholderPage" label="Henter makrodata for Brasil" />;
   }
-  if (!data) {
-    return <section className="card brazilError"><span className="label">BRASIL</span><strong>Kunne ikke hente Brasil-data</strong><p>API-et svarte ikke. Ingen NAV-data påvirkes av denne siden.</p></section>;
+  if (!data || data.snapshot_unavailable) {
+    return <section className="card brazilError"><span className="label">BRASIL</span><strong>Brasil-data er midlertidig utilgjengelige</strong><p>Ingen tilstrekkelig oppdaterte, lagrede makrotall er tilgjengelige. En automatisk serverjobb forsøker å hente dem. Ingen NAV-data påvirkes av denne siden.</p></section>;
   }
 
+  const fallback = fallbackSources(data);
+  const snapshotUpdated = data.generated_at
+    ? new Date(data.generated_at).toLocaleString("nb-NO", {
+      timeZone: "Europe/Oslo", day: "2-digit", month: "2-digit",
+      year: "numeric", hour: "2-digit", minute: "2-digit",
+    })
+    : "ukjent tidspunkt";
   const metrics = data.metrics ?? {};
   const summary = data.investor_summary;
   const ratePath = summary?.rate_path;
@@ -450,8 +487,10 @@ export default function BrazilPage() {
             <span className={`brazilRegime ${summary?.tone ?? "neutral"}`}>{toneLabel(summary?.tone)}</span>
           </div>
           <p>Tre kanaler betyr mest for Otello: rentebanen påvirker Bemobi-verdsettelsen, aktiviteten påvirker driften og BRL/NOK slår direkte inn i NAV.</p>
-          {hasCachedBrazilData(data) ? <p className="sourceWarn" role="status"><small>Enkelte datakilder er midlertidig utilgjengelige. Siste vellykkede tall vises med opprinnelig måledato. Nye forsøk gjøres automatisk.</small></p> : null}
-          {hasMissingBrazilData(data) ? <p className="sourceWarn" role="status"><small>Enkelte tall mangler foreløpig. Nye forsøk gjøres automatisk.</small></p> : null}
+          {data.snapshot_stale ? <p className="sourceWarn" role="status"><small>Viser sist lagrede Brasil-data, beregnet {snapshotUpdated}. Planlagte oppdateringer forsøker å hente nye tall. Hver indikator beholder sin opprinnelige måledato.</small></p> : null}
+          {fallback.core.length > 0 ? <p className="sourceWarn" role="status"><small>Midlertidig kildeproblem for {fallback.core.join(", ")}. Siste vellykkede verdier brukes med opprinnelig måledato.</small></p> : null}
+          {fallback.optional.length > 0 ? <p className="brazilSourceNote"><small>Supplerende kilder bruker sist lagrede data: {fallback.optional.join(", ")}. Dette påvirker ikke de øvrige makrotallene.</small></p> : null}
+          {hasMissingBrazilData(data) ? <p className="sourceWarn" role="status"><small>Noen makrotall eller Focus-sammenligninger mangler fortsatt. Planlagte oppdateringer forsøker å hente disse.</small></p> : null}
         </div>
         <div className="brazilFreshness">
           <span className="label">SIST HENTET</span>
