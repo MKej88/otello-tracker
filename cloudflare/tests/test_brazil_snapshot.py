@@ -103,6 +103,55 @@ class BrazilSnapshotTest(unittest.IsolatedAsyncioTestCase):
                     pass
             self.repository.run.assert_not_awaited()
 
+    async def test_sgs_diagnostics_persists_only_whitelisted_metadata(self) -> None:
+        diagnostics = {
+            "ready": True, "live_ready": False, "fallback": True,
+            "error": "PRIVATE_RAW_RESPONSE_MUST_NOT_BE_SAVED",
+            "error_kind": "invalid_json", "http_status": 200,
+            "content_type": "text/html", "response_bytes": 118,
+            "response_kind": "html", "last_success_at": "2026-10-18T08:00:00Z",
+            "response_excerpt": "PRIVATE_RAW_BODY",
+        }
+        payload = dict(self.payload, source_status={
+            key: diagnostics for key in snapshot.SGS_KEYS
+        })
+        await snapshot.save_sgs_diagnostics(self.repository, payload)
+        args = self.repository.run.await_args.args[1]
+        self.assertEqual(args[0], snapshot.SGS_DIAGNOSTICS_STATE_KEY)
+        stored = json.loads(args[1])
+        self.assertEqual(stored["generated_at"], payload["generated_at"])
+        self.assertEqual(len(stored["sources"]), 4)
+        source = stored["sources"]["selic"]
+        self.assertEqual(source["http_status"], 200)
+        self.assertEqual(source["content_type"], "text/html")
+        self.assertEqual(source["response_bytes"], 118)
+        self.assertEqual(source["response_kind"], "html")
+        self.assertFalse(source["live_ready"])
+        self.assertEqual(source["last_success_at"], "2026-10-18T08:00:00Z")
+        self.assertNotIn("error", source)
+        self.assertNotIn("response_excerpt", source)
+        self.assertNotIn("PRIVATE_", args[1])
+
+    async def test_cron_persists_sgs_diagnostics_when_dashboard_is_not_ready(self) -> None:
+        payload = {
+            "ready": False,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "as_of_date": "2026-10-19",
+            "source_status": {
+                "selic": {
+                    "ready": False, "error_kind": "upstream_http_error",
+                    "http_status": 403, "content_type": "text/html",
+                    "response_bytes": 0, "response_kind": "empty",
+                },
+            },
+        }
+        with patch.object(snapshot, "build_dashboard", AsyncMock(return_value=payload)):
+            result = await snapshot.refresh_brazil_snapshot(self.repository)
+        self.assertEqual(result["status"], "error")
+        self.repository.run.assert_awaited_once()
+        self.assertEqual(self.repository.run.await_args.args[1][0],
+                         snapshot.SGS_DIAGNOSTICS_STATE_KEY)
+
     async def test_cron_refresh_updates_snapshot(self) -> None:
         with patch.object(snapshot, "build_dashboard", AsyncMock(return_value=self.payload)):
             result = await snapshot.refresh_brazil_snapshot(self.repository)
