@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { subscribePageResumeRefresh } from "../src/pageResumeRefresh.ts";
+import { shouldRunScheduledPoll, subscribePageResumeRefresh } from "../src/pageResumeRefresh.ts";
 
 class FakeEventTarget extends EventTarget {
   visibilityState: DocumentVisibilityState = "hidden";
@@ -49,4 +49,10 @@ test("oppdaterer når nettleseren gjenoppretter siden fra hurtigminnet", () => {
   pageWindow.dispatchEvent(restoredPageShow);
 
   assert.equal(refreshCount, 1);
+});
+
+test("planlagte API-kall pauses når fanen er skjult", () => {
+  assert.equal(shouldRunScheduledPoll("hidden"), false);
+  assert.equal(shouldRunScheduledPoll("visible"), true);
+  assert.equal(shouldRunScheduledPoll("prerender" as DocumentVisibilityState), true);
 });
