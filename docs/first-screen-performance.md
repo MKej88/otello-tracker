@@ -1,37 +1,60 @@
-# Lokal måling av første skjerm og API-effektivitet
+# Syntetisk ytelsesovervåking av OtelloTracker
 
-Fra oktober 2026 registrerer frontend tidsbruk fra navigeringen starter til dataene
-først er synlige på de direkte åpnete sidene **Oversikt** og **Brasil**.
+## Arkitektur
 
-## Slik kan resultatene undersøkes
+Ytelsesovervåking kjøres fra **GitHub Actions**, ikke inne i investorgrensesnittet.
+Workflowen `.github/workflows/production-performance.yml` utføres automatisk
+to ganger daglig (07:15 og 19:15 UTC) og kan startes manuelt med
+`workflow_dispatch`.
 
-1. Åpne `https://otellotracker.com/#oversikt` i en ny fane.
-2. Åpne deretter Datakvalitet → Nettleserytelse.
-3. Gjenta for `#brasil`, både med vanlig innlasting og full oppdatering av siden.
-4. Sammenlign median og P95 når flere lokale målinger er samlet inn. Vurder de tre
-   tregeste same-origin API-stiene opp mot Cloudflare Analytics/Workers-observasjoner.
+Fra en GitHub-runner hentes offentlig produksjons-API direkte og et nytt,
+tomt Chromium/Chrome-profilvindu åpnes for hver av rutene:
+- `https://otellotracker.com/#oversikt`
+- `https://otellotracker.com/#brasil`
 
-Dataene ligger bare i nettleserens `localStorage` (maksimalt 40 målinger).
-Ingen personidentifikatorer, URL-parametere, eksterne nettadresser eller
-måledata sendes til serveren. Lagring kan være utilgjengelig i privat modus.
-Dette er **ikke** nettstedomfattende RUM, og tallene må ikke tolkes som aggregert
-ytelse for alle besøkende. Spesielt kan små utvalg og cache gi store utslag.
+Dette gir **syntetiske nettlesermålinger** av tiden til hoveddata vises på skjermen,
+og måling av HTML-dokumentets TTFB, DOM-klart-tid og de tregeste
+same-origin API-kallene ved innlasting.
 
-`første synlige data` er en markering etter at React har mottatt og vist
-brukbare hoveddata, målt på den opprinnelige hash-ruten med
-`requestAnimationFrame`. Den er ikke det samme som LCP, og kan inkludere et
-allerede lagret sist-godt datapunkt. TTFB gjelder HTML-dokumentet.
-API-varighet er nettleserens komplette ressurstid, ikke kun Worker-CPU-tid.
+Direkte API-prober kjøres tre ganger per endepunkt:
+`/api/health`, `/api/dashboard/bootstrap`, `/api/dashboard/economic`
+og `/api/brazil/dashboard`. Tid til responsheadere (nettverksobservert TTFB)
+og tid til fullført nedlasting rapporteres separat, sammen med responsstørrelse.
+Dette er **ikke** ren Cloudflare Worker CPU-tid eller D1-spørringstid.
 
-## Polling
+## Hvor finnes resultatene?
 
-- Skjulte nettleserfaner starter ikke nye periodiske API-oppdateringer.
-- Ved aktivering av fanen forsøkes en fersk oppdatering, også etter BFCache.
-- Hvis en eldre forespørsel fortsatt pågår, køes én fersk kontroll etterpå.
-- Live markedsdata beholder tidligere oppdateringsintervaller.
-- Historisk rabatt, tilbakekjøpsstatus og hendelser på oversikten kontrolleres
-  hvert 15. minutt mens fanen er aktiv, med oppdatering straks den aktiveres igjen.
-- Kjørte forgrunnsforespørsler avbrytes ikke bare fordi fanen skjules;
-  API- og NAV-tilstander bevarer derfor siste gode verdi.
+Åpne GitHub Actions → **Production performance (synthetic)**.
+Hver kjøring skriver en oversikt i **Job summary** og arkiverer en maskinlesbar
+`performance-report.json` som workflow-artifact i 30 dager.
 
-Neste steg etter tilstrekkelige målinger er å prioritere målbare flaskehalser.
+Manglende hoveddata, feil HTTP-status eller testtimeout feiler jobben.
+En førsteside som bruker over fem sekunder genererer en GitHub-advarsel,
+men ikke automatisk feil, fordi nettverk og runnerbelastning kan variere.
+
+Ingen målinger blir lagt inn i Datakvalitet-visningen eller sendt fra
+besøkendes nettlesere. Denne overvåkingen krever ingen Cloudflare-hemmeligheter.
+
+## Begrensninger
+
+- Dette er et eksternt, syntetisk testsystem, ikke Real User Monitoring.
+- Målingene påvirkes av hvor GitHub-runneren kjører, ruting, cache og nettverk.
+- Antall daglige kjøringer er for lavt til en pålitelig P95 for alle besøkende.
+- Begge rutene åpnes med tom profil for å fange opp treg førstegangslasting.
+- Hoveddata markeres når Oversikts-NAV eller Brasils makrokort finnes
+  etter React-rendering; øvrige sider kan fremdeles laste etter dette.
+- For å evaluere reell brukeropplevelse kan man kombinere målingene
+  med aggregerte Cloudflare Web Analytics, uten å vise dem i investordashboardet.
+
+## API-effektivitet og polling
+
+Ytelsestiltak fra forrige runde er videreført:
+- Polling stoppes når nettleserfanen ikke er synlig.
+- Når fanen blir synlig, kontrolleres data umiddelbart.
+- Markedsdata beholder kortere oppdateringsintervall.
+- Historikk, tilbakekjøpsstatus og kommende hendelser på oversikten
+  oppdateres hvert 15. minutt mens fanen er synlig.
+
+Hvis det er behov for D1-query-timing eller rene Worker-kjøretider,
+må dette måles separat med instrumentering i Worker eller via
+Cloudflare sin egen Workers-observability.
