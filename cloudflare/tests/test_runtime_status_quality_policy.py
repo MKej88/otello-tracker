@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.runtime_status import _dashboard_quality_reasons, _expected_between_reports
+from src.nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
 
 
 def test_normal_between_report_estimates_are_not_active_warnings() -> None:
