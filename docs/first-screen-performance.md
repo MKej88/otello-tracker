@@ -8,17 +8,22 @@ to ganger daglig (07:15 og 19:15 UTC) og kan startes manuelt med
 `workflow_dispatch`.
 
 Fra en GitHub-runner hentes offentlig produksjons-API direkte og et nytt,
-tomt Chromium/Chrome-profilvindu åpnes for hver av rutene:
-- `https://otellotracker.com/#oversikt`
-- `https://otellotracker.com/#brasil`
+tomt Chromium/Chrome-profilvindu åpnes for **alle 12 hovedvisninger**:
+Oversikt, NAV, NAV-sensitivitet, Historikk, Tilbakekjøpsprogram, Cash,
+Bemobi, BRL/NOK, Brasil, Konsensus, Nyheter og Datakvalitet.
 
-Dette gir **syntetiske nettlesermålinger** av tiden til hoveddata vises på skjermen,
+Dette gir **syntetiske nettlesermålinger per side** av tiden til hoveddata vises,
 og måling av HTML-dokumentets TTFB, DOM-klart-tid og de tregeste
-same-origin API-kallene ved innlasting.
+same-origin API-kallene ved førstegangsinnlasting.
 
-Direkte API-prober kjøres tre ganger per endepunkt:
-`/api/health`, `/api/dashboard/bootstrap`, `/api/dashboard/economic`
-og `/api/brazil/dashboard`. Tid til responsheadere (nettverksobservert TTFB)
+I tillegg brukes én nettleserøkt til å klikke gjennom alle 12 hovedvisningene
+fra hovedmenyen, uten full sidelasting. For hvert sideskifte måles tiden fra
+klikk til relevant hovedinnhold er synlig, med tregeste API-kall. Dermed
+skilles **kald, direkte innlasting** fra **intern SPA-navigering**.
+
+Direkte API-prober kjøres tre ganger per endepunkt, med relevante kilder
+til blant annet NAV, historikk, tilbakekjøp, Bemobi, Brasil, valuta, nyheter
+og datakvalitet. Tid til responsheadere (nettverksobservert TTFB)
 og tid til fullført nedlasting rapporteres separat, sammen med responsstørrelse.
 Dette er **ikke** ren Cloudflare Worker CPU-tid eller D1-spørringstid.
 
@@ -40,9 +45,12 @@ besøkendes nettlesere. Denne overvåkingen krever ingen Cloudflare-hemmelighete
 - Dette er et eksternt, syntetisk testsystem, ikke Real User Monitoring.
 - Målingene påvirkes av hvor GitHub-runneren kjører, ruting, cache og nettverk.
 - Antall daglige kjøringer er for lavt til en pålitelig P95 for alle besøkende.
-- Begge rutene åpnes med tom profil for å fange opp treg førstegangslasting.
-- Hoveddata markeres når Oversikts-NAV eller Brasils makrokort finnes
-  etter React-rendering; øvrige sider kan fremdeles laste etter dette.
+- Alle 12 rutene åpnes med tom profil for å fange opp treg førstegangslasting.
+- En rute markeres som klar når rutespesifikt hovedinnhold finnes etter
+  React-rendering. Noen sekundærkort eller diagrammer kan lastes etter dette.
+- SPA-navigering måles i én sammenhengende økt; senere sider kan nyte godt av
+  kode- og API-cache som allerede er lastet av tidligere visninger.
+- Nye hovedvisninger må legges til i målekatalogen, ellers måles de ikke.
 - For å evaluere reell brukeropplevelse kan man kombinere målingene
   med aggregerte Cloudflare Web Analytics, uten å vise dem i investordashboardet.
 

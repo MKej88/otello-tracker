@@ -13,6 +13,32 @@ const chromeBin = process.env.CHROME_BIN || "google-chrome";
 const reportPath = process.env.PERF_REPORT_PATH || "performance-report.json";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** All 12 investor views, with a DOM marker that is only present when
+ * the main content has actually rendered (not only the navigation shell).
+ */
+const ROUTES = [
+  { label: "Oversikt", hash: "#oversikt", heading: "Otello investoroversikt", selector: ".overviewV3 .overviewNavCard h2", kind: "price" },
+  { label: "NAV", hash: "#nav", heading: "NAV", selector: ".navV2 .estimatedHero h2", kind: "price" },
+  { label: "NAV-sensitivitet", hash: "#nav-sensitivitet", heading: "NAV-sensitivitet", selector: ".sensitivityPage .sensitivityMatrixCard" },
+  { label: "Historikk", hash: "#historikk", heading: "Historisk NAV-rabatt", selector: ".historyV2 .historyAxisCard" },
+  { label: "Tilbakekjøpsprogram", hash: "#tilbakekjop", heading: "Tilbakekjøpsprogram", selector: ".buybackPage .buybackHero" },
+  { label: "Cash", hash: "#cash", heading: "Cash & kapitalallokering", selector: ".cashPage .cashHero" },
+  { label: "Bemobi", hash: "#bemobi", heading: "Bemobi", selector: ".bemobiPage .bemobiCleanHero" },
+  { label: "BRL/NOK", hash: "#brl-nok", heading: "BRL/NOK", selector: ".fxPage .fxHero" },
+  { label: "Brasil", hash: "#brasil", heading: "Brasil", selector: ".brazilPage .brazilInvestorHero" },
+  { label: "Konsensus", hash: "#konsensus", heading: "Konsensus", selector: ".consensusPage .consensusHero" },
+  { label: "Nyheter", hash: "#nyheter", heading: "Nyheter og hendelser", selector: ".newsEventsPage .newsHero", kind: "news" },
+  { label: "Datakvalitet", hash: "#datakvalitet", heading: "Datakvalitet", selector: ".dataQualityPage .qualityTrustHero", kind: "quality" },
+];
+
+function assertRouteCatalog() {
+  const uniqueHashes = new Set(ROUTES.map((route) => route.hash));
+  if (ROUTES.length !== 12 || uniqueHashes.size !== ROUTES.length) {
+    throw new Error("The synthetic route catalogue must cover all 12 views without duplicates");
+  }
+}
+assertRouteCatalog();
+
 if (base.protocol !== "https:" && base.hostname !== "127.0.0.1") {
   throw new Error("Synthetic performance tests require HTTPS or local loopback.");
 }
@@ -125,28 +151,63 @@ class CdpSession {
 }
 
 function screenState() {
-  const isOverview = location.hash === "#oversikt";
-  const isBrazil = location.hash === "#brasil";
-  const navText = document.querySelector(".overviewNavCard h2")?.textContent?.trim() || "";
-  const brazilReady = Boolean(
-    document.querySelector(".brazilInvestorHero") &&
-    document.querySelector(".brazilDriverGrid")
-  );
+  const route = routeDefinitions.find((item) => item.hash === location.hash.toLowerCase());
+  const heading = document.querySelector(".investorTopbar h1")?.textContent?.trim();
+  const marker = route ? document.querySelector(route.selector) : null;
+  let ready = Boolean(route && marker && heading === route.heading);
+  if (ready && route.kind === "price") {
+    ready = marker.textContent.includes("kr") && !marker.querySelector(".loadingPlaceholder");
+  }
+  if (ready && route.kind === "news") {
+    ready = !document.querySelector(".loadingPlaceholderNews, .loadingPlaceholderCalendar");
+  }
+  if (ready && route.kind === "quality") {
+    ready = !document.querySelector(".qualityTrustLead small")?.textContent?.trim().endsWith("–");
+  }
   const error = Boolean(document.querySelector(".brazilError")) ||
-    document.body.innerText.includes("Kunne ikke hente investordata.");
-  const ready = isOverview
-    ? /^\d/.test(navText) && navText.includes("kr")
-    : isBrazil && brazilReady;
-  return { ready, error, navText };
+    Boolean(document.querySelector(".resourceNoticeError")) ||
+    document.body.innerText.includes("Kunne ikke hente investordata.") ||
+    document.body.innerText.includes("Kunne ikke hente NAV-historikk.") ||
+    document.body.innerText.includes("Kunne ikke hente Bemobi-data.") ||
+    document.body.innerText.includes("Kunne ikke hente konsensusdata.") ||
+    document.body.innerText.includes("Kunne ikke hente NAV-sammensetningen.");
+  return { ready, error, label: route?.label || null, heading };
 }
 
-function extractBrowserMetrics() {
+function routeStatusScript() {
+  return "(() => { const routeDefinitions = " + JSON.stringify(ROUTES) +
+    "; return (" + screenState.toString() + ")(); })()";
+}
+
+async function waitForRoute(session, route, timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs;
+  let state;
+  while (Date.now() < deadline) {
+    state = await session.evaluate(routeStatusScript());
+    if (state?.error) throw new Error("Investor data error on " + route.hash);
+    if (state?.ready && state.label === route.label) return;
+    await sleep(120);
+  }
+  throw new Error("No valid main content within " + timeoutMs + "ms on " + route.hash +
+    "; last state: " + JSON.stringify(state));
+}
+
+function metricsScript(transitionStart = false) {
+  return "(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); " +
+    "const routeDefinitions = " + JSON.stringify(ROUTES) + "; " +
+    "const screenState = (" + screenState.toString() + "); " +
+    "return (" + extractBrowserMetrics.toString() + ")(" +
+    (transitionStart ? "window.__otelloPerfNavigationStart" : "0") +
+    "); })()";
+}
+
+function extractBrowserMetrics(transitionStartMs = 0) {
   const nav = performance.getEntriesByType("navigation")[0];
   const res = performance.getEntriesByType("resource")
     .filter((entry) => {
       try {
         const url = new URL(entry.name);
-        return url.origin === location.origin && url.pathname.startsWith("/api/");
+        return url.origin === location.origin && url.pathname.startsWith("/api/") && entry.startTime >= transitionStartMs;
       } catch {
         return false;
       }
@@ -158,9 +219,9 @@ function extractBrowserMetrics() {
     .sort((a, b) => b.durationMs - a.durationMs)
     .slice(0, 5);
   return {
-    firstDataMs: Math.round(performance.now()),
-    documentTtfbMs: nav ? Math.round(nav.responseStart) : null,
-    domReadyMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
+    firstDataMs: Math.round(performance.now() - transitionStartMs),
+    documentTtfbMs: !transitionStartMs && nav ? Math.round(nav.responseStart) : null,
+    domReadyMs: !transitionStartMs && nav ? Math.round(nav.domContentLoadedEventEnd) : null,
     apiResources: res,
     status: screenState(),
   };
@@ -192,22 +253,72 @@ async function probeBrowser(hash) {
     await session.send("Page.enable");
     const pageUrl = new URL("/" + hash, base).toString();
     await session.send("Page.navigate", { url: pageUrl });
-    const deadline = Date.now() + 25000;
-    let finalState;
-    while (Date.now() < deadline) {
-      finalState = await session.evaluate("(" + screenState.toString() + ")()");
-      if (finalState?.error) throw new Error("Investor data error on " + hash);
-      if (finalState?.ready) break;
-      await sleep(120);
+    const route = ROUTES.find((item) => item.hash === hash);
+    if (!route) throw new Error("Unknown synthetic route: " + hash);
+    await waitForRoute(session, route);
+    const metrics = await session.evaluate(metricsScript());
+    if (!metrics?.status?.ready || metrics.status.label !== route.label) {
+      throw new Error("First-screen data lost on " + hash);
     }
-    if (!finalState?.ready) throw new Error("No first-screen data after 25s on " + hash);
-    const metrics = await session.evaluate(
-      "(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); " +
-      "const screenState = (" + screenState.toString() + "); " +
-      "return (" + extractBrowserMetrics.toString() + ")(); })()"
-    );
-    if (!metrics?.status?.ready) throw new Error("First screen lost valid data on " + hash);
     return { route: hash, ...metrics };
+  } finally {
+    session?.close();
+    await stopChrome(chrome);
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+  }
+}
+
+/** Same browser + cache, measuring user-menu navigation without page reload. */
+async function probeSpaNavigation() {
+  const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-spa-perf-"));
+  const chrome = spawn(chromeBin, [
+    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--disable-background-networking", "--disable-extensions", "--no-first-run",
+    "--window-size=1440,1100", "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=0", "--user-data-dir=" + profileDir, "about:blank",
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  chrome.stderr.on("data", (data) => { stderr = (stderr + String(data)).slice(-2000); });
+  let session = null;
+  try {
+    const port = await devtoolsPort(profileDir, chrome, () => stderr);
+    const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
+      method: "PUT", signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error("Unable to create Chrome tab for SPA");
+    const tab = await response.json();
+    session = new CdpSession(tab.webSocketDebuggerUrl);
+    await session.connect();
+    await session.send("Runtime.enable");
+    await session.send("Page.enable");
+    await session.send("Page.navigate", { url: new URL("/#oversikt", base).toString() });
+    await waitForRoute(session, ROUTES[0]);
+    const result = [];
+
+    for (const route of [...ROUTES.slice(1), ROUTES[0]]) {
+      const clicked = await session.evaluate(`(() => {
+        const button = [...document.querySelectorAll("button")].find(
+          (item) => item.textContent?.trim() === ${JSON.stringify(route.label)}
+        );
+        if (!button || button.disabled) return false;
+        window.__otelloPerfNavigationStart = performance.now();
+        button.click();
+        return true;
+      })()`);
+      if (!clicked) throw new Error("Navigation button missing: " + route.label);
+      await waitForRoute(session, route);
+      const metrics = await session.evaluate(metricsScript(true));
+      if (!metrics?.status?.ready || metrics.status.label !== route.label) {
+        throw new Error("SPA content lost on " + route.hash);
+      }
+      result.push({
+        label: route.label,
+        route: route.hash,
+        navigationMs: metrics.firstDataMs,
+        apiResources: metrics.apiResources,
+      });
+    }
+    return result;
   } finally {
     session?.close();
     await stopChrome(chrome);
@@ -220,11 +331,16 @@ async function main() {
     checkedAt: new Date().toISOString(),
     site: base.origin,
     browser: [],
+    navigation: [],
     api: [],
     errors: [],
   };
   for (const endpoint of [
-    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/economic", "/api/brazil/dashboard",
+    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/economic",
+    "/api/dashboard/discount-history?days=365&max_points=72",
+    "/api/market/quotes", "/api/buybacks/dashboard", "/api/bemobi/dashboard",
+    "/api/bemobi/consensus", "/api/fx/dashboard", "/api/brazil/dashboard",
+    "/api/news-events", "/api/dashboard/runtime-status",
   ]) {
     try {
       result.api.push(await probeApi(endpoint));
@@ -232,27 +348,41 @@ async function main() {
       result.errors.push(endpoint + ": " + String(error));
     }
   }
-  for (const hash of ["#oversikt", "#brasil"]) {
+  for (const { hash } of ROUTES) {
     try {
       result.browser.push(await probeBrowser(hash));
     } catch (error) {
       result.errors.push(hash + ": " + String(error));
     }
   }
+  try {
+    result.navigation = await probeSpaNavigation();
+  } catch (error) {
+    result.errors.push("SPA navigation: " + String(error));
+  }
   writeFileSync(reportPath, JSON.stringify(result, null, 2) + "\n");
 
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
-    "Målt " + result.checkedAt + " fra GitHub-runner med fersk Chrome-profil per side.",
+    "Målt " + result.checkedAt + " fra GitHub-runner med fersk Chrome-profil per direkte åpning.",
     "",
     "### Første synlige hoveddata",
     "",
     "| Side | Tid | Dokument-TTFB | DOM klar |",
     "| --- | ---: | ---: | ---: |",
     ...result.browser.map((b) =>
-      "| " + b.route + " | " + b.firstDataMs + " ms | " +
+      "| " + (ROUTES.find((route) => route.hash === b.route)?.label || b.route) + " | " + b.firstDataMs + " ms | " +
       (b.documentTtfbMs ?? "–") + " ms | " + (b.domReadyMs ?? "–") + " ms |"
+    ),
+    "",
+    "### Intern navigering (samme nettleserøkt)",
+    "",
+    "| Side | Tid til hovedinnhold | Tregeste API-kall |",
+    "| --- | ---: | --- |",
+    ...result.navigation.map((n) =>
+      "| " + n.label + " | " + n.navigationMs + " ms | " +
+      (n.apiResources[0] ? "`" + n.apiResources[0].path + "` " + n.apiResources[0].durationMs + " ms" : "–") + " |"
     ),
     "",
     "### API – median av tre forespørsler",
@@ -281,6 +411,9 @@ async function main() {
   } else {
     for (const item of result.browser) {
       if (item.firstDataMs > 5000) console.log("::warning::Sakte førsteside " + item.route + ": " + item.firstDataMs + " ms");
+    }
+    for (const item of result.navigation) {
+      if (item.navigationMs > 3000) console.log("::warning::Tregt sideskifte " + item.route + ": " + item.navigationMs + " ms");
     }
   }
 }
