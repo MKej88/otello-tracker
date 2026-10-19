@@ -8,7 +8,11 @@ from typing import Any
 
 STATE_KEY = "brazil_dashboard_snapshot_v1"
 MAX_AGE_SECONDS = 90 * 60
-PARTIAL_MAX_AGE_SECONDS = 5 * 60
+PARTIAL_MAX_AGE_SECONDS = 35 * 60
+# Stale-while-revalidate safety window: show clearly-labelled data, never wait on upstream.
+MAX_STALE_AGE_SECONDS = 7 * 24 * 60 * 60
+# Prefer a complete dataset for one day; then newer partial data may replace it.
+COMPLETE_SNAPSHOT_PROTECTION_SECONDS = 24 * 60 * 60
 REFRESH_TIMEOUT_SECONDS = 120
 
 
@@ -47,7 +51,8 @@ def snapshot_complete(payload: dict) -> bool:
 def snapshot_degraded(payload: dict) -> bool:
     statuses = payload.get("source_status") or {}
     return (
-        not snapshot_complete(payload)
+        bool(payload.get("snapshot_stale"))
+        or not snapshot_complete(payload)
         or bool((payload.get("focus") or {}).get("fallback"))
         or any(isinstance(status, dict) and status.get("fallback") for status in statuses.values())
     )
@@ -62,7 +67,9 @@ async def build_dashboard(repository: Any, *, as_of_date: str | None = None) -> 
     return await brazil_dashboard(repository, as_of_date=as_of_date)
 
 
-async def load_snapshot(repository: Any, *, now: datetime | None = None) -> dict | None:
+async def load_snapshot(
+    repository: Any, *, now: datetime | None = None, allow_stale: bool = False
+) -> dict | None:
     row = await repository.first(
         "SELECT value FROM runtime_state WHERE key = ?", (STATE_KEY,)
     )
@@ -77,10 +84,13 @@ async def load_snapshot(repository: Any, *, now: datetime | None = None) -> dict
             return None
         age = ((now or datetime.now(UTC)) - generated).total_seconds()
         max_age = PARTIAL_MAX_AGE_SECONDS if snapshot_degraded(payload) else MAX_AGE_SECONDS
-        if not 0 <= age <= max_age:
+        allowed_age = MAX_STALE_AGE_SECONDS if allow_stale else max_age
+        if not 0 <= age <= allowed_age:
             return None
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
+    if age > max_age:
+        return {**payload, "snapshot_stale": True}
     return payload
 
 
@@ -96,7 +106,15 @@ async def save_snapshot(repository: Any, payload: dict) -> None:
         try:
             previous = json.loads(row["value"]) if row else {}
             if isinstance(previous, dict) and snapshot_complete(previous):
-                return
+                previous_at = datetime.fromisoformat(
+                    str(previous["generated_at"]).replace("Z", "+00:00")
+                )
+                new_at = datetime.fromisoformat(
+                    str(payload["generated_at"]).replace("Z", "+00:00")
+                )
+                delta = (new_at - previous_at).total_seconds()
+                if 0 <= delta < COMPLETE_SNAPSHOT_PROTECTION_SECONDS:
+                    return
         except (KeyError, TypeError, ValueError):
             pass
     stored = dict(payload, snapshot_complete=complete)
@@ -106,7 +124,8 @@ async def save_snapshot(repository: Any, payload: dict) -> None:
             value = excluded.value, updated_at = excluded.updated_at
         WHERE julianday(excluded.updated_at) >= julianday(runtime_state.updated_at)
             AND (json_extract(excluded.value, '$.snapshot_complete') = 1
-                OR COALESCE(json_extract(runtime_state.value, '$.snapshot_complete'), 0) = 0)""",
+                OR COALESCE(json_extract(runtime_state.value, '$.snapshot_complete'), 0) = 0
+                OR julianday(excluded.updated_at) - julianday(runtime_state.updated_at) >= 1)""",
         (STATE_KEY, json.dumps(stored, ensure_ascii=False, separators=(",", ":")),
          payload["generated_at"]),
     )
@@ -117,17 +136,19 @@ async def cached_brazil_dashboard(repository: Any, *, as_of_date: str | None = N
     if as_of_date is not None:
         return await build_dashboard(repository, as_of_date=as_of_date)
     try:
-        cached = await load_snapshot(repository)
+        cached = await load_snapshot(repository, allow_stale=True)
     except Exception:
         cached = None
     if cached is not None:
         return cached
-    payload = await build_dashboard(repository)
-    try:
-        await save_snapshot(repository, payload)
-    except Exception:
-        pass  # A cache write failure must not hide a successfully calculated response.
-    return payload
+
+    # Visitor requests never fetch from BCB/Olinda/Investing.com. The scheduled
+    # refresh job owns external source work; do not block the first visitor.
+    return {
+        "ready": False,
+        "snapshot_unavailable": True,
+        "source_status": {},
+    }
 
 
 async def refresh_brazil_snapshot(repository: Any) -> dict:

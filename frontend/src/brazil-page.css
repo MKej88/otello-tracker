@@ -14,6 +14,15 @@
   max-width: 860px;
 }
 
+/* The global .sourceWarn badge is narrow; Brazil source explanations need full width. */
+.brazilHeroCopy .sourceWarn,
+.brazilHeroCopy .brazilSourceNote {
+  max-width: none;
+  text-align: left;
+  font-weight: 400;
+  overflow-wrap: break-word;
+}
+
 .brazilHeroTitleRow {
   display: flex;
   align-items: center;
