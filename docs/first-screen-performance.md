@@ -32,6 +32,6 @@ API-varighet er nettleserens komplette ressurstid, ikke kun Worker-CPU-tid.
 - Historisk rabatt, tilbakekjøpsstatus og hendelser på oversikten kontrolleres
   hvert 15. minutt mens fanen er aktiv, med oppdatering straks den aktiveres igjen.
 - Kjørte forgrunnsforespørsler avbrytes ikke bare fordi fanen skjules;
-  FINN- og NAV-tilstander bevarer derfor siste gode verdi.
+  API- og NAV-tilstander bevarer derfor siste gode verdi.
 
 Neste steg etter tilstrekkelige målinger er å prioritere målbare flaskehalser.
