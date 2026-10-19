@@ -1,0 +1,59 @@
+name: Production performance (synthetic)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sample both a European morning and a market-active evening (UTC).
+    - cron: "15 7,19 * * *"
+  pull_request:
+    paths:
+      - .github/workflows/production-performance.yml
+      - frontend/tools/production-performance.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otello-production-performance
+  cancel-in-progress: false
+
+jobs:
+  synthetic:
+    name: Production API + headless Chrome timings
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      OTELLO_SITE_URL: https://otellotracker.com
+      PERF_REPORT_PATH: performance-report.json
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Check Chrome availability
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chrome_bin="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          if [ -z "$chrome_bin" ]; then
+            echo "::error::Chrome/Chromium unavailable on GitHub runner"
+            exit 1
+          fi
+          echo "CHROME_BIN=$chrome_bin" >> "$GITHUB_ENV"
+
+      - name: Measure live frontend and API response times
+        run: node frontend/tools/production-performance.mjs
+
+      - name: Archive measurement report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: otello-production-performance
+          path: performance-report.json
+          if-no-files-found: warn
+          retention-days: 30
