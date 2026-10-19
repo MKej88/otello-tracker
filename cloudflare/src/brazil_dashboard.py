@@ -129,13 +129,22 @@ async def _fetch_json(
         from workers import fetch
 
         fetcher = fetch
-    response = await fetcher(
-        url,
-        headers={
-            "Accept": "application/json,*/*;q=0.8",
-            "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
-        },
-    )
+    try:
+        response = await fetcher(
+            url,
+            headers={
+                "Accept": "application/json,*/*;q=0.8",
+                "User-Agent": "otello-tracker/1.0 private-investor-dashboard",
+            },
+        )
+    except Exception as exc:
+        # A connection failure has no HTTP response; keep it distinct from an
+        # empty HTTP 200 response and never expose upstream exception text.
+        raise UpstreamJsonError(
+            f"Upstream-forespørsel feilet: {type(exc).__name__}",
+            kind="fetch_error",
+            response_kind="no_response",
+        ) from exc
     status = getattr(response, "status", None)
     mime = _content_type(response)
     metadata = {
