@@ -67,10 +67,14 @@ def _on_or_before(
     target_date: str,
     *,
     max_lookback_days: int | None = None,
+    dates: list[str] | None = None,
 ) -> dict[str, Any] | None:
     if not series:
         return None
-    dates = [str(item["date"]) for item in series]
+    # Callers that look up thousands of dates can precompute this once;
+    # rebuilding the list in every lookup made the 5-year FX series quadratic.
+    if dates is None:
+        dates = [str(item["date"]) for item in series]
     index = bisect_right(dates, target_date) - 1
     if index < 0:
         return None
@@ -203,11 +207,13 @@ async def fx_dashboard(repository) -> dict[str, Any]:
 
     points: list[dict[str, Any]] = []
     source_codes: set[str] = set()
+    usd_dates = [str(item["date"]) for item in usd_series]
     for brl in brl_series:
         usd = _on_or_before(
             usd_series,
             str(brl["date"]),
             max_lookback_days=MAX_LOOKBACK_DAYS,
+            dates=usd_dates,
         )
         brl_rate = Decimal(str(brl["rate"]))
         usd_rate = Decimal(str(usd["rate"])) if usd is not None else None
