@@ -494,9 +494,9 @@ export default function BrazilPage() {
           {hasMissingBrazilData(data) ? <p className="sourceWarn" role="status"><small>Noen makrotall eller Focus-sammenligninger mangler fortsatt. Planlagte oppdateringer forsøker å hente disse.</small></p> : null}
         </div>
         <div className="brazilFreshness">
-          <span className="label">SIST HENTET</span>
+          <span className="label">SIST KONTROLLERT</span>
           <strong className="numeric">{lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("nb-NO", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit" }) : "–"}</strong>
-          <small className="numeric">{refreshFailed ? "Forrige data beholdt" : dateLabel(data.as_of_date)}</small>
+          <small className="numeric">{refreshFailed ? "Forrige data beholdt" : `Beregnet ${snapshotUpdated}`}</small>
         </div>
       </section>
 
