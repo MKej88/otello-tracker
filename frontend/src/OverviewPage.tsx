@@ -1,9 +1,7 @@
-import { useEffect } from "react";
 import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
-import { recordFirstScreenReady } from "./firstScreenPerformance";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { medianDiscountPriceLine } from "./navMedianPrice";
@@ -443,9 +441,6 @@ export default function OverviewPage() {
     true,
   );
   usePageUpdate(nav?.calculated_at ?? nav?.as_of_date, "intraday");
-  useEffect(() => {
-    if (nav?.ready) recordFirstScreenReady("Oversikt");
-  }, [nav?.ready]);
 
 
   const brl = summary?.brl_nok_insights;
