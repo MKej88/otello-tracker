@@ -329,3 +329,101 @@ def test_email_has_plaintext_and_html_in_one_send(monkeypatch):
     assert result["status"] == "sent"
     assert len(calls) == 1
     assert calls[0]["text"] and calls[0]["html"]
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {
+            "data_status": "DEGRADED",
+            "quality_notes": "Base ONA is partial forecast data using latest reported risk-free-rate/volatility.",
+        },
+        {"data_status": "ESTIMATED", "cash_quality": "ANCHORED_ESTIMATE"},
+    ],
+)
+def test_expected_nav_estimates_are_information_not_email_incidents(details) -> None:
+    warning = {"name": "dashboard_quality", "status": "WARN", "details": details}
+    result = {
+        "status": "SUCCESS",
+        "target_date": "2026-10-18",
+        "preflight": {"ready": True, "blockers": [], "warnings": [warning]},
+    }
+    original = json.dumps(result, sort_keys=True)
+    message = build_status_email(result)
+    assert "nattkjøring OK –" in message["subject"]
+    assert "med avvik" not in message["subject"]
+    for body in (message["text"], message["html"]):
+        assert "Modellinformasjon" in body
+        assert "dashboard_quality" not in body
+        assert "Ingen rapporterte feil eller advarsler" in body
+    assert "Advarsler: 0" in message["text"]
+    assert json.dumps(result, sort_keys=True) == original
+
+
+@pytest.mark.parametrize(
+    "warning",
+    [
+        {
+            "name": "dashboard_quality",
+            "status": "WARN",
+            "details": {
+                "data_status": "DEGRADED",
+                "cash_quality": "FORECAST_PARTIAL",
+                "cash_calibration_quality": "HIGH_RESIDUAL",
+            },
+        },
+        {
+            "name": "dashboard_quality",
+            "status": "WARN",
+            "details": {
+                "data_status": "ESTIMATED",
+                "receivable_quality": "ESTIMATED_GROSS",
+            },
+        },
+        {
+            "name": "dashboard_quality",
+            "status": "WARN",
+            "details": {"data_status": "DEGRADED"},
+        },
+        {"name": "bemobi_cvm_current_year", "status": "WARN", "details": {"count": 0}},
+        {"name": "new_unknown_check", "status": "WARN", "details": {}},
+    ],
+)
+def test_real_and_unknown_warnings_remain_email_incidents(warning) -> None:
+    expected = {
+        "name": "dashboard_quality",
+        "status": "WARN",
+        "details": {"data_status": "ESTIMATED"},
+    }
+    message = build_status_email(
+        {
+            "status": "SUCCESS",
+            "target_date": "2026-10-18",
+            "preflight": {
+                "ready": True,
+                "blockers": [],
+                "warnings": [expected, warning],
+            },
+        }
+    )
+    assert "OK med avvik" in message["subject"]
+    assert "Advarsler: 1" in message["text"]
+    assert warning["name"] in message["text"]
+    assert warning["name"] in message["html"]
+
+
+def test_model_warning_filter_does_not_remove_blockers() -> None:
+    blocker = {
+        "name": "dashboard_quality",
+        "status": "FAIL",
+        "details": {"data_status": "ESTIMATED"},
+    }
+    message = build_status_email(
+        {
+            "status": "FAILED",
+            "preflight": {"ready": False, "blockers": [blocker], "warnings": []},
+        }
+    )
+    assert "FEILET" in message["subject"]
+    assert "Blokkeringer: 1" in message["text"]
+    assert "dashboard_quality" in message["text"]
