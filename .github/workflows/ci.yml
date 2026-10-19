@@ -63,6 +63,8 @@ jobs:
         run: bash tools/npm-audit-ci.sh
       - name: Build
         run: npm run build
+      - name: Frontend unit tests
+        run: npm test
       - name: Verify Cloudflare static headers are emitted into dist
         run: |
           test -f dist/_headers

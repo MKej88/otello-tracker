@@ -4,7 +4,7 @@ import {
   getCachedDashboardComponentForUrl,
   subscribeDashboardRevalidation,
 } from "./dashboardBootstrapFetch";
-import { subscribePageResumeRefresh } from "./pageResumeRefresh";
+import { shouldRunScheduledPoll, subscribePageResumeRefresh } from "./pageResumeRefresh";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -28,11 +28,17 @@ export function usePollingResource<T>(
     let active = true;
     let inFlight = false;
     let firstLoad = true;
+    let pendingFreshRefresh = false;
     let controller: AbortController | null = null;
     let timer: ReturnType<typeof window.setTimeout> | null = null;
 
     const load = async (forceFresh = false) => {
-      if (inFlight) return;
+      if (!forceFresh && !shouldRunScheduledPoll(document.visibilityState)) return;
+      if (inFlight) {
+        // The tab may resume while an older request is still in flight.
+        if (forceFresh) pendingFreshRefresh = true;
+        return;
+      }
       if (timer !== null) window.clearTimeout(timer);
       inFlight = true;
       let retrySoon = false;
@@ -67,8 +73,13 @@ export function usePollingResource<T>(
       } finally {
         if (controller === currentController) controller = null;
         inFlight = false;
-        if (active) {
-          timer = window.setTimeout(() => { void load(); }, retrySoon ? Math.min(intervalMs, 60_000) : intervalMs);
+        if (active && shouldRunScheduledPoll(document.visibilityState)) {
+          const refreshOnResume = pendingFreshRefresh;
+          pendingFreshRefresh = false;
+          timer = window.setTimeout(() => {
+            // Never poll from a timer that expired while the tab was hidden.
+            if (shouldRunScheduledPoll(document.visibilityState)) void load(refreshOnResume);
+          }, refreshOnResume ? 0 : retrySoon ? Math.min(intervalMs, 60_000) : intervalMs);
         }
       }
     };
@@ -81,6 +92,8 @@ export function usePollingResource<T>(
       setLastUpdatedAt(new Date());
     });
     const unsubscribePageResume = subscribePageResumeRefresh(() => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
       void load(true);
     });
     return () => {

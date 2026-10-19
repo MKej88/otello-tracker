@@ -10,6 +10,7 @@ import {
   viewTitles,
 } from "./investorViews";
 import { installDashboardBootstrapFetch } from "./dashboardBootstrapFetch";
+import { initializeFirstScreenTiming } from "./firstScreenPerformance";
 import { discountHistoryUrl, investorPeriods } from "./investorPeriods";
 import { preloadJson, preloadNavPeriodBundle } from "./navigationDataPreload";
 import {
@@ -132,6 +133,7 @@ function ActiveView({ view }: { view: View }) {
 }
 
 const initialView = viewFromHash(window.location.hash);
+initializeFirstScreenTiming(initialView);
 preload(initialView);
 
 export default function InvestorApp() {

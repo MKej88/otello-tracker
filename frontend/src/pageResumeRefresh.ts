@@ -7,6 +7,11 @@ type VisibilityTarget = PageLifecycleTarget & {
   visibilityState: DocumentVisibilityState;
 };
 
+/** Browser background tabs do not need recurring investor API requests. */
+export function shouldRunScheduledPoll(visibilityState: DocumentVisibilityState): boolean {
+  return visibilityState !== "hidden";
+}
+
 /** Refresh data when a suspended or backgrounded page becomes active again. */
 export function subscribePageResumeRefresh(
   refresh: () => void,

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
+import { recordFirstScreenReady } from "./firstScreenPerformance";
 import { usePageUpdate } from "./pageUpdateStatus";
 import "./brazil-page.css";
 
@@ -440,6 +441,10 @@ export default function BrazilPage() {
     true,
   );
   usePageUpdate(data?.generated_at ?? data?.as_of_date, "daily");
+  useEffect(() => {
+    if (data && !data.snapshot_unavailable) recordFirstScreenReady("Brasil");
+  }, [data]);
+
 
   if (!data && !refreshFailed) {
     return <LoadingPlaceholder className="loadingPlaceholderPage" label="Henter makrodata for Brasil" />;

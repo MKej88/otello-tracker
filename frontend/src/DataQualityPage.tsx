@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { readFirstScreenSamples, summarizeFirstScreen } from "./firstScreenPerformance";
 import "./data-quality.css";
 
 const REFRESH_MS = 60_000;
@@ -221,6 +222,10 @@ export default function DataQualityPage() {
     true,
   );
   usePageUpdate(runtime?.checked_at ?? sources?.checked_at, "intraday");
+  const localTimings = readFirstScreenSamples();
+  const overviewTiming = summarizeFirstScreen(localTimings, "Oversikt");
+  const brazilTiming = summarizeFirstScreen(localTimings, "Brasil");
+
 
   const snapshot = runtime?.hot_snapshot;
   const currentQuality = runtime?.dashboard_quality;
@@ -544,6 +549,52 @@ export default function DataQualityPage() {
           </>
         )}
       </section>
+
+      <details className="card cardStandard qualityDiagnostics">
+        <summary>
+          <span>
+            <span className="label">NETTLESERYTELSE</span>
+            <h2>Faktisk innlasting på denne enheten</h2>
+          </span>
+          <span className="qualityDiagnosticsSummary">
+            {localTimings.length} lokale målinger · første synlige data
+          </span>
+        </summary>
+        <div className="qualityDiagnosticsBody">
+          <p className="qualityFootnote">
+            Måles bare ved direkte åpning av Oversikt eller Brasil. Tid fra navigering til at hoveddata er rendret, inklusive nettverk og JavaScript.
+            Dette er lokale målinger i denne nettleseren, ikke samlet statistikk for alle besøkende. Ingen målinger sendes til serveren.
+          </p>
+          <div className="qualityDiagnosticGrid">
+            {([
+              ["Oversikt", overviewTiming],
+              ["Brasil", brazilTiming],
+            ] as const).map(([label, stats]) => (
+              <div key={label}>
+                <span>{label} · {stats.count} besøk</span>
+                <strong>{stats.medianMs == null ? "Ingen målinger" : `${stats.medianMs} ms median`}</strong>
+                <small>{stats.p95Ms == null ? "Åpne siden direkte for å måle" : `P95: ${stats.p95Ms} ms · siste: ${stats.latest?.firstDataMs ?? "–"} ms`}</small>
+                <small>{stats.medianTtfbMs == null ? "TTFB ikke tilgjengelig" : `Median dokument-TTFB: ${stats.medianTtfbMs} ms`}</small>
+              </div>
+            ))}
+          </div>
+          {localTimings.length > 0 && (
+            <div className="qualityPreflight">
+              <h3>Tre tregeste API-forespørsler ved siste måling</h3>
+              {localTimings.at(-1)?.slowApi.length ? (
+                <ul>
+                  {localTimings.at(-1)?.slowApi.map((resource, index) => (
+                    <li key={index}><code>{resource.path}</code> · {resource.durationMs} ms</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Ingen fullførte, målbare API-forespørsler ble registrert.</p>
+              )}
+              <p>Dette viser ressursvarighet observert i nettleseren, ikke ren serverprosesseringstid.</p>
+            </div>
+          )}
+        </div>
+      </details>
 
       <details className="card cardStandard qualityDiagnostics">
         <summary>
