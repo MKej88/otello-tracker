@@ -1,0 +1,64 @@
+name: SGS HTTP root-cause diagnostic (temporary)
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sgs-http-debug-temporary.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    name: Inspect BCB response headers, body and network stages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test DNS, TLS, HTTP and body from GitHub runner
+        shell: bash
+        run: |
+          python - <<'PY'
+          import concurrent.futures
+          import json
+          import os
+          import pathlib
+          import socket
+          import subprocess
+          import tempfile
+          import time
+          from urllib.parse import urlencode
+          
+          for domain in ["api.bcb.gov.br", "olinda.bcb.gov.br", "www.bcb.gov.br"]:
+              t=time.monotonic()
+              try:
+                  addresses=sorted(set(x[4][0] for x in socket.getaddrinfo(domain,443,type=socket.SOCK_STREAM)))
+                  print("DNS",json.dumps({"host":domain,"ips":addresses[:10],"ms":round((time.monotonic()-t)*1000)},ensure_ascii=False),flush=True)
+              except Exception as exc:
+                  print("DNS",json.dumps({"host":domain,"error":repr(exc)}),flush=True)
+          # No credentials, no dynamic URLs from untrusted inputs.
+          start="01/10/2026";end="19/10/2026"
+          q=urlencode({"formato":"json","dataInicial":start,"dataFinal":end})
+          csvq=urlencode({"formato":"csv","dataInicial":start,"dataFinal":end})
+          cases=[
+              ("sgs_json_range","https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados?"+q,"default"),
+              ("sgs_json_latest","https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/5?formato=json","default"),
+              ("sgs_csv_range","https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados?"+csvq,"default"),
+              ("sgs_json_h1","https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/5?formato=json","--http1.1"),
+              ("sgs_root","https://api.bcb.gov.br/","default"),
+              ("olinda_check","https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais?$top=1&$format=json","default"),
+              ("bcb_home","https://www.bcb.gov.br/","default"),
+              ("outbound_control","https://www.google.com/generate_204","default"),
+          ]
+          def run(job):
+              name,url,proto=job
+              with tempfile.TemporaryDirectory() as td:
+                  out=pathlib.Path(td)
+                  command=["curl","-L","--silent","--show-error","--connect-timeout","6","--max-time","20","--max-filesize","65536","--retry","0","-H","Accept: application/json,*/*;q=0.8","-H","User-Agent: otello-tracker/1.0 private-investor-dashboard","-D",str(out/"headers"),"-o",str(out/"body"),"-w","STATUS=%{http_code} CONNECT=%{time_connect} TLS=%{time_appconnect} FIRST=%{time_starttransfer} TOTAL=%{time_total} REMOTE=%{remote_ip} CONTENT_TYPE=%{content_type} REDIRECTS=%{num_redirects}",url]
+                  if proto!="default":command.insert(1,proto)
+                  p=subprocess.run(command,capture_output=True,text=True,timeout=25)
+                  body=(out/"body").read_bytes() if (out/"body").exists() else b""
+                  headers=(out/"headers").read_text(errors="replace") if (out/"headers").exists() else ""
+                  safe_headers=[line.strip()[:140] for line in headers.splitlines() if line.lower().startswith(("http/","content-type:","content-length:","location:","server:","retry-after:","cf-ray:","via:","x-cache:","date:","cache-control:"))]
+                  return {"case":name,"exit":p.returncode,"curl":p.stdout.strip()[:400],"stderr":p.stderr.strip()[:260],"headers":safe_headers[-16:],"body_preview":body[:256].decode("utf-8",errors="replace"),"body_len":len(body)}
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+              for item in pool.map(run,cases):
+                  print("RESULT",json.dumps(item,ensure_ascii=False),flush=True)
+          PY
