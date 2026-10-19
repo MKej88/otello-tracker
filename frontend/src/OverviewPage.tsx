@@ -12,7 +12,10 @@ import { buildNextQuarterConsensus, MAIN_QUARTER_METRICS, type NextQuarterEstima
 import "./overview-page.css";
 
 const REFRESH_MS = 2 * 60 * 1000;
-const EVENT_REFRESH_MS = 5 * 60 * 1000;
+// The underlying source jobs for historical discounts, corporate events and
+// buyback totals run less often than live price polling.
+const SLOW_REFRESH_MS = 15 * 60 * 1000;
+const EVENT_REFRESH_MS = 15 * 60 * 1000;
 
 type Summary = {
   ready: boolean;
@@ -421,12 +424,12 @@ export default function OverviewPage() {
   );
   const { data: buybackStatus } = usePollingResource<BuybackProgramStatus>(
     "/api/buybacks/overview-status",
-    REFRESH_MS,
+    SLOW_REFRESH_MS,
     true,
   );
   const { data: history } = usePollingResource<DiscountHistory>(
     "/api/dashboard/discount-history?days=365&max_points=72",
-    REFRESH_MS,
+    SLOW_REFRESH_MS,
     true,
   );
   const { data: quotes, refreshFailed: quotesRefreshFailed } = usePollingResource<MarketQuotePayload>(
