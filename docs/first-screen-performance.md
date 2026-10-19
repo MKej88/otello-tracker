@@ -68,8 +68,13 @@ Ved bekreftet forverring opprettes en **GitHub Actions-advarsel** med
 side/endepunkt og endring. Planlagte `main`-kjøringer markeres
 dessuten **failed**, slik at GitHubs vanlige workflow-feilvarsler
 kan utløses når brukeren har aktivert slike varsler. Manuelle tester
-og PR-tester varsler i sammendraget, men feiler ikke automatisk på
-produksjonsforverringer som kan være uavhengige av endringene.
+og lokale PR-tester feiler ikke på produksjonsforverringer som kan være
+uavhengige av endringene.
+
+**PR-kontroller kjører bare syntaksvalidering og trend-enhetstester uten
+produksjonsforespørsler.** Dette begrenser unødvendig trafikk og Cloudflare
+HTTP 429 ved mange raske kodeendringer. Full ytelsesmåling kjøres fremdeles
+to ganger daglig og kan startes manuelt.
 
 Trenddata legges inn under `trend` i samme JSON-artifact. Dersom
 GitHub API er utilgjengelig, vises dette som `Begrenset historikk`;
