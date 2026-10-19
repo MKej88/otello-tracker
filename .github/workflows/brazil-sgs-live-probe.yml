@@ -1,0 +1,70 @@
+name: Brazil SGS live read-only diagnostic
+on:
+  pull_request:
+    paths:
+      - .github/workflows/brazil-sgs-live-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  investigate:
+    name: Probe public BCB SGS and Brazil dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe public endpoints without credentials
+        shell: bash
+        run: |
+          python - <<'PY'
+          import concurrent.futures
+          import datetime
+          import json
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          as_of = datetime.date.today()
+          start = as_of - datetime.timedelta(days=570)
+          jobs = [("dashboard", "https://otellotracker.com/api/brazil/dashboard")]
+          for name, code in [("selic",432),("ipca_12m",13522),("ibc_br",24364),("ibc_services",29605)]:
+              params = urllib.parse.urlencode({
+                  "formato": "json",
+                  "dataInicial": start.strftime("%d/%m/%Y"),
+                  "dataFinal": as_of.strftime("%d/%m/%Y"),
+              })
+              jobs.append((name + "_range", f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados?{params}"))
+              jobs.append((name + "_latest", f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados/ultimos/12?formato=json"))
+
+          def check(job):
+              name,url=job
+              t=time.monotonic()
+              request=urllib.request.Request(url,headers={"Accept":"application/json,*/*;q=0.8","User-Agent":"otello-tracker/1.0 private-investor-dashboard"})
+              try:
+                  with urllib.request.urlopen(request,timeout=16) as response:
+                      payload=response.read(1_000_000)
+                      result={"name":name,"status":response.status,"seconds":round(time.monotonic()-t,1),"bytes":len(payload)}
+                      try:
+                          parsed=json.loads(payload)
+                          if name=="dashboard":
+                              result["generated_at"]=parsed.get("generated_at")
+                              result["snapshot_stale"]=parsed.get("snapshot_stale")
+                              result["as_of_date"]=parsed.get("as_of_date")
+                              result["sources"]={k:{"ready":v.get("ready"),"fallback":v.get("fallback"),"error":str(v.get("error"))[:220],"last_success_at":v.get("last_success_at")} for k,v in (parsed.get("source_status") or {}).items() if k in ("selic","ipca_12m","ibc_br","ibc_services","focus")}
+                          elif isinstance(parsed,list):
+                              result["rows"]=len(parsed)
+                              result["last"]=parsed[-1] if parsed else None
+                      except ValueError:
+                          result["body"]=payload[:160].decode("utf-8",errors="replace")
+                      return result
+              except urllib.error.HTTPError as exc:
+                  return {"name":name,"status":exc.code,"seconds":round(time.monotonic()-t,1),"body":exc.read(240).decode("utf-8",errors="replace")}
+              except Exception as exc:
+                  return {"name":name,"error":str(exc)[:220],"seconds":round(time.monotonic()-t,1)}
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=9) as pool:
+              for record in pool.map(check,jobs):
+                  print("PROBE",json.dumps(record,ensure_ascii=False),flush=True)
+          PY
