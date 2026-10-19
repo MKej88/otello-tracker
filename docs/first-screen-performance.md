@@ -16,6 +16,27 @@ Dette gir **syntetiske nettlesermålinger per side** av tiden til hoveddata vise
 og måling av HTML-dokumentets TTFB, DOM-klart-tid og de tregeste
 same-origin API-kallene ved førstegangsinnlasting.
 
+En kun-testbasert Chrome-observatør installeres før siden åpnes og tidsstempler
+første animasjonsramme der rutespesifikt hovedinnhold faktisk finnes. Den er
+**ikke** innebygd i investor-nettsiden og sender ingen data fra vanlige brukere.
+Tidligere CDP-polling (ca. 120 ms mellom prøver) brukes fortsatt til å verifisere
+at siden er klar, men påvirker ikke lenger hovedtidsmålingen når observatøren
+fungerer.
+
+Rapporten viser nå også:
+- **DOM → data**: intervall fra DOMContentLoaded til første rutespesifikke
+  hovedinnhold; hjelper å skille tidlig HTML-last fra dataventetid.
+- **Tregeste JS-ressurser**: nettverksvarighet for lokale JavaScript-bunter,
+  ikke CPU-eksekvering.
+- **Tregeste API-ressurser**: nettverksvarighet i nettleseren fram til
+  innholdet ble synlig, uten å lagre query-parametere.
+- **Lange JS-oppgaver**: samlet tid i main-thread tasks over 50 ms
+  fram til første hovedinnhold. Skiller tung JS-kjøring fra rene nettverksvent.
+- **Cloudflare-cache**: `CF-Cache-Status` (tre prøveforespørsler) på direkte
+  API-målinger. Manglende header betyr ikke automatisk cachemiss.
+- **Flaskehalskandidater**: sider som bruker over 1 sekund fra DOM klar
+  til hovedinnhold. Siden kan vente på data; observasjonen beviser ikke årsaken.
+
 I tillegg brukes én nettleserøkt til å klikke gjennom alle 12 hovedvisningene
 fra hovedmenyen, uten full sidelasting. For hvert sideskifte måles tiden fra
 klikk til relevant hovedinnhold er synlig, med tregeste API-kall. Dermed
@@ -109,6 +130,13 @@ Ytelsestiltak fra forrige runde er videreført:
 - Markedsdata beholder kortere oppdateringsintervall.
 - Historikk, tilbakekjøpsstatus og kommende hendelser på oversikten
   oppdateres hvert 15. minutt mens fanen er synlig.
+
+Det er i tillegg identifisert en unødvendig O(n²)-løkke i BRL/NOK-historikken:
+hver BRL-dato opprettet tidligere hele USD-datolisten på nytt før binærsøk.
+Valutamotoren gjenbruker nå listen mellom oppslagene. En regresjonstest
+verifiserer identiske historiske oppslag og maks syv dagers USD-forsinkelse.
+Dette er en konkret beregningsforbedring, men forklarer ikke alene om
+tidligere API-utslag på rundt 2 sekunder kom fra D1, cache eller nettverk.
 
 Hvis det er behov for D1-query-timing eller rene Worker-kjøretider,
 må dette måles separat med instrumentering i Worker eller via

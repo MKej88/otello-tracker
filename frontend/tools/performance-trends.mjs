@@ -173,7 +173,13 @@ function markdown(trend, history) {
       "- **FORVERRET " + r.scope + ": " + r.key + "**: " +
       formatMs(r.priorMedianMs) + " → " + formatMs(r.currentMedianMs) +
       " (" + formatChange(r) + "); " + sampleCount(r) + " målinger (7d / før)."),
-    ...(trend.regressions.length ? [] : ["Ingen bekreftede vesentlige ytelsesforverringer."]),
+    ...(trend.regressions.length ? [] : [
+      trend.routes.some((row) => row.cold.comparable && row.navigation.comparable) ||
+        trend.apis.some((row) => row.timing.comparable)
+        ? "Ingen bekreftede vesentlige ytelsesforverringer i de sammenlignbare målingene."
+        : "**For lite historikk til å vurdere utviklingen.** Tallene er foreløpige " +
+          "og gir ikke grunnlag for å si om ytelsen har forbedret eller forverret seg.",
+    ]),
     "",
     "Sammenligning vises først med minst 6 målinger på minst 3 forskjellige dager " +
     "**i hver** 7-dagersperiode. De to siste målingene må dessuten vise vedvarende treghet.",
