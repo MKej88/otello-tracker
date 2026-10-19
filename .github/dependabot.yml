@@ -13,6 +13,14 @@ updates:
       codeql:
         patterns:
           - "github/codeql-action*"
+      # Group routine Actions updates, while keeping majors as separate PRs.
+      routine-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "npm"
@@ -24,6 +32,14 @@ updates:
       timezone: "Europe/Oslo"
     cooldown:
       default-days: 7
+    groups:
+      routine-frontend:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "pip"
@@ -49,6 +65,14 @@ updates:
           - "pydantic"
           - "pydantic-core"
           - "pydantic-settings"
+      # General routine group after the exact-version Pydantic family group.
+      routine-backend:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "npm"
@@ -60,6 +84,14 @@ updates:
       timezone: "Europe/Oslo"
     cooldown:
       default-days: 7
+    groups:
+      routine-cloudflare:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "docker"
