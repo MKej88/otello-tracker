@@ -166,11 +166,11 @@ function screenState() {
   }
   const error = Boolean(document.querySelector(".brazilError")) ||
     Boolean(document.querySelector(".resourceNoticeError")) ||
-    document.body.innerText.includes("Kunne ikke hente investordata.") ||
-    document.body.innerText.includes("Kunne ikke hente NAV-historikk.") ||
-    document.body.innerText.includes("Kunne ikke hente Bemobi-data.") ||
-    document.body.innerText.includes("Kunne ikke hente konsensusdata.") ||
-    document.body.innerText.includes("Kunne ikke hente NAV-sammensetningen.");
+    (document.body?.innerText || "").includes("Kunne ikke hente investordata.") ||
+    (document.body?.innerText || "").includes("Kunne ikke hente NAV-historikk.") ||
+    (document.body?.innerText || "").includes("Kunne ikke hente Bemobi-data.") ||
+    (document.body?.innerText || "").includes("Kunne ikke hente konsensusdata.") ||
+    (document.body?.innerText || "").includes("Kunne ikke hente NAV-sammensetningen.");
   return { ready, error, label: route?.label || null, heading };
 }
 
@@ -269,7 +269,7 @@ async function probeBrowser(hash) {
 }
 
 /** Same browser + cache, measuring user-menu navigation without page reload. */
-async function probeSpaNavigation() {
+async function probeSpaNavigationAttempt() {
   const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-spa-perf-"));
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -323,6 +323,18 @@ async function probeSpaNavigation() {
     session?.close();
     await stopChrome(chrome);
     rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+  }
+}
+
+async function probeSpaNavigation() {
+  try {
+    return await probeSpaNavigationAttempt();
+  } catch (initialError) {
+    // One failed cold SPA session can reflect a transient browser / cache race.
+    // Retry the full menu walk in a new profile; persistent errors still fail.
+    console.log("SPA navigation retry after transient failure: " + String(initialError).slice(0, 500));
+    await sleep(1000);
+    return probeSpaNavigationAttempt();
   }
 }
 
