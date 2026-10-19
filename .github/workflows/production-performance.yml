@@ -57,10 +57,16 @@ jobs:
         run: node frontend/tools/production-performance.mjs
 
       - name: Compare with last 14 days and report trend
-        if: success()
+        if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node frontend/tools/performance-trends.mjs
+        shell: bash
+        run: |
+          if [ -f "${PERF_REPORT_PATH}" ]; then
+            node frontend/tools/performance-trends.mjs
+          else
+            echo "::warning::Ingen JSON-rapport å sammenligne etter den syntetiske kjøringen."
+          fi
 
       - name: Archive measurement report
         if: always()
