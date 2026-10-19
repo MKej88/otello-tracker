@@ -110,7 +110,10 @@ async function getHistoricalReports(asOf) {
       try {
         const zipped = await githubRequest(artifact.archive_download_url, true);
         const report = extractArtifact(zipped);
-        if (Array.isArray(report?.browser) && Array.isArray(report?.navigation) &&
+        // Incomplete or failed monitor runs must not influence the baseline.
+        if (Array.isArray(report?.browser) && report.browser.length === ROUTES.length &&
+          Array.isArray(report?.navigation) && report.navigation.length === ROUTES.length &&
+          Array.isArray(report?.errors) && report.errors.length === 0 &&
           typeof report?.checkedAt === "string") {
           result.reports.push(report);
         }
