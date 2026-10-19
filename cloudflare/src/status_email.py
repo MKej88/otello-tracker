@@ -4,6 +4,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 try:
+    from .nav_quality_policy import (
+        _dashboard_quality_reasons,
+        _expected_between_reports,
+    )
     from .status_email_report import (
         dashboard_url,
         operational_lines,
@@ -11,6 +15,7 @@ try:
         render_html,
     )
 except ImportError:
+    from nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
     from status_email_report import (
         dashboard_url,
         operational_lines,
@@ -85,6 +90,30 @@ def build_status_email(
     finished_at: str | None = None,
     public_url: str = "",
 ) -> dict[str, str]:
+    # Apply the dashboard's quality policy to the email only; retain raw job data.
+    preflight = result.get("preflight") or {}
+    warnings = preflight.get("warnings") or []
+    actionable_warnings = []
+    model_information = False
+    for warning in warnings:
+        details = warning.get("details") if isinstance(warning, dict) else None
+        if (
+            isinstance(warning, dict)
+            and warning.get("name") == "dashboard_quality"
+            and warning.get("status") == "WARN"
+            and isinstance(details, dict)
+            and _expected_between_reports(details)
+            and not _dashboard_quality_reasons(details)
+        ):
+            model_information = True
+        else:
+            actionable_warnings.append(warning)
+    result = (
+        {**result, "preflight": {**preflight, "warnings": actionable_warnings}}
+        if preflight
+        else result
+    )
+
     raw_status = str(result.get("status") or "FAILED").upper()
     status = _STATUS_LABELS.get(raw_status, raw_status)
     target_date = str(result.get("target_date") or "ukjent dato")
@@ -128,6 +157,11 @@ def build_status_email(
                 f"- Blokkeringer: {blockers}",
                 f"- Advarsler: {warnings}",
             ]
+        )
+
+    if model_information:
+        lines.append(
+            "- Modellinformasjon: NAV bruker forventede estimater mellom rapportdatoene."
         )
 
     economic = economic or {}

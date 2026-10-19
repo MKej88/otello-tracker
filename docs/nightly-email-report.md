@@ -27,3 +27,8 @@ HTML bruker tabeller, inline-stiler og escaped data, uten eksterne bilder,
 skrifter eller skript. Typiske token-/passordfelt skjules i feilutdrag, og
 knappen tillater bare HTTPS uten brukernavn/passord. Denne endringen sender
 ikke en egen testmail.
+
+Forventede NAV-estimater mellom rapportdatoene vises som modellinformasjon,
+ikke som advarsler eller avvik i emnet. E-posten bruker samme kvalitetsregler
+som statusvisningen. Reelle kvalitetsavvik, øvrige advarsler og blokkeringer
+beholdes. Lagrede kjøringsresultater endres ikke.
