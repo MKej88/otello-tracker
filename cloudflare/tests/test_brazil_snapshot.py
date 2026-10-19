@@ -40,13 +40,37 @@ class BrazilSnapshotTest(unittest.IsolatedAsyncioTestCase):
         self.repository.first.assert_awaited_once()
         self.repository.run.assert_not_awaited()
 
-    async def test_cache_miss_seeds_snapshot_for_next_visitor(self) -> None:
+    async def test_cache_miss_is_fast_and_never_fetches_external_sources(self) -> None:
         self.repository.first.return_value = None
-        with patch.object(snapshot, "build_dashboard", AsyncMock(return_value=self.payload)):
-            self.assertEqual(await snapshot.cached_brazil_dashboard(self.repository), self.payload)
-        stored = self.repository.run.await_args.args[1]
-        self.assertEqual(stored[0], snapshot.STATE_KEY)
-        self.assertEqual(json.loads(stored[1]), dict(self.payload, snapshot_complete=True))
+        with patch.object(snapshot, "build_dashboard", AsyncMock()) as build:
+            result = await snapshot.cached_brazil_dashboard(self.repository)
+        self.assertEqual(result, {
+            "ready": False, "snapshot_unavailable": True, "source_status": {},
+        })
+        build.assert_not_awaited()
+        self.repository.run.assert_not_awaited()
+
+    async def test_expired_but_recent_snapshot_is_returned_without_live_fetch(self) -> None:
+        self.payload["generated_at"] = (
+            datetime.now(UTC) - timedelta(hours=2)
+        ).isoformat()
+        self.repository.first.return_value = {"value": json.dumps(self.payload)}
+        with patch.object(snapshot, "build_dashboard", AsyncMock()) as build:
+            result = await snapshot.cached_brazil_dashboard(self.repository)
+        self.assertTrue(result["snapshot_stale"])
+        self.assertEqual(result["generated_at"], self.payload["generated_at"])
+        self.assertTrue(snapshot.snapshot_degraded(result))
+        build.assert_not_awaited()
+
+    async def test_older_than_seven_days_is_not_misrepresented_as_current(self) -> None:
+        self.payload["generated_at"] = (
+            datetime.now(UTC) - timedelta(seconds=snapshot.MAX_STALE_AGE_SECONDS + 1)
+        ).isoformat()
+        self.repository.first.return_value = {"value": json.dumps(self.payload)}
+        with patch.object(snapshot, "build_dashboard", AsyncMock()) as build:
+            result = await snapshot.cached_brazil_dashboard(self.repository)
+        self.assertTrue(result["snapshot_unavailable"])
+        build.assert_not_awaited()
 
     async def test_historical_request_bypasses_cache_and_does_not_replace_it(self) -> None:
         with patch.object(snapshot, "build_dashboard", AsyncMock(return_value=self.payload)) as build:
@@ -85,11 +109,12 @@ class BrazilSnapshotTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "ok")
         self.repository.run.assert_awaited_once()
 
-    async def test_cache_storage_failure_still_returns_live_response(self) -> None:
+    async def test_cache_read_failure_does_not_trigger_live_source_fetch(self) -> None:
         self.repository.first.side_effect = RuntimeError("database unavailable")
-        self.repository.run.side_effect = RuntimeError("database unavailable")
-        with patch.object(snapshot, "build_dashboard", AsyncMock(return_value=self.payload)):
-            self.assertEqual(await snapshot.cached_brazil_dashboard(self.repository), self.payload)
+        with patch.object(snapshot, "build_dashboard", AsyncMock()) as build:
+            result = await snapshot.cached_brazil_dashboard(self.repository)
+        self.assertTrue(result["snapshot_unavailable"])
+        build.assert_not_awaited()
 
     async def test_partial_ready_response_does_not_replace_complete_snapshot(self) -> None:
         partial = dict(self.payload, metrics={"brl_nok": {"value": 1.9}})
