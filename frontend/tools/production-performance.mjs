@@ -296,7 +296,7 @@ function extractBrowserMetrics(transitionStartMs = 0) {
     .slice(0, 5);
   const scriptResources = resources
     .filter((entry) => entry.initiator === "script" ||
-      /\\.(?:m?js)$/.test(entry.path))
+      /\.(?:m?js)$/.test(entry.path))
     .sort((a, b) => b.durationMs - a.durationMs)
     .slice(0, 5);
   const longTasks = (window.__otelloSynthetic?.longTasks || [])
@@ -481,7 +481,7 @@ async function main() {
   function resourceLabel(resource) {
     if (!resource) return "–";
     // Render only same-origin path, no query strings or third-party origins.
-    return "`" + resource.path.replace(/\\|/g, "") + "` " + resource.durationMs + " ms";
+    return "`" + resource.path.replace(/\|/g, "") + "` " + resource.durationMs + " ms";
   }
   const outliers = result.browser
     .filter((b) => (b.domToDataMs ?? 0) > 1000)
