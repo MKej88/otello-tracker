@@ -197,7 +197,17 @@ async function main() {
     throw new Error("Current production report is incomplete");
   }
   const history = await getHistoricalReports(asOf);
-  const trend = buildTrends([...history.reports, current], asOf, ROUTES);
+  // When the browser test failed, keep its errors but never contaminate medians.
+  const currentValid = current.browser.length === ROUTES.length &&
+    current.navigation?.length === ROUTES.length &&
+    Array.isArray(current.errors) && current.errors.length === 0;
+  if (!currentValid) {
+    history.warnings.push("Dagens syntetiske kjøring er ufullstendig og teller ikke i medianene.");
+  }
+  const trend = buildTrends([
+    ...history.reports,
+    ...(currentValid ? [current] : []),
+  ], asOf, ROUTES);
   current.trend = {
     ...trend,
     historyArtifacts: history.discovered,
