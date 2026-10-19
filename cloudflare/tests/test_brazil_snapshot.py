@@ -121,6 +121,18 @@ class BrazilSnapshotTest(unittest.IsolatedAsyncioTestCase):
         await snapshot.save_snapshot(self.repository, partial)
         self.repository.run.assert_not_awaited()
 
+    async def test_newer_partial_can_replace_a_complete_snapshot_older_than_a_day(self) -> None:
+        previous = dict(self.payload, generated_at=(
+            datetime.now(UTC) - timedelta(hours=26)
+        ).isoformat())
+        self.repository.first.return_value = {"value": json.dumps(previous)}
+        current = dict(self.payload, generated_at=datetime.now(UTC).isoformat(),
+                       metrics={"brl_nok": {"value": 1.9}})
+        await snapshot.save_snapshot(self.repository, current)
+        self.repository.run.assert_awaited_once()
+        query = self.repository.run.await_args.args[0]
+        self.assertIn("julianday(excluded.updated_at) - julianday(runtime_state.updated_at) >= 1", query)
+
     async def test_partial_and_fallback_snapshots_expire_sooner(self) -> None:
         now = datetime.now(UTC)
         cases = (
