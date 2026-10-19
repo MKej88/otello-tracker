@@ -33,6 +33,48 @@ Dette er **ikke** ren Cloudflare Worker CPU-tid eller D1-spørringstid.
 Hver kjøring skriver en oversikt i **Job summary** og arkiverer en maskinlesbar
 `performance-report.json` som workflow-artifact i 30 dager.
 
+## Historikk, 7-dagers median og varsler
+
+Etter hver vellykkede produksjonsmåling leser
+`frontend/tools/performance-trends.mjs` tidligere
+`otello-production-performance`-artifacts fra de siste 14 dagene, med
+GitHub API og jobbens innebygde `GITHUB_TOKEN` (`actions: read`).
+Kun kjøringer fra `main` brukes som historiske produksjonspunkter;
+målinger fra PR-er forurenser ikke sammenligningsgrunnlaget.
+
+Rapporten viser separat for alle de 12 visningene:
+- Median for **kald direkte innlasting** i siste 7 dager mot foregående 7 dager.
+- Median for **intern navigering** i siste 7 dager mot foregående 7 dager.
+- Differanse i prosent og antall observasjoner i hver periode.
+- Tilsvarende trend for de 12 direkte API-målepunktene.
+
+Det kreves minst **seks vellykkede målinger på minst tre ulike dager
+i hver 7-dagersperiode** før en prosentendring tolkes som pålitelig
+nok til å varsle. Trendvisningen kan vise mediansvar selv ved færre
+observasjoner, men endringskolonnen får `–` og varsling er deaktivert
+fram til kravet er oppfylt. Dette skjer først etter at minst to uker med
+produksjonshistorikk er samlet opp.
+
+**Bekreftet forverring** krever både en stor medianendring og at de
+to siste målingene fortsatt er tydelig tregere enn forrige ukes median:
+
+| Måletype | Relativ økning | Absolutt økning | Ny median |
+| --- | ---: | ---: | ---: |
+| Direkte lasting | minst 35 % | minst 500 ms | minst 1 000 ms |
+| Sideskifte | minst 35 % | minst 300 ms | minst 600 ms |
+| API | minst 45 % | minst 150 ms | minst 250 ms |
+
+Ved bekreftet forverring opprettes en **GitHub Actions-advarsel** med
+side/endepunkt og endring. Planlagte `main`-kjøringer markeres
+dessuten **failed**, slik at GitHubs vanlige workflow-feilvarsler
+kan utløses når brukeren har aktivert slike varsler. Manuelle tester
+og PR-tester varsler i sammendraget, men feiler ikke automatisk på
+produksjonsforverringer som kan være uavhengige av endringene.
+
+Trenddata legges inn under `trend` i samme JSON-artifact. Dersom
+GitHub API er utilgjengelig, vises dette som `Begrenset historikk`;
+den planlagte målingen feiler ikke kun på grunn av manglende historikk.
+
 Manglende hoveddata, feil HTTP-status eller testtimeout feiler jobben.
 En førsteside som bruker over fem sekunder genererer en GitHub-advarsel,
 men ikke automatisk feil, fordi nettverk og runnerbelastning kan variere.
