@@ -11,6 +11,8 @@ MAX_AGE_SECONDS = 90 * 60
 PARTIAL_MAX_AGE_SECONDS = 35 * 60
 # Stale-while-revalidate safety window: show clearly-labelled data, never wait on upstream.
 MAX_STALE_AGE_SECONDS = 7 * 24 * 60 * 60
+# Prefer a complete dataset for one day; then newer partial data may replace it.
+COMPLETE_SNAPSHOT_PROTECTION_SECONDS = 24 * 60 * 60
 REFRESH_TIMEOUT_SECONDS = 120
 
 
@@ -104,7 +106,15 @@ async def save_snapshot(repository: Any, payload: dict) -> None:
         try:
             previous = json.loads(row["value"]) if row else {}
             if isinstance(previous, dict) and snapshot_complete(previous):
-                return
+                previous_at = datetime.fromisoformat(
+                    str(previous["generated_at"]).replace("Z", "+00:00")
+                )
+                new_at = datetime.fromisoformat(
+                    str(payload["generated_at"]).replace("Z", "+00:00")
+                )
+                delta = (new_at - previous_at).total_seconds()
+                if 0 <= delta < COMPLETE_SNAPSHOT_PROTECTION_SECONDS:
+                    return
         except (KeyError, TypeError, ValueError):
             pass
     stored = dict(payload, snapshot_complete=complete)
@@ -114,7 +124,8 @@ async def save_snapshot(repository: Any, payload: dict) -> None:
             value = excluded.value, updated_at = excluded.updated_at
         WHERE julianday(excluded.updated_at) >= julianday(runtime_state.updated_at)
             AND (json_extract(excluded.value, '$.snapshot_complete') = 1
-                OR COALESCE(json_extract(runtime_state.value, '$.snapshot_complete'), 0) = 0)""",
+                OR COALESCE(json_extract(runtime_state.value, '$.snapshot_complete'), 0) = 0
+                OR julianday(excluded.updated_at) - julianday(runtime_state.updated_at) >= 1)""",
         (STATE_KEY, json.dumps(stored, ensure_ascii=False, separators=(",", ":")),
          payload["generated_at"]),
     )
