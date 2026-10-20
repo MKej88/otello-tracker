@@ -12,6 +12,8 @@ on:
       - frontend/tools/performance-trend-core.mjs
       - frontend/tools/performance-trends.mjs
       - frontend/tools/performance-trends.test.mjs
+      - frontend/tools/performance-diagnostics.mjs
+      - frontend/tools/performance-diagnostics.test.mjs
 
 permissions:
   contents: read
@@ -53,8 +55,10 @@ jobs:
       - name: Validate trend detection and script syntax
         run: |
           node --check frontend/tools/production-performance.mjs
+          node --check frontend/tools/performance-diagnostics.mjs
+          node --check frontend/tools/performance-diagnostics.test.mjs
           node --check frontend/tools/performance-trends.mjs
-          node --test frontend/tools/performance-trends.test.mjs
+          node --test frontend/tools/performance-trends.test.mjs frontend/tools/performance-diagnostics.test.mjs
 
       # PRs only test the scripts locally; rapid pushes otherwise hit
       # Cloudflare rate limits and generate false production alerts.

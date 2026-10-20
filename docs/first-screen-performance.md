@@ -48,6 +48,28 @@ og datakvalitet. Tid til responsheadere (nettverksobservert TTFB)
 og tid til fullført nedlasting rapporteres separat, sammen med responsstørrelse.
 Dette er **ikke** ren Cloudflare Worker CPU-tid eller D1-spørringstid.
 
+## Diagnostikk og nytt forsøk ved mislykket førstegangsinnlasting
+
+For hver direkteåpnede side registreres Chrome sine API-feil fra `Network`-hendelser:
+HTTP-status (inkludert 429 og 5xx), grove nettverksfeilkategorier og hvilke
+samme-domene-API-kall som fortsatt ventet. Rapporten lagrer bare API-stier,
+aldri spørreparametere, svarinnhold, headere eller rå nettverksfeilmeldinger.
+Skjermstatus skiller mellom synlig applikasjonsfeil, utilgjengelig datagrunnlag,
+venting på data og manglende hovedinnhold etter timeout.
+
+Ved mislykket kald lasting testes samme side **én gang til med ny Chrome-profil**.
+Begge forsøk lagres under `browser[].attempts` eller `coldFailures[].attempts`.
+Hvis forsøk nummer to lykkes, er hovedtiden fra dette forsøket gyldig, men første
+feil beholdes i `recoveredColdLoads`, vises i Job summary og utløser
+GitHub-advarsel. Dersom begge forsøk feiler, feiler også workflowen.
+Historiske trendmålinger bruker bare komplette kjøringer.
+
+Direkte API-prober omfatter nå også `/api/dashboard/summary`,
+`/api/buybacks/overview-status` og `/api/overview/events`, for å
+kartlegge kritisk innlasting i Oversikt og NAV-sensitivitet.
+Enhetstestene verifiserer begge utfall, feilkategorisering og at hemmeligheter
+og query-parametere aldri tas med i rapportens API-feil.
+
 ## Hvor finnes resultatene?
 
 Åpne GitHub Actions → **Production performance (synthetic)**.
@@ -67,7 +89,7 @@ Rapporten viser separat for alle de 12 visningene:
 - Median for **kald direkte innlasting** i siste 7 dager mot foregående 7 dager.
 - Median for **intern navigering** i siste 7 dager mot foregående 7 dager.
 - Differanse i prosent og antall observasjoner i hver periode.
-- Tilsvarende trend for de 12 direkte API-målepunktene.
+- Tilsvarende trend for de 15 direkte API-målepunktene.
 
 Det kreves minst **seks vellykkede målinger på minst tre ulike dager
 i hver 7-dagersperiode** før en prosentendring tolkes som pålitelig
@@ -92,7 +114,7 @@ kan utløses når brukeren har aktivert slike varsler. Manuelle tester
 og lokale PR-tester feiler ikke på produksjonsforverringer som kan være
 uavhengige av endringene.
 
-**PR-kontroller kjører bare syntaksvalidering og trend-enhetstester uten
+**PR-kontroller kjører bare syntaksvalidering, trend- og diagnostikk-enhetstester uten
 produksjonsforespørsler.** Dette begrenser unødvendig trafikk og Cloudflare
 HTTP 429 ved mange raske kodeendringer. Full ytelsesmåling kjøres fremdeles
 to ganger daglig og kan startes manuelt.
@@ -101,7 +123,7 @@ Trenddata legges inn under `trend` i samme JSON-artifact. Dersom
 GitHub API er utilgjengelig, vises dette som `Begrenset historikk`;
 den planlagte målingen feiler ikke kun på grunn av manglende historikk.
 
-Manglende hoveddata, feil HTTP-status eller testtimeout feiler jobben.
+Vedvarende manglende hoveddata, feil HTTP-status eller testtimeout etter to forsøk feiler jobben. Et vellykket nytt forsøk gir advarsel og synlig historikk i stedet for å skjule den opprinnelige feilen.
 En førsteside som bruker over fem sekunder genererer en GitHub-advarsel,
 men ikke automatisk feil, fordi nettverk og runnerbelastning kan variere.
 

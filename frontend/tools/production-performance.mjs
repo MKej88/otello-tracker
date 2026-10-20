@@ -7,6 +7,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { classifyColdFailure, createApiDiagnostics, probeColdWithRetry } from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
 const chromeBin = process.env.CHROME_BIN || "google-chrome";
@@ -120,6 +121,12 @@ class CdpSession {
     this.ws = new WebSocket(socketUrl);
     this.serial = 0;
     this.pending = new Map();
+    this.handlers = new Map();
+  }
+  on(method, listener) {
+    const listeners = this.handlers.get(method) || [];
+    listeners.push(listener);
+    this.handlers.set(method, listeners);
   }
   async connect() {
     await new Promise((resolve, reject) => {
@@ -129,6 +136,12 @@ class CdpSession {
     });
     this.ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data);
+      if (message.method) {
+        for (const listener of this.handlers.get(message.method) || []) {
+          listener(message.params || {});
+        }
+        return;
+      }
       if (!message.id) return;
       const request = this.pending.get(message.id);
       if (!request) return;
@@ -177,7 +190,13 @@ function screenState() {
     (document.body?.innerText || "").includes("Kunne ikke hente Bemobi-data.") ||
     (document.body?.innerText || "").includes("Kunne ikke hente konsensusdata.") ||
     (document.body?.innerText || "").includes("Kunne ikke hente NAV-sammensetningen.");
-  return { ready, error, label: route?.label || null, heading };
+  return {
+    ready, error, label: route?.label || null, heading,
+    headingMatches: Boolean(route && heading === route.heading),
+    markerFound: Boolean(marker),
+    loading: Boolean(document.querySelector(".loadingPlaceholderPage, .loadingPlaceholder, .loadingPlaceholderNews")),
+    unavailable: Boolean(document.querySelector(".fxError, .bemobiNotice, .brazilError, .resourceNoticeError")),
+  };
 }
 
 /**
@@ -247,6 +266,9 @@ async function waitForRoute(session, route, timeoutMs = 25000) {
   while (Date.now() < deadline) {
     state = await session.evaluate(routeStatusScript());
     if (state?.error) throw new Error("Investor data error on " + route.hash);
+    if (state?.unavailable && !state?.ready) {
+      throw new Error("Investor data unavailable on " + route.hash);
+    }
     if (state?.ready && state.label === route.label) return;
     await sleep(120);
   }
@@ -320,7 +342,7 @@ function extractBrowserMetrics(transitionStartMs = 0) {
   };
 }
 
-async function probeBrowser(hash) {
+async function probeBrowserAttempt(hash) {
   const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-perf-"));
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -333,6 +355,7 @@ async function probeBrowser(hash) {
     stderr = (stderr + String(data)).slice(-2000);
   });
   let session = null;
+  const apiTrace = createApiDiagnostics(base.origin);
   try {
     const port = await devtoolsPort(profileDir, chrome, () => stderr);
     const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
@@ -342,6 +365,11 @@ async function probeBrowser(hash) {
     const tab = await response.json();
     session = new CdpSession(tab.webSocketDebuggerUrl);
     await session.connect();
+    for (const method of [
+      "Network.requestWillBeSent", "Network.responseReceived",
+      "Network.loadingFailed", "Network.loadingFinished",
+    ]) session.on(method, (params) => apiTrace.onEvent(method, params));
+    await session.send("Network.enable");
     await session.send("Runtime.enable");
     await session.send("Page.enable");
     await session.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -357,11 +385,32 @@ async function probeBrowser(hash) {
       throw new Error("First-screen data lost on " + hash);
     }
     return { route: hash, ...metrics };
+  } catch (error) {
+    let pageState = null;
+    if (session) {
+      try { pageState = await session.evaluate(routeStatusScript()); } catch { /* Chrome may be gone. */ }
+    }
+    const failure = new Error("Synthetic cold load failed on " + hash);
+    failure.diagnosis = classifyColdFailure(error, pageState, apiTrace.snapshot());
+    throw failure;
   } finally {
     session?.close();
     await stopChrome(chrome);
     rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
   }
+}
+
+/** A failed cold load is retried once in a completely new Chrome profile. */
+async function probeBrowser(hash) {
+  const result = await probeColdWithRetry(
+    () => probeBrowserAttempt(hash),
+    () => sleep(900),
+  );
+  if (result.ok) return { ...result.metrics, attempts: result.attempts };
+  const error = new Error("Two unsuccessful cold loads on " + hash + ": " +
+    result.attempts.map((a) => a.diagnosis.category).join(" / "));
+  error.attempts = result.attempts;
+  throw error;
 }
 
 /** Same browser + cache, measuring user-menu navigation without page reload. */
@@ -449,10 +498,13 @@ async function main() {
     browser: [],
     navigation: [],
     api: [],
+    recoveredColdLoads: [],
+    coldFailures: [],
     errors: [],
   };
   for (const endpoint of [
-    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/economic",
+    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/summary",
+    "/api/dashboard/economic", "/api/buybacks/overview-status", "/api/overview/events",
     "/api/dashboard/discount-history?days=365&max_points=72",
     "/api/market/quotes", "/api/buybacks/dashboard", "/api/bemobi/dashboard",
     "/api/bemobi/consensus", "/api/fx/dashboard", "/api/brazil/dashboard",
@@ -466,8 +518,13 @@ async function main() {
   }
   for (const { hash } of ROUTES) {
     try {
-      result.browser.push(await probeBrowser(hash));
+      const measured = await probeBrowser(hash);
+      result.browser.push(measured);
+      if (measured.attempts.length > 1) {
+        result.recoveredColdLoads.push({ route: hash, attempts: measured.attempts });
+      }
     } catch (error) {
+      result.coldFailures.push({ route: hash, attempts: error.attempts || [] });
       result.errors.push(hash + ": " + String(error));
     }
   }
@@ -487,6 +544,19 @@ async function main() {
     .filter((b) => (b.domToDataMs ?? 0) > 1000)
     .sort((a, b) => b.domToDataMs - a.domToDataMs)
     .slice(0, 5);
+  function attemptSummary(attempts) {
+    return attempts.map((attempt) => {
+      if (attempt.outcome === "success") return "forsøk " + attempt.attempt + ": OK (" + attempt.firstDataMs + " ms)";
+      const diagnosis = attempt.diagnosis;
+      const api = diagnosis.apiIssues.map((issue) =>
+        issue.path + " " + (issue.status ?? issue.category));
+      const pending = diagnosis.pendingApiPaths.map((path) => path + " (venter)");
+      return "forsøk " + attempt.attempt + ": " + diagnosis.category +
+        (api.length || pending.length ? " [" + [...api, ...pending].join(", ") + "]" : "") +
+        " (markør=" + diagnosis.page.markerFound + ", laster=" + diagnosis.page.loading +
+        ", utilgjengelig=" + diagnosis.page.unavailable + ")";
+    }).join("; ");
+  }
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
@@ -537,6 +607,16 @@ async function main() {
     ),
     ...(outliers.length ? [] : ["Ingen sider brukte over 1 sekund fra DOM klar til hovedinnhold i denne kjøringen."]),
     "",
+    "### Førstegangsinnlasting: nye forsøk og feilkategorier",
+    "",
+    ...result.recoveredColdLoads.map((item) =>
+      "- **GJENOPPRETTET " + item.route + "**: " + attemptSummary(item.attempts) +
+      ". Første feil beholdes i JSON-rapporten."),
+    ...result.coldFailures.map((item) =>
+      "- **VEDVARENDE FEIL " + item.route + "**: " + attemptSummary(item.attempts)),
+    ...(result.recoveredColdLoads.length || result.coldFailures.length ? [] :
+      ["Ingen feil ved førstegangsinnlasting."]),
+    "",
     "### Diagnose",
     "",
     ...result.errors.map((e) => "- FEIL: " + e),
@@ -551,6 +631,10 @@ async function main() {
   const summary = lines.join("\n") + "\n";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  for (const item of result.recoveredColdLoads) {
+    console.log("::warning::Førsteinnlasting feilet, men nytt Chrome-forsøk lyktes for " +
+      item.route + ": " + attemptSummary(item.attempts));
+  }
   if (result.errors.length) {
     process.stderr.write("Performance monitor failed: " + result.errors.join(" | ") + "\n");
     process.exitCode = 1;
