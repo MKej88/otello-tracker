@@ -495,10 +495,13 @@ async function main() {
     browser: [],
     navigation: [],
     api: [],
+    recoveredColdLoads: [],
+    coldFailures: [],
     errors: [],
   };
   for (const endpoint of [
-    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/economic",
+    "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/summary",
+    "/api/dashboard/economic", "/api/buybacks/overview-status", "/api/overview/events",
     "/api/dashboard/discount-history?days=365&max_points=72",
     "/api/market/quotes", "/api/buybacks/dashboard", "/api/bemobi/dashboard",
     "/api/bemobi/consensus", "/api/fx/dashboard", "/api/brazil/dashboard",
@@ -512,8 +515,13 @@ async function main() {
   }
   for (const { hash } of ROUTES) {
     try {
-      result.browser.push(await probeBrowser(hash));
+      const measured = await probeBrowser(hash);
+      result.browser.push(measured);
+      if (measured.attempts.length > 1) {
+        result.recoveredColdLoads.push({ route: hash, attempts: measured.attempts });
+      }
     } catch (error) {
+      result.coldFailures.push({ route: hash, attempts: error.attempts || [] });
       result.errors.push(hash + ": " + String(error));
     }
   }
@@ -533,6 +541,19 @@ async function main() {
     .filter((b) => (b.domToDataMs ?? 0) > 1000)
     .sort((a, b) => b.domToDataMs - a.domToDataMs)
     .slice(0, 5);
+  function attemptSummary(attempts) {
+    return attempts.map((attempt) => {
+      if (attempt.outcome === "success") return "forsøk " + attempt.attempt + ": OK (" + attempt.firstDataMs + " ms)";
+      const diagnosis = attempt.diagnosis;
+      const api = diagnosis.apiIssues.map((issue) =>
+        issue.path + " " + (issue.status ?? issue.category));
+      const pending = diagnosis.pendingApiPaths.map((path) => path + " (venter)");
+      return "forsøk " + attempt.attempt + ": " + diagnosis.category +
+        (api.length || pending.length ? " [" + [...api, ...pending].join(", ") + "]" : "") +
+        " (markør=" + diagnosis.page.markerFound + ", laster=" + diagnosis.page.loading +
+        ", utilgjengelig=" + diagnosis.page.unavailable + ")";
+    }).join("; ");
+  }
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
@@ -583,6 +604,16 @@ async function main() {
     ),
     ...(outliers.length ? [] : ["Ingen sider brukte over 1 sekund fra DOM klar til hovedinnhold i denne kjøringen."]),
     "",
+    "### Førstegangsinnlasting: nye forsøk og feilkategorier",
+    "",
+    ...result.recoveredColdLoads.map((item) =>
+      "- **GJENOPPRETTET " + item.route + "**: " + attemptSummary(item.attempts) +
+      ". Første feil beholdes i JSON-rapporten."),
+    ...result.coldFailures.map((item) =>
+      "- **VEDVARENDE FEIL " + item.route + "**: " + attemptSummary(item.attempts)),
+    ...(result.recoveredColdLoads.length || result.coldFailures.length ? [] :
+      ["Ingen feil ved førstegangsinnlasting."]),
+    "",
     "### Diagnose",
     "",
     ...result.errors.map((e) => "- FEIL: " + e),
@@ -597,6 +628,10 @@ async function main() {
   const summary = lines.join("\n") + "\n";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  for (const item of result.recoveredColdLoads) {
+    console.log("::warning::Førsteinnlasting feilet, men nytt Chrome-forsøk lyktes for " +
+      item.route + ": " + attemptSummary(item.attempts));
+  }
   if (result.errors.length) {
     process.stderr.write("Performance monitor failed: " + result.errors.join(" | ") + "\n");
     process.exitCode = 1;
