@@ -21,6 +21,7 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/production_diagnostic_policy.py
       - cloudflare/src/nav_cache_audit.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
@@ -67,6 +68,13 @@ jobs:
 
       - name: Check out diagnostic calendar logic
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Independent, offline regression tests: a secondary-source warning must
+      # never hide an invalid NAV or a failed critical source.
+      - name: Validate Cloudflare diagnostic severity policy
+        shell: bash
+        run: |
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
 
       - name: Read recent instances and selected details
         id: fetch
@@ -403,7 +411,10 @@ jobs:
           sys.path.insert(0, "cloudflare/src")
           from oslo_calendar import is_oslo_bors_trading_day
           from nightly_trigger import nightly_is_overdue
-          from production_monitor import assess_production, render_monitoring
+          from production_monitor import assess_production, render_monitoring, expected_nightly_date
+          from production_diagnostic_policy import (
+              diagnostic_severity, secondary_bemobi_warning_candidate,
+          )
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
 
           FAST_MAX_AGE = timedelta(minutes=90)
@@ -530,16 +541,6 @@ jobs:
           full_status = (full or {}).get("status") or "MISSING"
           fast_status = (fast or {}).get("status") or "MISSING"
 
-          d1_status = "OK"
-          if full_status != "SUCCESS" or fast_status not in {"SUCCESS", "PARTIAL"}:
-              d1_status = "AVVIK"
-          if not fx_current or full_stale or fast_stale:
-              d1_status = "AVVIK"
-
-          monitoring = assess_production(
-              now=now, jobs=result[6].get("results") or [], sources=sources,
-              prices=result[7].get("results") or [], states=result[8].get("results") or [],
-          )
           try:
               with open("public-bootstrap.json", encoding="utf-8") as handle:
                   public_bootstrap = json.load(handle)
@@ -550,9 +551,32 @@ jobs:
               cache_rows=result[10].get("results") or [], lock_rows=result[11].get("results") or [],
               public=public_bootstrap,
           )
-          if monitoring["unhealthy"] or nav_audit["unhealthy"]:
-              d1_status = "AVVIK"
-          d1_unhealthy = d1_status != "OK"
+
+          fresh = fx_current and not full_stale and not fast_stale
+          secondary_candidate = secondary_bemobi_warning_candidate(
+              full=full or {}, sources=sources,
+              expected_target=expected_nightly_date(now).isoformat(),
+          )
+          # Only permit the documented, secondary Bemobi fallback after all
+          # independent NAV/cache and freshness checks have passed.
+          allow_secondary_warning = bool(
+              secondary_candidate and fresh and not nav_audit["unhealthy"]
+          )
+          monitoring = assess_production(
+              now=now, jobs=result[6].get("results") or [], sources=sources,
+              prices=result[7].get("results") or [], states=result[8].get("results") or [],
+              allow_secondary_bemobi_warning=allow_secondary_warning,
+          )
+          d1_status = diagnostic_severity(
+              full_status=full_status, fast_status=fast_status,
+              fresh=fresh,
+              monitoring_unhealthy=monitoring["unhealthy"],
+              nav_audit_unhealthy=nav_audit["unhealthy"],
+              secondary_bemobi_warning=allow_secondary_warning,
+              core_nav_status=str(nav.get("status") or "MISSING").upper(),
+          )
+          d1_unhealthy = d1_status == "AVVIK"
+          d1_warning = d1_status == "ADVARSEL"
           full_age_minutes = (
               int(full_age.total_seconds() // 60)
               if full_age is not None
@@ -570,6 +594,12 @@ jobs:
               "",
               f"- Database: `{cell(os.environ['D1_DATABASE_NAME'], 80)}`",
               f"- D1-status: **{d1_status}**",
+              (
+                  "- Klassifisering: sekundær Bemobi-kilde benytter sist lagrede fakta. "
+                  "Fulljobb og NAV-avstemming er kontrollert; forholdet varsles, men er ikke kritisk."
+                  if d1_warning else
+                  "- Klassifisering: ingen tillatt nedgradering av kritiske avvik."
+              ),
               f"- Siste fulloppdatering: **{cell(full_status, 40)}** – `{cell((full or {}).get('finished_at') or (full or {}).get('started_at'), 80)}`",
               f"- Fulljobb mål-dato: `{cell(full_target, 20)}`",
               f"- Fulljobb alder: `{cell(full_age_minutes, 20)} min` – {'FOR GAMMEL' if full_stale else 'OK'}",
@@ -631,8 +661,11 @@ jobs:
               handle.write(report)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"d1_unhealthy={'true' if d1_unhealthy else 'false'}\n")
+              handle.write(f"d1_warning={'true' if d1_warning else 'false'}\n")
           if d1_unhealthy:
-              print("::warning::D1-diagnostikken fant et produksjonsavvik.")
+              print("::warning::D1-diagnostikken fant et kritisk produksjonsavvik.")
+          elif d1_warning:
+              print("::warning::D1-diagnostikken fant et ikke-kritisk avvik i en sekundær Bemobi-kilde; øvrige kontroller bestod.")
           PY
 
       - name: Alert on unhealthy scheduled production
