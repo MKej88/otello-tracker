@@ -80,7 +80,8 @@ def _last_session(day: date, is_session) -> date:
 
 
 def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
-                      prices: list[dict], states: list[dict]) -> dict:
+                      prices: list[dict], states: list[dict],
+                      allow_secondary_bemobi_warning: bool = False) -> dict:
     now = now.astimezone(UTC)
     target = expected_nightly_date(now)
     checks = []
@@ -91,7 +92,12 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
 
     target_jobs = [r for r in jobs if _json(r.get('metadata_json')).get('target_date') == target.isoformat()]
     successful = [r for r in target_jobs if r.get('status') == 'SUCCESS']
-    add('Nattkjøring ferdig', bool(successful), f'{len(successful)} vellykkede', f'datadato {target}')
+    secondary_partial = (allow_secondary_bemobi_warning and not successful
+                         and len(target_jobs) == 1
+                         and target_jobs[0].get('status') == 'PARTIAL')
+    add('Nattkjøring ferdig', bool(successful),
+        f'{len(successful)} vellykkede, {len(target_jobs)} forsøk', f'datadato {target}',
+        state='ADVARSEL' if secondary_partial else None)
     # Count actual database jobs, not harmless SKIPPED Workflow instances.
     closed_runs = CLOSED_DUPLICATE_RUNS.get(target.isoformat())
     observed_runs = frozenset((r.get('started_at'), r.get('finished_at')) for r in successful)
@@ -107,8 +113,13 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
         row = by_source.get(code, {})
         checked = _time(row.get('checked_at'))
         age_ok = checked is not None and -timedelta(minutes=5) <= now - checked <= MAX_SOURCE_AGE
-        add(f'Kildekontakt: {code}', row.get('status') == 'OK' and age_ok,
-            f"{row.get('status', 'MANGLER')}, sist sjekket {oslo_time(row.get('checked_at'))}", 'OK og kontrollert siste 36 timer')
+        source_ok = row.get('status') == 'OK' and age_ok
+        source_warning = (allow_secondary_bemobi_warning and code == 'BEMOBI_IR'
+                          and row.get('status') == 'DEGRADED' and age_ok)
+        add(f'Kildekontakt: {code}', source_ok,
+            f"{row.get('status', 'MANGLER')}, sist sjekket {oslo_time(row.get('checked_at'))}",
+            'OK og kontrollert siste 36 timer',
+            state='ADVARSEL' if source_warning else None)
 
     by_symbol = {r.get('symbol'): _date(r.get('data_date')) for r in prices}
     # Use the most recently due overnight date; intraday data is not expected here.
@@ -142,7 +153,11 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
             add('CVM-filens datadato', archive_date is not None and target - timedelta(days=3) <= archive_date <= now.date(),
                 archive_date or 'MANGLER', f'høyst 3 kalenderdager før {target}')
 
-    return {'target_date': target.isoformat(), 'unhealthy': any(not c['ok'] for c in checks), 'checks': checks, 'jobs': jobs}
+    # A controlled warning is still an observation, but no longer a fatal AVVIK.
+    return {'target_date': target.isoformat(),
+            'unhealthy': any(c['state'] == 'AVVIK' for c in checks),
+            'warnings': [c for c in checks if c['state'] == 'ADVARSEL'],
+            'checks': checks, 'jobs': jobs}
 
 
 def oslo_time(raw) -> str:
