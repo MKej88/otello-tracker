@@ -339,7 +339,7 @@ function extractBrowserMetrics(transitionStartMs = 0) {
   };
 }
 
-async function probeBrowser(hash) {
+async function probeBrowserAttempt(hash) {
   const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-perf-"));
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -352,6 +352,7 @@ async function probeBrowser(hash) {
     stderr = (stderr + String(data)).slice(-2000);
   });
   let session = null;
+  const apiTrace = createApiDiagnostics(base.origin);
   try {
     const port = await devtoolsPort(profileDir, chrome, () => stderr);
     const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
@@ -361,6 +362,11 @@ async function probeBrowser(hash) {
     const tab = await response.json();
     session = new CdpSession(tab.webSocketDebuggerUrl);
     await session.connect();
+    for (const method of [
+      "Network.requestWillBeSent", "Network.responseReceived",
+      "Network.loadingFailed", "Network.loadingFinished",
+    ]) session.on(method, (params) => apiTrace.onEvent(method, params));
+    await session.send("Network.enable");
     await session.send("Runtime.enable");
     await session.send("Page.enable");
     await session.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -376,11 +382,32 @@ async function probeBrowser(hash) {
       throw new Error("First-screen data lost on " + hash);
     }
     return { route: hash, ...metrics };
+  } catch (error) {
+    let pageState = null;
+    if (session) {
+      try { pageState = await session.evaluate(routeStatusScript()); } catch { /* Chrome may be gone. */ }
+    }
+    const failure = new Error("Synthetic cold load failed on " + hash);
+    failure.diagnosis = classifyColdFailure(error, pageState, apiTrace.snapshot());
+    throw failure;
   } finally {
     session?.close();
     await stopChrome(chrome);
     rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
   }
+}
+
+/** A failed cold load is retried once in a completely new Chrome profile. */
+async function probeBrowser(hash) {
+  const result = await probeColdWithRetry(
+    () => probeBrowserAttempt(hash),
+    () => sleep(900),
+  );
+  if (result.ok) return { ...result.metrics, attempts: result.attempts };
+  const error = new Error("Two unsuccessful cold loads on " + hash + ": " +
+    result.attempts.map((a) => a.diagnosis.category).join(" / "));
+  error.attempts = result.attempts;
+  throw error;
 }
 
 /** Same browser + cache, measuring user-menu navigation without page reload. */
