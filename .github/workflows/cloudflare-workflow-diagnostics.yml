@@ -16,6 +16,12 @@ on:
         required: true
         default: latest
         type: string
+  pull_request:
+    paths:
+      - .github/workflows/cloudflare-workflow-diagnostics.yml
+      - cloudflare/src/production_monitor.py
+      - cloudflare/src/production_diagnostic_policy.py
+      - cloudflare/tests/test_production_diagnostic_policy.py
   push:
     branches: [main]
     paths:
@@ -35,7 +41,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate_policy:
+    name: Offline severity policy regression tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check read-only diagnostic severity tests
+        run: PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
+
   diagnose:
+    if: github.event_name != 'pull_request'
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
