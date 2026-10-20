@@ -7,6 +7,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { classifyColdFailure, createApiDiagnostics, probeColdWithRetry } from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
 const chromeBin = process.env.CHROME_BIN || "google-chrome";
@@ -120,6 +121,12 @@ class CdpSession {
     this.ws = new WebSocket(socketUrl);
     this.serial = 0;
     this.pending = new Map();
+    this.handlers = new Map();
+  }
+  on(method, listener) {
+    const listeners = this.handlers.get(method) || [];
+    listeners.push(listener);
+    this.handlers.set(method, listeners);
   }
   async connect() {
     await new Promise((resolve, reject) => {
@@ -129,6 +136,12 @@ class CdpSession {
     });
     this.ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data);
+      if (message.method) {
+        for (const listener of this.handlers.get(message.method) || []) {
+          listener(message.params || {});
+        }
+        return;
+      }
       if (!message.id) return;
       const request = this.pending.get(message.id);
       if (!request) return;
@@ -177,7 +190,13 @@ function screenState() {
     (document.body?.innerText || "").includes("Kunne ikke hente Bemobi-data.") ||
     (document.body?.innerText || "").includes("Kunne ikke hente konsensusdata.") ||
     (document.body?.innerText || "").includes("Kunne ikke hente NAV-sammensetningen.");
-  return { ready, error, label: route?.label || null, heading };
+  return {
+    ready, error, label: route?.label || null, heading,
+    headingMatches: Boolean(route && heading === route.heading),
+    markerFound: Boolean(marker),
+    loading: Boolean(document.querySelector(".loadingPlaceholderPage, .loadingPlaceholder, .loadingPlaceholderNews")),
+    unavailable: Boolean(document.querySelector(".fxError, .bemobiNotice, .brazilError, .resourceNoticeError")),
+  };
 }
 
 /**
