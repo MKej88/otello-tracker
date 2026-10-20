@@ -81,7 +81,11 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     assert 'batch.extend(monitoring_queries(' in workflow
     assert 'len(result) != 12' in workflow
     assert 'monitoring = assess_production(' in workflow
-    assert 'if monitoring["unhealthy"] or nav_audit["unhealthy"]:' in workflow
+    assert 'secondary_bemobi_warning_candidate(' in workflow
+    assert 'diagnostic_severity(' in workflow
+    assert 'monitoring_unhealthy=monitoring["unhealthy"]' in workflow
+    assert 'nav_audit_unhealthy=nav_audit["unhealthy"]' in workflow
+    assert 'd1_unhealthy = d1_status == "AVVIK"' in workflow
     assert 'render_monitoring(monitoring)' in workflow
     assert "github.event_name == 'schedule' || github.event_name == 'push'" in workflow
 
