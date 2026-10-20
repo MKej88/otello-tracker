@@ -266,6 +266,9 @@ async function waitForRoute(session, route, timeoutMs = 25000) {
   while (Date.now() < deadline) {
     state = await session.evaluate(routeStatusScript());
     if (state?.error) throw new Error("Investor data error on " + route.hash);
+    if (state?.unavailable && !state?.ready) {
+      throw new Error("Investor data unavailable on " + route.hash);
+    }
     if (state?.ready && state.label === route.label) return;
     await sleep(120);
   }
