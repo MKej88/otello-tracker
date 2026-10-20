@@ -156,8 +156,10 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
             [], data['jobs'], data['prices'], data['states']]
     from test_nav_cache_audit import audit_fixture
     nav_data = audit_fixture()
-    # D1's CORE snapshot always records its quality state in production.
+    # The production query separately returns the latest CORE snapshot at result[5].
+    # It must have a real quality state even though the audit queries follow at result[9].
     nav_data['nav_rows'][0]['status'] = 'BACKFILLED'
+    rows[5] = [copy.deepcopy(nav_data['nav_rows'][0])]
     rows.extend([nav_data['nav_rows'], nav_data['cache_rows'], nav_data['lock_rows']])
     (tmp_path / 'public-bootstrap.json').write_text(json.dumps(nav_data['public']))
     (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
