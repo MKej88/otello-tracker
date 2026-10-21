@@ -43,6 +43,34 @@ def _next_monday(after: date) -> date:
     return after + timedelta(days=delta)
 
 
+def _oslo_local_hour() -> int:
+    """Evaluate Friday's publishing gate using Oslo daylight-saving time."""
+    now = datetime.now(timezone.utc)
+    summer = datetime.combine(
+        _last_sunday(now.year, 3), datetime.min.time(), tzinfo=timezone.utc
+    ) + timedelta(hours=1)
+    winter = datetime.combine(
+        _last_sunday(now.year, 10), datetime.min.time(), tzinfo=timezone.utc
+    ) + timedelta(hours=1)
+    return (now + timedelta(hours=2 if summer <= now < winter else 1)).hour
+
+
+def _completed_week_cutoff(as_of: date) -> date:
+    """Only use the last *fully closed* trading week, never intraweek ADV20.
+
+    A Friday itself qualifies only after 17:00 Oslo. The API's historical
+    as-of dates qualify normally once that calendar date has passed.
+    """
+    monday = as_of - timedelta(days=as_of.weekday())
+    if as_of.weekday() >= 5:
+        return monday + timedelta(days=4)
+    if as_of.weekday() == 4 and (
+        as_of < _oslo_today() or (as_of == _oslo_today() and _oslo_local_hour() >= 17)
+    ):
+        return monday + timedelta(days=4)
+    return monday - timedelta(days=3)
+
+
 def _last_sunday(year: int, month: int) -> date:
     if month == 12:
         first_next = date(year + 1, 1, 1)
@@ -284,7 +312,8 @@ async def buyback_forecast(
 ) -> dict[str, Any]:
     """D1 port of the validated Safe Harbour/program walk-forward estimator."""
     as_of = date.fromisoformat(as_of_date) if as_of_date else _oslo_today()
-    program = await _active_program(repository, as_of)
+    frozen_at = _completed_week_cutoff(as_of)
+    program = await _active_program(repository, frozen_at)
     if program is None:
         return {
             "ready": False,
@@ -294,19 +323,33 @@ async def buyback_forecast(
         }
 
     last_purchase_end = date.fromisoformat(program["latest_period_end"])
-    zero_purchase_end = await _latest_no_purchase_period_end(repository, as_of, program["start_date"])
+    zero_purchase_end = await _latest_no_purchase_period_end(repository, frozen_at, program["start_date"])
     latest_reported_end = max(last_purchase_end, zero_purchase_end or last_purchase_end)
-    # Offer a full-week forward estimate only. Never apply today's amended price
-    # cap retrospectively to an already started (or completed) forecast week.
-    period_start = _next_monday(max(latest_reported_end, as_of - timedelta(days=1)))
+    # The forecast published at each completed Friday is for the following week.
+    # Throughout that week it must NOT advance or use newer volume or price.
+    period_start = frozen_at + timedelta(days=3)
     period_end = period_start + timedelta(days=4)
     trading_days = oslo_bors_trading_days(period_start, period_end)
-    latest_unreported_week_end = _next_monday(latest_reported_end) + timedelta(days=4)
-    awaiting_program_update = as_of > latest_unreported_week_end
+    awaiting_program_update = frozen_at > _next_monday(latest_reported_end) + timedelta(days=4)
 
-    # Do not consume trading prices/volumes later than the requested as-of date.
-    activity = await _activity_history(repository, min(period_start, as_of + timedelta(days=1)))
+    activity = await _activity_history(repository, period_start)
     lookback = _activity_before(activity, period_start)
+    completed_week_days = oslo_bors_trading_days(frozen_at - timedelta(days=4), frozen_at)
+    expected_last_day = completed_week_days[-1] if completed_week_days else None
+    if not expected_last_day or not lookback or str(lookback[-1]["trading_date"]) != expected_last_day.isoformat():
+        return {
+            "ready": False,
+            "status": "AWAITING_WEEKLY_VOLUME",
+            "as_of_date": as_of.isoformat(),
+            "forecast_as_of_date": frozen_at.isoformat(),
+            "forecast_week": {
+                "from": period_start.isoformat(),
+                "to": period_end.isoformat(),
+            },
+            "volume_through": str(lookback[-1]["trading_date"]) if lookback else None,
+            "expected_volume_through": expected_last_day.isoformat() if expected_last_day else None,
+            "methodology_version": METHOD_VERSION,
+        }
     if len(lookback) < LOOKBACK_DAYS:
         return {
             "ready": False,
@@ -352,7 +395,7 @@ async def buyback_forecast(
             },
         }
 
-    weeks = await _program_weeks(repository, int(program["id"]), as_of)
+    weeks = await _program_weeks(repository, int(program["id"]), frozen_at)
     history = _program_history(weeks, int(program["max_shares"]), activity)
     history = known_history(history, period_start.isoformat())
     recent = history[-RECENT_PROGRAM_WEEKS:]
@@ -401,7 +444,8 @@ async def buyback_forecast(
         "status": "OK" if price_state != "ABOVE_CAP" else "PRICE_CAP_BLOCKED",
         "awaiting_program_update": awaiting_program_update,
         "latest_reported_period_end": latest_reported_end.isoformat(),
-        "forecast_basis": "NEXT_FULL_UNSTARTED_WEEK",
+        "forecast_basis": "FRIDAY_CLOSE_WEEKLY",
+        "forecast_as_of_date": frozen_at.isoformat(),
         "methodology_version": METHOD_VERSION,
         "as_of_date": as_of.isoformat(),
         "program": {
