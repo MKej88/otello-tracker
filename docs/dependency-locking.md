@@ -24,7 +24,7 @@ Ved en ønsket avhengighetsoppdatering, generer lockfilene på nytt med **Python
 3.12 og Linux x86_64** fra prosjektroten:
 
 ```sh
-python -m pip install uv==0.12.3
+python -m pip install uv==0.13.4
 uv pip compile backend/requirements.txt --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file backend/requirements.lock.txt
 uv pip compile backend/requirements-dev.txt --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file backend/requirements-dev.lock.txt
 uv pip compile cloudflare/worker-tooling.in --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file cloudflare/worker-tooling.lock.txt
@@ -32,7 +32,12 @@ python tools/check_dependency_integrity.py
 ```
 
 Verifiser alle diffs i lockfilen før merge. Samme toppnivåversjon betyr ikke
-nødvendigvis samme underavhengigheter ved ny lock-generering. Lockene er
+nødvendigvis samme underavhengigheter ved ny lock-generering.
+
+**emSign-sertifikathendelsen (21.10.2026):** `cloudflare/worker-tooling.in` binder
+`uv` til minimum fikset versjon 0.13.4. `tools/pip-audit.in` binder `certifi`
+til 2026.10.19 og `pip` til 26.2.2. Disse tre versjonene må ikke
+nedgraderes uten ny sikkerhetsvurdering. Lockene er
 Linux/Python 3.12-referanser, ikke en universell Windows/macOS-løsning.
 
 ## JavaScript / TypeScript
