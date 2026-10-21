@@ -256,7 +256,12 @@ def buyback_forecast(
         lookback = _activity_before(connection, period_start)
         completed_week_days = oslo_bors_trading_days(frozen_at - timedelta(days=4), frozen_at)
         expected_last_day = completed_week_days[-1] if completed_week_days else None
-        if not expected_last_day or not lookback or str(lookback[-1]["trading_date"]) != expected_last_day.isoformat():
+        covered_days = {str(row["trading_date"]) for row in lookback}
+        missing_trading_dates = [
+            day.isoformat() for day in completed_week_days
+            if day.isoformat() not in covered_days
+        ]
+        if not expected_last_day or missing_trading_dates:
             return {
                 "ready": False,
                 "status": "AWAITING_WEEKLY_VOLUME",
@@ -268,6 +273,7 @@ def buyback_forecast(
                 },
                 "volume_through": str(lookback[-1]["trading_date"]) if lookback else None,
                 "expected_volume_through": expected_last_day.isoformat() if expected_last_day else None,
+            "missing_trading_dates": missing_trading_dates,
                 "methodology_version": METHOD_VERSION,
             }
         if len(lookback) < LOOKBACK_DAYS:
