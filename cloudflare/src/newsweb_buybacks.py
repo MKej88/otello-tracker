@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any, Awaitable, Callable
 
 from newsweb_client import NewsWebMessage, discover_otec_messages, fetch_message
+from buyback_program_terms import record_program_price_cap
 from repository import D1WriteRepository
 
 BUYBACK_TITLE = "share buyback program status"
@@ -427,10 +428,6 @@ async def ingest_weekly_buyback(
             if program.get("max_price_nok") is not None
             else None
         )
-        if max_price is not None and stored_max_price is not None and stored_max_price != max_price:
-            raise ValueError(
-                f"NewsWeb max_price_nok avviker fra lagret programvilkår: lagret={stored_max_price}, kandidat={max_price}"
-            )
         old_priority = await _source_priority(repository, int(program["source_document_id"]))
         new_priority = await _source_priority(repository, document_id)
         same_document = int(program["source_document_id"]) == document_id
@@ -444,21 +441,24 @@ async def ingest_weekly_buyback(
             )
         if same_document or new_priority < old_priority:
             await repository.run(
-                "UPDATE buyback_programs SET max_shares=?, max_price_nok=COALESCE(?, max_price_nok), source_document_id=? WHERE id=?",
+                "UPDATE buyback_programs SET max_shares=?, source_document_id=? WHERE id=?",
                 (
                     parsed.max_program_shares,
-                    decimal_text(max_price) if max_price is not None else None,
                     document_id,
                     int(program["id"]),
                 ),
             )
-        elif max_price is not None and program.get("max_price_nok") is None:
-            await repository.run(
-                "UPDATE buyback_programs SET max_price_nok=? WHERE id=?",
-                (decimal_text(max_price), int(program["id"])),
-            )
-
     program_id = int(program["id"])
+    if max_price is not None:
+        # A late historical weekly status must not restore an older ceiling.
+        await record_program_price_cap(
+            repository,
+            program=program,
+            source_document_id=int(document_id),
+            max_price_nok=max_price,
+            effective_at=str(message.published_at),
+            event_kind="STATUS",
+        )
     if max_price is not None:
         existing_provenance = await repository.first(
             """
