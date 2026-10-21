@@ -35,8 +35,14 @@ export const API_PROBE_INTERVAL_MS = 1250;
 export function parseRetryAfterMs(value, nowMs = Date.now()) {
   if (value == null || !String(value).trim()) return null;
   const raw = String(value).trim();
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  if (/^-?\d+(?:\.\d+)?$/.test(raw)) {
+    const seconds = Number(raw);
+    return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1000) : null;
+  }
+  // Only parse RFC-style HTTP dates, not arbitrary strings Date.parse accepts.
+  if (!/^[A-Za-z]{3},\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/i.test(raw)) {
+    return null;
+  }
   const date = Date.parse(raw);
   return Number.isFinite(date) ? Math.max(0, date - nowMs) : null;
 }
