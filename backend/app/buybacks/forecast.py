@@ -136,7 +136,7 @@ def _latest_no_purchase_period_end(connection, as_of: date, program_start: str |
     return newest
 
 
-def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
+def _program_weeks(connection, program_id: int, as_of: date) -> list[ProgramWeek]:
     rows = connection.execute(
         """
         SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares,
@@ -144,9 +144,11 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
         FROM buybacks b
         LEFT JOIN source_documents sd ON sd.id=b.source_document_id
         WHERE b.program_id=? AND b.period_start IS NOT NULL
+          AND b.trade_date <= ?
+          AND (sd.published_at IS NULL OR substr(sd.published_at, 1, 10) <= ?)
         ORDER BY b.trade_date, b.id
         """,
-        (program_id,),
+        (program_id, as_of.isoformat(), as_of.isoformat()),
     ).fetchall()
     return [
         ProgramWeek(
@@ -161,8 +163,8 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
     ]
 
 
-def _program_history(connection, program_id: int, max_shares: int) -> list[dict[str, Any]]:
-    weeks = _program_weeks(connection, program_id)
+def _program_history(connection, program_id: int, max_shares: int, as_of: date) -> list[dict[str, Any]]:
+    weeks = _program_weeks(connection, program_id, as_of)
     rows: list[dict[str, Any]] = []
     for index, week in enumerate(weeks):
         lookback = _activity_before(connection, week.period_start)
@@ -278,7 +280,7 @@ def buyback_forecast(
                 },
             }
 
-        history = _program_history(connection, int(program["id"]), int(program["max_shares"]))
+        history = _program_history(connection, int(program["id"]), int(program["max_shares"]), as_of)
         history = known_history(history, period_start.isoformat())
         recent = history[-RECENT_PROGRAM_WEEKS:]
         point = point_estimate(lookback, expected_days, remaining, history)
