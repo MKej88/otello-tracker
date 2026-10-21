@@ -7,7 +7,10 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { classifyColdFailure, createApiDiagnostics, probeColdWithRetry } from "./performance-diagnostics.mjs";
+import {
+  API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
+  fetchWithRateLimitRetry, isRateLimitError, probeColdWithRetry,
+} from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
 const chromeBin = process.env.CHROME_BIN || "google-chrome";
@@ -55,14 +58,31 @@ function median(values) {
 }
 
 /** Fetch timing to headers (approx. externally observed TTFB) and full body. */
+let nextApiRequestAt = 0;
+
+/** Limit the aggregate request rate, including retries, across API endpoints. */
+async function paceApiRequest() {
+  const remaining = nextApiRequestAt - Date.now();
+  if (remaining > 0) await sleep(remaining);
+  nextApiRequestAt = Date.now() + API_PROBE_INTERVAL_MS;
+}
+
+/** The wait/retry duration is intentionally excluded from response-time samples. */
 async function probeApi(path) {
   const samples = [];
+  let rateLimitedAttempts = 0;
   for (let i = 0; i < 3; i++) {
-    const started = performance.now();
-    const response = await fetch(new URL(path, base), {
-      signal: AbortSignal.timeout(20000),
-      headers: { accept: "application/json" },
-    });
+    let started;
+    const { response, rateLimitedAttempts: retries } = await fetchWithRateLimitRetry(
+      new URL(path, base), {
+        beforeAttempt: paceApiRequest,
+        fetchFn: (...args) => {
+          started = performance.now();
+          return fetch(...args);
+        },
+      },
+    );
+    rateLimitedAttempts += retries;
     const headersMs = rounded(performance.now() - started);
     const bytes = (await response.arrayBuffer()).byteLength;
     const totalMs = rounded(performance.now() - started);
@@ -75,12 +95,13 @@ async function probeApi(path) {
   }
   return {
     endpoint: path,
-    medianHeadersMs: median(samples.map((s) => s.headersMs)),
-    medianTotalMs: median(samples.map((s) => s.totalMs)),
-    maxTotalMs: Math.max(...samples.map((s) => s.totalMs)),
+    medianHeadersMs: median(samples.map((sample) => sample.headersMs)),
+    medianTotalMs: median(samples.map((sample) => sample.totalMs)),
+    maxTotalMs: Math.max(...samples.map((sample) => sample.totalMs)),
     responseBytes: samples.at(-1).bytes,
     cfCacheStatus: samples.map((sample) => sample.cfCacheStatus),
     ageSeconds: samples.map((sample) => sample.ageSeconds),
+    rateLimitedAttempts,
   };
 }
 
@@ -404,7 +425,7 @@ async function probeBrowserAttempt(hash) {
 async function probeBrowser(hash) {
   const result = await probeColdWithRetry(
     () => probeBrowserAttempt(hash),
-    () => sleep(900),
+    (failedAttempt) => sleep(failedAttempt?.diagnosis?.category === "rate_limited" ? 8000 : 900),
   );
   if (result.ok) return { ...result.metrics, attempts: result.attempts };
   const error = new Error("Two unsuccessful cold loads on " + hash + ": " +
@@ -425,6 +446,7 @@ async function probeSpaNavigationAttempt() {
   let stderr = "";
   chrome.stderr.on("data", (data) => { stderr = (stderr + String(data)).slice(-2000); });
   let session = null;
+  const apiTrace = createApiDiagnostics(base.origin);
   try {
     const port = await devtoolsPort(profileDir, chrome, () => stderr);
     const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
@@ -434,6 +456,11 @@ async function probeSpaNavigationAttempt() {
     const tab = await response.json();
     session = new CdpSession(tab.webSocketDebuggerUrl);
     await session.connect();
+    for (const method of [
+      "Network.requestWillBeSent", "Network.responseReceived",
+      "Network.loadingFailed", "Network.loadingFinished",
+    ]) session.on(method, (params) => apiTrace.onEvent(method, params));
+    await session.send("Network.enable");
     await session.send("Runtime.enable");
     await session.send("Page.enable");
     await session.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -472,6 +499,9 @@ async function probeSpaNavigationAttempt() {
       });
     }
     return result;
+  } catch (error) {
+    error.diagnosis = classifyColdFailure(error, null, apiTrace.snapshot());
+    throw error;
   } finally {
     session?.close();
     await stopChrome(chrome);
@@ -479,15 +509,32 @@ async function probeSpaNavigationAttempt() {
   }
 }
 
+function isRateLimitedDiagnosis(diagnosis) {
+  return diagnosis?.category === "rate_limited" ||
+    Boolean(diagnosis?.apiIssues?.some((item) => item.status === 429));
+}
+
 async function probeSpaNavigation() {
   try {
-    return await probeSpaNavigationAttempt();
+    return { navigation: await probeSpaNavigationAttempt(), recoveredRateLimit: false };
   } catch (initialError) {
-    // One failed cold SPA session can reflect a transient browser / cache race.
-    // Retry the full menu walk in a new profile; persistent errors still fail.
-    console.log("SPA navigation retry after transient failure: " + String(initialError).slice(0, 500));
-    await sleep(1000);
-    return probeSpaNavigationAttempt();
+    const firstLimited = isRateLimitedDiagnosis(initialError?.diagnosis);
+    console.log("SPA navigation retry after transient failure: " +
+      (firstLimited ? "rate_limited" : String(initialError).slice(0, 250)));
+    await sleep(firstLimited ? 8000 : 1000);
+    try {
+      return {
+        navigation: await probeSpaNavigationAttempt(),
+        recoveredRateLimit: firstLimited,
+      };
+    } catch (retryError) {
+      if (isRateLimitedDiagnosis(retryError?.diagnosis)) {
+        const limited = new Error("SPA navigation HTTP 429");
+        limited.status = 429;
+        throw limited;
+      }
+      throw retryError;
+    }
   }
 }
 
@@ -500,6 +547,7 @@ async function main() {
     api: [],
     recoveredColdLoads: [],
     coldFailures: [],
+    rateLimits: [],
     errors: [],
   };
   for (const endpoint of [
@@ -511,27 +559,60 @@ async function main() {
     "/api/news-events", "/api/dashboard/runtime-status",
   ]) {
     try {
-      result.api.push(await probeApi(endpoint));
+      const measured = await probeApi(endpoint);
+      result.api.push(measured);
+      if (measured.rateLimitedAttempts) {
+        result.rateLimits.push({
+          scope: "api", path: new URL(endpoint, base).pathname,
+          attempts: measured.rateLimitedAttempts, recovered: true,
+        });
+      }
     } catch (error) {
-      result.errors.push(endpoint + ": " + String(error));
+      if (isRateLimitError(error)) {
+        result.rateLimits.push({
+          scope: "api", path: new URL(endpoint, base).pathname,
+          attempts: error.rateLimitedAttempts, recovered: false,
+        });
+      } else {
+        result.errors.push(endpoint + ": " + String(error));
+      }
     }
   }
   for (const { hash } of ROUTES) {
+    // Browser requests share the same production IP rate limit as API probes.
+    await sleep(1500);
     try {
       const measured = await probeBrowser(hash);
       result.browser.push(measured);
       if (measured.attempts.length > 1) {
         result.recoveredColdLoads.push({ route: hash, attempts: measured.attempts });
       }
+      if (measured.attempts.some((a) => isRateLimitedDiagnosis(a.diagnosis))) {
+        result.rateLimits.push({ scope: "cold_load", route: hash, recovered: true });
+      }
     } catch (error) {
-      result.coldFailures.push({ route: hash, attempts: error.attempts || [] });
-      result.errors.push(hash + ": " + String(error));
+      const attempts = error.attempts || [];
+      result.coldFailures.push({ route: hash, attempts });
+      if (attempts.length && attempts.every((a) => isRateLimitedDiagnosis(a.diagnosis))) {
+        result.rateLimits.push({ scope: "cold_load", route: hash, recovered: false });
+      } else {
+        result.errors.push(hash + ": " + String(error));
+      }
     }
   }
+  await sleep(3000);
   try {
-    result.navigation = await probeSpaNavigation();
+    const spa = await probeSpaNavigation();
+    result.navigation = spa.navigation;
+    if (spa.recoveredRateLimit) {
+      result.rateLimits.push({ scope: "navigation", recovered: true });
+    }
   } catch (error) {
-    result.errors.push("SPA navigation: " + String(error));
+    if (isRateLimitError(error)) {
+      result.rateLimits.push({ scope: "navigation", recovered: false });
+    } else {
+      result.errors.push("SPA navigation: " + String(error));
+    }
   }
   writeFileSync(reportPath, JSON.stringify(result, null, 2) + "\n");
 
@@ -617,6 +698,16 @@ async function main() {
     ...(result.recoveredColdLoads.length || result.coldFailures.length ? [] :
       ["Ingen feil ved førstegangsinnlasting."]),
     "",
+    "### Rate limiting / datakvalitet",
+    "",
+    ...result.rateLimits.map((item) =>
+      "- HTTP 429: " + item.scope + " " + (item.path || item.route || "") +
+      " (" + (item.recovered ? "gjenopprettet" : "ikke gjenopprettet") + ")" +
+      (item.attempts ? ", " + item.attempts + " avviste forsøk" : "")),
+    ...(result.rateLimits.length ? [
+      "Rate-limit-påvirkede kjøringer utelates fra trendmedianer; ventetid regnes ikke som API-latenstid.",
+    ] : ["Ingen rate limiting registrert."]),
+    "",
     "### Diagnose",
     "",
     ...result.errors.map((e) => "- FEIL: " + e),
@@ -634,6 +725,10 @@ async function main() {
   for (const item of result.recoveredColdLoads) {
     console.log("::warning::Førsteinnlasting feilet, men nytt Chrome-forsøk lyktes for " +
       item.route + ": " + attemptSummary(item.attempts));
+  }
+  if (result.rateLimits.length) {
+    console.log("::warning::Ytelsesmålingen ble påvirket av HTTP 429; " +
+      "rapporten er ufullstendig og ekskluderes fra trendberegningen.");
   }
   if (result.errors.length) {
     process.stderr.write("Performance monitor failed: " + result.errors.join(" | ") + "\n");
