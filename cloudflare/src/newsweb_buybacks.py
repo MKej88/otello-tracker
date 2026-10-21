@@ -395,7 +395,7 @@ async def ingest_weekly_buyback(
     )
 
     program = await repository.first(
-        "SELECT id, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
+        "SELECT id, start_date, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
         (parsed.program_external_id,),
     )
     if program is None:
@@ -417,7 +417,7 @@ async def ingest_weekly_buyback(
             ),
         )
         program = await repository.first(
-            "SELECT id, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
+            "SELECT id, start_date, max_shares, max_price_nok, source_document_id FROM buyback_programs WHERE external_program_id=? LIMIT 1",
             (parsed.program_external_id,),
         )
         if program is None:
