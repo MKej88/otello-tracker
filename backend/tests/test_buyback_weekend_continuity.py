@@ -71,6 +71,13 @@ def test_saturday_with_missing_friday_volume_does_not_publish_forecast(tmp_path)
     init_database(database)
     seed_otec_activity_history(database)
     _seed_program(database)
+    # Explicitly simulate an incomplete most-recent trading week: the fixture
+    # may gain new dates in future, but this regression must remain meaningful.
+    with get_connection(database) as connection:
+        connection.execute(
+            "DELETE FROM market_activity WHERE trading_date BETWEEN '2026-08-17' AND '2026-08-21'"
+        )
+        connection.commit()
 
     # Forecast made on Saturday 22.08 must not relabel the completed 17–21.08
     # week as a new forecast. Target the unstarted 24–28.08 week instead.
