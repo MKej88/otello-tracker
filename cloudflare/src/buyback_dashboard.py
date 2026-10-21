@@ -354,9 +354,10 @@ async def buyback_dashboard(
 
     program = forecast.get("program") or (latest_payload or {})
     max_shares = int(program.get("max_shares") or 0)
+    # Programstatus remains live while the forecast is frozen at Friday close.
     cumulative = int(
-        program.get("cumulative_shares")
-        or (latest_payload or {}).get("cumulative_program_shares")
+        (latest_payload or {}).get("cumulative_program_shares")
+        or program.get("cumulative_shares")
         or 0
     )
     remaining = max(0, max_shares - cumulative) if max_shares else 0
@@ -370,6 +371,7 @@ async def buyback_dashboard(
     program_end = program.get("end_date")
     program_summary = {
         **program,
+        "max_price_nok": (latest_payload or {}).get("max_price_nok", program.get("max_price_nok")),
         "max_shares": max_shares or None,
         "cumulative_shares": cumulative,
         "remaining_shares": remaining if max_shares else None,
