@@ -212,6 +212,27 @@ def _database(tmp_path: Path) -> str:
     database = str(tmp_path / "buyback-investor.db")
     init_database(database)
     seed_otec_activity_history(database)
+    # The bundled activity export ends on 14 August. Cover both complete
+    # trading weeks for the tests requesting a Friday 28 August snapshot.
+    with get_connection(database) as connection:
+        instrument = connection.execute(
+            "SELECT id FROM instruments WHERE symbol='OTEC'"
+        ).fetchone()["id"]
+        source = connection.execute(
+            "SELECT id FROM sources WHERE code='EURONEXT'"
+        ).fetchone()["id"]
+        for day in (
+            "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21",
+            "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28",
+        ):
+            connection.execute(
+                """INSERT INTO market_activity(
+                    instrument_id, trading_date, volume_shares, last_price_nok,
+                    source_id, quality
+                ) VALUES (?, ?, 44000, '17', ?, 'HISTORICAL_EXPORT')""",
+                (instrument, day, source),
+            )
+        connection.commit()
     _seed_current_program(database)
     return database
 
