@@ -105,6 +105,11 @@ def test_buyback_forecast_waits_for_complete_week_before_publishing(tmp_path) ->
     init_database(database)
     seed_otec_activity_history(database)
     _seed_program(database, status="ACTIVE")
+    with get_connection(database) as connection:
+        connection.execute(
+            "DELETE FROM market_activity WHERE trading_date BETWEEN '2026-08-17' AND '2026-08-21'"
+        )
+        connection.commit()
 
     result = buyback_forecast(database, as_of_date="2026-08-24")
 
