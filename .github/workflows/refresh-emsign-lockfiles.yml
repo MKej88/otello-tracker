@@ -1,0 +1,44 @@
+name: Temporary emSign CA lock regeneration
+
+on:
+  push:
+    branches: ["fix/emsign-ca-certificates-uv-pip-20261021"]
+    paths: [".github/workflows/refresh-emsign-lockfiles.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-locks:
+    name: Rebuild SHA-256 pinned Python security locks
+    if: github.ref == 'refs/heads/fix/emsign-ca-certificates-uv-pip-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout security branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install patched resolver and certificate packages
+        run: |
+          python -m pip install --disable-pip-version-check "pip==26.2.2" "uv==0.13.4" "certifi==2026.10.19"
+          uv --version
+      - name: Regenerate SHA-256 lockfiles using patched uv and system roots
+        env:
+          UV_SYSTEM_CERTS: "true"
+        run: |
+          uv pip compile cloudflare/worker-tooling.in --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file cloudflare/worker-tooling.lock.txt
+          uv pip compile tools/pip-audit.in --python-version 3.12 --python-platform x86_64-manylinux_2_17 --generate-hashes --output-file tools/pip-audit.lock.txt
+          python tools/check_dependency_integrity.py
+          git diff --check
+          git diff --stat
+      - name: Commit and push only regenerated lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cloudflare/worker-tooling.lock.txt tools/pip-audit.lock.txt
+          git diff --cached --exit-code && { echo 'No lockfile changes detected'; exit 1; } || true
+          git commit -m "security: regenerate SHA-256 locks for patched uv, certifi and pip"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
