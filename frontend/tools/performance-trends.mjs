@@ -114,6 +114,7 @@ async function getHistoricalReports(asOf) {
         if (Array.isArray(report?.browser) && report.browser.length === ROUTES.length &&
           Array.isArray(report?.navigation) && report.navigation.length === ROUTES.length &&
           Array.isArray(report?.errors) && report.errors.length === 0 &&
+          (!Array.isArray(report?.rateLimits) || report.rateLimits.length === 0) &&
           typeof report?.checkedAt === "string") {
           result.reports.push(report);
         }
@@ -206,9 +207,14 @@ async function main() {
   // When the browser test failed, keep its errors but never contaminate medians.
   const currentValid = current.browser.length === ROUTES.length &&
     current.navigation?.length === ROUTES.length &&
-    Array.isArray(current.errors) && current.errors.length === 0;
+    Array.isArray(current.errors) && current.errors.length === 0 &&
+    (!Array.isArray(current.rateLimits) || current.rateLimits.length === 0);
   if (!currentValid) {
-    history.warnings.push("Dagens syntetiske kjøring er ufullstendig og teller ikke i medianene.");
+    history.warnings.push(
+      current.rateLimits?.length
+        ? "Dagens kjøring hadde HTTP 429 (rate limiting) og teller ikke i medianene."
+        : "Dagens syntetiske kjøring er ufullstendig og teller ikke i medianene."
+    );
   }
   const trend = buildTrends([
     ...history.reports,

@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  classifyColdFailure, createApiDiagnostics, httpCategory, probeColdWithRetry,
+  classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
+  isRateLimitError, parseRetryAfterMs, probeColdWithRetry,
 } from "./performance-diagnostics.mjs";
 
 const origin = "https://otellotracker.com";
@@ -122,4 +123,76 @@ test("Two persistent failures remain failures with both diagnostic snapshots", a
     "data_load_timeout", "data_load_timeout",
   ]);
   assert.equal(result.attempts[0].diagnosis.pendingApiPaths[0], "/api/fx/dashboard");
+});
+
+test("Retry-After seconds, HTTP dates and malformed headers are handled safely", () => {
+  assert.equal(parseRetryAfterMs("3"), 3000);
+  assert.equal(parseRetryAfterMs("2.5"), 2500);
+  assert.equal(parseRetryAfterMs("Wed, 21 Oct 2026 12:00:05 GMT", Date.parse("2026-10-21T12:00:00Z")), 5000);
+  assert.equal(parseRetryAfterMs("nonsense"), null);
+  assert.equal(parseRetryAfterMs("-4"), null);
+  assert.equal(parseRetryAfterMs(null), null);
+});
+
+test("A 429 is retried with Retry-After without contaminating measured fetch timing", async () => {
+  const waits = [];
+  let calls = 0;
+  const result = await fetchWithRateLimitRetry("https://otellotracker.com/api/test", {
+    fetchFn: async () => {
+      calls++;
+      return calls === 1
+        ? new Response(null, { status: 429, headers: { "retry-after": "2" } })
+        : new Response("{}", { status: 200 });
+    },
+    sleepFn: async (ms) => { waits.push(ms); },
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [2000]);
+  assert.equal(result.response.status, 200);
+  assert.equal(result.rateLimitedAttempts, 1);
+});
+
+test("Persistent 429s are classified as rate limiting rather than app failures", async () => {
+  let calls = 0;
+  const waits = [];
+  await assert.rejects(
+    () => fetchWithRateLimitRetry("https://otellotracker.com/api/test", {
+      fetchFn: async () => {
+        calls++;
+        return new Response(null, { status: 429 });
+      },
+      sleepFn: async (ms) => { waits.push(ms); },
+    }),
+    (error) => isRateLimitError(error) && error.rateLimitedAttempts === 3,
+  );
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [5000, 10000]);
+});
+
+test("Long Retry-After is respected by skipping the retry", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => fetchWithRateLimitRetry("https://otellotracker.com/api/test", {
+      fetchFn: async () => {
+        calls++;
+        return new Response(null, { status: 429, headers: { "retry-after": "120" } });
+      },
+      sleepFn: async () => { throw new Error("Must not retry before Retry-After"); },
+    }),
+    (error) => isRateLimitError(error) && error.rateLimitedAttempts === 1,
+  );
+  assert.equal(calls, 1);
+});
+
+test("HTTP 500 remains a real response failure and is not retried", async () => {
+  let calls = 0;
+  const result = await fetchWithRateLimitRetry("https://otellotracker.com/api/test", {
+    fetchFn: async () => {
+      calls++;
+      return new Response(null, { status: 500 });
+    },
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.rateLimitedAttempts, 0);
+  assert.equal(calls, 1);
 });
