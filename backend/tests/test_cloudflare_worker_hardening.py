@@ -19,7 +19,7 @@ class CountingRepository:
 
     async def first(self, sql: str, parameters=()):
         self.query_count += 1
-        if "FROM buybacks b JOIN buyback_programs" in sql:
+        if "FROM buybacks b" in sql and "JOIN buyback_programs p" in sql:
             return {
                 "id": 1,
                 "external_program_id": "QUERY-BUDGET",
