@@ -36,6 +36,8 @@ class CountingRepository:
 
     async def all(self, sql: str, parameters=()):
         self.query_count += 1
+        if "FROM source_documents sd" in sql:
+            return []
         if "FROM market_activity" in sql:
             assert "ORDER BY ma.trading_date DESC, ma.id DESC" in sql
             start = date(2026, 6, 29)
@@ -71,4 +73,4 @@ def test_buyback_forecast_uses_constant_small_d1_query_budget() -> None:
 
     assert result["ready"] is True
     assert result["methodology_version"] == METHOD_VERSION
-    assert repository.query_count == 3
+    assert repository.query_count == 4

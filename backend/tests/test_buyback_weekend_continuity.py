@@ -66,21 +66,23 @@ def _seed_program(database: str) -> None:
         connection.commit()
 
 
-def test_saturday_keeps_last_forecast_and_walk_forward_history(tmp_path) -> None:
+def test_saturday_targets_next_full_forecast_week_without_lookahead(tmp_path) -> None:
     database = str(tmp_path / "weekend.db")
     init_database(database)
     seed_otec_activity_history(database)
     _seed_program(database)
 
-    # Latest reported week ends 14.08, so the ex-ante forecast covers 17–21.08.
-    # Saturday 22.08 must retain that last forecast while awaiting the next report.
+    # Forecast made on Saturday 22.08 must not relabel the completed 17–21.08
+    # week as a new forecast. Target the unstarted 24–28.08 week instead.
     result = buyback_forecast(database, as_of_date="2026-08-22")
 
     assert result["ready"] is True
     assert result["status"] in {"OK", "PRICE_CAP_BLOCKED"}
     assert result["awaiting_program_update"] is True
-    assert result["forecast_week"]["from"] == "2026-08-17"
-    assert result["forecast_week"]["to"] == "2026-08-21"
+    assert result["forecast_week"]["from"] == "2026-08-24"
+    assert result["forecast_week"]["to"] == "2026-08-28"
+    assert result["forecast_basis"] == "NEXT_FULL_UNSTARTED_WEEK"
+    assert result["volume_model"]["volume_through"] <= "2026-08-22"
     assert result["estimate"]["base_case_shares"] is not None
     assert result["active_program_backtest"]["weeks"] > 0
     assert result["recent_program_weeks"]
@@ -96,5 +98,5 @@ def test_worker_does_not_drop_forecast_after_friday() -> None:
 
     for source in (worker, reference):
         assert "PROGRAM_STATUS_STALE" not in source
-        assert "awaiting_program_update = as_of > period_end" in source
+        assert "awaiting_program_update = as_of >" in source
         assert '"awaiting_program_update": awaiting_program_update' in source

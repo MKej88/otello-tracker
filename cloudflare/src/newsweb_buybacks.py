@@ -341,6 +341,11 @@ async def _store_no_purchase_message(
     message: NewsWebMessage,
     period_text: str,
 ) -> int:
+    period_match = _NO_PURCHASE_RE.search(period_text)
+    if period_match is None:
+        raise ValueError("NewsWeb nullkjøpsstatus uten lesbar rapportperiode")
+    period_start = _iso_date(period_match.group(1))
+    period_end = _iso_date(period_match.group(2))
     return await repository.create_source_document(
         source_code="NEWSWEB",
         external_id=f"newsweb-message:{message.message_id}",
@@ -353,6 +358,8 @@ async def _store_no_purchase_message(
             **_message_metadata(message),
             "buyback_status": "NO_PURCHASES",
             "period_text": period_text,
+            "period_start": period_start,
+            "period_end": period_end,
         },
     )
 

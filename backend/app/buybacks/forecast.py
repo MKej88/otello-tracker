@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import statistics
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -74,20 +76,67 @@ def _active_program(connection, as_of: date):
     return connection.execute(
         """
         SELECT p.id, p.external_program_id, p.start_date, p.end_date, p.status,
-               p.max_shares, p.max_price_nok,
+               p.max_shares,
+               COALESCE((
+                   SELECT cap.max_price_nok FROM buyback_program_cap_history cap
+                   WHERE cap.program_id=p.id AND substr(cap.effective_at, 1, 10)<=?
+                   ORDER BY cap.effective_at DESC, cap.id DESC LIMIT 1
+               ), p.max_price_nok) AS max_price_nok,
                b.trade_date AS latest_period_end, b.cumulative_program_shares,
                b.treasury_shares_after
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
         WHERE p.status='ACTIVE'
+          AND b.trade_date <= ?
           AND (p.start_date IS NULL OR p.start_date <= ?)
           AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
         """,
-        (as_of.isoformat(), as_of.isoformat()),
+        (as_of.isoformat(), as_of.isoformat(), as_of.isoformat(), as_of.isoformat()),
     ).fetchone()
 
 
-def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
+def _latest_no_purchase_period_end(connection, as_of: date, program_start: str | None) -> date | None:
+    """Respect NewsWeb zero-purchase weeks without inventing buyback rows."""
+    documents = connection.execute(
+        """
+        SELECT sd.metadata_json
+        FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='NEWSWEB'
+          AND json_extract(sd.metadata_json, '$.buyback_status')='NO_PURCHASES'
+          AND substr(sd.published_at, 1, 10) <= ?
+        ORDER BY sd.published_at DESC, sd.id DESC LIMIT 50
+        """,
+        (as_of.isoformat(),),
+    ).fetchall()
+    newest: date | None = None
+    for document in documents:
+        metadata = json.loads(str(document["metadata_json"] or "{}"))
+        date_text = metadata.get("period_end")
+        if not date_text:
+            match = re.search(
+                r"\bthrough\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4}),",
+                str(metadata.get("period_text") or ""), re.I,
+            )
+            if match:
+                try:
+                    date_text = datetime.strptime(match.group(1), "%d %B %Y").date().isoformat()
+                except ValueError:
+                    continue
+        if not date_text:
+            continue
+        try:
+            end = date.fromisoformat(str(date_text)[:10])
+        except ValueError:
+            continue
+        if end > as_of or (program_start and end < date.fromisoformat(program_start)):
+            continue
+        if newest is None or end > newest:
+            newest = end
+    return newest
+
+
+def _program_weeks(connection, program_id: int, as_of: date) -> list[ProgramWeek]:
     rows = connection.execute(
         """
         SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares,
@@ -95,9 +144,11 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
         FROM buybacks b
         LEFT JOIN source_documents sd ON sd.id=b.source_document_id
         WHERE b.program_id=? AND b.period_start IS NOT NULL
+          AND b.trade_date <= ?
+          AND (sd.published_at IS NULL OR substr(sd.published_at, 1, 10) <= ?)
         ORDER BY b.trade_date, b.id
         """,
-        (program_id,),
+        (program_id, as_of.isoformat(), as_of.isoformat()),
     ).fetchall()
     return [
         ProgramWeek(
@@ -112,8 +163,8 @@ def _program_weeks(connection, program_id: int) -> list[ProgramWeek]:
     ]
 
 
-def _program_history(connection, program_id: int, max_shares: int) -> list[dict[str, Any]]:
-    weeks = _program_weeks(connection, program_id)
+def _program_history(connection, program_id: int, max_shares: int, as_of: date) -> list[dict[str, Any]]:
+    weeks = _program_weeks(connection, program_id, as_of)
     rows: list[dict[str, Any]] = []
     for index, week in enumerate(weeks):
         lookback = _activity_before(connection, week.period_start)
@@ -181,13 +232,15 @@ def buyback_forecast(
         program = _active_program(connection, as_of)
         if program is None:
             return {"ready": False, "status": "NO_ACTIVE_PROGRAM", "methodology_version": METHOD_VERSION}
-        latest_end = date.fromisoformat(program["latest_period_end"])
-        period_start = _next_monday(latest_end)
+        last_purchase_end = date.fromisoformat(program["latest_period_end"])
+        zero_purchase_end = _latest_no_purchase_period_end(connection, as_of, program["start_date"])
+        latest_reported_end = max(last_purchase_end, zero_purchase_end or last_purchase_end)
+        period_start = _next_monday(max(latest_reported_end, as_of - timedelta(days=1)))
         period_end = period_start + timedelta(days=4)
         trading_days = oslo_bors_trading_days(period_start, period_end)
-        awaiting_program_update = as_of > period_end
+        awaiting_program_update = as_of > _next_monday(latest_reported_end) + timedelta(days=4)
 
-        lookback = _activity_before(connection, period_start)
+        lookback = _activity_before(connection, min(period_start, as_of + timedelta(days=1)))
         if len(lookback) < LOOKBACK_DAYS:
             return {
                 "ready": False,
@@ -227,7 +280,7 @@ def buyback_forecast(
                 },
             }
 
-        history = _program_history(connection, int(program["id"]), int(program["max_shares"]))
+        history = _program_history(connection, int(program["id"]), int(program["max_shares"]), as_of)
         history = known_history(history, period_start.isoformat())
         recent = history[-RECENT_PROGRAM_WEEKS:]
         point = point_estimate(lookback, expected_days, remaining, history)
@@ -277,6 +330,8 @@ def buyback_forecast(
             "ready": True,
             "status": "OK" if price_state != "ABOVE_CAP" else "PRICE_CAP_BLOCKED",
             "awaiting_program_update": awaiting_program_update,
+            "latest_reported_period_end": latest_reported_end.isoformat(),
+            "forecast_basis": "NEXT_FULL_UNSTARTED_WEEK",
             "methodology_version": METHOD_VERSION,
             "as_of_date": as_of.isoformat(),
             "program": {
