@@ -423,11 +423,6 @@ async def ingest_weekly_buyback(
         if program is None:
             raise RuntimeError("Buyback-program ble skrevet, men kunne ikke leses tilbake")
     else:
-        stored_max_price = (
-            Decimal(str(program["max_price_nok"]))
-            if program.get("max_price_nok") is not None
-            else None
-        )
         old_priority = await _source_priority(repository, int(program["source_document_id"]))
         new_priority = await _source_priority(repository, document_id)
         same_document = int(program["source_document_id"]) == document_id
