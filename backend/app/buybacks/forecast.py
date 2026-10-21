@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 from app.db.connection import get_connection
 from app.marketdata.oslo_calendar import oslo_bors_trading_days
-from app.marketdata.quote_details import _latest_price
 
 from app.buybacks.forecast_model import METHOD_VERSION, known_history, model_confidence, point_estimate, uncertainty_band
 
@@ -28,6 +27,19 @@ class ProgramWeek:
     actual_shares: int
     cumulative_shares: int
     published_date: date | None = None
+
+
+def _completed_week_cutoff(as_of: date) -> date:
+    """Freeze weekly forecasts at the previous full Oslo trading week's end."""
+    monday = as_of - timedelta(days=as_of.weekday())
+    if as_of.weekday() >= 5:
+        return monday + timedelta(days=4)
+    if as_of.weekday() == 4 and (
+        as_of < _oslo_today() or
+        (as_of == _oslo_today() and datetime.now(OSLO_TZ).hour >= 17)
+    ):
+        return monday + timedelta(days=4)
+    return monday - timedelta(days=3)
 
 
 def _oslo_today(*, now: datetime | None = None) -> date:
@@ -228,19 +240,36 @@ def buyback_forecast(
     separately on each purchase day using that day's rolling prior-20-day ADV.
     """
     as_of = date.fromisoformat(as_of_date) if as_of_date else _oslo_today()
+    frozen_at = _completed_week_cutoff(as_of)
     with get_connection(database_path) as connection:
-        program = _active_program(connection, as_of)
+        program = _active_program(connection, frozen_at)
         if program is None:
             return {"ready": False, "status": "NO_ACTIVE_PROGRAM", "methodology_version": METHOD_VERSION}
         last_purchase_end = date.fromisoformat(program["latest_period_end"])
-        zero_purchase_end = _latest_no_purchase_period_end(connection, as_of, program["start_date"])
+        zero_purchase_end = _latest_no_purchase_period_end(connection, frozen_at, program["start_date"])
         latest_reported_end = max(last_purchase_end, zero_purchase_end or last_purchase_end)
-        period_start = _next_monday(max(latest_reported_end, as_of - timedelta(days=1)))
+        period_start = frozen_at + timedelta(days=3)
         period_end = period_start + timedelta(days=4)
         trading_days = oslo_bors_trading_days(period_start, period_end)
-        awaiting_program_update = as_of > _next_monday(latest_reported_end) + timedelta(days=4)
+        awaiting_program_update = frozen_at > _next_monday(latest_reported_end) + timedelta(days=4)
 
-        lookback = _activity_before(connection, min(period_start, as_of + timedelta(days=1)))
+        lookback = _activity_before(connection, period_start)
+        completed_week_days = oslo_bors_trading_days(frozen_at - timedelta(days=4), frozen_at)
+        expected_last_day = completed_week_days[-1] if completed_week_days else None
+        if not expected_last_day or not lookback or str(lookback[-1]["trading_date"]) != expected_last_day.isoformat():
+            return {
+                "ready": False,
+                "status": "AWAITING_WEEKLY_VOLUME",
+                "as_of_date": as_of.isoformat(),
+                "forecast_as_of_date": frozen_at.isoformat(),
+                "forecast_week": {
+                    "from": period_start.isoformat(),
+                    "to": period_end.isoformat(),
+                },
+                "volume_through": str(lookback[-1]["trading_date"]) if lookback else None,
+                "expected_volume_through": expected_last_day.isoformat() if expected_last_day else None,
+                "methodology_version": METHOD_VERSION,
+            }
         if len(lookback) < LOOKBACK_DAYS:
             return {
                 "ready": False,
@@ -280,7 +309,7 @@ def buyback_forecast(
                 },
             }
 
-        history = _program_history(connection, int(program["id"]), int(program["max_shares"]), as_of)
+        history = _program_history(connection, int(program["id"]), int(program["max_shares"]), frozen_at)
         history = known_history(history, period_start.isoformat())
         recent = history[-RECENT_PROGRAM_WEEKS:]
         point = point_estimate(lookback, expected_days, remaining, history)
@@ -299,11 +328,6 @@ def buyback_forecast(
             if last["last_price_nok"] is not None
             else None
         )
-        if as_of_date is None:
-            live_quote = _latest_price(connection, "OTEC")
-            live_price = live_quote.get("price") if live_quote else None
-            if live_price is not None:
-                last_close = Decimal(str(live_price))
         max_price = Decimal(program["max_price_nok"]) if program["max_price_nok"] is not None else None
         price_state = "UNKNOWN"
         price_headroom_pct: float | None = None
@@ -331,7 +355,8 @@ def buyback_forecast(
             "status": "OK" if price_state != "ABOVE_CAP" else "PRICE_CAP_BLOCKED",
             "awaiting_program_update": awaiting_program_update,
             "latest_reported_period_end": latest_reported_end.isoformat(),
-            "forecast_basis": "NEXT_FULL_UNSTARTED_WEEK",
+            "forecast_basis": "FRIDAY_CLOSE_WEEKLY",
+            "forecast_as_of_date": frozen_at.isoformat(),
             "methodology_version": METHOD_VERSION,
             "as_of_date": as_of.isoformat(),
             "program": {
