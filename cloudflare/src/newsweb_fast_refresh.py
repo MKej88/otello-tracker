@@ -15,6 +15,7 @@ try:
         normalize_weekly_body,
         parse_newsweb_weekly_status,
     )
+    from .buyback_program_terms import ingest_program_cap_amendment, is_program_update_title
     from .newsweb_client import NewsWebMessage, discover_otec_messages, fetch_message
     from .newsweb_ingestion import archive_message, history_start_for_refresh
 except ImportError:
@@ -27,6 +28,7 @@ except ImportError:
         normalize_weekly_body,
         parse_newsweb_weekly_status,
     )
+    from buyback_program_terms import ingest_program_cap_amendment, is_program_update_title
     from newsweb_client import NewsWebMessage, discover_otec_messages, fetch_message
     from newsweb_ingestion import archive_message, history_start_for_refresh
 
@@ -148,7 +150,9 @@ async def collect_newsweb_fast(
     for item in discovered:
         item_date = str(item.published_at)[:10]
         history_scope = item_date >= history_start
-        buyback_scope = item_date >= buyback_start and BUYBACK_TITLE in item.title.lower()
+        buyback_scope = item_date >= buyback_start and (
+            BUYBACK_TITLE in item.title.lower() or is_program_update_title(item.title)
+        )
         if history_scope:
             history_in_scope += 1
         if buyback_scope:
@@ -199,40 +203,46 @@ async def collect_newsweb_fast(
 
         if needs_buyback:
             try:
-                if BUYBACK_TITLE not in message.title.lower():
-                    raise ValueError(
-                        f"NewsWeb-melding {message.message_id} er ikke en buyback-status"
-                    )
-                clean = normalize_weekly_body(message.body)
-                no_purchase = _NO_PURCHASE_RE.search(clean)
-                if no_purchase:
-                    document_id = await _store_no_purchase_message(
-                        repository,
-                        message,
-                        no_purchase.group(0),
-                    )
-                    result = {
-                        "message_id": message.message_id,
-                        "canonical_source_document_id": document_id,
-                        "daily_rows_written": 0,
-                        "daily_rows": 0,
-                        "daily_status": "NO_PURCHASES",
-                        "attachment_status": (
-                            "DEFERRED_TO_FULL_REFRESH_R2"
-                            if message.attachments
-                            else "NO_ATTACHMENT"
-                        ),
-                    }
-                    existing[archive_external_id] = {
-                        "buyback_status": "NO_PURCHASES",
-                        "_fetched_at": f"{revalidate_on}T00:00:00Z",
-                    }
-                else:
-                    parsed = parse_newsweb_weekly_status(clean)
-                    result = await ingest_weekly_buyback(repository, message, parsed)
+                if is_program_update_title(message.title):
+                    result = await ingest_program_cap_amendment(repository, message)
                     existing[message.public_url] = {
                         "_fetched_at": f"{revalidate_on}T00:00:00Z"
                     }
+                else:
+                    if BUYBACK_TITLE not in message.title.lower():
+                        raise ValueError(
+                            f"NewsWeb-melding {message.message_id} er ikke en buyback-status"
+                        )
+                    clean = normalize_weekly_body(message.body)
+                    no_purchase = _NO_PURCHASE_RE.search(clean)
+                    if no_purchase:
+                        document_id = await _store_no_purchase_message(
+                            repository,
+                            message,
+                            no_purchase.group(0),
+                        )
+                        result = {
+                            "message_id": message.message_id,
+                            "canonical_source_document_id": document_id,
+                            "daily_rows_written": 0,
+                            "daily_rows": 0,
+                            "daily_status": "NO_PURCHASES",
+                            "attachment_status": (
+                                "DEFERRED_TO_FULL_REFRESH_R2"
+                                if message.attachments
+                                else "NO_ATTACHMENT"
+                            ),
+                        }
+                        existing[archive_external_id] = {
+                            "buyback_status": "NO_PURCHASES",
+                            "_fetched_at": f"{revalidate_on}T00:00:00Z",
+                        }
+                    else:
+                        parsed = parse_newsweb_weekly_status(clean)
+                        result = await ingest_weekly_buyback(repository, message, parsed)
+                        existing[message.public_url] = {
+                            "_fetched_at": f"{revalidate_on}T00:00:00Z"
+                        }
                 buyback_results.append(result)
             except Exception as exc:
                 buyback_errors.append(_error(item, exc))
