@@ -189,17 +189,6 @@ function statusLabel(input?: string | null) {
   return input ? labels[input.toUpperCase()] ?? input : "–";
 }
 
-function warningLabel(input?: string | null) {
-  if (!input) return null;
-  if (input.includes("above the program price cap")) {
-    return "Siste sluttkurs er over programmets maksimale kjøpspris. Kjøp krever at kursen kommer under grensen eller at mandatet endres.";
-  }
-  if (input.includes("within 3% of the program price cap")) {
-    return "Kursen er mindre enn 3 % under programmets maksimale kjøpspris. Gjennomføringen kan bli begrenset.";
-  }
-  return input;
-}
-
 function completionText(data?: Dashboard["completion"]) {
   if (!data?.estimated_weeks_remaining) return "Ikke beregnbart";
   const weeks = `${data.estimated_weeks_remaining} ${data.estimated_weeks_remaining === 1 ? "uke" : "uker"}`;
@@ -291,7 +280,6 @@ export default function BuybackPage() {
   const weeks = useMemo(() => [...(data?.backtest?.weeks ?? [])].reverse(), [data]);
   const progress = Math.max(0, Math.min(100, program?.progress_pct ?? 0));
   const completionWarning = data?.completion?.extends_beyond_program_end;
-  const forecastWarning = warningLabel(estimate?.warning);
   const headroom = price?.headroom_pct ?? (
     price?.program_cap_nok != null && price.latest_close_nok != null && price.latest_close_nok > 0
       ? (price.program_cap_nok / price.latest_close_nok - 1) * 100
@@ -359,17 +347,12 @@ export default function BuybackPage() {
         </div>
       </section>
 
-      {(completionWarning || forecastWarning || failed) && (
+      {(completionWarning || failed) && (
         <div className="buybackAlerts">
           {completionWarning && (
             <div className="buybackAlert">
               <strong>Estimert tempo rekker utover dagens programperiode.</strong>
               <span>Dette betyr ikke at programmet automatisk forlenges; mandatet må vurderes mot kommende børsmeldinger.</span>
-            </div>
-          )}
-          {forecastWarning && (
-            <div className="buybackAlert">
-              <strong>Kursbegrensning</strong><span>{forecastWarning}</span>
             </div>
           )}
           {failed && (
