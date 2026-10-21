@@ -332,6 +332,13 @@ async def buyback_forecast(
     # Throughout that week it must NOT advance or use newer volume or price.
     period_start = frozen_at + timedelta(days=3)
     period_end = period_start + timedelta(days=4)
+    if program["end_date"] and date.fromisoformat(program["end_date"]) < period_start:
+        return {
+            "ready": False,
+            "status": "NO_ACTIVE_PROGRAM",
+            "as_of_date": as_of.isoformat(),
+            "methodology_version": METHOD_VERSION,
+        }
     trading_days = oslo_bors_trading_days(period_start, period_end)
     awaiting_program_update = frozen_at > _next_monday(latest_reported_end) + timedelta(days=4)
 
