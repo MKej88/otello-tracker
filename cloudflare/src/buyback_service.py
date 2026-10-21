@@ -185,7 +185,7 @@ async def _latest_no_purchase_period_end(repository, as_of: date, program_start:
     return newest
 
 
-async def _program_weeks(repository, program_id: int) -> list[ProgramWeek]:
+async def _program_weeks(repository, program_id: int, as_of: date) -> list[ProgramWeek]:
     rows = await repository.all(
         """
         SELECT b.period_start, b.trade_date, b.shares, b.cumulative_program_shares,
@@ -193,9 +193,11 @@ async def _program_weeks(repository, program_id: int) -> list[ProgramWeek]:
         FROM buybacks b
         LEFT JOIN source_documents sd ON sd.id=b.source_document_id
         WHERE b.program_id=? AND b.period_start IS NOT NULL
+          AND b.trade_date <= ?
+          AND (sd.published_at IS NULL OR substr(sd.published_at, 1, 10) <= ?)
         ORDER BY b.trade_date, b.id
         """,
-        (program_id,),
+        (program_id, as_of.isoformat(), as_of.isoformat()),
     )
     return [
         ProgramWeek(
@@ -350,7 +352,7 @@ async def buyback_forecast(
             },
         }
 
-    weeks = await _program_weeks(repository, int(program["id"]))
+    weeks = await _program_weeks(repository, int(program["id"]), as_of)
     history = _program_history(weeks, int(program["max_shares"]), activity)
     history = known_history(history, period_start.isoformat())
     recent = history[-RECENT_PROGRAM_WEEKS:]
