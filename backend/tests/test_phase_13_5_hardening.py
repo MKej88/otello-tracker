@@ -100,16 +100,21 @@ def test_buyback_forecast_ignores_expired_active_program(tmp_path) -> None:
     assert result["status"] == "NO_ACTIVE_PROGRAM"
 
 
-def test_buyback_forecast_advances_while_awaiting_status_update(tmp_path) -> None:
+def test_buyback_forecast_waits_for_complete_week_before_publishing(tmp_path) -> None:
     database = str(tmp_path / "awaiting-program-update.db")
     init_database(database)
     seed_otec_activity_history(database)
     _seed_program(database, status="ACTIVE")
+    with get_connection(database) as connection:
+        connection.execute(
+            "DELETE FROM market_activity WHERE trading_date BETWEEN '2026-08-17' AND '2026-08-21'"
+        )
+        connection.commit()
 
     result = buyback_forecast(database, as_of_date="2026-08-24")
 
-    assert result["ready"] is True
-    assert result["awaiting_program_update"] is True
+    assert result["ready"] is False, (result.get("forecast_as_of_date"), (result.get("volume_model") or {}).get("volume_through"), result.get("missing_trading_dates"))
+    assert result["status"] == "AWAITING_WEEKLY_VOLUME"
+    assert result["forecast_as_of_date"] == "2026-08-21"
     assert result["forecast_week"]["to"] == "2026-08-28"
-    assert result["estimate"]["base_case_shares"] is not None
-    assert result["active_program_backtest"]["weeks"] >= 1
+    assert "estimate" not in result

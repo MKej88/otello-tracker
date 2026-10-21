@@ -85,24 +85,60 @@ def test_amended_price_never_recalculates_past_week_as_new_forecast(tmp_path):
         )
         connection.commit()
 
+    # Simulate a fully published close for both test weeks. The repository's
+    # historical fixture itself ends on 14 August.
+    with get_connection(database) as connection:
+        instrument = connection.execute(
+            "SELECT id FROM instruments WHERE symbol='OTEC'"
+        ).fetchone()["id"]
+        source = connection.execute(
+            "SELECT id FROM sources WHERE code='EURONEXT'"
+        ).fetchone()["id"]
+        for day in (
+            "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21",
+            "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"
+        ):
+            connection.execute(
+                """INSERT INTO market_activity(
+                    instrument_id, trading_date, volume_shares, last_price_nok,
+                    source_id, quality
+                ) VALUES (?, ?, 44000, '21', ?, 'HISTORICAL_EXPORT')""",
+                (instrument, day, source),
+            )
+        connection.commit()
+
     # 20 August: cap increase and zero-purchase report were not yet available.
     old = reference_forecast(database, as_of_date="2026-08-20")
     assert old["ready"]
     assert old["price_model"]["program_cap_nok"] == 20.0
     assert old["latest_reported_period_end"] == "2026-08-14"
-    assert old["forecast_week"]["from"] == "2026-08-24"
+    assert old["forecast_week"]["from"] == "2026-08-17"
+    assert old["forecast_as_of_date"] == "2026-08-14"
 
-    # 26 August: the week has started, so the next *whole* week is targeted.
+    # Wednesday 26 August: keep the forecast issued at Friday 21 August close.
+    # Monday's new NOK 25 cap cannot rewrite Friday's NOK 20 assumptions.
     current = reference_forecast(database, as_of_date="2026-08-26")
     worker = asyncio.run(worker_forecast(
         SQLiteAsyncRepository(database), as_of_date="2026-08-26"
     ))
     assert worker == current
     assert current["ready"]
-    assert current["price_model"]["program_cap_nok"] == 25.0
-    assert current["latest_reported_period_end"] == "2026-08-21"
-    assert current["forecast_week"]["from"] == "2026-08-31"
-    assert current["forecast_week"]["to"] == "2026-09-04"
-    assert current["forecast_basis"] == "NEXT_FULL_UNSTARTED_WEEK"
-    assert current["awaiting_program_update"] is False
-    assert current["volume_model"]["volume_through"] <= "2026-08-26"
+    assert current["price_model"]["program_cap_nok"] == 20.0
+    assert current["latest_reported_period_end"] == "2026-08-14"
+    assert current["forecast_week"]["from"] == "2026-08-24"
+    assert current["forecast_week"]["to"] == "2026-08-28"
+    assert current["forecast_as_of_date"] == "2026-08-21"
+    assert current["forecast_basis"] == "FRIDAY_CLOSE_WEEKLY"
+    assert current["volume_model"]["volume_through"] == "2026-08-21"
+
+    # The following week may include the announced NOK 25 cap only once
+    # all five sessions through 28 August have been recorded.
+    next_week = reference_forecast(database, as_of_date="2026-08-31")
+    assert next_week["ready"]
+    assert next_week["price_model"]["program_cap_nok"] == 25.0
+    assert next_week["latest_reported_period_end"] == "2026-08-21"
+    assert next_week["forecast_as_of_date"] == "2026-08-28"
+    assert next_week["forecast_week"]["from"] == "2026-08-31"
+    assert next_week["forecast_week"]["to"] == "2026-09-04"
+    assert next_week["volume_model"]["volume_through"] == "2026-08-28"
+    assert next_week["forecast_basis"] == "FRIDAY_CLOSE_WEEKLY"

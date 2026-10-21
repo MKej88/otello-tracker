@@ -53,6 +53,9 @@ type Forecast = {
   ready?: boolean;
   status?: string;
   forecast_week?: ForecastWeek;
+  forecast_as_of_date?: string;
+  expected_volume_through?: string | null;
+  volume_through?: string | null;
   volume_model?: {
     adv20_shares?: number | null;
     forecast_adv20_shares?: number | null;
@@ -177,6 +180,7 @@ function statusLabel(input?: string | null) {
     LOW: "LAV",
     OK: "AKTIVT",
     PRICE_CAP_BLOCKED: "MAKS KJØPSPRIS",
+    AWAITING_WEEKLY_VOLUME: "VENTER PÅ UKESVOLUM",
     OPEN: "ÅPEN",
     TIGHT: "NÆR MAKS KJØPSPRIS",
     ABOVE_CAP: "OVER MAKS KJØPSPRIS",
@@ -447,9 +451,11 @@ export default function BuybackPage() {
 
         <article className="card cardStandard buybackDetail forecastCard">
           <div className="cardHeader">
-            <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h3>Prognose</h3></div>
-            <span className={`buybackConfidence ${estimate?.confidence === "HIGH" ? "" : "warn"}`}>{statusLabel(estimate?.confidence)}</span>
+            <div><span className="label">{forecastPeriodLabel(forecast?.forecast_week)}</span><h3>Ukeprognose</h3></div>
+            <span className={`buybackConfidence ${estimate?.confidence === "HIGH" ? "" : "warn"}`}>{forecast?.ready ? statusLabel(estimate?.confidence) : "VENTER"}</span>
           </div>
+          {forecast?.ready ? (
+            <>
           <div className="forecastPrimary">
             <span>Baseestimat</span>
             <strong className="numeric">{count(estimate?.base_case_shares)}</strong>
@@ -471,14 +477,32 @@ export default function BuybackPage() {
             <div><span>ADV20 fra råvolum</span><strong className="numeric">{count(volume?.adv20_shares)}</strong></div>
             <div><span>ADV20 brukt i prognosen</span><strong className="numeric">{count(volume?.forecast_adv20_shares ?? volume?.adv20_shares)}</strong></div>
             <div><span>Kapasitet fra råvolum</span><strong className="numeric">{count(volume?.week_start_capacity_estimate_shares)}</strong></div>
-            <div><span>Maks kjøpspris</span><strong className="numeric">{value(price?.program_cap_nok, 2)} kr</strong></div>
+            <div><span>Makspris ved prognosetidspunkt</span><strong className="numeric">{value(price?.program_cap_nok, 2)} kr</strong></div>
             <div><span>Avstand til maks kjøpspris</span><strong className="numeric">{percentage(headroom, 1)}</strong></div>
           </div>
           <p className="accuracyNote">
             Nyere kjøpsuker teller mest. Ekstreme volumdager dempes i prognosen.
             {(volume?.volume_outlier_days ?? 0) > 0 && ` ${volume?.volume_outlier_days} volumdager er dempet; volumgrunnlaget er redusert med ${value(volume?.volume_adjustment_pct, 1)} %.`}
             {" "}Intervallet bygger på de siste ukenes prognosefeil.
+            {" "}Prognosen er låst til siste avsluttede børsuke ({dateLabel(forecast.forecast_as_of_date)}).
+            Ny prognose kommer først når neste ukes sluttvolum er registrert.
           </p>
+            </>
+          ) : (
+            <div className="forecastPrimary">
+              <strong>Venter på komplett ukesvolum</strong>
+              <small>
+                Ingen foreløpig prognose vises.
+                {forecast?.forecast_week?.from
+                  ? ` Neste prognoseperiode: ${dateLabel(forecast.forecast_week.from)}–${dateLabel(forecast.forecast_week.to)}.`
+                  : ""}
+              </small>
+              <p className="accuracyNote">
+                Ny ukeprognose publiseres først etter ukens siste børsdag, når
+                alle volumdata er registrert. Siste mottatte volumdato: {dateLabel(forecast?.volume_through)}.
+              </p>
+            </div>
+          )}
         </article>
       </section>
 
