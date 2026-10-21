@@ -272,14 +272,18 @@ async def buyback_dashboard(
                b.cumulative_program_shares, b.cumulative_program_avg_price_nok,
                b.cumulative_program_amount_nok,
                b.treasury_shares_after, p.external_program_id, p.max_shares,
-               p.max_price_nok, p.start_date, p.end_date
+               COALESCE((
+                   SELECT cap.max_price_nok FROM buyback_program_cap_history cap
+                   WHERE cap.program_id=p.id AND substr(cap.effective_at, 1, 10)<=?
+                   ORDER BY cap.effective_at DESC, cap.id DESC LIMIT 1
+               ), p.max_price_nok) AS max_price_nok, p.start_date, p.end_date
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
         WHERE b.trade_date <= ? AND p.status = 'ACTIVE'
           AND (p.start_date IS NULL OR p.start_date <= ?)
           AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
         """,
-        (as_of, as_of, as_of),
+        (as_of, as_of, as_of, as_of),
     )
     share_count_request = repository.first(
         """

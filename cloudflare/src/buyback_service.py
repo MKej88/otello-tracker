@@ -117,7 +117,12 @@ async def _active_program(repository, as_of: date):
     return await repository.first(
         """
         SELECT p.id, p.external_program_id, p.start_date, p.end_date, p.status,
-               p.max_shares, p.max_price_nok,
+               p.max_shares,
+               COALESCE((
+                   SELECT cap.max_price_nok FROM buyback_program_cap_history cap
+                   WHERE cap.program_id=p.id AND substr(cap.effective_at, 1, 10)<=?
+                   ORDER BY cap.effective_at DESC, cap.id DESC LIMIT 1
+               ), p.max_price_nok) AS max_price_nok,
                b.trade_date AS latest_period_end, b.cumulative_program_shares,
                b.treasury_shares_after
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
@@ -126,7 +131,7 @@ async def _active_program(repository, as_of: date):
           AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
         """,
-        (as_of.isoformat(), as_of.isoformat()),
+        (as_of.isoformat(), as_of.isoformat(), as_of.isoformat()),
     )
 
 
