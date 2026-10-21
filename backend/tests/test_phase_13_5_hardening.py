@@ -100,7 +100,7 @@ def test_buyback_forecast_ignores_expired_active_program(tmp_path) -> None:
     assert result["status"] == "NO_ACTIVE_PROGRAM"
 
 
-def test_buyback_forecast_keeps_last_complete_week_while_awaiting_update(tmp_path) -> None:
+def test_buyback_forecast_advances_while_awaiting_status_update(tmp_path) -> None:
     database = str(tmp_path / "awaiting-program-update.db")
     init_database(database)
     seed_otec_activity_history(database)
@@ -110,6 +110,6 @@ def test_buyback_forecast_keeps_last_complete_week_while_awaiting_update(tmp_pat
 
     assert result["ready"] is True
     assert result["awaiting_program_update"] is True
-    assert result["forecast_week"]["to"] == "2026-08-21"
+    assert result["forecast_week"]["to"] == "2026-08-28"
     assert result["estimate"]["base_case_shares"] is not None
     assert result["active_program_backtest"]["weeks"] >= 1
