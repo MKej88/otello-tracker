@@ -51,9 +51,9 @@ def parse_amended_price_cap(body: str) -> Decimal:
     """
     clean = " ".join(body.split())
     for match in _CAP_CONTEXT.finditer(clean):
-        sentence = clean[match.start():].split(".", 1)[0][:350]
+        sentence = clean[match.start():][:350]
         # Decimal dots inside NOK 20.00 must not terminate this context.
-        sentence = re.split(r"(?<=[A-Za-z])\.\s+|;\s+", sentence, maxsplit=1)[0]
+        sentence = re.split(r"(?<!\d)\.(?!\d)\s+|;\s+", sentence, maxsplit=1)[0]
         prices = list(_NOK_AMOUNT.finditer(sentence))
         if not prices or "per share" not in sentence.lower():
             continue
@@ -97,7 +97,16 @@ async def record_program_price_cap(
     program_id = int(program["id"])
     old_price = program.get("max_price_nok")
     old_source_id = program.get("source_document_id")
-    if old_price is not None and old_source_id is not None and int(old_source_id) != source_document_id:
+    existing_cap = await repository.first(
+        "SELECT id FROM buyback_program_cap_history WHERE program_id=? LIMIT 1",
+        (program_id,),
+    )
+    if (
+        existing_cap is None
+        and old_price is not None
+        and old_source_id is not None
+        and int(old_source_id) != source_document_id
+    ):
         baseline_date = str(program.get("start_date") or effective_at[:10])
         await repository.run(
             """
