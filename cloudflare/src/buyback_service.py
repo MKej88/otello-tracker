@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import statistics
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -127,12 +129,60 @@ async def _active_program(repository, as_of: date):
                b.treasury_shares_after
         FROM buybacks b JOIN buyback_programs p ON p.id=b.program_id
         WHERE p.status='ACTIVE'
+          AND b.trade_date <= ?
           AND (p.start_date IS NULL OR p.start_date <= ?)
           AND (p.end_date IS NULL OR p.end_date >= ?)
         ORDER BY b.trade_date DESC, b.id DESC LIMIT 1
         """,
-        (as_of.isoformat(), as_of.isoformat(), as_of.isoformat()),
+        (as_of.isoformat(), as_of.isoformat(), as_of.isoformat(), as_of.isoformat()),
     )
+
+
+async def _latest_no_purchase_period_end(repository, as_of: date, program_start: str | None) -> date | None:
+    """Read zero-buy weeks already archived by NewsWeb, including older metadata.
+
+    buybacks.shares has a >0 constraint, so zero-share status weeks have no
+    buybacks row. Their source documents are authoritative for reporting
+    coverage, but must not fabricate purchases or alter cumulative shares.
+    """
+    documents = await repository.all(
+        """
+        SELECT sd.metadata_json
+        FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='NEWSWEB'
+          AND json_extract(sd.metadata_json, '$.buyback_status')='NO_PURCHASES'
+          AND substr(sd.published_at, 1, 10) <= ?
+        ORDER BY sd.published_at DESC, sd.id DESC LIMIT 50
+        """,
+        (as_of.isoformat(),),
+    )
+    newest: date | None = None
+    for document in documents:
+        metadata = json.loads(str(document.get("metadata_json") or "{}"))
+        date_text = metadata.get("period_end")
+        if not date_text:
+            # Legacy messages before structured period dates were added.
+            match = re.search(
+                r"\bthrough\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4}),",
+                str(metadata.get("period_text") or ""), re.I,
+            )
+            if match:
+                try:
+                    date_text = datetime.strptime(match.group(1), "%d %B %Y").date().isoformat()
+                except ValueError:
+                    continue
+        if not date_text:
+            continue
+        try:
+            end = date.fromisoformat(str(date_text)[:10])
+        except ValueError:
+            continue
+        if end > as_of or (program_start and end < date.fromisoformat(program_start)):
+            continue
+        if newest is None or end > newest:
+            newest = end
+    return newest
 
 
 async def _program_weeks(repository, program_id: int) -> list[ProgramWeek]:
@@ -241,13 +291,19 @@ async def buyback_forecast(
             "methodology_version": METHOD_VERSION,
         }
 
-    latest_end = date.fromisoformat(program["latest_period_end"])
-    period_start = _next_monday(latest_end)
+    last_purchase_end = date.fromisoformat(program["latest_period_end"])
+    zero_purchase_end = await _latest_no_purchase_period_end(repository, as_of, program["start_date"])
+    latest_reported_end = max(last_purchase_end, zero_purchase_end or last_purchase_end)
+    # Offer a full-week forward estimate only. Never apply today's amended price
+    # cap retrospectively to an already started (or completed) forecast week.
+    period_start = _next_monday(max(latest_reported_end, as_of - timedelta(days=1)))
     period_end = period_start + timedelta(days=4)
     trading_days = oslo_bors_trading_days(period_start, period_end)
-    awaiting_program_update = as_of > period_end
+    latest_unreported_week_end = _next_monday(latest_reported_end) + timedelta(days=4)
+    awaiting_program_update = as_of > latest_unreported_week_end
 
-    activity = await _activity_history(repository, period_start)
+    # Do not consume trading prices/volumes later than the requested as-of date.
+    activity = await _activity_history(repository, min(period_start, as_of + timedelta(days=1)))
     lookback = _activity_before(activity, period_start)
     if len(lookback) < LOOKBACK_DAYS:
         return {
@@ -342,6 +398,8 @@ async def buyback_forecast(
         "ready": True,
         "status": "OK" if price_state != "ABOVE_CAP" else "PRICE_CAP_BLOCKED",
         "awaiting_program_update": awaiting_program_update,
+        "latest_reported_period_end": latest_reported_end.isoformat(),
+        "forecast_basis": "NEXT_FULL_UNSTARTED_WEEK",
         "methodology_version": METHOD_VERSION,
         "as_of_date": as_of.isoformat(),
         "program": {
