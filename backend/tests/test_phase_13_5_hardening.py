@@ -108,7 +108,7 @@ def test_buyback_forecast_waits_for_complete_week_before_publishing(tmp_path) ->
 
     result = buyback_forecast(database, as_of_date="2026-08-24")
 
-    assert result["ready"] is False, (result.get("forecast_as_of_date"), result.get("forecast_week"), result.get("volume_model"), result.get("missing_trading_dates"))
+    assert result["ready"] is False, (result.get("forecast_as_of_date"), (result.get("volume_model") or {}).get("volume_through"), result.get("missing_trading_dates"))
     assert result["status"] == "AWAITING_WEEKLY_VOLUME"
     assert result["forecast_as_of_date"] == "2026-08-21"
     assert result["forecast_week"]["to"] == "2026-08-28"
