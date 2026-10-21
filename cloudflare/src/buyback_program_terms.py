@@ -7,7 +7,7 @@ retain an audit trail; late historical status messages cannot reverse a change.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
