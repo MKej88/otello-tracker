@@ -29,6 +29,57 @@ export function httpCategory(status) {
   return "ok";
 }
 
+/** Rate-limit aware API sampling. Keep all waits outside measured response timings. */
+export const API_PROBE_INTERVAL_MS = 1250;
+
+export function parseRetryAfterMs(value, nowMs = Date.now()) {
+  if (value == null || !String(value).trim()) return null;
+  const raw = String(value).trim();
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const date = Date.parse(raw);
+  return Number.isFinite(date) ? Math.max(0, date - nowMs) : null;
+}
+
+export function isRateLimitError(error) {
+  return error?.status === 429;
+}
+
+/**
+ * Retry only HTTP 429. Respect Retry-After, including a long backoff by
+ * skipping the probe rather than retrying before the requested cooldown.
+ * The caller measures only the final HTTP request, not the waiting period.
+ */
+export async function fetchWithRateLimitRetry(url, {
+  fetchFn = fetch,
+  sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  beforeAttempt = async () => {},
+  maxRetries = 2,
+} = {}) {
+  let rateLimitedAttempts = 0;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await beforeAttempt();
+    const response = await fetchFn(url, {
+      signal: AbortSignal.timeout(20000),
+      headers: { accept: "application/json" },
+    });
+    if (response.status !== 429) return { response, rateLimitedAttempts };
+
+    rateLimitedAttempts++;
+    const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+    await response.body?.cancel();
+    // A long Retry-After means the server explicitly asked us not to probe
+    // again during this run. Never override it with our shorter backoff.
+    if (attempt === maxRetries || (retryAfterMs != null && retryAfterMs > 60000)) {
+      const error = new Error("HTTP 429 (rate limited)");
+      error.status = 429;
+      error.rateLimitedAttempts = rateLimitedAttempts;
+      throw error;
+    }
+    await sleepFn(retryAfterMs ?? Math.min(15000, 5000 * 2 ** attempt));
+  }
+}
+
 /** Never store full URLs, query strings, headers, response bodies or raw network errors. */
 export function createApiDiagnostics(origin) {
   const requests = new Map();
@@ -116,7 +167,7 @@ export async function probeColdWithRetry(runAttempt, wait = async () => {}) {
         attempt, outcome: "failed",
         diagnosis: error?.diagnosis || classifyColdFailure(error, null, null),
       });
-      if (attempt === 1) await wait();
+      if (attempt === 1) await wait(attempts[0]);
     }
   }
   return { ok: false, attempts };
