@@ -76,7 +76,7 @@ def test_saturday_with_missing_friday_volume_does_not_publish_forecast(tmp_path)
     # week as a new forecast. Target the unstarted 24–28.08 week instead.
     result = buyback_forecast(database, as_of_date="2026-08-22")
 
-    assert result["ready"] is False, result
+    assert result["ready"] is False, (result.get("forecast_as_of_date"), result.get("forecast_week"), result.get("volume_model"), result.get("missing_trading_dates"))
     assert result["status"] == "AWAITING_WEEKLY_VOLUME"
     assert result["forecast_as_of_date"] == "2026-08-21"
     assert result["missing_trading_dates"] == [
