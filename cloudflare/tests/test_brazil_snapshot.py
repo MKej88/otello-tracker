@@ -200,3 +200,28 @@ class BrazilSnapshotTest(unittest.IsolatedAsyncioTestCase):
         self.payload["generated_at"] = (now - timedelta(minutes=60)).isoformat()
         self.repository.first.return_value = {"value": json.dumps(self.payload)}
         self.assertEqual(await snapshot.load_snapshot(self.repository, now=now), self.payload)
+
+    async def test_snapshot_diagnostics_report_d1_and_parse_without_data(self) -> None:
+        diagnostics: dict[str, float | str] = {}
+        result = await snapshot.cached_brazil_dashboard(
+            self.repository, diagnostics=diagnostics
+        )
+        self.assertEqual(result, self.payload)
+        self.assertEqual(diagnostics["snapshot"], "fresh")
+        self.assertGreaterEqual(diagnostics["d1_ms"], 0)
+        self.assertGreaterEqual(diagnostics["parse_ms"], 0)
+        self.assertNotIn("value", diagnostics)
+        self.assertNotIn("metrics", diagnostics)
+
+    async def test_missing_snapshot_reports_missing_without_expensive_work(self) -> None:
+        self.repository.first.return_value = None
+        diagnostics: dict[str, float | str] = {}
+        with patch.object(snapshot, "build_dashboard", AsyncMock()) as build:
+            result = await snapshot.cached_brazil_dashboard(
+                self.repository, diagnostics=diagnostics
+            )
+        self.assertTrue(result["snapshot_unavailable"])
+        self.assertEqual(diagnostics["snapshot"], "missing")
+        self.assertIn("d1_ms", diagnostics)
+        self.assertNotIn("parse_ms", diagnostics)
+        build.assert_not_awaited()
