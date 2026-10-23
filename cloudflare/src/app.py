@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 
 from dashboard_hot_snapshot import (
@@ -327,13 +329,29 @@ async def get_overview_events(
 @app.get("/api/brazil/dashboard")
 async def get_brazil_dashboard(
     request: Request,
+    response: Response,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
     from brazil_snapshot import cached_brazil_dashboard, snapshot_degraded
 
+    started = perf_counter()
+    diagnostics: dict[str, float | str] = {}
     try:
-        payload = await cached_brazil_dashboard(_write_repository(request), as_of_date=as_of_date)
+        payload = await cached_brazil_dashboard(
+            _write_repository(request), as_of_date=as_of_date, diagnostics=diagnostics
+        )
         request.state.brazil_degraded = snapshot_degraded(payload)
+        # Server-Timing exposes only bounded aggregate durations and a fixed
+        # snapshot category. It never includes SQL, row contents or source data.
+        metrics = [f"brazil_handler;dur={(perf_counter() - started) * 1000:.2f}"]
+        for key in ("d1", "parse"):
+            elapsed = diagnostics.get(f"{key}_ms")
+            if isinstance(elapsed, (float, int)):
+                metrics.append(f"brazil_{key};dur={elapsed:.2f}")
+        snapshot = diagnostics.get("snapshot")
+        if snapshot in ("fresh", "stale", "missing", "historical"):
+            metrics.append(f'brazil_snapshot;desc="{snapshot}"')
+        response.headers["Server-Timing"] = ", ".join(metrics)
         return payload
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc

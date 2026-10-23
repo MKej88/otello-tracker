@@ -7,6 +7,9 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { screenState } from "./performance-screen-state.mjs";
+import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
+import { parseBrazilServerTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
   fetchWithRateLimitRetry, isRateLimitError, probeColdWithRetry,
@@ -91,6 +94,8 @@ async function probeApi(path) {
       headersMs, totalMs, bytes, status: response.status,
       cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
       ageSeconds: Number(response.headers.get("age")) || 0,
+      serverTiming: path === "/api/brazil/dashboard"
+        ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
     });
   }
   return {
@@ -101,6 +106,8 @@ async function probeApi(path) {
     responseBytes: samples.at(-1).bytes,
     cfCacheStatus: samples.map((sample) => sample.cfCacheStatus),
     ageSeconds: samples.map((sample) => sample.ageSeconds),
+    ...(path === "/api/brazil/dashboard"
+      ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
     rateLimitedAttempts,
   };
 }
@@ -190,36 +197,6 @@ class CdpSession {
   }
 }
 
-function screenState() {
-  const route = routeDefinitions.find((item) => item.hash === location.hash.toLowerCase());
-  const heading = document.querySelector(".investorTopbar h1")?.textContent?.trim();
-  const marker = route ? document.querySelector(route.selector) : null;
-  let ready = Boolean(route && marker && heading === route.heading);
-  if (ready && route.kind === "price") {
-    ready = marker.textContent.includes("kr") && !marker.querySelector(".loadingPlaceholder");
-  }
-  if (ready && route.kind === "news") {
-    ready = !document.querySelector(".loadingPlaceholderNews, .loadingPlaceholderCalendar");
-  }
-  if (ready && route.kind === "quality") {
-    ready = !document.querySelector(".qualityTrustLead small")?.textContent?.trim().endsWith("–");
-  }
-  const error = Boolean(document.querySelector(".brazilError")) ||
-    Boolean(document.querySelector(".resourceNoticeError")) ||
-    (document.body?.innerText || "").includes("Kunne ikke hente investordata.") ||
-    (document.body?.innerText || "").includes("Kunne ikke hente NAV-historikk.") ||
-    (document.body?.innerText || "").includes("Kunne ikke hente Bemobi-data.") ||
-    (document.body?.innerText || "").includes("Kunne ikke hente konsensusdata.") ||
-    (document.body?.innerText || "").includes("Kunne ikke hente NAV-sammensetningen.");
-  return {
-    ready, error, label: route?.label || null, heading,
-    headingMatches: Boolean(route && heading === route.heading),
-    markerFound: Boolean(marker),
-    loading: Boolean(document.querySelector(".loadingPlaceholderPage, .loadingPlaceholder, .loadingPlaceholderNews")),
-    unavailable: Boolean(document.querySelector(".fxError, .bemobiNotice, .brazilError, .resourceNoticeError")),
-  };
-}
-
 /**
  * Installed only by CDP in synthetic Chrome, before React loads. A MutationObserver
  * records the FIRST animation frame after a route's real data marker is ready.
@@ -240,7 +217,7 @@ function syntheticObserver(routeDefinitions, screenState) {
 
   function check() {
     pendingFrame = false;
-    const state = screenState();
+    const state = screenState(routeDefinitions);
     if (state?.ready && state.label) {
       const hash = location.hash.toLowerCase();
       if (readyAt[hash] == null) readyAt[hash] = performance.now();
@@ -278,7 +255,7 @@ function observerInjection() {
 
 function routeStatusScript() {
   return "(() => { const routeDefinitions = " + JSON.stringify(ROUTES) +
-    "; return (" + screenState.toString() + ")(); })()";
+    "; return (" + screenState.toString() + ")(routeDefinitions); })()";
 }
 
 async function waitForRoute(session, route, timeoutMs = 25000) {
@@ -307,7 +284,7 @@ function metricsScript(transitionStart = false) {
 }
 
 function extractBrowserMetrics(transitionStartMs = 0) {
-  const status = screenState();
+  const status = screenState(routeDefinitions);
   const now = performance.now();
   const markerAt = window.__otelloSynthetic?.readyAt?.[location.hash.toLowerCase()];
   // Keep the first-ready timestamp; never measure a second CDP poll as "load time".
@@ -363,7 +340,7 @@ function extractBrowserMetrics(transitionStartMs = 0) {
   };
 }
 
-async function probeBrowserAttempt(hash) {
+async function probeBrowserAttempt(hash, { profileCpu = false } = {}) {
   const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-perf-"));
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -397,6 +374,11 @@ async function probeBrowserAttempt(hash) {
       source: observerInjection(),
     });
     const pageUrl = new URL("/" + hash, base).toString();
+    if (profileCpu) {
+      await session.send("Profiler.enable");
+      await session.send("Profiler.setSamplingInterval", { interval: 1000 });
+      await session.send("Profiler.start");
+    }
     await session.send("Page.navigate", { url: pageUrl });
     const route = ROUTES.find((item) => item.hash === hash);
     if (!route) throw new Error("Unknown synthetic route: " + hash);
@@ -405,7 +387,10 @@ async function probeBrowserAttempt(hash) {
     if (!metrics?.status?.ready || metrics.status.label !== route.label) {
       throw new Error("First-screen data lost on " + hash);
     }
-    return { route: hash, ...metrics };
+    const cpuProfile = profileCpu
+      ? summarizeCpuProfile((await session.send("Profiler.stop")).profile, base.origin)
+      : null;
+    return { route: hash, ...metrics, ...(cpuProfile ? { cpuProfile } : {}) };
   } catch (error) {
     let pageState = null;
     if (session) {
@@ -549,6 +534,7 @@ async function main() {
     coldFailures: [],
     rateLimits: [],
     errors: [],
+    overviewCpuProfile: null,
   };
   for (const endpoint of [
     "/api/health", "/api/dashboard/bootstrap", "/api/dashboard/summary",
@@ -614,6 +600,24 @@ async function main() {
       result.errors.push("SPA navigation: " + String(error));
     }
   }
+  // Optional independent Chrome run: sampling must never contaminate baseline metrics.
+  const overview = result.browser.find((item) => item.route === "#oversikt");
+  if (overview?.longTaskTotalMs >= 250 && !result.errors.length && !result.rateLimits.length) {
+    await sleep(5000); // Reduce pressure on production rate limits.
+    try {
+      const profiled = await probeBrowserAttempt("#oversikt", { profileCpu: true });
+      result.overviewCpuProfile = {
+        status: "ok",
+        profiledLoadMs: profiled.firstDataMs,
+        ...profiled.cpuProfile,
+      };
+    } catch (error) {
+      result.overviewCpuProfile = {
+        status: "unavailable",
+        category: error?.diagnosis?.category || "profile_error",
+      };
+    }
+  }
   writeFileSync(reportPath, JSON.stringify(result, null, 2) + "\n");
 
   function resourceLabel(resource) {
@@ -638,6 +642,7 @@ async function main() {
         ", utilgjengelig=" + diagnosis.page.unavailable + ")";
     }).join("; ");
   }
+  const brazil = result.api.find((item) => item.endpoint === "/api/brazil/dashboard");
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
@@ -676,6 +681,32 @@ async function main() {
       a.medianTotalMs + " ms | " + a.responseBytes + " byte | " +
       (a.cfCacheStatus?.join(" / ") || "–") + " |"
     ),
+    "",
+    "### Brasil – origin-/D1-tidsfordeling",
+    "",
+    ...(brazil?.serverTiming?.map((timing, index) => {
+      if (!timing) return "- Forespørsel " + (index + 1) + ": ingen Server-Timing (eldre deploy eller cache).";
+      return "- Forespørsel " + (index + 1) + ": handler " +
+        (timing.handlerMs ?? "–") + " ms, D1 " + (timing.d1Ms ?? "–") +
+        " ms, JSON " + (timing.parseMs ?? "–") + " ms, snapshot " +
+        (timing.snapshot || "–") + ".";
+    }) || ["Ingen Brasil-resultat fra API-proben."]),
+    "Ved Cloudflare-cache HIT kan Server-Timing gjelde det opprinnelige svaret, ikke gjeldende cachelevering.",
+    "",
+    "### Oversikt – separat CPU-profil",
+    "",
+    ...(result.overviewCpuProfile?.status === "ok" ? [
+      "Uavhengig diagnostikk: " + result.overviewCpuProfile.profiledLoadMs +
+        " ms (IKKE brukt i lastetidstrend), " +
+        result.overviewCpuProfile.attributedSamples + " av " +
+        result.overviewCpuProfile.totalSamples + " CPU-utvalg knyttet til egne JS-filer.",
+      ...result.overviewCpuProfile.topFunctions.map((item) =>
+        "- `" + item.path + "` – " + item.functionName + ": ca. " +
+        item.estimatedCpuMs + " ms fra sampling (" + item.samples + " utvalg)."),
+    ] : [result.overviewCpuProfile?.status === "unavailable"
+      ? "Separat profil feilet (" + result.overviewCpuProfile.category +
+        "); ordinære målinger er upåvirket."
+      : "Ikke utløst: Oversikt hadde under 250 ms lange oppgaver eller en ufullstendig kjøring."]),
     "",
     "### Kandidater for nærmere analyse",
     "",

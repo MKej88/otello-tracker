@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 STATE_KEY = "brazil_dashboard_snapshot_v1"
@@ -75,15 +76,26 @@ async def build_dashboard(repository: Any, *, as_of_date: str | None = None) -> 
 
 
 async def load_snapshot(
-    repository: Any, *, now: datetime | None = None, allow_stale: bool = False
+    repository: Any, *, now: datetime | None = None, allow_stale: bool = False,
+    diagnostics: dict[str, float | str] | None = None,
 ) -> dict | None:
-    row = await repository.first(
-        "SELECT value FROM runtime_state WHERE key = ?", (STATE_KEY,)
-    )
+    query_started = perf_counter()
+    try:
+        row = await repository.first(
+            "SELECT value FROM runtime_state WHERE key = ?", (STATE_KEY,)
+        )
+    finally:
+        if diagnostics is not None:
+            diagnostics["d1_ms"] = round((perf_counter() - query_started) * 1000, 2)
     if not row:
         return None
     try:
-        payload = json.loads(row["value"])
+        parse_started = perf_counter()
+        try:
+            payload = json.loads(row["value"])
+        finally:
+            if diagnostics is not None:
+                diagnostics["parse_ms"] = round((perf_counter() - parse_started) * 1000, 2)
         if not isinstance(payload, dict) or not payload.get("ready"):
             return None
         generated = datetime.fromisoformat(str(payload["generated_at"]).replace("Z", "+00:00"))
@@ -138,16 +150,25 @@ async def save_snapshot(repository: Any, payload: dict) -> None:
     )
 
 
-async def cached_brazil_dashboard(repository: Any, *, as_of_date: str | None = None) -> dict:
+async def cached_brazil_dashboard(
+    repository: Any, *, as_of_date: str | None = None,
+    diagnostics: dict[str, float | str] | None = None,
+) -> dict:
     # Explicit historical requests must neither read nor replace today's snapshot.
     if as_of_date is not None:
+        if diagnostics is not None:
+            diagnostics["snapshot"] = "historical"
         return await build_dashboard(repository, as_of_date=as_of_date)
     try:
-        cached = await load_snapshot(repository, allow_stale=True)
+        cached = await load_snapshot(repository, allow_stale=True, diagnostics=diagnostics)
     except Exception:
         cached = None
     if cached is not None:
+        if diagnostics is not None:
+            diagnostics["snapshot"] = "stale" if cached.get("snapshot_stale") else "fresh"
         return cached
+    if diagnostics is not None:
+        diagnostics["snapshot"] = "missing"
 
     # Visitor requests never fetch from BCB/Olinda/Investing.com. The scheduled
     # refresh job owns external source work; do not block the first visitor.

@@ -21,7 +21,9 @@ første animasjonsramme der rutespesifikt hovedinnhold faktisk finnes. Den er
 **ikke** innebygd i investor-nettsiden og sender ingen data fra vanlige brukere.
 Tidligere CDP-polling (ca. 120 ms mellom prøver) brukes fortsatt til å verifisere
 at siden er klar, men påvirker ikke lenger hovedtidsmålingen når observatøren
-fungerer.
+fungerer. Rutestatus leser små, målrettede DOM-elementer og aldri
+`document.body.innerText` i observerløkken; dette unngår unødvendig
+layoutarbeid som ellers kan forurense de syntetiske målingene.
 
 Rapporten viser nå også:
 - **DOM → data**: intervall fra DOMContentLoaded til første rutespesifikke
@@ -34,6 +36,16 @@ Rapporten viser nå også:
   fram til første hovedinnhold. Skiller tung JS-kjøring fra rene nettverksvent.
 - **Cloudflare-cache**: `CF-Cache-Status` (tre prøveforespørsler) på direkte
   API-målinger. Manglende header betyr ikke automatisk cachemiss.
+- **Brasil Server-Timing**: måler separat API-handlerens tidsbruk, D1-latens,
+  JSON-parsing og snapshot-status (fresh/stale/missing). Dette er origin-målinger;
+  `HIT` kan vise gamle Server-Timing-verdier fra et tidligere origin-svar.
+  Headeren inneholder ikke SQL, rådata eller eksterne API-svar.
+- **Oversikt CPU-profil**: ved minst 250 ms lange oppgaver tas én separat
+  Chrome-måling med DevTools sampling-profiler, etter de ordinære målingene.
+  Profilerens tidsbruk inngår **ikke** i baseline eller trendmedianer.
+  JSON-artifact inneholder bare aggregerte, samme-domene JS-filbaner og
+  funksjonsnavn, aldri råprofiler, tredjeparts-URL-er eller query-parametere.
+  Profileringen er best-effort og kan feile eller utebli ved rate limiting.
 - **Flaskehalskandidater**: sider som bruker over 1 sekund fra DOM klar
   til hovedinnhold. Siden kan vente på data; observasjonen beviser ikke årsaken.
 
@@ -138,6 +150,9 @@ besøkendes nettlesere. Denne overvåkingen krever ingen Cloudflare-hemmelighete
 - Alle 12 rutene åpnes med tom profil for å fange opp treg førstegangslasting.
 - En rute markeres som klar når rutespesifikt hovedinnhold finnes etter
   React-rendering. Noen sekundærkort eller diagrammer kan lastes etter dette.
+- En separat CPU-profil bruker sampling og er kun en indikasjon på hvilke
+  funksjoner som tar tid; JavaScript i minifiserte bunter kan ha utydelige navn.
+  Prosessen kan ikke alene bevise at React eller selve siden er rotårsaken.
 - SPA-navigering måles i én sammenhengende økt; senere sider kan nyte godt av
   kode- og API-cache som allerede er lastet av tidligere visninger.
 - Nye hovedvisninger må legges til i målekatalogen, ellers måles de ikke.
