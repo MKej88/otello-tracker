@@ -235,11 +235,11 @@ uv==0.13.4 \
     --hash=sha256:e90ab42825587821096cb0d071e387468da38cfa22818c91f9c0b3c0453048e8 \
     --hash=sha256:fb0e2028d9a8929884344afb7d91d0f65d9783f640d28aede89fca3602bedde9
     # via -r cloudflare/worker-tooling.in
-workers-py==1.16.2 \
-    --hash=sha256:82c78a890e94e5079903dbc20a6e3c049a974cecd44143f0ea9219479e2f4a21 \
-    --hash=sha256:c35cfd01b37988f22dda1811a968700315ca37d4a0b79086d553778e0231d994
+workers-py==1.17.8 \
+    --hash=sha256:083d72297ee560e23264ba237590399764f2d06c792de1f91eb3fd8cc58b31e7 \
+    --hash=sha256:9440f6ffb82f7d78682aae81485a585cc4507a1d430f1171ca7ecb59e81a7858
     # via -r cloudflare/worker-tooling.in
-workers-runtime-sdk==1.9.3 \
-    --hash=sha256:b3982ef01b824703258bbdd2c65980b8acc64f9dc5797f6b193eaf4f0808860f \
-    --hash=sha256:f2c043fb8a0385a9e3a2ec80d2f4ac4a742af4f5e69652e4df55714e29deaa2e
+workers-runtime-sdk==1.9.4 \
+    --hash=sha256:2bd6f5788fd6fdd38ff677e37c93fd92b37ff3a3ab33b43b7ed84ba50688a647 \
+    --hash=sha256:8d8aa5861eaf773882a36e13ab2fdd4bbab272aaf22a0254f6c459b7e55d6e4b
     # via workers-py
