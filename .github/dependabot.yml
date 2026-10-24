@@ -43,7 +43,10 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: "pip"
-    directory: "/backend"
+    # Update shared Python dependencies in backend and Cloudflare in one PR.
+    directories:
+      - "/backend"
+      - "/cloudflare"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -66,7 +69,7 @@ updates:
           - "pydantic-core"
           - "pydantic-settings"
       # General routine group after the exact-version Pydantic family group.
-      routine-backend:
+      routine-python:
         applies-to: version-updates
         patterns:
           - "*"

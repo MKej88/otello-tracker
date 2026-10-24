@@ -24,6 +24,8 @@ on:
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
+      - tools/select_production_diagnostic.py
+      - tools/tests/test_select_production_diagnostic.py
   push:
     branches: [main]
     paths:
@@ -33,9 +35,13 @@ on:
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
+      - tools/select_production_diagnostic.py
+      - tools/tests/test_select_production_diagnostic.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
+    # Read-only watchdog every two hours; full diagnosis remains once daily.
+    - cron: "17 */2 * * *"
 
 permissions:
   contents: read
@@ -60,12 +66,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Check read-only diagnostic severity tests
-        run: PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
+        run: |
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
+          PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_select_production_diagnostic.py'
 
   diagnose:
     # Live production reads only after the nightly deadline, or on manual request.
     # In particular, never compare a fresh main commit with a pre-deploy night.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -708,3 +716,73 @@ jobs:
         run: |
           echo '::error::Den automatiske diagnosen fant et produksjonsavvik i Cloudflare Workflow eller D1.'
           exit 1
+
+  fast-freshness:
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */2 * * *'
+    name: Read-only fast-refresh watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CF_API_BASE: https://api.cloudflare.com/client/v4
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+    steps:
+      - name: Verify latest 30-minute refresh
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          [[ "$D1_DATABASE_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 20 \
+            --get --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --data-urlencode "name=${D1_DATABASE_NAME}" \
+            "${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database" > databases.json
+          database_id="$(python - <<'PY'
+          import json, os
+          data = json.load(open('databases.json', encoding='utf-8'))
+          matches = [
+              x for x in (data.get('result') or [])
+              if x.get('name') == os.environ['D1_DATABASE_NAME']
+          ]
+          if data.get('success') is not True or len(matches) != 1:
+              raise SystemExit('D1 lookup failed')
+          print(matches[0]['uuid'])
+          PY
+          )"
+          python - <<'PY'
+          import json
+          sql = ("SELECT status, started_at, finished_at FROM job_runs "
+                 "WHERE job_name='cloudflare_fast_refresh' ORDER BY id DESC LIMIT 1")
+          with open('fast-query.json', 'w', encoding='utf-8') as h:
+              json.dump({'sql': sql}, h)
+          PY
+          curl --fail-with-body --silent --show-error --retry 2 --max-time 20 \
+            --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data-binary @fast-query.json \
+            "${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query" \
+            > fast-query-result.json
+          python - <<'PY'
+          import json
+          from datetime import UTC, datetime, timedelta
+          data = json.load(open('fast-query-result.json', encoding='utf-8'))
+          groups = data.get('result') or []
+          if data.get('success') is not True or not groups or groups[0].get('success') is False:
+              raise SystemExit('Fast-refresh D1 query failed')
+          rows = groups[0].get('results') or []
+          if not rows:
+              raise SystemExit('No fast-refresh record available')
+          record = rows[0]
+          raw = record.get('finished_at') or record.get('started_at')
+          if not raw:
+              raise SystemExit('Latest fast-refresh has no timestamp')
+          last = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+          age = datetime.now(UTC) - last.astimezone(UTC)
+          status = record.get('status')
+          print(f"Latest fast refresh: status={status} age={int(age.total_seconds() // 60)}min")
+          if status != 'SUCCESS' or not timedelta(0) <= age <= timedelta(minutes=100):
+              raise SystemExit('Fast-refresh production data is unhealthy or stale')
+          PY

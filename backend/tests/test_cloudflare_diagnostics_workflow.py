@@ -88,7 +88,7 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     assert 'd1_unhealthy = d1_status == "AVVIK"' in workflow
     assert 'render_monitoring(monitoring)' in workflow
     assert "github.event_name == 'schedule' &&" in workflow
-    assert "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')" in workflow
 
 
 def test_nav_cache_audit_reads_public_bootstrap_and_database_without_extra_secrets():
@@ -106,10 +106,20 @@ def test_merge_runs_only_offline_tests_not_live_production_probe() -> None:
     """A push can precede deployment, so historical PARTIAL must not fail CI."""
     workflow = _workflow_text()
     assert "if: github.event_name == 'pull_request' || github.event_name == 'push'" in workflow
-    assert "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" in workflow
+    assert "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')" in workflow
     assert "if: github.event_name != 'pull_request'" not in workflow
     assert "github.event_name == 'schedule' &&" in workflow
     assert "github.event_name == 'schedule' || github.event_name == 'push'" not in workflow
+
+
+def test_fast_refresh_watchdog_is_read_only_and_separate_from_daily_diagnosis():
+    workflow = _workflow_text()
+    assert 'cron: "17 */2 * * *"' in workflow
+    assert "name: Read-only fast-refresh watchdog" in workflow
+    assert "CLOUDFLARE_READ_TOKEN" in workflow
+    assert "WHERE job_name='cloudflare_fast_refresh'" in workflow
+    assert "timedelta(minutes=100)" in workflow
+    assert "status != 'SUCCESS'" in workflow
 
 
 def test_scheduled_production_alert_still_fails_on_genuine_unhealthy_status() -> None:

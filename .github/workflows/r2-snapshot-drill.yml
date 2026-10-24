@@ -1,6 +1,9 @@
 name: R2 logical snapshot drill
 
 on:
+  # Monthly R2 snapshot creation and sampled readback validation.
+  schedule:
+    - cron: "10 8 2 * *"
   workflow_dispatch:
     inputs:
       target_date:
@@ -124,8 +127,8 @@ jobs:
             if [ "$rc" -eq 0 ] && echo "$output" | grep -Eiq '^Status:.*Completed'; then
               if echo "$output" | grep -Eiq '^Success:.*Yes'; then
                 echo "R2 snapshot drill completed for $TARGET_DATE."
-                echo "$output" | grep -q 'manifest_key' || \
-                  echo '::warning::Workflow completed, but manifest_key was not visible in truncated CLI output.'
+                echo "$output" | grep -q 'readback_status' || \
+                  echo '::warning::Readback was performed inside the Workflow, but the terminal output was truncated.'
                 exit 0
               fi
               echo '::error::Snapshot Workflow completed without Success: Yes.'
