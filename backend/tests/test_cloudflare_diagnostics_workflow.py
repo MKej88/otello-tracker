@@ -87,7 +87,8 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     assert 'nav_audit_unhealthy=nav_audit["unhealthy"]' in workflow
     assert 'd1_unhealthy = d1_status == "AVVIK"' in workflow
     assert 'render_monitoring(monitoring)' in workflow
-    assert "github.event_name == 'schedule' || github.event_name == 'push'" in workflow
+    assert "github.event_name == 'schedule' &&" in workflow
+    assert "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" in workflow
 
 
 def test_nav_cache_audit_reads_public_bootstrap_and_database_without_extra_secrets():
@@ -98,3 +99,34 @@ def test_nav_cache_audit_reads_public_bootstrap_and_database_without_extra_secre
     assert 'nav_audit = assess_nav_cache(' in workflow
     assert 'render_audit(nav_audit)' in workflow
     assert 'cloudflare/src/nav_cache_audit.py' in workflow
+
+
+
+def test_merge_runs_only_offline_tests_not_live_production_probe() -> None:
+    """A push can precede deployment, so historical PARTIAL must not fail CI."""
+    workflow = _workflow_text()
+    assert "if: github.event_name == 'pull_request' || github.event_name == 'push'" in workflow
+    assert "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" in workflow
+    assert "if: github.event_name != 'pull_request'" not in workflow
+    assert "github.event_name == 'schedule' &&" in workflow
+    assert "github.event_name == 'schedule' || github.event_name == 'push'" not in workflow
+
+
+def test_scheduled_production_alert_still_fails_on_genuine_unhealthy_status() -> None:
+    workflow = _workflow_text()
+    assert "steps.workflow_report.outputs.production_unhealthy == 'true'" in workflow
+    assert "steps.d1_report.outputs.d1_unhealthy == 'true'" in workflow
+    assert "echo '::error::Den automatiske diagnosen fant et produksjonsavvik" in workflow
+    assert "exit 1" in workflow
+
+
+def test_merge_offline_gate_tracks_all_diagnostic_policy_inputs() -> None:
+    workflow = _workflow_text()
+    for source in (
+        "cloudflare/src/production_monitor.py",
+        "cloudflare/src/production_diagnostic_policy.py",
+        "cloudflare/src/cvm_freshness.py",
+        "cloudflare/src/nav_cache_audit.py",
+        "cloudflare/tests/test_production_diagnostic_policy.py",
+    ):
+        assert workflow.count(f"      - {source}") == 2
