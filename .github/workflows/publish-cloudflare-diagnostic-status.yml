@@ -28,6 +28,9 @@ jobs:
     env:
       STATUS_ISSUE_NUMBER: "164"
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Resolve diagnostic run
         id: diagnostic_run
         shell: bash
@@ -39,30 +42,26 @@ jobs:
             --header "Authorization: Bearer ${GH_TOKEN}" \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-workflow-diagnostics.yml/runs?status=completed&per_page=10" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-workflow-diagnostics.yml/runs?status=completed&per_page=100" \
             --output latest-runs.json
           python - <<'PY'
           import json
           import os
-          from datetime import UTC, datetime, timedelta
+          from datetime import UTC, datetime
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path("tools").resolve()))
+          from select_production_diagnostic import select_production_diagnostic
 
           with open("latest-runs.json", encoding="utf-8") as handle:
               runs = json.load(handle).get("workflow_runs") or []
-          if not runs:
-              raise SystemExit("Fant ingen ferdige Cloudflare-diagnosekjøringer")
-
-          run = runs[0]
-          if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
-              created_raw = run.get("created_at") or ""
-              try:
-                  created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
-              except ValueError as exc:
-                  raise SystemExit("Kunne ikke tolke created_at for siste diagnosekjøring") from exc
-              age = datetime.now(UTC) - created.astimezone(UTC)
-              if age < timedelta(0) or age > timedelta(hours=3):
-                  raise SystemExit(
-                      f"Siste ferdige diagnosekjøring er for gammel for dagens publisering: {created_raw}"
-                  )
+          # Only scheduled/manual live diagnostics; never offline push checks.
+          run = select_production_diagnostic(
+              runs,
+              scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
+              now=datetime.now(UTC),
+          )
 
           values = {
               "run_id": run["id"],
