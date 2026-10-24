@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from bemobi_news_translation import translate_bemobi_news
+from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
 from bemobi_ir_news import official_ir_news, filing_key
 from bemobi_agenda import agenda_events, merge_agenda_events
 
@@ -239,7 +240,7 @@ async def news_source_freshness(repository, *, now: datetime | None = None) -> d
         try:
             observed = json.loads(archive["value"])
             modified = date.fromisoformat(observed["data_date"])
-            if (current.date() - modified).days > 3:
+            if (current.date() - modified).days > CVM_IPE_MAX_AGE_DAYS:
                 problems.append(f"CVM: kildefilen er sist oppdatert {modified.isoformat()}")
         except (KeyError, ValueError, TypeError):
             problems.append("CVM: kildefilens alder kunne ikke bekreftes")
