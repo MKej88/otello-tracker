@@ -21,6 +21,8 @@ on:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
       - cloudflare/src/production_diagnostic_policy.py
+      - cloudflare/src/cvm_freshness.py
+      - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
   push:
     branches: [main]
@@ -28,7 +30,9 @@ on:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
       - cloudflare/src/production_diagnostic_policy.py
+      - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
+      - cloudflare/tests/test_production_diagnostic_policy.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
@@ -41,9 +45,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Push/merge triggers only offline code validation: the most recent stored
+  # production full refresh predates this commit and cannot verify its deploy.
+  # Genuine production alerts belong to the scheduled, post-nightly probe.
   validate_policy:
     name: Offline severity policy regression tests
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -56,7 +63,9 @@ jobs:
         run: PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
 
   diagnose:
-    if: github.event_name != 'pull_request'
+    # Live production reads only after the nightly deadline, or on manual request.
+    # In particular, never compare a fresh main commit with a pre-deploy night.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -692,7 +701,7 @@ jobs:
       - name: Alert on unhealthy scheduled production
         if: >-
           always() &&
-          (github.event_name == 'schedule' || github.event_name == 'push') &&
+          github.event_name == 'schedule' &&
           (steps.workflow_report.outputs.production_unhealthy == 'true' ||
            steps.d1_report.outputs.d1_unhealthy == 'true')
         shell: bash
