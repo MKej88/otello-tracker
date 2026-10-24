@@ -59,4 +59,16 @@ class R2SnapshotDrillWorkflow(WorkflowEntrypoint):
                 "repository": repository.performance_metrics(),
             }
 
-        return await snapshot_step()
+        snapshot = await snapshot_step()
+
+        @step.do(
+            "read back R2 snapshot manifest and sampled chunks",
+            config={"retries": {"limit": 1, "delay": "10 seconds"}, "timeout": "4 minutes"},
+        )
+        async def readback_step():
+            from r2_snapshot import verify_snapshot_readback
+
+            return await verify_snapshot_readback(self.env.SOURCE_ARCHIVE, snapshot)
+
+        readback = await readback_step()
+        return {**snapshot, **readback}

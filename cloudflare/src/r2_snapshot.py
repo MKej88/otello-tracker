@@ -213,3 +213,102 @@ async def archive_d1_snapshot(
         "preflight_status": preflight_status,
         "retention_policy": "WEEKLY_PLUS_MONTH_END",
     }
+
+
+
+async def verify_snapshot_readback(bucket, result: dict[str, Any]) -> dict[str, Any]:
+    """Read back a manifest and first/last compressed chunks per populated table.
+
+    This is a bounded sampled logical integrity drill; it is not a full D1
+    disaster-recovery restoration. No production D1 rows are modified.
+    """
+    manifest_key = str(result["manifest_key"])
+    manifest_obj = await bucket.get(manifest_key)
+    if manifest_obj is None:
+        raise ValueError("R2 snapshot manifest could not be read back")
+    manifest = json.loads(await manifest_obj.text())
+    logical = {
+        name: manifest[name] for name in (
+            "snapshot_version", "target_date", "tables", "row_counts", "chunks"
+        )
+    }
+    digest = hashlib.sha256(_canonical_json(logical)).hexdigest()
+    if (
+        digest != result["logical_sha256"]
+        or digest != manifest.get("logical_sha256")
+        or manifest.get("snapshot_version") != SNAPSHOT_VERSION
+        or manifest.get("target_date") != result["target_date"]
+    ):
+        raise ValueError("R2 snapshot manifest integrity check failed")
+
+    entries = manifest.get("chunk_objects") or []
+    tables = manifest.get("tables") or []
+    if (
+        len(entries) != result["chunk_count"]
+        or len(entries) != manifest.get("chunk_count")
+        or len(tables) != manifest.get("table_count")
+        or len(entries) > MAX_SNAPSHOT_CHUNKS
+    ):
+        raise ValueError("R2 snapshot manifest counts do not agree")
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        table = str(entry["table"])
+        key = str(entry["key"])
+        if (
+            table not in tables
+            or not key.startswith(
+                "snapshots/d1/" + result["target_date"] + "/" + table + "/"
+            )
+        ):
+            raise ValueError("Unexpected snapshot object path")
+        grouped.setdefault(table, []).append(entry)
+    if sum(int(entry["row_count"]) for entry in entries) != sum(
+        int(count) for count in manifest["row_counts"].values()
+    ):
+        raise ValueError("R2 snapshot row counts differ")
+    if not grouped:
+        raise ValueError("No populated R2 snapshot tables to read back")
+
+    selected = {
+        entry["key"]: entry
+        for rows in grouped.values()
+        for entry in (rows[0], rows[-1])
+    }
+    checked_rows = 0
+    for key, entry in selected.items():
+        obj = await bucket.get(key)
+        if obj is None:
+            raise ValueError("R2 snapshot chunk is missing: " + key)
+        body = await obj.arrayBuffer()
+        compressed = bytes(body.to_py() if hasattr(body, "to_py") else body)
+        if hashlib.sha256(compressed).hexdigest() != entry["compressed_sha256"]:
+            raise ValueError("R2 snapshot compressed digest mismatch: " + key)
+        raw = gzip.decompress(compressed)
+        if hashlib.sha256(raw).hexdigest() != entry["logical_sha256"]:
+            raise ValueError("R2 snapshot logical digest mismatch: " + key)
+        chunk = json.loads(raw)
+        if (
+            chunk["snapshot_version"] != SNAPSHOT_VERSION
+            or chunk["target_date"] != result["target_date"]
+            or chunk["table"] != entry["table"]
+            or chunk["chunk_index"] != entry["chunk_index"]
+            or len(chunk["rows"]) != entry["row_count"]
+            or not chunk["rows"]
+        ):
+            raise ValueError("R2 snapshot chunk header/row count mismatch: " + key)
+        cursor = chunk["order_by"]
+        if (
+            chunk["rows"][0].get(cursor) != entry["first_key"]
+            or chunk["rows"][-1].get(cursor) != entry["last_key"]
+        ):
+            raise ValueError("R2 snapshot cursor boundaries differ: " + key)
+        checked_rows += len(chunk["rows"])
+
+    return {
+        "readback_status": "ok",
+        "readback_kind": "SAMPLED_LOGICAL_INTEGRITY_NOT_FULL_RESTORE",
+        "checked_chunks": len(selected),
+        "checked_rows": checked_rows,
+        "manifest_key": manifest_key,
+    }

@@ -38,6 +38,8 @@ jobs:
         run: pip install --require-hashes -r requirements-dev.lock.txt
       - name: Test production status selection
         run: PYTHONPATH=../tools python -m unittest discover -s ../tools/tests -p 'test_select_production_diagnostic.py'
+      - name: Test R2 snapshot readback policy
+        run: PYTHONPATH=../cloudflare/src python -m unittest discover -s ../cloudflare/tests -p 'test_r2_snapshot_readback.py'
       - name: Verify Python dependency consistency
         run: python -m pip check
       - name: Run static Python checks
