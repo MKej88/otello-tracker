@@ -97,7 +97,9 @@ def test_missing_down_and_future_source_checks_are_detected():
 
 def test_news_archive_age_separate_from_successful_contact():
     data = fixture()
-    data['states'][1]['value'] = '{"checked_date":"2026-10-16","data_date":"2026-10-09"}'
+    data['states'][1]['value'] = '{"checked_date":"2026-10-16","data_date":"2026-10-06"}'
+    assert 'CVM-filens datadato' not in failures(data)
+    data['states'][1]['value'] = '{"checked_date":"2026-10-16","data_date":"2026-10-05"}'
     assert 'CVM-filens datadato' in failures(data)
     assert 'Nyhetskilde sjekket: CVM' not in failures(data)
     data['states'][0]['value'] = 'invalid'
