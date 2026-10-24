@@ -265,6 +265,7 @@ async def news_and_events(
     news = []
     seen_documents: set[str] = set()
     ir_equivalents: dict[str, int] = {}
+    cvm_equivalent_ids: dict[str, list[int]] = {}
     batch_size = safe_limit * 3
     offset = 0
 
@@ -341,6 +342,7 @@ async def news_and_events(
             if row.get("symbol") == "BMOB3" and metadata.get("cvm_subject"):
                 equivalent = filing_key(str(metadata["cvm_subject"]), str(row.get("published_at") or ""))
                 ir_equivalents[equivalent] = ir_equivalents.get(equivalent, 0) + 1
+                cvm_equivalent_ids.setdefault(equivalent, []).append(item["id"])
             news.append(item)
             if len(news) >= safe_limit:
                 break
@@ -453,21 +455,31 @@ async def news_and_events(
             )
 
     ir_items, ir_warning = await official_ir_news(repository, target_date=today.isoformat())
-    # Existing CVM records win when the same notice reaches both sources.
-    ir_counts = {}
+    # Bemobi IR is authoritative for its own announcements and reports. CVM
+    # remains a fallback; suppress only an exact, one-to-one date/title match.
+    # Do not merge separate shareholder notifications on the same day.
+    ir_counts: dict[str, int] = {}
     for item in ir_items:
         key = item["deduplication_key"]
         ir_counts[key] = ir_counts.get(key, 0) + 1
+    matched_cvm_ids = {
+        ids[0]
+        for key, ids in cvm_equivalent_ids.items()
+        if len(ids) == 1 and ir_counts.get(key) == 1
+    }
+    news = [item for item in news if item["id"] not in matched_cvm_ids]
     for item in ir_items:
-        key = item.pop("deduplication_key")
-        # Suppress only an unambiguous one-to-one cross-source match. Multiple
-        # notices of the same type on one day may describe different investors.
-        if ir_equivalents.get(key) == 1 and ir_counts[key] == 1:
-            continue
+        item.pop("deduplication_key")
         if item["id"] not in seen_documents:
             seen_documents.add(item["id"])
             news.append(item)
-    news.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+    news.sort(
+        key=lambda item: (
+            str(item.get("published_at") or "")[:10],
+            item.get("source") == "Bemobi IR",
+            str(item.get("published_at") or ""),
+        ), reverse=True,
+    )
     news = news[:safe_limit]
     if ir_warning:
         freshness["warning"] = "; ".join(filter(None, (freshness.get("warning"), ir_warning)))
