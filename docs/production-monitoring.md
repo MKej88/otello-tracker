@@ -1,9 +1,12 @@
 # Automatisk kontroll av nattkjøring og kildeferskhet
 
 Den eksisterende read-only GitHub-diagnosen kjører daglig kl. 04.30 UTC, etter
-nattoppdateringen kl. 03.35 UTC. GitHub kan forsinke planlagte jobber. Endringer i
-selve diagnoseoppsettet eller kontrollmodulen utløser også en kontroll på main.
-Manuell kjøring er fortsatt tilgjengelig og viser avvik uten å feile proben.
+nattoppdateringen kl. 03.35 UTC. GitHub kan forsinke planlagte jobber. Ved pull request og push/merge til main
+kjøres kun offline regresjonstester av diagnosepolitikken. Den seneste
+nattkjøringen kan være fra før en ny produksjonsversjon er utrullet og skal
+ikke føre til rød GitHub Actions-kjøring for selve kodeendringen.
+Live produksjonsdiagnose leser Cloudflare/D1 bare på den daglige tidsplanen,
+eller ved manuell kjøring. Manuell kjøring viser avvik uten å feile proben.
 
 ## Kontroller
 
