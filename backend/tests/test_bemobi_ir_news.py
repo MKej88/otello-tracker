@@ -97,7 +97,7 @@ def test_cvm_ir_equivalent_ownership_titles_have_same_identity():
     assert ir.filing_key("Incorporação 7AZ", "2026-09-30") != ir.filing_key("Incorporação 7AZ", "2026-08-27")
 
 
-def test_live_news_merge_keeps_cvm_priority_without_duplicate(tmp_path):
+def test_live_news_merge_prefers_ir_without_duplicate(tmp_path):
     import sqlite3
     from news_events import news_and_events
     path = str(tmp_path / "news.db")
@@ -125,5 +125,77 @@ def test_live_news_merge_keeps_cvm_priority_without_duplicate(tmp_path):
         (issuer,document,subject,"2026-10-14","CORPORATE","NONE","PARSED"))
     result = asyncio.run(news_and_events(repository, as_of_date="2026-10-17"))
     assert len(result["news"]) == 1
-    assert result["news"][0]["source"] != "Bemobi IR"
+    assert result["news"][0]["source"] == "Bemobi IR"
     connection.close()
+
+
+def test_expanded_official_feed_includes_only_verified_report_document_types():
+    notice = row()
+    earnings = dict(notice)
+    earnings.update(id="earnings-2q26", internal_name="release-de-resultados",
+                    file_title="Earnings Release 2Q26",
+                    file_name_original="Release de Resultados 2T26")
+    itr = dict(notice)
+    itr.update(id="itr-2q26", internal_name="informacoes-trimestrais",
+               file_title="ITR 2Q26", file_name_original="ITR 2T26")
+    presentation = dict(notice)
+    presentation.update(id="presentation-2q26", internal_name="apresentacoes",
+                        file_title="2Q26 Earnings Presentation",
+                        file_name_original="Apresentação de Resultados 2T26")
+    unrelated = dict(notice)
+    unrelated.update(id="bylaws", internal_name="estatuto-social",
+                     file_title="By-laws", file_name_original="Estatuto social")
+
+    rows = [notice, earnings, itr, presentation, unrelated]
+    baseline = ir.parse_ir_filings(payload(rows), target_date="2026-10-17")
+    assert [item["id"] for item in baseline] == ["filing-1"]
+    expanded = ir.parse_ir_filings(payload(rows), target_date="2026-10-17",
+                                   include_reports=True)
+    kinds = {item["id"]: item["document_kind"] for item in expanded}
+    assert kinds == {
+        "filing-1": "NOTICE",
+        "earnings-2q26": "EARNINGS_RELEASE",
+        "itr-2q26": "FINANCIAL_STATEMENTS",
+        "presentation-2q26": "EARNINGS_PRESENTATION",
+    }
+
+
+def test_optional_report_discovery_cannot_remove_last_good_documents():
+    repository = Repository()
+    notice = row()
+    release = dict(notice)
+    release.update(id="earnings-2q26", internal_name="release-de-resultados",
+                   file_title="Earnings Release 2Q26")
+    optional_down = False
+
+    class Response:
+        ok = True
+
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def text(self):
+            return json.dumps(payload(self.rows))
+
+    async def fetch(url, **kwargs):
+        options = json.loads(kwargs["body"])
+        if not options["categories"]:
+            if optional_down:
+                raise RuntimeError("HTTP 503")
+            return Response([notice, release])
+        return Response([notice])
+
+    first = asyncio.run(ir.refresh_ir_news(
+        repository, target_date="2026-10-17", fetcher=fetch))
+    assert first["status"] == "ok" and first["documents"] == 2
+    news, warning = asyncio.run(ir.official_ir_news(
+        repository, target_date="2026-10-17"))
+    assert warning is None
+    assert {item["category"] for item in news} == {"CORPORATE", "RESULTS"}
+    optional_down = True
+    second = asyncio.run(ir.refresh_ir_news(
+        repository, target_date="2026-10-18", fetcher=fetch))
+    assert second["status"] == "ok"
+    assert second["report_feed_status"] == "partial"
+    saved = json.loads(repository.value)
+    assert {item["id"] for item in saved["rows"]} == {"filing-1", "earnings-2q26"}

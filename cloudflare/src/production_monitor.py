@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from b3_calendar import is_b3_trading_day
+from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
 from nightly_trigger import nightly_due_at
 from oslo_calendar import is_oslo_bors_trading_day
 
@@ -150,8 +151,8 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
             checked or 'MANGLER', f'minst datadato {target}, lagret siste 36 timer')
         if label == 'CVM':
             archive_date = _date(data.get('data_date'))
-            add('CVM-filens datadato', archive_date is not None and target - timedelta(days=3) <= archive_date <= now.date(),
-                archive_date or 'MANGLER', f'høyst 3 kalenderdager før {target}')
+            add('CVM-filens datadato', archive_date is not None and target - timedelta(days=CVM_IPE_MAX_AGE_DAYS) <= archive_date <= now.date(),
+                archive_date or 'MANGLER', f'høyst {CVM_IPE_MAX_AGE_DAYS} kalenderdager før {target}')
 
     # A controlled warning is still an observation, but no longer a fatal AVVIK.
     return {'target_date': target.isoformat(),

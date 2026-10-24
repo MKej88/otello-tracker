@@ -214,3 +214,27 @@ class MonitoringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class CvmWeeklyFreshnessTests(unittest.TestCase):
+    def test_week_old_archive_is_fresh_but_old_archive_warns(self):
+        from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
+
+        self.assertEqual(CVM_IPE_MAX_AGE_DAYS, 10)
+        for now, expected in [
+            (datetime(2026, 10, 24, 9, 30, tzinfo=UTC), "OK"),
+            (datetime(2026, 10, 30, 9, 30, tzinfo=UTC), "AVVIK"),
+        ]:
+            with self.subTest(now=now):
+                target = expected_nightly_date(now).isoformat()
+                data = MonitoringTests().kwargs()
+                data["now"] = now
+                data["states"][1]["value"] = json.dumps({
+                    "checked_date": target, "data_date": "2026-10-18",
+                })
+                data["states"][1]["updated_at"] = now.isoformat()
+                actual = assess_production(**data)
+                cvm = next(check for check in actual["checks"]
+                           if check["name"] == "CVM-filens datadato")
+                self.assertEqual(cvm["state"], expected)

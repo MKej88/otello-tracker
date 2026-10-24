@@ -22,8 +22,9 @@ Manuell kjøring er fortsatt tilgjengelig og viser avvik uten å feile proben.
   og B3-kalendere brukes. Life360 LIF bruker eksisterende toleranse på sju
   kalenderdager, siden prosjektet ikke har en egen amerikansk børskalender.
 - Bemobi IR og CVM må være kontrollert for forventet datadato og lagret siste
-  36 timer. CVM-arkivets Last-Modified-dato kontrolleres separat med prosjektets
-  eksisterende tredagersgrense. Manglende datadato gir avvik.
+  36 timer. CVM IPE oppdateres ukentlig; Last-Modified kontrolleres derfor
+  med inntil ti kalenderdager (syv dager + tre dagers toleranse).
+  Manglende datadato eller eldre arkiv gir avvik.
 - Nyhetskildene behøver ikke publisere en ny melding hver dag: ferskhet betyr
   at feeden/arkivet faktisk er hentet, ikke at publiseringsdatoen er ny.
 - Eksisterende valutakontroll, 30-minuttersjobb og NAV-diagnostikk beholdes.

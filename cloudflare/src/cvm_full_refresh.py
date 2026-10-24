@@ -10,6 +10,8 @@ import unicodedata
 import urllib.parse
 import zipfile
 from collections import Counter
+
+from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from email.utils import parsedate_to_datetime
@@ -546,7 +548,7 @@ async def refresh_bemobi_cvm(
             successful_years.append(year)
             if year == date.fromisoformat(target_date).year:
                 data_date = archive_metadata.get("data_date")
-                if data_date and (date.fromisoformat(target_date) - date.fromisoformat(data_date)).days > 3:
+                if data_date and (date.fromisoformat(target_date) - date.fromisoformat(data_date)).days > CVM_IPE_MAX_AGE_DAYS:
                     errors.append({"year": year, "error": f"CVM IPE kildefilen er sist oppdatert {data_date}; nedlastingen lyktes, men kildedataene er forsinket."})
                 elif not data_date and fetcher is None:
                     errors.append({"year": year, "error": "CVM IPE kildefilens alder kunne ikke bekreftes (Last-Modified mangler)."})
