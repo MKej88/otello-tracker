@@ -793,3 +793,91 @@ jobs:
           if status != 'SUCCESS' or not timedelta(0) <= age <= timedelta(minutes=100):
               raise SystemExit('Fast-refresh production data is unhealthy or stale')
           PY
+
+  incident-notify:
+    name: Open or resolve production incident
+    # No privileged workflow_run trigger. Only trusted scheduled main jobs notify.
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      (github.event.schedule == '30 4 * * *' ||
+       github.event.schedule == '17 */2 * * *')
+    needs: [diagnose, fast-freshness]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      INCIDENT_KIND: ${{ github.event.schedule == '30 4 * * *' && 'nightly' || 'fast' }}
+      INCIDENT_RESULT: ${{ github.event.schedule == '30 4 * * *' && needs.diagnose.result || needs['fast-freshness'].result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open or close dedicated incident issue
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          kind = os.environ["INCIDENT_KIND"]
+          result = os.environ["INCIDENT_RESULT"]
+          if result not in {"failure", "success"}:
+              print(f"No incident transition for {kind}: {result}")
+              raise SystemExit(0)
+
+          titles = {
+              "nightly": "OtelloTracker: nattlig produksjonsdiagnose feilet",
+              "fast": "OtelloTracker: 30-minuttersoppdatering feilet",
+          }
+          repo = os.environ["GITHUB_REPOSITORY"]
+          base = f"https://api.github.com/repos/{repo}"
+          title = titles[kind]
+          marker = "<!-- otello-production-incident:" + kind + " -->"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json",
+          }
+
+          def request(method, url, data=None):
+              payload = None if data is None else json.dumps(data).encode("utf-8")
+              req = Request(url, data=payload, headers=headers, method=method)
+              with urlopen(req, timeout=25) as response:
+                  content = response.read()
+              return json.loads(content) if content else {}
+
+          query = quote(f'repo:{repo} is:issue in:title "{title}"', safe="")
+          matches = request("GET", "https://api.github.com/search/issues?q=" + query
+                            + "&per_page=100").get("items", [])
+          found = next((i for i in matches if marker in (i.get("body") or "")), None)
+          if result == "failure":
+              body = (
+                  marker + "\n"
+                  "Automatisk driftsvarsel uten produksjonsdata eller hemmeligheter.\n\n"
+                  "**Siste feilede kontroll:** " + os.environ["RUN_URL"] + "\n\n"
+                  "Se Actions-loggen og [fast statusrapport](https://github.com/"
+                  + repo + "/issues/164) før eventuell omkjøring.\n\n"
+                  "Saken lukkes automatisk når samme kontrolltype lykkes igjen."
+              )
+              if found and found["state"] == "open":
+                  print(f"Incident {kind} already open: #{found['number']}")
+              elif found:
+                  request("PATCH", base + "/issues/" + str(found["number"]),
+                          {"state": "open", "body": body})
+                  print(f"Reopened {kind} incident: #{found['number']}")
+              else:
+                  created = request("POST", base + "/issues", {
+                      "title": title, "body": body, "assignees": ["MKej88"],
+                  })
+                  print(f"Opened {kind} incident: #{created['number']}")
+          elif found and found["state"] == "open":
+              request("PATCH", base + "/issues/" + str(found["number"]),
+                      {"state": "closed", "state_reason": "completed"})
+              print(f"Resolved {kind} incident: #{found['number']}")
+          else:
+              print(f"{kind} healthy, no incident to close")
+          PY
