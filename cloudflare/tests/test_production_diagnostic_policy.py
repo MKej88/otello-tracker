@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from production_diagnostic_policy import (
     REQUIRED_SOURCE_CODES,
+    core_nav_quality,
     diagnostic_severity,
     secondary_bemobi_warning_candidate,
 )
@@ -146,6 +147,39 @@ class SeverityTests(unittest.TestCase):
             fresh=True, monitoring_unhealthy=False,
             nav_audit_unhealthy=False, secondary_bemobi_warning=False,
             core_nav_status="BACKFILLED"), "OK")
+
+
+class CoreNavQualityTests(unittest.TestCase):
+    def test_normal_between_report_cash_forecast_is_model_information(self):
+        components = {"cash": {"quality": "FORECAST_PARTIAL",
+                               "calibration_quality": "OK"}}
+        self.assertEqual(core_nav_quality("DEGRADED", components), "MODELLINFO")
+        self.assertEqual(diagnostic_severity(
+            full_status="SUCCESS", fast_status="SUCCESS",
+            fresh=True, monitoring_unhealthy=False,
+            nav_audit_unhealthy=False, secondary_bemobi_warning=False,
+            core_nav_status="DEGRADED", core_nav_components=components), "OK")
+
+    def test_stale_share_count_is_reported_as_expected_model_information(self):
+        components = {"otec": {"share_count_quality": "POTENTIALLY_STALE"}}
+        self.assertEqual(core_nav_quality("DEGRADED", components), "MODELLINFO")
+
+    def test_high_calibration_residual_is_warning_even_with_partial_forecast(self):
+        components = {"cash": {"quality": "FORECAST_PARTIAL",
+                               "calibration_quality": "HIGH_RESIDUAL"}}
+        self.assertEqual(core_nav_quality("DEGRADED", components), "ADVARSEL")
+        self.assertEqual(diagnostic_severity(
+            full_status="SUCCESS", fast_status="SUCCESS",
+            fresh=True, monitoring_unhealthy=False,
+            nav_audit_unhealthy=False, secondary_bemobi_warning=False,
+            core_nav_status="DEGRADED", core_nav_components=components), "ADVARSEL")
+
+    def test_unexplained_degraded_is_warning_not_silent_green(self):
+        self.assertEqual(core_nav_quality("DEGRADED", {}), "ADVARSEL")
+
+    def test_invalid_core_nav_status_remains_fatal(self):
+        self.assertEqual(core_nav_quality("FAILED", {}), "AVVIK")
+        self.assertEqual(core_nav_quality("", {}), "AVVIK")
 
 
 class MonitoringTests(unittest.TestCase):
