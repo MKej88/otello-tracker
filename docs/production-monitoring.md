@@ -39,8 +39,8 @@ den nye rapporten. SQL-spørringene er kun SELECT og krever ingen nye rettighete
 ## Varsling og verifikasjon
 
 Automatiske diagnoser med avvik feiler i GitHub Actions og gir feilannotasjon.
-I tillegg lytter `.github/workflows/production-incident-notify.yml` på
-ferdigstilte, planlagte diagnoser fra `main`. Ved en feilet nattdiagnose eller
+En egen `incident-notify`-jobb i `.github/workflows/cloudflare-workflow-diagnostics.yml`
+reagerer på ferdigstilte, planlagte diagnoser fra `main`. Ved en feilet nattdiagnose eller
 30-minuttersvakt oppretter eller gjenåpner den én deduplisert GitHub-sak per
 kontrolltype, med kun lenke til Actions-loggen og uten følsomme produksjonsdata.
 Saken tildeles repository-eier og lukkes ved neste vellykkede kontroll **av
