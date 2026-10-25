@@ -451,7 +451,7 @@ jobs:
           from nightly_trigger import nightly_is_overdue
           from production_monitor import assess_production, render_monitoring, expected_nightly_date
           from production_diagnostic_policy import (
-              diagnostic_severity, secondary_bemobi_warning_candidate,
+              core_nav_quality, diagnostic_severity, secondary_bemobi_warning_candidate,
           )
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
 
@@ -612,7 +612,9 @@ jobs:
               nav_audit_unhealthy=nav_audit["unhealthy"],
               secondary_bemobi_warning=allow_secondary_warning,
               core_nav_status=str(nav.get("status") or "MISSING").upper(),
+              core_nav_components=components,
           )
+          core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
           d1_warning = d1_status == "ADVARSEL"
           full_age_minutes = (
@@ -633,8 +635,8 @@ jobs:
               f"- Database: `{cell(os.environ['D1_DATABASE_NAME'], 80)}`",
               f"- D1-status: **{d1_status}**",
               (
-                  "- Klassifisering: sekundær Bemobi-kilde benytter sist lagrede fakta. "
-                  "Fulljobb og NAV-avstemming er kontrollert; forholdet varsles, men er ikke kritisk."
+                  "- Klassifisering: kvaliteten krever oppfølging, men den kritiske "
+                  "drifts- og NAV-avstemmingen bestod."
                   if d1_warning else
                   "- Klassifisering: ingen tillatt nedgradering av kritiske avvik."
               ),
@@ -648,6 +650,11 @@ jobs:
               f"- FX er handelsdagsmessig fersk: **{'JA' if fx_current else 'NEI'}**",
               f"- BRL/NOK-dato brukt i siste CORE-NAV: `{cell(nav_brl_date, 20)}`",
               f"- Siste CORE-NAV: `{cell(nav.get('as_of_at'), 80)}` ({cell(nav.get('status'), 40)})",
+              f"- CORE-NAV kvalitetsvurdering: **{core_quality}**" +
+              (" – normal estimering mellom rapportdatoer, ikke et driftsavvik."
+               if core_quality == "MODELLINFO" else
+               " – kontantavstemming med høy rest eller uforklart DEGRADED."
+               if core_quality == "ADVARSEL" else ""),
               "",
               "## Siste jobber",
               "",
@@ -703,7 +710,7 @@ jobs:
           if d1_unhealthy:
               print("::warning::D1-diagnostikken fant et kritisk produksjonsavvik.")
           elif d1_warning:
-              print("::warning::D1-diagnostikken fant et ikke-kritisk avvik i en sekundær Bemobi-kilde; øvrige kontroller bestod.")
+              print("::warning::D1-diagnostikken fant et ikke-kritisk kvalitetsavvik; øvrige kontroller bestod.")
           PY
 
       - name: Alert on unhealthy scheduled production
