@@ -65,18 +65,33 @@ Validated rows are stored in `buyback_daily_transactions`. The weekly `buybacks`
 
 `pypdf==6.16.1` is bundled by `pywrangler` from `cloudflare/pyproject.toml`. It is pure Python and is used only by the heavier Workflow attachment step, not the 30-minute fast path.
 
-## D1 logical snapshot
+## D1 logical snapshot and recovery verification
 
-Every successful Workflow attempt also tries to write:
+Production stores weekly (Sunday) and month-end financial logical snapshots as
+bounded gzip chunks plus a content-addressed manifest in R2:
 
 ```text
-snapshots/d1/<target-date>/logical-<sha20>.json.gz
+snapshots/d1/<target-date>/<table>/part-<index>-<sha20>.json.gz
 snapshots/d1/<target-date>/manifest-<sha20>.json
 ```
 
-The snapshot is deterministic, row-ordered and gzip-compressed with a fixed gzip timestamp. The manifest records row counts, logical SHA-256, compressed SHA-256, sizes and preflight status.
+Each manifest records tables, per-table row counts, ordering keys and both
+compressed and uncompressed SHA-256 digests.
 
-This is an **audit/logical recovery artifact**, not a replacement for D1 Time Travel. Remote Time Travel/restore is still explicitly tested in Phase 15.7.
+- Monthly, the `R2 logical snapshot drill` creates a new read-only logical
+  snapshot and reads back its manifest plus first/last chunks per populated
+  table.
+- In January, April, July and October, it validates **every** chunk, checking
+  object existence, digests, ordering across chunks and per-table row counts.
+- Production D1 is only read; the drill does not create, overwrite or restore
+  a production database.
+- This proves logical archive readability, **not** a full D1 recovery. D1
+  Time Travel remains the primary operational restore mechanism, and a real
+  disaster-recovery rehearsal requires an isolated disposable D1 database and
+  manual authorization. Never restore over production merely to test backups.
+
+A green snapshot drill must not be represented as proof that the complete
+application is operational after a restored D1 database.
 
 ## Historical import files
 

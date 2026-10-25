@@ -64,6 +64,50 @@ def fixture():
     return FakeBucket({manifest_key: _canonical_json(manifest), key: compressed}), summary, key
 
 
+def multichunk_fixture():
+    bucket, summary, _ = fixture()
+    old_key = summary["manifest_key"]
+    manifest = json.loads(bucket.objects.pop(old_key))
+    day, table = summary["target_date"], "sources"
+    middle_key = None
+    for index in (1, 2):
+        payload = {
+            "snapshot_version": SNAPSHOT_VERSION,
+            "target_date": day, "table": table, "order_by": "id",
+            "chunk_index": index,
+            "rows": [{"id": index + 1, "code": "SOURCE_" + str(index)}],
+        }
+        raw = _canonical_json(payload)
+        zipped = gzip.compress(raw, mtime=0)
+        digest = hashlib.sha256(raw).hexdigest()
+        key = f"snapshots/d1/{day}/{table}/part-{index:05d}-{digest[:20]}.json.gz"
+        bucket.objects[key] = zipped
+        manifest["chunk_objects"].append({
+            "table": table, "chunk_index": index,
+            "row_count": 1, "first_key": index + 1,
+            "last_key": index + 1, "key": key,
+            "logical_sha256": digest,
+            "compressed_sha256": hashlib.sha256(zipped).hexdigest(),
+        })
+        manifest["chunks"].append({
+            "table": table, "chunk_index": index,
+            "logical_sha256": digest, "row_count": 1,
+        })
+        if index == 1:
+            middle_key = key
+    manifest["row_counts"] = {table: 3}
+    manifest["chunk_count"] = 3
+    logical = {key: manifest[key] for key in (
+        "snapshot_version", "target_date", "tables", "row_counts", "chunks"
+    )}
+    digest = hashlib.sha256(_canonical_json(logical)).hexdigest()
+    manifest["logical_sha256"] = digest
+    new_key = f"snapshots/d1/{day}/manifest-{digest[:20]}.json"
+    bucket.objects[new_key] = _canonical_json(manifest)
+    summary.update(logical_sha256=digest, manifest_key=new_key, chunk_count=3)
+    return bucket, summary, middle_key
+
+
 class ReadbackTests(unittest.TestCase):
     def test_readback_ok(self):
         bucket, summary, _ = fixture()
@@ -82,6 +126,22 @@ class ReadbackTests(unittest.TestCase):
         bucket.objects[key] += b"x"
         with self.assertRaisesRegex(ValueError, "compressed digest"):
             asyncio.run(verify_snapshot_readback(bucket, summary))
+
+    def test_full_readback_checks_every_chunk(self):
+        bucket, summary, _ = multichunk_fixture()
+        result = asyncio.run(verify_snapshot_readback(bucket, summary, full=True))
+        self.assertEqual(result["checked_chunks"], 3)
+        self.assertEqual(result["checked_rows"], 3)
+        self.assertEqual(result["readback_kind"],
+                         "FULL_LOGICAL_INTEGRITY_NOT_D1_RESTORE")
+
+    def test_full_catches_middle_chunk_that_sampled_readback_misses(self):
+        bucket, summary, middle_key = multichunk_fixture()
+        del bucket.objects[middle_key]
+        sample = asyncio.run(verify_snapshot_readback(bucket, summary))
+        self.assertEqual(sample["checked_chunks"], 2)
+        with self.assertRaisesRegex(ValueError, "missing"):
+            asyncio.run(verify_snapshot_readback(bucket, summary, full=True))
 
     def test_missing_manifest_fails(self):
         bucket, summary, _ = fixture()

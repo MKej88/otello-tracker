@@ -90,6 +90,29 @@ def secondary_bemobi_warning_candidate(
     return True
 
 
+def core_nav_quality(status: str, components: dict | None = None) -> str:
+    """Distinguish expected between-report estimates from actionable CORE NAV issues.
+
+    The stored DEGRADED flag alone is not an incident: ordinary partial cash
+    forecasts and temporarily stale share counts are expected between reports.
+    A HIGH_RESIDUAL cash calibration or an unexplained DEGRADED status is not.
+    """
+    status = str(status or "").upper()
+    if status in {"OK", "ESTIMATED", "BACKFILLED"}:
+        return "OK"
+    if status != "DEGRADED":
+        return "AVVIK"
+    components = _object(components)
+    cash = _object(components.get("cash"))
+    shares = _object(components.get("otec"))
+    if cash.get("calibration_quality") == "HIGH_RESIDUAL":
+        return "ADVARSEL"
+    if (cash.get("quality") in {"FORECAST_PARTIAL", "ANCHORED_ESTIMATE"}
+            or shares.get("share_count_quality") == "POTENTIALLY_STALE"):
+        return "MODELLINFO"
+    return "ADVARSEL"
+
+
 def diagnostic_severity(
     *,
     full_status: str,
@@ -99,18 +122,21 @@ def diagnostic_severity(
     nav_audit_unhealthy: bool,
     secondary_bemobi_warning: bool,
     core_nav_status: str,
+    core_nav_components: dict | None = None,
 ) -> str:
-    """OK / ADVARSEL / AVVIK; unknown or stale critical data always fails."""
+    """OK / ADVARSEL / AVVIK; expected NAV modeling is not an incident."""
+    nav_quality = core_nav_quality(core_nav_status, core_nav_components)
     if (
         fast_status not in {"SUCCESS", "PARTIAL"}
         or not fresh
         or monitoring_unhealthy
         or nav_audit_unhealthy
-        or core_nav_status not in {"OK", "ESTIMATED", "BACKFILLED", "DEGRADED"}
+        or nav_quality == "AVVIK"
     ):
         return "AVVIK"
     if full_status == "SUCCESS":
-        return "ADVARSEL" if secondary_bemobi_warning else "OK"
+        return ("ADVARSEL" if secondary_bemobi_warning
+                or nav_quality == "ADVARSEL" else "OK")
     if full_status == "PARTIAL" and secondary_bemobi_warning:
         return "ADVARSEL"
     return "AVVIK"

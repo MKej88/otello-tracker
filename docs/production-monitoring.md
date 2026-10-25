@@ -39,6 +39,20 @@ den nye rapporten. SQL-spørringene er kun SELECT og krever ingen nye rettighete
 ## Varsling og verifikasjon
 
 Automatiske diagnoser med avvik feiler i GitHub Actions og gir feilannotasjon.
+En egen `incident-notify`-jobb i `.github/workflows/cloudflare-workflow-diagnostics.yml`
+reagerer på ferdigstilte, planlagte diagnoser fra `main`. Ved en feilet nattdiagnose eller
+30-minuttersvakt oppretter eller gjenåpner den én deduplisert GitHub-sak per
+kontrolltype, med kun lenke til Actions-loggen og uten følsomme produksjonsdata.
+Saken tildeles repository-eier og lukkes ved neste vellykkede kontroll **av
+samme type**. E-post/push fra slike saker krever at brukeren har slått på
+GitHub-varsler for tildelte saker. Den sender ikke e-post direkte.
+
+CORE-NAV `DEGRADED` skilles i diagnostikken mellom normal estimering mellom
+rapporter (MODELLINFO) og reelle kvalitetsadvarsler (ADVARSEL). Delvis
+kontantprognose eller mulig foreldet aksjeantall skal ikke alene utløse feil.
+Høy rest i kontantavstemmingen eller uforklart `DEGRADED` skal gi advarsel;
+manglende eller ugyldig status er fortsatt kritisk avvik.
+
 GitHub sender e-post etter brukerens eksisterende varslingsinnstillinger; det er
 ikke lagt til en separat e-postutsending. Den vanlige statusmailen fra nattjobben
 beholdes. Eksisterende publisering av diagnosestatus beholdes.

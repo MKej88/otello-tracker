@@ -60,9 +60,14 @@ def test_manual_diagnostics_reports_old_failure_without_failing_probe() -> None:
 
 def test_cloudflare_diagnostics_keeps_minimal_github_permissions() -> None:
     workflow = _workflow_text()
-    assert "permissions:\n  contents: read" in workflow
+    global_permissions = workflow.split("\njobs:", 1)[0]
+    unprivileged_jobs, notifier = workflow.split("\n  incident-notify:", 1)
+    assert "permissions:\n  contents: read" in global_permissions
+    assert "issues: write" not in global_permissions
+    assert "issues: write" not in unprivileged_jobs
+    assert "permissions:\n      contents: read\n      issues: write" in notifier
+    assert "github.event_name == 'schedule'" in notifier
     assert "contents: write" not in workflow
-    assert "issues: write" not in workflow
     assert "pull-requests: write" not in workflow
 
 
