@@ -38,6 +38,8 @@ class R2SnapshotDrillWorkflow(WorkflowEntrypoint):
         from r2_snapshot import archive_d1_snapshot
 
         target_date = _target_date(event)
+        # A full-object integrity rehearsal quarterly, sampled verification monthly.
+        full_readback = int(target_date[5:7]) in {1, 4, 7, 10}
 
         @step.do(
             "force R2 logical snapshot drill",
@@ -62,13 +64,15 @@ class R2SnapshotDrillWorkflow(WorkflowEntrypoint):
         snapshot = await snapshot_step()
 
         @step.do(
-            "read back R2 snapshot manifest and sampled chunks",
-            config={"retries": {"limit": 1, "delay": "10 seconds"}, "timeout": "4 minutes"},
+            "read back R2 snapshot objects (full quarterly, sampled monthly)",
+            config={"retries": {"limit": 1, "delay": "10 seconds"}, "timeout": "10 minutes"},
         )
         async def readback_step():
             from r2_snapshot import verify_snapshot_readback
 
-            return await verify_snapshot_readback(self.env.SOURCE_ARCHIVE, snapshot)
+            return await verify_snapshot_readback(
+                self.env.SOURCE_ARCHIVE, snapshot, full=full_readback
+            )
 
         readback = await readback_step()
         return {**snapshot, **readback}
