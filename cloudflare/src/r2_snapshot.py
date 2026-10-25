@@ -216,11 +216,13 @@ async def archive_d1_snapshot(
 
 
 
-async def verify_snapshot_readback(bucket, result: dict[str, Any]) -> dict[str, Any]:
-    """Read back a manifest and first/last compressed chunks per populated table.
+async def verify_snapshot_readback(
+    bucket, result: dict[str, Any], *, full: bool = False
+) -> dict[str, Any]:
+    """Validate sampled chunks, or all chunks during quarterly recovery rehearsal.
 
-    This is a bounded sampled logical integrity drill; it is not a full D1
-    disaster-recovery restoration. No production D1 rows are modified.
+    Even full readback verifies logical integrity, not D1 schema/point-in-time
+    restoration. Never writes production D1. Use isolated D1 for actual restores.
     """
     manifest_key = str(result["manifest_key"])
     manifest_obj = await bucket.get(manifest_key)
@@ -273,9 +275,11 @@ async def verify_snapshot_readback(bucket, result: dict[str, Any]) -> dict[str, 
     selected = {
         entry["key"]: entry
         for rows in grouped.values()
-        for entry in (rows[0], rows[-1])
+        for entry in (rows if full else (rows[0], rows[-1]))
     }
     checked_rows = 0
+    verified_by_table: dict[str, int] = {}
+    last_key_by_table: dict[str, Any] = {}
     for key, entry in selected.items():
         obj = await bucket.get(key)
         if obj is None:
@@ -303,11 +307,29 @@ async def verify_snapshot_readback(bucket, result: dict[str, Any]) -> dict[str, 
             or chunk["rows"][-1].get(cursor) != entry["last_key"]
         ):
             raise ValueError("R2 snapshot cursor boundaries differ: " + key)
+        if full:
+            table = entry["table"]
+            previous = last_key_by_table.get(table)
+            first = chunk["rows"][0].get(cursor)
+            if previous is not None and (first is None or first <= previous):
+                raise ValueError("R2 snapshot cross-chunk cursor order invalid: " + table)
+            last_key_by_table[table] = chunk["rows"][-1].get(cursor)
+            verified_by_table[table] = verified_by_table.get(table, 0) + len(chunk["rows"])
         checked_rows += len(chunk["rows"])
+
+    if full and (
+        checked_rows != sum(int(count) for count in manifest["row_counts"].values())
+        or any(verified_by_table.get(table, 0) != int(count)
+               for table, count in manifest["row_counts"].items())
+    ):
+        raise ValueError("R2 full readback row counts do not agree with manifest")
 
     return {
         "readback_status": "ok",
-        "readback_kind": "SAMPLED_LOGICAL_INTEGRITY_NOT_FULL_RESTORE",
+        "readback_kind": (
+            "FULL_LOGICAL_INTEGRITY_NOT_D1_RESTORE" if full
+            else "SAMPLED_LOGICAL_INTEGRITY_NOT_FULL_RESTORE"
+        ),
         "checked_chunks": len(selected),
         "checked_rows": checked_rows,
         "manifest_key": manifest_key,
