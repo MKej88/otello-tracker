@@ -1,7 +1,7 @@
 name: R2 logical snapshot drill
 
 on:
-  # Monthly R2 snapshot creation and sampled readback validation.
+  # Monthly snapshots: sampled readback; Jan/Apr/Jul/Oct: full-object validation.
   schedule:
     - cron: "10 8 2 * *"
   workflow_dispatch:
