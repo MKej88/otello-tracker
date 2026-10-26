@@ -13,6 +13,7 @@ try:
     from .brazil_snapshot import refresh_brazil_snapshot
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from .fx_freshness import repair_norges_bank_fx_if_stale
+    from .exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
     from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from .life360_market_data import repair_life360_lif_if_stale
     from .nav_refresh import refresh_dirty_nav_layers
@@ -36,6 +37,7 @@ except ImportError:
     from brazil_snapshot import refresh_brazil_snapshot
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
     from fx_freshness import repair_norges_bank_fx_if_stale
+    from exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
     from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from life360_market_data import repair_life360_lif_if_stale
     from nav_refresh import refresh_dirty_nav_layers
@@ -129,6 +131,7 @@ def _fast_refresh_records_written(steps: dict[str, Any]) -> int:
     if fx_repair.get("repaired"):
         total += int(fx_repair.get("rows_written") or 0)
 
+    total += int(result("exchangerate_dev_fx").get("rows_written") or 0)
     total += len(result("dirty_nav").get("dirty_layers") or [])
     return total
 
@@ -233,6 +236,9 @@ async def run_fast_refresh(
     archive_bucket: Any | None = None,
     scheduled_time_ms: Any | None = None,
     renew_lock: Callable[[str], Awaitable[None]] | None = None,
+    exr_enabled: bool = False,
+    exr_license_approved: bool = False,
+    exr_api_key: str | None = None,
 ) -> dict[str, Any]:
     """Run the bounded 30-minute ingestion path with cheap no-change behavior."""
     run_started = perf_counter()
@@ -469,6 +475,23 @@ async def run_fast_refresh(
 
     await renew("after Norges Bank FX")
 
+    # Default OFF: public API responses currently expose BRL/NOK values.
+    await _safe_async_step(
+        "exchangerate_dev_fx",
+        lambda: refresh_exchangerate_dev_brl_nok(
+            repository,
+            now=scheduled_at,
+            api_key=exr_api_key,
+            enabled=exr_enabled,
+            license_approved=exr_license_approved,
+        ),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
+
+    await renew("after Exchangerate.dev FX")
+
     life360_repair = await _safe_async_step(
         "life360_lif_repair",
         lambda: repair_life360_lif_if_stale(
@@ -659,6 +682,9 @@ async def run_scheduled(
     cron: str,
     archive_bucket: Any | None = None,
     scheduled_time_ms: Any | None = None,
+    exr_enabled: bool = False,
+    exr_license_approved: bool = False,
+    exr_api_key: str | None = None,
 ) -> dict[str, Any]:
     if cron != FAST_REFRESH_CRON:
         return {"status": "SKIPPED", "reason": "unknown_cron", "cron": cron}
@@ -702,6 +728,9 @@ async def run_scheduled(
             archive_bucket=archive_bucket,
             scheduled_time_ms=scheduled_time_ms,
             renew_lock=renew_lock,
+            exr_enabled=exr_enabled,
+            exr_license_approved=exr_license_approved,
+            exr_api_key=exr_api_key,
         )
     finally:
         await release_refresh_lock(repository, lock_token)
