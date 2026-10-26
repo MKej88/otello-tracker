@@ -102,9 +102,8 @@ async def refresh_exchangerate_dev_brl_nok(
         return {"status": "skipped", "reason": "feature_disabled", "network_fetches_avoided": True}
     if not license_approved:
         return {"status": "skipped", "reason": "license_not_approved", "network_fetches_avoided": True}
-    if not api_key or not api_key.strip():
-        return {"status": "skipped", "reason": "missing_secret", "network_fetches_avoided": True}
-
+    # Public latest-rate endpoint permits anonymous requests. An optional
+    # server-side key can be configured later; never expose it in the URL.
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     if moment.astimezone(OSLO).weekday() >= 5:
         return {"status": "skipped", "reason": "weekend", "network_fetches_avoided": True}
@@ -113,13 +112,10 @@ async def refresh_exchangerate_dev_brl_nok(
         from workers import fetch
         fetcher = fetch
     try:
-        response = await fetcher(
-            URL,
-            headers={
-                "Authorization": f"Bearer {api_key.strip()}",
-                "Accept": "application/json",
-            },
-        )
+        headers = {"Accept": "application/json"}
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+        response = await fetcher(URL, headers=headers)
         if not bool(getattr(response, "ok", False)):
             raise RuntimeError(f"HTTP {getattr(response, 'status', 'unknown')}")
         payload = await read_response_bytes(
