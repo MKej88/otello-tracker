@@ -493,6 +493,7 @@ export default function OverviewPage() {
           <div className="overviewNavRefreshInfo" role="note" aria-label="Hvor ofte NAV og kursene oppdateres">
             <strong>Kurser er ikke i sanntid</strong>
             <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
+            <p><b>Otello (OTEC):</b> Kursen sjekkes hvert 30. minutt på børsdager. Euronext-kursene er forsinket med opptil 15 minutter.</p>
             <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
             {summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
               <p><b>BRL/NOK:</b> Oppdateres hvert 30. minutt. Kursen er ca. 15 minutter forsinket.</p>

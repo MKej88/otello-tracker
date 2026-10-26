@@ -12,6 +12,8 @@ test("NAV timestamp says calculated rather than implying live prices", () => {
 test("NAV card explains update frequency and non-live market data", () => {
   assert.match(overview, /Kurser er ikke i sanntid/);
   assert.match(overview, /hvert 30\. minutt/);
+  assert.match(overview, /Otello \(OTEC\)/);
+  assert.match(overview, /Euronext-kursene er forsinket med opptil 15 minutter/);
   assert.match(overview, /Bemobi \(BMOB3\)/);
   assert.match(overview, /15 minutter forsinket/);
   assert.match(overview, /BRL\/NOK/);
