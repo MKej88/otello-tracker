@@ -363,7 +363,7 @@ export default function FxPage() {
       </section>
 
       <section className="fxKpiGrid">
-        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small>{isIndicativeSpot ? "Indikativ kurs · normalt minst 15 min forsinket" : "Norges Banks referansekurs"} · {signedPct(fx.periods?.d1?.brl_nok_pct)} på siste offisielle kursdag</small></article>
+        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small>{isIndicativeSpot ? "Oppdateres hvert 30. minutt · ca. 15 minutter forsinket" : "Norges Banks referansekurs"} · {signedPct(fx.periods?.d1?.brl_nok_pct)} på siste offisielle kursdag</small></article>
         <article className="card fxKpi"><span className="label">1 MÅNED</span><strong className={`numeric ${finite(m1) && m1 >= 0 ? "positive" : "negative"}`}>{signedPct(m1)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">YTD</span><strong className={`numeric ${finite(ytd) && ytd >= 0 ? "positive" : "negative"}`}>{signedPct(ytd)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">1 ÅR</span><strong className={`numeric ${finite(y1) && y1 >= 0 ? "positive" : "negative"}`}>{signedPct(y1)}</strong><small>BRL mot NOK</small></article>
