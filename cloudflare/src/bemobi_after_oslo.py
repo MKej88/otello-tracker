@@ -315,8 +315,20 @@ async def otec_close_basis(repository, close):
     return next((row for row in rows if number(row.get("price"))), None)
 
 
-async def otec_effect(repository, close: datetime, change_brl: float) -> dict[str, Any]:
-    """Translate only the Bemobi price move, with FX and capital held at Oslo close."""
+async def otec_effect(
+    repository, close: datetime, change_brl: float, *,
+    latest_bemobi_price: float, current: datetime,
+) -> dict[str, Any]:
+    """Decompose changes in Bemobi's value into stock-price and FX effects.
+
+    (P1*F1-P0*F0) = (P1-P0)*F0 + P1*(F1-F0).
+    This ensures the combined effect includes the interaction only once.
+    """
+    try:
+        from .after_oslo_fx import fx_close_movement
+    except ImportError:
+        from after_oslo_fx import fx_close_movement
+    fx_change = await fx_close_movement(repository, close, current)
     day = close.astimezone(OSLO_TZ).date().isoformat()
     otec, fx, holding, shares = await asyncio.gather(
         otec_close_basis(repository, close),
@@ -347,7 +359,7 @@ async def otec_effect(repository, close: datetime, change_brl: float) -> dict[st
     missing = []
     if otec is None or number(otec.get("price")) is None:
         missing.append("otec_close")
-    if fx is None or number(fx.get("rate")) is None:
+    if (fx is None or number(fx.get("rate")) is None) and not fx_change.get("ready"):
         missing.append("fixed_fx")
     holding_number = number(holding.get("shares")) if holding else None
     if holding_number is None and (
@@ -358,15 +370,33 @@ async def otec_effect(repository, close: datetime, change_brl: float) -> dict[st
         missing.append("otec_shares")
     if missing:
         return {"ready": False, "missing": missing}
-    delta = (
-        Decimal(str(change_brl))
-        * Decimal(str(holding["shares"]))
-        * Decimal(str(fx["rate"]))
-        / Decimal(str(shares["outstanding_shares"]))
+    close_fx = (
+        Decimal(str(fx_change["reference_rate"]))
+        if fx_change.get("ready")
+        else Decimal(str(fx["rate"]))
     )
-    percent = delta / Decimal(str(otec["price"])) * 100
+    shares_ratio = Decimal(str(holding["shares"])) / Decimal(str(shares["outstanding_shares"]))
+    delta = Decimal(str(change_brl)) * close_fx * shares_ratio
+    otec_basis = Decimal(str(otec["price"]))
+    percent = delta / otec_basis * 100
     if not math.isfinite(float(delta)) or not math.isfinite(float(percent)):
         return {"ready": False, "missing": ["invalid_calculation"]}
+
+    fx_extra: dict[str, Any] = {"ready": False, "reason": fx_change.get("reason", "missing_fx_reference")}
+    if fx_change.get("ready"):
+        latest_fx = Decimal(str(fx_change["latest_rate"]))
+        fx_delta = Decimal(str(latest_bemobi_price)) * (latest_fx - close_fx) * shares_ratio
+        combined = delta + fx_delta
+        theoretical = otec_basis + combined
+        if all(math.isfinite(float(value)) for value in (fx_delta, combined, theoretical)):
+            fx_extra = {
+                **fx_change,
+                "effect_per_share_nok": float(fx_delta),
+                "effect_pct_otec": float(fx_delta / otec_basis * 100),
+                "combined_per_share_nok": float(combined),
+                "combined_pct_otec": float(combined / otec_basis * 100),
+                "theoretical_otec_price_nok": float(theoretical) if theoretical > 0 else None,
+            }
     return {
         "ready": True,
         "change_per_share_nok": float(delta),
@@ -375,9 +405,10 @@ async def otec_effect(repository, close: datetime, change_brl: float) -> dict[st
         "otec_price_type": otec["price_type"],
         "otec_observed_at": otec["observed_at"],
         "otec_source": otec["source"],
-        "fixed_brl_nok": number(fx["rate"]),
-        "fx_observed_at": fx["observed_at"],
-        "fx_source": fx["source"],
+        "fixed_brl_nok": float(close_fx),
+        "fx_observed_at": fx_change["reference_at"] if fx_change.get("ready") else fx["observed_at"],
+        "fx_source": "EXCHANGERATE_DEV" if fx_change.get("ready") else fx["source"],
+        "fx_movement": fx_extra,
         "holding_shares": holding["shares"],
         "otec_outstanding_shares": shares["outstanding_shares"],
     }
@@ -519,7 +550,8 @@ async def bemobi_after_oslo(
         }
     )
     result["otec_effect"] = await otec_effect(
-        repository, close, latest_price - reference_price
+        repository, close, latest_price - reference_price,
+        latest_bemobi_price=latest_price, current=current,
     )
     return result
 
