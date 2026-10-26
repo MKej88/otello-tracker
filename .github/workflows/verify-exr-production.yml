@@ -1,0 +1,133 @@
+name: Verify EXR BRL/NOK production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-exr-production.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Read-only Cloudflare FX and NAV verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+      SITE_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL || 'https://otellotracker.com' }}
+    steps:
+      - name: Check actual exchangerate.dev ingestion and NAV source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          token = os.getenv("CLOUDFLARE_READ_TOKEN", "")
+          account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+          wanted = os.getenv("D1_DATABASE_NAME", "otello-nav")
+          if not token or not account:
+              raise SystemExit("Missing Cloudflare read-only connection")
+          base = "https://api.cloudflare.com/client/v4"
+          headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+          def cf(path, body=None):
+              request_headers = dict(headers)
+              data = None
+              if body is not None:
+                  request_headers["Content-Type"] = "application/json"
+                  data = json.dumps(body).encode("utf-8")
+              request = Request(base + path, headers=request_headers, data=data)
+              with urlopen(request, timeout=25) as response:
+                  result = json.load(response)
+              if result.get("success") is not True:
+                  raise RuntimeError("Cloudflare read-only API query failed")
+              return result
+
+          database_list = cf(
+              f"/accounts/{quote(account, safe='')}/d1/database?"
+              f"name={quote(wanted, safe='')}"
+          ).get("result") or []
+          matched = [item for item in database_list if item.get("name") == wanted]
+          if len(matched) != 1:
+              raise RuntimeError("Expected exactly one production D1 database")
+          database_id = matched[0]["uuid"]
+
+          sql = [
+              "SELECT id, started_at, finished_at, status, metadata_json "
+              "FROM job_runs WHERE job_name='cloudflare_fast_refresh' "
+              "ORDER BY id DESC LIMIT 1",
+              "SELECT fr.observed_at, fr.fetched_at, fr.rate, s.code AS source_code "
+              "FROM fx_rates fr JOIN sources s ON fr.source_id=s.id "
+              "WHERE s.code='EXCHANGERATE_DEV' AND fr.base_currency='BRL' "
+              "AND fr.quote_currency='NOK' ORDER BY fr.observed_at DESC LIMIT 1",
+              "SELECT fr.observed_at, fr.rate, s.code AS source_code "
+              "FROM fx_rates fr JOIN sources s ON fr.source_id=s.id "
+              "WHERE s.code='NORGES_BANK' AND fr.base_currency='BRL' "
+              "AND fr.quote_currency='NOK' ORDER BY fr.observed_at DESC LIMIT 1",
+              "SELECT as_of_at, status, components_json FROM nav_snapshots "
+              "WHERE nav_scope='CORE' ORDER BY as_of_at DESC, id DESC LIMIT 1",
+          ]
+          results = cf(
+              f"/accounts/{quote(account, safe='')}/d1/database/"
+              f"{quote(database_id, safe='')}/query",
+              {"batch": [{"sql": statement} for statement in sql]},
+          ).get("result") or []
+          if len(results) != len(sql) or any(x.get("success") is False for x in results):
+              raise RuntimeError("Cloudflare D1 query returned an incomplete result")
+
+          def first(index):
+              rows = results[index].get("results") or []
+              return rows[0] if rows else {}
+
+          fast, exr, nb, nav = (first(i) for i in range(4))
+          metadata = json.loads(fast.get("metadata_json") or "{}")
+          step = (metadata.get("steps") or {}).get("exchangerate_dev_fx") or {}
+          print("EXCHANGERATE.DEV PRODUCTION VERIFICATION")
+          print("Checked UTC:", datetime.now(UTC).isoformat(timespec="seconds"))
+          print("Latest fast-refresh:", fast.get("status"),
+                fast.get("finished_at"), "job_id", fast.get("id"))
+          print("EXR step status:", step.get("status", "not_recorded"))
+          print("EXR step reason:", step.get("reason", "none"))
+          print("EXR step error category:", step.get("error_type", "none"))
+          print("EXR step observed_at:", step.get("observed_at", "none"))
+          print("Latest EXR stored quote:", exr.get("rate", "none"),
+                exr.get("observed_at", "none"))
+          print("Norges Bank fallback:", nb.get("rate", "none"),
+                nb.get("observed_at", "none"))
+          print("Latest CORE-NAV:", nav.get("as_of_at"), nav.get("status"))
+          if nav.get("components_json"):
+              components = json.loads(nav["components_json"])
+              print("CORE BRL source:", str(components.get("brl_nok_source", "check public summary")))
+              print("CORE BRL rate:", str(components.get("brl_nok", "check public summary")))
+
+          public = os.environ.get("SITE_URL", "https://otellotracker.com").rstrip("/")
+          try:
+              request = Request(
+                  public + "/api/dashboard/summary",
+                  headers={"User-Agent": "OtelloTracker-ReadOnly-Diagnostic/1.0",
+                           "Cache-Control": "no-cache"},
+              )
+              with urlopen(request, timeout=20) as response:
+                  summary = json.load(response)
+              brl = (summary.get("market_timestamps") or {}).get("brl_nok") or {}
+              print("Public summary BRL/NOK:", summary.get("brl_nok", "none"))
+              print("Public summary FX source:", brl.get("source", "not_available"))
+              print("Public summary FX observed_at:", brl.get("observed_at", "none"))
+          except (OSError, ValueError) as exc:
+              print("Public summary unavailable:", type(exc).__name__)
+
+          if step.get("status") != "ok":
+              print("::warning::EXR has not recorded a validated new FX quote in "
+                    "the latest fast-refresh. Check step reason and fallback.")
+          if not exr:
+              print("::warning::No EXR BRL/NOK quote has been stored in D1 yet.")
+          PY
