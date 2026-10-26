@@ -317,7 +317,7 @@ async def otec_close_basis(repository, close):
 
 async def otec_effect(
     repository, close: datetime, change_brl: float, *,
-    latest_bemobi_price: float, current: datetime,
+    latest_bemobi_price: float | None = None, current: datetime | None = None,
 ) -> dict[str, Any]:
     """Decompose changes in Bemobi's value into stock-price and FX effects.
 
@@ -328,7 +328,11 @@ async def otec_effect(
         from .after_oslo_fx import fx_close_movement
     except ImportError:
         from after_oslo_fx import fx_close_movement
-    fx_change = await fx_close_movement(repository, close, current)
+    fx_change = (
+        await fx_close_movement(repository, close, current)
+        if latest_bemobi_price is not None and current is not None
+        else {"ready": False, "reason": "intraday_fx_inputs_not_supplied"}
+    )
     day = close.astimezone(OSLO_TZ).date().isoformat()
     otec, fx, holding, shares = await asyncio.gather(
         otec_close_basis(repository, close),
