@@ -495,13 +495,7 @@ export default function OverviewPage() {
             <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
             <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
             {summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
-              <p>
-                <b>BRL/NOK:</b> Indikativ markedskurs med normalt minst 15 minutters forsinkelse,
-                kontrollert hvert 30. minutt.{" "}
-                <a href="https://exchangerate.dev/" target="_blank" rel="noopener noreferrer">
-                  Rates by Exchangerate.dev
-                </a>
-              </p>
+              <p><b>BRL/NOK:</b> Oppdateres hvert 30. minutt. Kursen er ca. 15 minutter forsinket.</p>
             ) : (
               <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
             )}
