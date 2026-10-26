@@ -19,6 +19,9 @@ type Summary = {
   ready: boolean;
   otec_price?: number | null;
   brl_nok?: number | null;
+  market_timestamps?: {
+    brl_nok?: { source?: string | null };
+  };
   brl_nok_insights?: {
     daily_pct?: number | null;
     month_pct?: number | null;
@@ -491,7 +494,17 @@ export default function OverviewPage() {
             <strong>Kurser er ikke i sanntid</strong>
             <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
             <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
-            <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
+            {summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
+              <p>
+                <b>BRL/NOK:</b> Indikativ markedskurs med normalt minst 15 minutters forsinkelse,
+                kontrollert hvert 30. minutt.{" "}
+                <a href="https://exchangerate.dev/" target="_blank" rel="noopener noreferrer">
+                  Rates by Exchangerate.dev
+                </a>
+              </p>
+            ) : (
+              <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
+            )}
           </div>
         </article>
 
