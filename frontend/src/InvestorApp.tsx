@@ -173,7 +173,7 @@ export default function InvestorApp() {
         <main className="main investorMainV2" id="main-content" tabIndex={-1}>
           <ActiveInvestorView key={activeView} view={activeView} />
           <footer className="fxProviderCredit">
-            Indikative BRL/NOK-kurser er forsinket, ikke sanntids- eller oppgjørskurser.
+            BRL/NOK oppdateres hvert 30. minutt. Kursen er ca. 15 minutter forsinket.
             {" "}
             <a href="https://exchangerate.dev/" target="_blank" rel="noopener noreferrer">
               Rates by Exchangerate.dev
