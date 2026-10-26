@@ -19,7 +19,7 @@ test("NAV card explains update frequency and non-live market data", () => {
 });
 
 test("BRL/NOK uses plain-language update timing without duplicate provider credit", () => {
-  assert.match(overview, /Oppdateres hvert 30\\. minutt\\. Kursen er ca\\. 15 minutter forsinket\\./);
+  assert.match(overview, /Oppdateres hvert 30\. minutt\. Kursen er ca\. 15 minutter forsinket\./);
   assert.doesNotMatch(overview, /Indikativ markedskurs/);
-  assert.doesNotMatch(overview, /Rates by Exchangerate\\.dev/);
+  assert.doesNotMatch(overview, /Rates by Exchangerate\.dev/);
 });
