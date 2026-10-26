@@ -19,6 +19,23 @@ export type BemobiAfterOslo = {
     fixed_brl_nok?: number;
     fx_observed_at?: string;
     fx_source?: string;
+    fx_movement?: {
+      ready: boolean;
+      reason?: string;
+      reference_rate?: number;
+      reference_at?: string;
+      reference_source?: string;
+      reference_approximate?: boolean;
+      latest_rate?: number;
+      latest_at?: string;
+      latest_source?: string;
+      change_pct?: number;
+      effect_per_share_nok?: number;
+      effect_pct_otec?: number;
+      combined_per_share_nok?: number;
+      combined_pct_otec?: number;
+      theoretical_otec_price_nok?: number | null;
+    };
     holding_shares?: number;
     otec_outstanding_shares?: number;
   };
@@ -78,4 +95,18 @@ export function displayedTheoreticalOtecPrice(data: BemobiAfterOslo | null, refr
   if (close == null || !Number.isFinite(close) || close <= 0) return null;
   const price = close + effect!.change_per_share_nok!;
   return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+export function displayedFxMovement(data: BemobiAfterOslo | null, refreshFailed = false) {
+  const fx = displayedOtecEffect(data, refreshFailed)?.fx_movement;
+  return fx?.ready
+    && [fx.reference_rate, fx.latest_rate, fx.change_pct, fx.effect_per_share_nok,
+      fx.combined_per_share_nok, fx.combined_pct_otec].every(v => v != null && Number.isFinite(v))
+    ? fx : null;
+}
+
+export function displayedCombinedTheoreticalPrice(data: BemobiAfterOslo | null, refreshFailed = false) {
+  const fx = displayedFxMovement(data, refreshFailed);
+  return fx?.theoretical_otec_price_nok != null && Number.isFinite(fx.theoretical_otec_price_nok)
+    && fx.theoretical_otec_price_nok > 0 ? fx.theoretical_otec_price_nok : null;
 }

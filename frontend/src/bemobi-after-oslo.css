@@ -24,3 +24,14 @@
 .otecTheoreticalPrice { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:12px 0; color:var(--ot-text-secondary); font-size:var(--ot-type-body); }
 .otecTheoreticalPrice strong { color:var(--ot-text); }
 @media(max-width:1000px) { .bemobiAfterOsloGrid { grid-template-columns:1fr; } }
+
+.bemobiAfterOsloFxMovement { border-top:1px solid var(--ot-border-soft); padding:14px 0 0; margin-top:16px; display:grid; gap:10px; }
+.bemobiAfterOsloFxHeading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; font-size:var(--ot-type-body); }
+.bemobiAfterOsloFxHeading strong { font-size:var(--ot-type-section-title); }
+.bemobiAfterOsloFxMovement small { line-height:1.5; }
+.otecEffectBreakdown { display:grid; gap:10px; margin:16px 0 12px; font-size:var(--ot-type-body); }
+.otecEffectBreakdown>div { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; }
+.otecEffectBreakdown span { color:var(--ot-text-secondary); }
+.otecEffectBreakdown strong { color:var(--ot-text); }
+.otecEffectBreakdown .otecEffectTotal { border-top:1px solid var(--ot-border-soft); padding-top:10px; font-weight:700; }
+.otecEffectBreakdown .otecEffectTotal strong { color:inherit; }
