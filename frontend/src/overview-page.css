@@ -111,6 +111,23 @@
   font-size:var(--ot-type-meta);
 }
 
+.overviewNavRefreshInfo {
+  display:grid;
+  gap:5px;
+  margin-top:8px;
+  padding:11px 12px;
+  border:1px solid var(--ot-border-soft);
+  border-radius:var(--ot-card-secondary-radius);
+  background:var(--ot-surface-muted);
+  color:var(--ot-text-secondary);
+  font-size:var(--ot-type-meta);
+  line-height:1.45;
+}
+
+.overviewNavRefreshInfo strong { color:var(--ot-text); }
+.overviewNavRefreshInfo p { margin:0; }
+.overviewNavRefreshInfo b { font-weight:650; }
+
 .overviewUpcomingCardV3 {
   display:grid;
   align-content:start;
