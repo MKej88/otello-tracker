@@ -150,7 +150,7 @@ class OsloCloseFxTests(unittest.TestCase):
         self.assertAlmostEqual(effect["fx_movement"]["effect_per_share_nok"], 12.0)
         self.assertAlmostEqual(effect["fx_movement"]["combined_per_share_nok"], -5.0)
         self.assertAlmostEqual(effect["fx_movement"]["combined_per_share_nok"],
-                               (Decimal("24")*Decimal("1.75") - Decimal("25")*Decimal("1.70"))*10)
+                               float((Decimal("24")*Decimal("1.75") - Decimal("25")*Decimal("1.70"))*10))
 
     def test_missing_reference_preserves_bemobi_only_value_but_not_combined(self):
         repo = Repository()
