@@ -170,7 +170,23 @@ class Default(WorkerEntrypoint):
         from bemobi_after_oslo import REFERENCE_CRONS, run_reference_capture
 
         if cron in REFERENCE_CRONS:
-            return await run_reference_capture(bindings.DB, now=now)
+            from after_oslo_fx import run_fx_close_capture
+            try:
+                return await run_reference_capture(bindings.DB, now=now)
+            finally:
+                # Same Oslo-close reference window, independent of B3 outcome.
+                # EXR is polled only until a validated near-close quote is frozen.
+                try:
+                    await run_fx_close_capture(
+                        bindings.DB,
+                        now=now,
+                        enabled=str(getattr(bindings, "EXR_MARKET_FX_ENABLED", "false")).lower() == "true",
+                        approved=str(getattr(bindings, "EXR_DATA_LICENSE_APPROVED", "false")).lower() == "true",
+                        api_key=getattr(bindings, "EXCHANGERATE_DEV_API_KEY", None),
+                    )
+                except Exception:
+                    # FX capture cannot disrupt the existing Bemobi reference.
+                    pass
         if cron == FULL_REFRESH_CRON:
             return await ensure_nightly_refresh(
                 D1Repository(bindings.DB), bindings.FULL_REFRESH, now=now
