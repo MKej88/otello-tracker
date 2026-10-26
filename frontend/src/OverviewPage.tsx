@@ -486,7 +486,13 @@ export default function OverviewPage() {
                 : `Rabatten er ${formatNumber(Math.abs(discountSpread), 1)} pp smalere enn 1-årsmedianen.`}
             {medianPriceLine != null ? <div className="numeric">{medianPriceLine}</div> : null}
           </div>
-          <small className="overviewUpdated numeric">NAV oppdatert {updatedTimeLabel(nav?.calculated_at)}</small>
+          <small className="overviewUpdated numeric">NAV sist beregnet {updatedTimeLabel(nav?.calculated_at)}</small>
+          <div className="overviewNavRefreshInfo" role="note" aria-label="Hvor ofte NAV og kursene oppdateres">
+            <strong>Kurser er ikke i sanntid</strong>
+            <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
+            <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
+            <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
+          </div>
         </article>
 
         <article className="card cardPrimary overviewUpcomingCard overviewUpcomingCardV3">
