@@ -31,6 +31,16 @@ def _hash(payload: Any) -> str:
 
 
 async def _nearest_fx(repository, base: str, as_of_date: str) -> dict[str, Any] | None:
+    # Prefer fresh indicative BRL only for today's live estimate.
+    # Historical dates and stale/missing indicative values retain Norges Bank.
+    if base == "BRL":
+        try:
+            from .exchangerate_dev_fx import current_indicative_brl_nok
+        except ImportError:
+            from exchangerate_dev_fx import current_indicative_brl_nok
+        indicative = await current_indicative_brl_nok(repository, day=as_of_date)
+        if indicative is not None:
+            return indicative
     floor_date = (date.fromisoformat(as_of_date) - timedelta(days=MAX_LOOKBACK_DAYS)).isoformat()
     return await repository.first(
         """

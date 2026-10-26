@@ -180,6 +180,9 @@ class Default(WorkerEntrypoint):
             cron=cron,
             archive_bucket=bindings.SOURCE_ARCHIVE,
             scheduled_time_ms=controller.scheduledTime,
+            exr_enabled=str(getattr(bindings, "EXR_MARKET_FX_ENABLED", "false")).lower() == "true",
+            exr_license_approved=str(getattr(bindings, "EXR_DATA_LICENSE_APPROVED", "false")).lower() == "true",
+            exr_api_key=getattr(bindings, "EXCHANGERATE_DEV_API_KEY", None),
         )
         if cron == FAST_REFRESH_CRON:
             # Run after the fast writer lock is released. A missed 03:35 firing

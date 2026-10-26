@@ -49,6 +49,15 @@ def _option_values(components: dict[str, Any]) -> tuple[Decimal, Decimal] | None
 
 
 async def _nearest_fx(repository, base: str, day: str):
+    # Only today's recently observed BRL can replace daily official reference.
+    if base == "BRL":
+        try:
+            from .exchangerate_dev_fx import current_indicative_brl_nok
+        except ImportError:
+            from exchangerate_dev_fx import current_indicative_brl_nok
+        indicative = await current_indicative_brl_nok(repository, day=day)
+        if indicative is not None:
+            return indicative
     floor_date = (
         date.fromisoformat(day) - timedelta(days=MAX_FX_LOOKBACK_DAYS)
     ).isoformat()

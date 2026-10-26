@@ -98,6 +98,10 @@ påvirker beregningene skal kunne spores.
 
 - Den raske oppdateringen kjører hvert 30. minutt og henter lette,
   inkrementelle data som markedspriser og NewsWeb-meldinger.
+- Valgfri exchangerate.dev BRL/NOK-intradag er klargjort, men **deaktivert**
+  inntil rettigheter for videredistribusjon via offentlige API-er er skriftlig
+  avklart. Se [integrasjonsnotatet](docs/exchangerate-dev-brlnok.md).
+  Offisiell valutahistorikk kommer fortsatt fra Norges Bank.
 - Den fulle oppdateringen kjører daglig kl. 03:35 UTC og håndterer tyngre
   kilder, avstemming, historikk, NAV-beregninger og R2-arkivering.
   Det tilsvarer kl. 05:35 norsk sommertid og kl. 04:35 norsk vintertid.
