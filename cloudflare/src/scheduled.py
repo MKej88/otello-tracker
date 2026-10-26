@@ -722,15 +722,24 @@ async def run_scheduled(
             )
         lock_token = result.get("token")
 
+    # Keep the unchanged scheduled-call signature in normal (disabled) operation.
+    # Optional settings are passed only when an EXR integration is configured.
+    exr_options = (
+        {
+            "exr_enabled": exr_enabled,
+            "exr_license_approved": exr_license_approved,
+            "exr_api_key": exr_api_key,
+        }
+        if exr_enabled or exr_license_approved or exr_api_key
+        else {}
+    )
     try:
         return await run_fast_refresh(
             database,
             archive_bucket=archive_bucket,
             scheduled_time_ms=scheduled_time_ms,
             renew_lock=renew_lock,
-            exr_enabled=exr_enabled,
-            exr_license_approved=exr_license_approved,
-            exr_api_key=exr_api_key,
+            **exr_options,
         )
     finally:
         await release_refresh_lock(repository, lock_token)
