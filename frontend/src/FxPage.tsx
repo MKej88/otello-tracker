@@ -49,6 +49,9 @@ type SummaryPayload = {
   ready?: boolean;
   as_of_date?: string | null;
   brl_nok?: number | null;
+  market_timestamps?: {
+    brl_nok?: { source?: string | null };
+  };
   bmob3_price?: number | null;
   bemobi_shares?: number | null;
   bemobi_value_mnok?: number | null;
@@ -279,7 +282,10 @@ export default function FxPage() {
   }
 
   const series = fx.series ?? [];
-  const spot = fx.current?.brl_nok ?? summary?.brl_nok;
+  const isIndicativeSpot = summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV";
+  const spot = isIndicativeSpot && finite(summary?.brl_nok)
+    ? summary.brl_nok
+    : fx.current?.brl_nok ?? summary?.brl_nok;
   const bmob3 = summary?.bemobi_insights?.price_brl ?? summary?.bmob3_price;
   const holdingShares = summary?.bemobi_insights?.holding_shares ?? summary?.bemobi_shares;
   const ownershipPct = summary?.bemobi_insights?.ownership_pct;
@@ -357,7 +363,7 @@ export default function FxPage() {
       </section>
 
       <section className="fxKpiGrid">
-        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small className="numeric">{signedPct(fx.periods?.d1?.brl_nok_pct)} siste dag</small></article>
+        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small>{isIndicativeSpot ? "Indikativ kurs · normalt minst 15 min forsinket" : "Norges Banks referansekurs"} · {signedPct(fx.periods?.d1?.brl_nok_pct)} på siste offisielle kursdag</small></article>
         <article className="card fxKpi"><span className="label">1 MÅNED</span><strong className={`numeric ${finite(m1) && m1 >= 0 ? "positive" : "negative"}`}>{signedPct(m1)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">YTD</span><strong className={`numeric ${finite(ytd) && ytd >= 0 ? "positive" : "negative"}`}>{signedPct(ytd)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">1 ÅR</span><strong className={`numeric ${finite(y1) && y1 >= 0 ? "positive" : "negative"}`}>{signedPct(y1)}</strong><small>BRL mot NOK</small></article>
