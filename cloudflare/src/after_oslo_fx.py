@@ -7,7 +7,7 @@ after the event. Never infer the close from a daily Norges Bank fix.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
