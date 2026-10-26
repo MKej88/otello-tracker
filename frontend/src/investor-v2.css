@@ -183,3 +183,19 @@
   .freshnessRow span { grid-column:2; grid-row:2; }
   .freshnessRow time { grid-column:3; grid-row:2; }
 }
+
+/* Provider credit required on every screen that displays Exchangerate.dev data. */
+.fxProviderCredit {
+  margin: 22px 0 6px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--ot-border-soft);
+  color: var(--ot-text-secondary);
+  font-size: var(--ot-type-meta);
+  line-height: 1.5;
+  text-align: center;
+}
+.fxProviderCredit a {
+  color: var(--ot-accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

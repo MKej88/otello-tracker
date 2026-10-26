@@ -94,6 +94,16 @@ def render_config(
         config.pop("routes", None)
 
     variables = config.setdefault("vars", {})
+    # Provider permission for OtelloTracker's public rate display/API was
+    # confirmed by the site owner on 2026-10-26. The source still remains
+    # optional and can be disabled using the production environment variable.
+    variables["EXR_DATA_LICENSE_APPROVED"] = "true"
+    variables["EXR_MARKET_FX_ENABLED"] = (
+        "false"
+        if os.getenv("CLOUDFLARE_EXR_MARKET_FX_ENABLED", "true").strip().lower()
+        in {"false", "0", "no", "off"}
+        else "true"
+    )
     clean_revision = (deployment_revision or "").strip()
     if clean_revision:
         variables["DEPLOYMENT_REVISION"] = clean_revision

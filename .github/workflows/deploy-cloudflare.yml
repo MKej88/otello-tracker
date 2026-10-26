@@ -70,6 +70,7 @@ jobs:
       CLOUDFLARE_STATUS_EMAIL_TO: ${{ vars.CLOUDFLARE_STATUS_EMAIL_TO }}
       CLOUDFLARE_STATUS_EMAIL_FROM: ${{ vars.CLOUDFLARE_STATUS_EMAIL_FROM }}
       CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
+      CLOUDFLARE_EXR_MARKET_FX_ENABLED: ${{ vars.CLOUDFLARE_EXR_MARKET_FX_ENABLED }}
       OTELLO_DEPLOYMENT_REVISION: ${{ inputs.tested_sha || github.sha }}
     steps:
       - name: Check out tested production revision
