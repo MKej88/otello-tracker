@@ -98,7 +98,6 @@ class ExchangerateDevTests(unittest.TestCase):
         for enabled, approved, key in (
             (False, True, "secret"),
             (True, False, "secret"),
-            (True, True, ""),
         ):
             result = asyncio.run(refresh_exchangerate_dev_brl_nok(
                 FakeRepo(), now=NOW, enabled=enabled,
@@ -124,6 +123,22 @@ class ExchangerateDevTests(unittest.TestCase):
         self.assertEqual(seen[0][1]["Authorization"], "Bearer test-secret")
         self.assertNotIn("test-secret", str(outcome))
         self.assertNotIn("test-secret", str(repo.writes))
+
+    def test_public_keyless_quote_persists_without_auth_header(self):
+        repo = FakeRepo()
+        requested = []
+        async def fetch(url, headers):
+            requested.append((url, headers))
+            return FakeResponse(response_payload())
+        outcome = asyncio.run(refresh_exchangerate_dev_brl_nok(
+            repo, now=NOW, enabled=True, license_approved=True,
+            api_key=None, fetcher=fetch,
+        ))
+        self.assertEqual(outcome["status"], "ok")
+        self.assertEqual(outcome["rows_written"], 1)
+        self.assertEqual(len(repo.writes), 1)
+        self.assertNotIn("Authorization", requested[0][1])
+        self.assertEqual(requested[0][1]["Accept"], "application/json")
 
     def test_outlier_or_network_failure_never_writes(self):
         for nb, payload in (("2.50", response_payload()), ("1.72", response_payload(rates={"NOK": 0.3}))):
