@@ -30,6 +30,11 @@ def build_fixture(database_path: str) -> dict:
     history = seed_curated_history(database_path)
 
     with get_connection(database_path) as connection:
+        # Mirror additive source-only D1 migration in the SQLite parity fixture.
+        source_migration = (
+            ROOT / "cloudflare" / "migrations" / "0040_exchangerate_dev_fx_source.sql"
+        )
+        connection.executescript(source_migration.read_text(encoding="utf-8"))
         source_ids = {
             row["code"]: row["id"]
             for row in connection.execute("SELECT id, code FROM sources")
