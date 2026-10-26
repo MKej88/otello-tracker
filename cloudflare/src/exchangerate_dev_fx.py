@@ -65,6 +65,26 @@ def parse_brl_nok(payload: bytes | str | dict[str, Any], *, now: datetime) -> di
     }
 
 
+
+async def current_indicative_brl_nok(repository: Any, *, day: str, now: datetime | None = None) -> dict[str, Any] | None:
+    """Use recent intraday quotes only for today's live NAV, never dated history."""
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    if day != current.astimezone(OSLO).date().isoformat():
+        return None
+    cutoff = (current - MAX_OBSERVATION_AGE).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return await repository.first(
+        """SELECT fr.id, fr.observed_at,
+                  substr(fr.observed_at, 1, 10) AS rate_date,
+                  fr.rate, fr.source_document_id, s.code AS source_code
+           FROM fx_rates fr
+           JOIN sources s ON s.id=fr.source_id
+           WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+             AND s.code='EXCHANGERATE_DEV' AND fr.observed_at>=?
+             AND fr.observed_at<=?
+           ORDER BY fr.observed_at DESC LIMIT 1""",
+        (cutoff, current.isoformat(timespec="seconds").replace("+00:00", "Z")),
+    )
+
 async def refresh_exchangerate_dev_brl_nok(
     repository: Any,
     *,
@@ -151,7 +171,7 @@ async def refresh_exchangerate_dev_brl_nok(
             "derived": quote["derived"],
             "network_fetches_avoided": False,
         }
-    except (Exception) as exc:
+    except Exception as exc:
         # Important: no API key or raw response in job metadata or logs.
         return {
             "status": "skipped",
