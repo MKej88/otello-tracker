@@ -7,7 +7,7 @@ written downstream redistribution permission from exchangerate.dev.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
@@ -22,6 +22,10 @@ URL = "https://api.exchangerate.dev/v1/latest/BRL?symbols=NOK"
 OSLO = ZoneInfo("Europe/Oslo")
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_OBSERVATION_AGE = timedelta(minutes=75)
+# A validated market quote must not vanish from the investor view overnight.
+# Weekend carry is longer, but every response exposes its observation time.
+MAX_MARKET_CARRY_AGE = timedelta(hours=24)
+MAX_WEEKEND_CARRY_AGE = timedelta(hours=80)
 MAX_NB_DEVIATION = Decimal("0.12")
 MIN_RATE, MAX_RATE = Decimal("0.5"), Decimal("5")
 
@@ -66,24 +70,88 @@ def parse_brl_nok(payload: bytes | str | dict[str, Any], *, now: datetime) -> di
 
 
 
-async def current_indicative_brl_nok(repository: Any, *, day: str, now: datetime | None = None) -> dict[str, Any] | None:
-    """Use recent intraday quotes only for today's live NAV, never dated history."""
-    current = (now or datetime.now(UTC)).astimezone(UTC)
-    if day != current.astimezone(OSLO).date().isoformat():
-        return None
-    cutoff = (current - MAX_OBSERVATION_AGE).isoformat(timespec="seconds").replace("+00:00", "Z")
-    return await repository.first(
+def _presentation_age_limit(now: datetime) -> timedelta:
+    """Permit the latest verified market observation between trading sessions."""
+    oslo_weekday = now.astimezone(OSLO).weekday()
+    return MAX_WEEKEND_CARRY_AGE if oslo_weekday in {5, 6, 0} else MAX_MARKET_CARRY_AGE
+
+
+async def _latest_saved_market_quote(
+    repository: Any,
+    *,
+    now: datetime,
+    before: datetime,
+) -> dict[str, Any] | None:
+    cutoff = (now - _presentation_age_limit(now)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    upper = min(before, now).isoformat(timespec="seconds").replace("+00:00", "Z")
+    row = await repository.first(
         """SELECT fr.id, fr.observed_at,
                   substr(fr.observed_at, 1, 10) AS rate_date,
                   fr.rate, fr.source_document_id, s.code AS source_code
            FROM fx_rates fr
            JOIN sources s ON s.id=fr.source_id
            WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
-             AND s.code='EXCHANGERATE_DEV' AND fr.observed_at>=?
-             AND fr.observed_at<=?
-           ORDER BY fr.observed_at DESC LIMIT 1""",
-        (cutoff, current.isoformat(timespec="seconds").replace("+00:00", "Z")),
+             AND s.code='EXCHANGERATE_DEV'
+             AND fr.observed_at>=? AND fr.observed_at<=?
+             AND CAST(fr.rate AS REAL)>0
+           ORDER BY fr.observed_at DESC, fr.id DESC LIMIT 1""",
+        (cutoff, upper),
     )
+    if not row:
+        return None
+    try:
+        observed = _timestamp(row["observed_at"])
+        rate = Decimal(str(row["rate"]))
+    except (ValueError, TypeError, InvalidOperation):
+        return None
+    if not rate.is_finite() or not MIN_RATE <= rate <= MAX_RATE:
+        return None
+    age = now - observed
+    if not timedelta(0) <= age <= _presentation_age_limit(now):
+        return None
+    return {
+        **row,
+        "rate_date": observed.astimezone(OSLO).date().isoformat(),
+        "age_minutes": round(age.total_seconds() / 60, 1),
+        "carried_forward": age > MAX_OBSERVATION_AGE,
+    }
+
+
+async def latest_indicative_brl_nok(
+    repository: Any, *, now: datetime | None = None
+) -> dict[str, Any] | None:
+    """Most recent validated EXR quote for display; never official history."""
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    return await _latest_saved_market_quote(repository, now=current, before=current)
+
+
+async def current_indicative_brl_nok(
+    repository: Any, *, day: str, now: datetime | None = None
+) -> dict[str, Any] | None:
+    """Use a validated EXR quote on its *own* Oslo date for live NAV.
+
+    Previous-day quotes may carry overnight, but a later observation must
+    never leak into an earlier NAV date or financial-report anchor.
+    """
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    try:
+        requested = datetime.strptime(day, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+    if requested > current.astimezone(OSLO).date():
+        return None
+    next_day_start = datetime.combine(
+        requested + timedelta(days=1), time.min, tzinfo=OSLO
+    ).astimezone(UTC)
+    # Historical valuations must never query live EXR quotes. This is also
+    # important for repositories whose historical FX lookups use a different API.
+    if next_day_start < current - _presentation_age_limit(current):
+        return None
+    row = await _latest_saved_market_quote(
+        repository, now=current, before=next_day_start - timedelta(seconds=1),
+    )
+    return row if row and row["rate_date"] == day else None
+
 
 async def refresh_exchangerate_dev_brl_nok(
     repository: Any,

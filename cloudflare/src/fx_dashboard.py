@@ -5,6 +5,11 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+try:
+    from .exchangerate_dev_fx import latest_indicative_brl_nok
+except ImportError:
+    from exchangerate_dev_fx import latest_indicative_brl_nok
+
 HISTORY_DAYS = 365 * 5 + 10
 MAX_LOOKBACK_DAYS = 7
 SOURCE_PRIORITY = {"NORGES_BANK": 0, "ECB": 1}
@@ -36,6 +41,7 @@ async def _preferred_series(
         JOIN sources s ON s.id = fr.source_id
         WHERE fr.base_currency = ?
           AND fr.quote_currency = 'NOK'
+          AND s.code IN ('NORGES_BANK', 'ECB')
           AND substr(fr.observed_at, 1, 10) BETWEEN ? AND ?
           AND CAST(fr.rate AS REAL) > 0
         ORDER BY rate_date,
@@ -173,11 +179,13 @@ def _range_stats(series: list[dict[str, Any]], *, start_date: str) -> dict[str, 
 async def fx_dashboard(repository) -> dict[str, Any]:
     latest = await repository.first(
         """
-        SELECT MAX(substr(observed_at, 1, 10)) AS max_date
-        FROM fx_rates
-        WHERE base_currency = 'BRL'
-          AND quote_currency = 'NOK'
-          AND CAST(rate AS REAL) > 0
+        SELECT MAX(substr(fr.observed_at, 1, 10)) AS max_date
+        FROM fx_rates fr
+        JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency = 'BRL'
+          AND fr.quote_currency = 'NOK'
+          AND s.code IN ('NORGES_BANK', 'ECB')
+          AND CAST(fr.rate AS REAL) > 0
         """
     )
     if latest is None or latest.get("max_date") is None:
@@ -229,7 +237,8 @@ async def fx_dashboard(repository) -> dict[str, Any]:
             }
         )
 
-    current_brl_rate = Decimal(str(current_brl["rate"]))
+    indicative = await latest_indicative_brl_nok(repository)
+    current_brl_rate = Decimal(str(indicative["rate"])) if indicative is not None else Decimal(str(current_brl["rate"]))
     current_usd_rate = Decimal(str(current_usd["rate"])) if current_usd is not None else None
     periods = {
         period: _period_snapshot(
@@ -247,6 +256,10 @@ async def fx_dashboard(repository) -> dict[str, Any]:
         "as_of_date": end_date,
         "current": {
             "brl_nok": float(current_brl_rate),
+            "source": "EXCHANGERATE_DEV" if indicative is not None else current_brl["source_code"],
+            "observed_at": indicative["observed_at"] if indicative is not None else None,
+            "age_minutes": indicative["age_minutes"] if indicative is not None else None,
+            "carried_forward": indicative["carried_forward"] if indicative is not None else False,
             "usd_nok": float(current_usd_rate) if current_usd_rate is not None else None,
             "usd_brl": (
                 float(current_usd_rate / current_brl_rate)
@@ -258,23 +271,28 @@ async def fx_dashboard(repository) -> dict[str, Any]:
         "range_1y": _range_stats(brl_series, start_date=one_year_start),
         "series": points,
         "sources": [
-            {
-                "code": code,
-                "name": (
-                    "Norges Bank"
-                    if code == "NORGES_BANK"
-                    else "ECB"
-                    if code == "ECB"
-                    else code
-                ),
-                "url": SOURCE_URLS.get(code),
-            }
-            for code in sorted(
-                source_codes, key=lambda code: SOURCE_PRIORITY.get(code, 5)
-            )
+            *([{"code": "EXCHANGERATE_DEV", "name": "Exchangerate.dev", "url": "https://exchangerate.dev/"}] if indicative is not None else []),
+            *[
+                {
+                    "code": code,
+                    "name": (
+                        "Norges Bank"
+                        if code == "NORGES_BANK"
+                        else "ECB"
+                        if code == "ECB"
+                        else code
+                    ),
+                    "url": SOURCE_URLS.get(code),
+                }
+                for code in sorted(
+                    source_codes, key=lambda code: SOURCE_PRIORITY.get(code, 5)
+                )
+            ]
         ],
         "method_note": (
-            "BRL/NOK og USD/NOK bruker én prioritert observasjon per dato, med Norges Bank foran ECB. "
+            "Historiske BRL/NOK- og USD/NOK-kurser bruker Norges Bank foran ECB. "
+            "Gjeldende BRL/NOK bruker siste validerte markedskurs fra Exchangerate.dev når tilgjengelig; "
+            "observasjonstidspunkt og eventuell videreføring vises særskilt. "
             "USD/BRL er avledet som USD/NOK delt på BRL/NOK."
         ),
     }

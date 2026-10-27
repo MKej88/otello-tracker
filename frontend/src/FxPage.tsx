@@ -33,6 +33,10 @@ type FxPayload = {
     brl_nok?: number | null;
     usd_nok?: number | null;
     usd_brl?: number | null;
+    source?: string | null;
+    observed_at?: string | null;
+    age_minutes?: number | null;
+    carried_forward?: boolean;
   };
   periods?: Record<string, PeriodSnapshot>;
   range_1y?: {
@@ -282,10 +286,17 @@ export default function FxPage() {
   }
 
   const series = fx.series ?? [];
-  const isIndicativeSpot = summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV";
-  const spot = isIndicativeSpot && finite(summary?.brl_nok)
-    ? summary.brl_nok
-    : fx.current?.brl_nok ?? summary?.brl_nok;
+  const isIndicativeSpot = fx.current?.source === "EXCHANGERATE_DEV"
+    || summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV";
+  const spot = fx.current?.source === "EXCHANGERATE_DEV" && finite(fx.current.brl_nok)
+    ? fx.current.brl_nok
+    : summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" && finite(summary?.brl_nok)
+      ? summary.brl_nok
+      : fx.current?.brl_nok ?? summary?.brl_nok;
+  const fxObservedAt = fx.current?.source === "EXCHANGERATE_DEV" ? fx.current.observed_at : null;
+  const fxObservedLabel = fxObservedAt
+    ? new Date(fxObservedAt).toLocaleString("nb-NO", { timeZone: "Europe/Oslo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : null;
   const bmob3 = summary?.bemobi_insights?.price_brl ?? summary?.bmob3_price;
   const holdingShares = summary?.bemobi_insights?.holding_shares ?? summary?.bemobi_shares;
   const ownershipPct = summary?.bemobi_insights?.ownership_pct;
@@ -357,13 +368,13 @@ export default function FxPage() {
         </div>
         <div className="fxHeroMeta">
           <span>Sist oppdatert</span>
-          <strong className="numeric">{dateLabel(fx.as_of_date)}</strong>
+          <strong className="numeric">{fxObservedLabel ?? dateLabel(fx.as_of_date)}</strong>
           {refreshWarning ? <small>Oppfrisking feilet – viser siste lagrede data</small> : null}
         </div>
       </section>
 
       <section className="fxKpiGrid">
-        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small>{isIndicativeSpot ? "Oppdateres hvert 30. minutt · ca. 15 minutter forsinket" : "Norges Banks referansekurs"} · {signedPct(fx.periods?.d1?.brl_nok_pct)} på siste offisielle kursdag</small></article>
+        <article className="card fxKpi primary"><span className="label">BRL/NOK NÅ</span><strong className="numeric">{number(spot, 4)}</strong><small>{isIndicativeSpot ? `Siste registrerte markedskurs${fxObservedLabel ? ` · ${fxObservedLabel}` : ""}${fx.current?.carried_forward ? " · videreført fra siste handel" : ""}` : "Norges Banks referansekurs"} · {signedPct(fx.periods?.d1?.brl_nok_pct)} på siste offisielle kursdag</small></article>
         <article className="card fxKpi"><span className="label">1 MÅNED</span><strong className={`numeric ${finite(m1) && m1 >= 0 ? "positive" : "negative"}`}>{signedPct(m1)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">YTD</span><strong className={`numeric ${finite(ytd) && ytd >= 0 ? "positive" : "negative"}`}>{signedPct(ytd)}</strong><small>BRL mot NOK</small></article>
         <article className="card fxKpi"><span className="label">1 ÅR</span><strong className={`numeric ${finite(y1) && y1 >= 0 ? "positive" : "negative"}`}>{signedPct(y1)}</strong><small>BRL mot NOK</small></article>
