@@ -34,4 +34,3 @@
 .otecEffectBreakdown span { color:var(--ot-text-secondary); }
 .otecEffectBreakdown strong { color:var(--ot-text); }
 .otecEffectBreakdown .otecEffectTotal { border-top:1px solid var(--ot-border-soft); padding-top:10px; font-weight:700; }
-.otecEffectBreakdown .otecEffectTotal strong { color:inherit; }
