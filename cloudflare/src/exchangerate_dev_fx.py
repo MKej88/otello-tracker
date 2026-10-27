@@ -143,6 +143,10 @@ async def current_indicative_brl_nok(
     next_day_start = datetime.combine(
         requested + timedelta(days=1), time.min, tzinfo=OSLO
     ).astimezone(UTC)
+    # Historical valuations must never query live EXR quotes. This is also
+    # important for repositories whose historical FX lookups use a different API.
+    if next_day_start < current - _presentation_age_limit(current):
+        return None
     row = await _latest_saved_market_quote(
         repository, now=current, before=next_day_start - timedelta(seconds=1),
     )
