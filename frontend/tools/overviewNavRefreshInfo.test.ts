@@ -27,7 +27,7 @@ test("BRL/NOK uses plain-language update timing without duplicate provider credi
   assert.match(overview, /usePollingResource<CurrentFxPayload>\(\s*"\/api\/fx\/dashboard"/);
   assert.match(overview, /const currentFxTime = fxObservationTime\(fxSpot\?\.observed_at\)/);
   assert.match(overview, /BRL\/NOK i sist beregnede NAV:/);
-  assert.match(overview, /Siste kurs \{shownBrlNok == null/);
+  assert.match(overview, /Dagens kurs \{shownBrlNok == null/);
   assert.match(overview, /current=\{shownBrlNok\}/);
   assert.match(overview, /kontrolleres hvert 30\. minutt/);
   assert.doesNotMatch(overview, /Indikativ markedskurs/);
