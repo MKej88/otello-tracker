@@ -89,22 +89,42 @@ async def _market_coverage(repository, symbol: str, price_types: tuple[str, ...]
     }
 
 
-async def _fx_coverage(repository, base: str) -> dict[str, Any]:
+async def _fx_coverage(
+    repository, base: str, *, as_of_date: str
+) -> dict[str, Any]:
+    """Check dated FX coverage without treating tomorrow's live quote as history.
+
+    BRL/NOK may use validated EXCHANGERATE_DEV observations for the target
+    date; historical dates continue to have Norges Bank as a reference.
+    USD/NOK is sourced from Norges Bank only.
+    """
+    allowed_sources = (
+        ("NORGES_BANK", "EXCHANGERATE_DEV")
+        if base == "BRL"
+        else ("NORGES_BANK",)
+    )
+    placeholders = ",".join("?" for _ in allowed_sources)
     row = await repository.first(
-        """
+        f"""
         SELECT COUNT(*) AS n,
-               MIN(substr(observed_at,1,10)) AS min_date,
-               MAX(substr(observed_at,1,10)) AS max_date
-        FROM fx_rates
-        WHERE base_currency=? AND quote_currency='NOK'
+               MIN(substr(fr.observed_at,1,10)) AS min_date,
+               MAX(substr(fr.observed_at,1,10)) AS max_date
+        FROM fx_rates fr
+        JOIN sources s ON s.id=fr.source_id
+        WHERE fr.base_currency=? AND fr.quote_currency='NOK'
+          AND s.code IN ({placeholders})
+          AND substr(fr.observed_at,1,10)<=?
+          AND CAST(fr.rate AS REAL)>0
         """,
-        (base,),
+        (base, *allowed_sources, as_of_date),
     )
     row = row or {}
     return {
         "count": int(row.get("n") or 0),
         "from": row.get("min_date"),
         "to": row.get("max_date"),
+        "as_of_date": as_of_date,
+        "allowed_sources": list(allowed_sources),
     }
 
 
@@ -199,8 +219,8 @@ async def run_d1_preflight(
     otec_history = await _market_coverage(repository, "OTEC", ("CLOSE",))
     otec_latest = await _market_coverage(repository, "OTEC", ("CLOSE", "LAST"))
     bmob3 = await _market_coverage(repository, "BMOB3", ("CLOSE",))
-    brl = await _fx_coverage(repository, "BRL")
-    usd = await _fx_coverage(repository, "USD")
+    brl = await _fx_coverage(repository, "BRL", as_of_date=target_date)
+    usd = await _fx_coverage(repository, "USD", as_of_date=target_date)
 
     _check(
         checks,
