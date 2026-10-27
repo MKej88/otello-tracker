@@ -20,7 +20,7 @@ type Summary = {
   otec_price?: number | null;
   brl_nok?: number | null;
   market_timestamps?: {
-    brl_nok?: { source?: string | null };
+    brl_nok?: { source?: string | null; observed_at?: string | null };
   };
   brl_nok_insights?: {
     daily_pct?: number | null;
@@ -496,7 +496,7 @@ export default function OverviewPage() {
             <p><b>Otello (OTEC):</b> Kursen sjekkes hvert 30. minutt på børsdager. Euronext-kursene er forsinket med opptil 15 minutter.</p>
             <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
             {summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
-              <p><b>BRL/NOK:</b> Oppdateres hvert 30. minutt. Kursen er ca. 15 minutter forsinket.</p>
+              <p><b>BRL/NOK:</b> Siste tilgjengelige markedskurs fra Exchangerate.dev (kontrolleres hvert 30. minutt). {summary?.market_timestamps?.brl_nok?.observed_at ? `Registrert ${new Date(summary.market_timestamps.brl_nok.observed_at).toLocaleString("nb-NO", { timeZone: "Europe/Oslo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
             ) : (
               <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
             )}
