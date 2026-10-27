@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from decimal import Decimal
+from unittest.mock import patch
 from pathlib import Path
 
 from app.db.connection import get_connection
@@ -268,3 +270,92 @@ def test_intraday_otec_change_marks_option_core_and_full_dirty_but_not_cash(tmp_
             (f"{target}T23:59:59Z", FULL_CALCULATION_VERSION),
         ).fetchone()
     assert worker_full["nav_per_share_nok"] == reference_full["nav_per_share_nok"]
+
+
+
+def test_validated_new_day_exr_builds_current_nav_without_rewriting_yesterday(tmp_path: Path) -> None:
+    """A fresh Oslo-day FX quote should revalue NAV before BMOB3/OTEC trade."""
+    database, previous_day = _database(tmp_path)
+    repository = SQLiteAsyncWriteRepository(database)
+    baseline = asyncio.run(refresh_dirty_nav_layers(repository, target_date=previous_day))
+    assert baseline["status"] == "ok"
+    today = "2026-08-18"
+    current = datetime(2026, 8, 18, 6, 30, tzinfo=UTC)
+
+    with get_connection(database) as con:
+        historical_before = dict(con.execute(
+            """SELECT inputs_hash, nav_per_share_nok, components_json
+               FROM nav_snapshots
+               WHERE as_of_at=? AND calculation_version=?""",
+            (f"{previous_day}T23:59:59Z", CORE_CALCULATION_VERSION),
+        ).fetchone())
+
+    async def latest_quote(_repository, *, day, now=None):
+        if day != today:
+            return None
+        return {
+            "id": 95001,
+            "rate": "2.35",
+            "observed_at": "2026-08-18T06:14:59Z",
+            "rate_date": today,
+            "source_code": "EXCHANGERATE_DEV",
+        }
+
+    with patch("src.exchangerate_dev_fx.current_indicative_brl_nok", side_effect=latest_quote):
+        result = asyncio.run(refresh_dirty_nav_layers(repository, target_date=today, now=current))
+
+    assert result["status"] == "ok"
+    assert result["nav_date"] == today
+    assert result["live_fx_advanced_date"] is True
+    assert result["live_calendar_snapshot"] is False
+    assert {"daily_core_nav", "daily_full_nav"} <= set(result["dirty_layers"])
+
+    with get_connection(database) as con:
+        historical_after = dict(con.execute(
+            """SELECT inputs_hash, nav_per_share_nok, components_json
+               FROM nav_snapshots
+               WHERE as_of_at=? AND calculation_version=?""",
+            (f"{previous_day}T23:59:59Z", CORE_CALCULATION_VERSION),
+        ).fetchone())
+        new_core = con.execute(
+            """SELECT components_json, nav_per_share_nok FROM nav_snapshots
+               WHERE as_of_at=? AND calculation_version=?""",
+            (f"{today}T23:59:59Z", CORE_CALCULATION_VERSION),
+        ).fetchone()
+        new_full = con.execute(
+            """SELECT nav_per_share_nok FROM nav_snapshots
+               WHERE as_of_at=? AND calculation_version=?""",
+            (f"{today}T23:59:59Z", FULL_CALCULATION_VERSION),
+        ).fetchone()
+
+    assert historical_after == historical_before
+    assert new_core is not None and new_full is not None
+    import json
+    comps = json.loads(new_core["components_json"])
+    assert Decimal(str(comps["bmob3"]["brl_nok"])) == Decimal("2.35")
+    assert comps["bmob3"]["brl_nok_date"] == today
+    assert comps["bmob3"]["brl_nok_source"] == "EXCHANGERATE_DEV"
+    assert comps["bmob3"]["price_date"] == previous_day
+    assert Decimal(str(new_core["nav_per_share_nok"])) > Decimal(str(historical_before["nav_per_share_nok"]))
+
+
+def test_no_new_oslo_day_fx_does_not_create_a_phantom_nav_day(tmp_path: Path) -> None:
+    database, previous_day = _database(tmp_path)
+    repository = SQLiteAsyncWriteRepository(database)
+    today = "2026-08-18"
+    now = datetime(2026, 8, 18, 6, 30, tzinfo=UTC)
+
+    async def no_quote(_repository, *, day, now=None):
+        return None
+
+    with patch("src.exchangerate_dev_fx.current_indicative_brl_nok", side_effect=no_quote):
+        result = asyncio.run(refresh_dirty_nav_layers(repository, target_date=today, now=now))
+
+    assert result["nav_date"] == previous_day
+    assert result["live_fx_advanced_date"] is False
+    with get_connection(database) as con:
+        row = con.execute(
+            "SELECT COUNT(*) FROM nav_snapshots WHERE as_of_at=?",
+            (f"{today}T23:59:59Z",),
+        ).fetchone()
+    assert row[0] == 0
