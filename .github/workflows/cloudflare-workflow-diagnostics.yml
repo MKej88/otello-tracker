@@ -884,3 +884,87 @@ jobs:
           else:
               print(f"{kind} healthy, no incident to close")
           PY
+
+
+  exr_pipeline_probe:
+    name: Temporary read-only BRL/NOK source probe
+    if: github.event_name == 'pull_request' && github.head_ref == 'diagnose/exr-pipeline-20261027'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DB_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+      PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL || 'https://otellotracker.com' }}
+    steps:
+      - name: Inspect saved EXR quotes, latest ingestion outcome and public API
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CF_TOKEN"
+          test -n "$CF_ACCOUNT"
+          base="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/d1/database"
+          curl --fail-with-body -sS -G -H "Authorization: Bearer $CF_TOKEN" -H "Accept: application/json" \
+            --data-urlencode "name=$DB_NAME" --data-urlencode "per_page=10" "$base" -o db.json
+          python3 - <<'PY'
+          import json
+          obj=json.load(open('db.json'))
+          arr=[d for d in obj.get('result',[]) if d.get('name')=='otello-nav']
+          if len(arr)!=1: raise SystemExit("Expected one D1 database")
+          open('db-id.txt','w').write(arr[0]['uuid'])
+          statements=[
+            """SELECT fr.observed_at, fr.rate, fr.fetched_at, s.code AS source
+            FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+            WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+              AND s.code IN ('EXCHANGERATE_DEV','NORGES_BANK')
+            ORDER BY fr.observed_at DESC, fr.id DESC LIMIT 12""",
+            """SELECT started_at, finished_at, status, metadata_json, error_message
+            FROM job_runs WHERE job_name='cloudflare_fast_refresh'
+            ORDER BY id DESC LIMIT 3""",
+            """SELECT s.code, COUNT(*) AS n, MAX(fr.observed_at) AS latest
+            FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+            WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+            GROUP BY s.code ORDER BY s.code"""
+          ]
+          json.dump({'batch':[{'sql':q} for q in statements]},open('request.json','w'))
+          PY
+          db_id="$(cat db-id.txt)"
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+            --data-binary @request.json "$base/$db_id/query" -o results.json
+          for path in fx/dashboard dashboard/summary; do
+            target="${PUBLIC_URL%/}/api/$path?fx_diag=$GITHUB_RUN_ID"
+            out="${path//\//-}.json"
+            curl -sS --max-time 25 -H 'Cache-Control: no-cache' "$target" -o "$out" || echo '{}' > "$out"
+          done
+          python3 - <<'PY'
+          import json
+          response=json.load(open('results.json'))
+          if response.get('success') is not True: raise SystemExit("D1 query failed")
+          rows=[s.get('results',[]) for s in response.get('result',[])]
+          print('=== RECENT_BRNOK_ROWS ===')
+          print(json.dumps(rows[0],ensure_ascii=False))
+          print('=== COUNT_PER_SOURCE ===')
+          print(json.dumps(rows[2],ensure_ascii=False))
+          print('=== RECENT_FAST_JOB_EXR_STEPS ===')
+          for item in rows[1]:
+            md=json.loads(item.get('metadata_json') or '{}')
+            steps=md.get('steps') or {}
+            fx=steps.get('exchangerate_dev_fx') or {}
+            errs=[e for e in (md.get('errors') or []) if 'exchangerate' in str(e.get('step','')).lower()]
+            print(json.dumps({'time':item['started_at'],'status':item['status'],
+              'exr_step':fx,'fx_errors':errs},ensure_ascii=False))
+          for p in ('fx-dashboard.json','dashboard-summary.json'):
+            try: data=json.load(open(p))
+            except Exception: data={}
+            if p.startswith('fx-'):
+              print('=== PUBLIC_FX ===')
+              print(json.dumps({'ready':data.get('ready'),'current':data.get('current'),
+                'as_of_date':data.get('as_of_date')},ensure_ascii=False))
+            else:
+              print('=== PUBLIC_SUMMARY ===')
+              print(json.dumps({'ready':data.get('ready'),'brl_nok':data.get('brl_nok'),
+                'as_of_date':data.get('as_of_date'),'fx_metadata':(data.get('market_timestamps') or {}).get('brl_nok')},ensure_ascii=False))
+          PY
