@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from src.exchangerate_dev_fx import (
     current_indicative_brl_nok,
+    latest_indicative_brl_nok,
     parse_brl_nok,
     refresh_exchangerate_dev_brl_nok,
 )
@@ -164,13 +165,83 @@ class ExchangerateDevTests(unittest.TestCase):
         self.assertEqual(repo.writes, [])
 
     def test_intraday_selection_only_today(self):
-        repo = FakeRepo(live_row={"rate": "1.7113", "source_code": "EXCHANGERATE_DEV"})
+        repo = FakeRepo(live_row={"rate": "1.7113", "source_code": "EXCHANGERATE_DEV", "observed_at": OBSERVED})
         recent = asyncio.run(current_indicative_brl_nok(repo, day="2026-10-26", now=NOW))
         self.assertEqual(recent["source_code"], "EXCHANGERATE_DEV")
-        self.assertEqual(len(repo.queries), 1)
+        self.assertEqual(recent["rate_date"], "2026-10-26")
+        self.assertFalse(recent["carried_forward"])
         self.assertIsNone(asyncio.run(current_indicative_brl_nok(repo, day="2026-10-25", now=NOW)))
-        self.assertEqual(len(repo.queries), 1)
+        self.assertEqual(len(repo.queries), 2)
         self.assertIn("75", str(timedelta(minutes=75).total_seconds() / 60))
+
+    def test_validated_previous_day_quote_carries_overnight_but_not_to_old_history(self):
+        from datetime import datetime
+        import sqlite3
+
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript("""
+            CREATE TABLE sources(id INTEGER PRIMARY KEY, code TEXT);
+            CREATE TABLE fx_rates(
+                id INTEGER PRIMARY KEY, source_id INTEGER,
+                base_currency TEXT, quote_currency TEXT, observed_at TEXT, rate TEXT,
+                source_document_id INTEGER
+            );
+            INSERT INTO sources VALUES (1,'NORGES_BANK'),(2,'EXCHANGERATE_DEV');
+            INSERT INTO fx_rates(source_id,base_currency,quote_currency,observed_at,rate)
+                VALUES (1,'BRL','NOK','2026-10-26T00:00:00Z','1.6721'),
+                       (2,'BRL','NOK','2026-10-26T18:00:00Z','1.7328'),
+                       (2,'BRL','NOK','2026-10-27T06:01:00Z','1.7340');
+        """)
+
+        class Repository:
+            async def first(self, sql, args=()):
+                row = db.execute(sql, args).fetchone()
+                return dict(row) if row else None
+
+        repo = Repository()
+        morning = datetime(2026, 10, 27, 5, 30, tzinfo=UTC)
+        yesterday = asyncio.run(current_indicative_brl_nok(repo, day="2026-10-26", now=morning))
+        self.assertEqual(yesterday["rate"], "1.7328")
+        self.assertEqual(yesterday["rate_date"], "2026-10-26")
+        self.assertTrue(yesterday["carried_forward"])
+        self.assertIsNone(asyncio.run(current_indicative_brl_nok(repo, day="2026-10-25", now=morning)))
+        self.assertIsNone(asyncio.run(current_indicative_brl_nok(repo, day="2026-10-28", now=morning)))
+        latest = asyncio.run(latest_indicative_brl_nok(repo, now=morning))
+        self.assertEqual(latest["rate"], "1.7328")
+        # Later same day: latest valid quote must win over the previous day's quote.
+        later = datetime(2026, 10, 27, 7, 0, tzinfo=UTC)
+        latest_later = asyncio.run(latest_indicative_brl_nok(repo, now=later))
+        self.assertEqual(latest_later["rate"], "1.7340")
+        previous = asyncio.run(current_indicative_brl_nok(repo, day="2026-10-26", now=later))
+        self.assertEqual(previous["rate"], "1.7328")
+
+    def test_aged_quote_falls_back_and_weekend_carry_is_bounded(self):
+        import sqlite3
+
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript("""
+            CREATE TABLE sources(id INTEGER PRIMARY KEY, code TEXT);
+            CREATE TABLE fx_rates(id INTEGER PRIMARY KEY, source_id INTEGER,
+                base_currency TEXT, quote_currency TEXT, observed_at TEXT, rate TEXT,
+                source_document_id INTEGER);
+            INSERT INTO sources VALUES (2,'EXCHANGERATE_DEV');
+            INSERT INTO fx_rates(source_id,base_currency,quote_currency,observed_at,rate)
+                VALUES (2,'BRL','NOK','2026-10-23T18:00:00Z','1.87');
+        """)
+        class Repository:
+            async def first(self, sql, args=()):
+                row = db.execute(sql, args).fetchone()
+                return dict(row) if row else None
+        repo = Repository()
+        friday = datetime(2026,10,23,20,0,tzinfo=UTC)
+        monday_morning = datetime(2026,10,26,6,0,tzinfo=UTC)
+        tuesday = datetime(2026,10,27,6,0,tzinfo=UTC)
+        self.assertIsNotNone(asyncio.run(latest_indicative_brl_nok(repo, now=friday)))
+        self.assertIsNotNone(asyncio.run(current_indicative_brl_nok(repo, day="2026-10-23", now=monday_morning)))
+        self.assertIsNone(asyncio.run(latest_indicative_brl_nok(repo, now=tuesday)))
+
 
 
 if __name__ == "__main__":
