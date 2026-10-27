@@ -40,6 +40,16 @@ type Summary = {
   };
 };
 
+type CurrentFxPayload = {
+  ready?: boolean;
+  current?: {
+    brl_nok?: number | null;
+    source?: string | null;
+    observed_at?: string | null;
+    carried_forward?: boolean;
+  };
+};
+
 type EstimatedNav = {
   ready: boolean;
   as_of_date?: string;
@@ -186,6 +196,19 @@ function updatedTimeLabel(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Europe/Oslo",
+  });
+}
+
+function fxObservationTime(value?: string | null): string | null {
+  if (!value) return null;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  return instant.toLocaleString("nb-NO", {
+    timeZone: "Europe/Oslo",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -418,6 +441,13 @@ export default function OverviewPage() {
     REFRESH_MS,
     true,
   );
+  // Fetch spot independently: the NAV summary deliberately records the FX
+  // observation used in its last dated calculation, not the newest market tick.
+  const { data: latestFx } = usePollingResource<CurrentFxPayload>(
+    "/api/fx/dashboard",
+    REFRESH_MS,
+    true,
+  );
   const { data: nav } = usePollingResource<EstimatedNav>(
     "/api/dashboard/economic",
     REFRESH_MS,
@@ -445,6 +475,17 @@ export default function OverviewPage() {
   );
   usePageUpdate(nav?.calculated_at ?? nav?.as_of_date, "intraday");
 
+
+  const fxSpot = latestFx?.ready
+    && latestFx.current?.source === "EXCHANGERATE_DEV"
+    && latestFx.current.observed_at
+    && fxObservationTime(latestFx.current.observed_at)
+    && finiteNumber(latestFx.current.brl_nok) != null
+    ? latestFx.current
+    : null;
+  const currentFxTime = fxObservationTime(fxSpot?.observed_at);
+  const navFxTime = fxObservationTime(summary?.market_timestamps?.brl_nok?.observed_at);
+  const shownBrlNok = fxSpot?.brl_nok ?? summary?.brl_nok;
 
   const brl = summary?.brl_nok_insights;
   const bemobi = summary?.bemobi_insights;
@@ -495,11 +536,16 @@ export default function OverviewPage() {
             <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
             <p><b>Otello (OTEC):</b> Kursen sjekkes hvert 30. minutt på børsdager. Euronext-kursene er forsinket med opptil 15 minutter.</p>
             <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
-            {summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
-              <p><b>BRL/NOK:</b> Siste tilgjengelige markedskurs fra Exchangerate.dev (kontrolleres hvert 30. minutt). {summary?.market_timestamps?.brl_nok?.observed_at ? `Registrert ${new Date(summary.market_timestamps.brl_nok.observed_at).toLocaleString("nb-NO", { timeZone: "Europe/Oslo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : ""}</p>
+            {fxSpot && currentFxTime ? (
+              <p><b>BRL/NOK:</b> Siste tilgjengelige markedskurs fra Exchangerate.dev: {formatNumber(fxSpot.brl_nok!, 4)} (kontrolleres hvert 30. minutt). Registrert {currentFxTime}.{fxSpot.carried_forward ? " Kursen er videreført fra siste registrerte handel." : ""}</p>
+            ) : summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
+              <p><b>BRL/NOK:</b> Nyeste markedskurs er ikke tilgjengelig nå. Sist brukte kurs i NAV: {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}{navFxTime ? ` (registrert ${navFxTime})` : ""}.</p>
             ) : (
               <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
             )}
+            {fxSpot && currentFxTime && navFxTime && fxSpot.observed_at !== summary?.market_timestamps?.brl_nok?.observed_at ? (
+              <p><b>BRL/NOK i sist beregnede NAV:</b> {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)} (registrert {navFxTime}).</p>
+            ) : null}
           </div>
         </article>
 
@@ -578,9 +624,9 @@ export default function OverviewPage() {
             <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
-            <small className="numeric">Dagens kurs {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</small>
+            <small className="numeric">Dagens kurs {shownBrlNok == null ? "—" : formatNumber(shownBrlNok, 4)}</small>
           <OverviewRange
-            current={summary?.brl_nok}
+            current={shownBrlNok}
             low={brl?.range_1y?.low}
             high={brl?.range_1y?.high}
             digits={4}
@@ -637,7 +683,7 @@ export default function OverviewPage() {
           <MarketTicker label="BMOB3" quote={quotes?.symbols?.BMOB3} />
           <div className="overviewTickerItem">
             <span>BRL/NOK</span>
-            <strong className="numeric">{summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}</strong>
+            <strong className="numeric">{shownBrlNok == null ? "—" : formatNumber(shownBrlNok, 4)}</strong>
             <b className={`numeric ${tone(brl?.daily_pct)}`}>{signed(brl?.daily_pct, 1, " %")}</b>
           </div>
           <MarketTicker label="LIF" quote={quotes?.symbols?.LIF} />
