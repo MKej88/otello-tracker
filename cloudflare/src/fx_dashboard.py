@@ -272,20 +272,22 @@ async def fx_dashboard(repository) -> dict[str, Any]:
         "series": points,
         "sources": [
             *([{"code": "EXCHANGERATE_DEV", "name": "Exchangerate.dev", "url": "https://exchangerate.dev/"}] if indicative is not None else []),
-            {
-                "code": code,
-                "name": (
-                    "Norges Bank"
-                    if code == "NORGES_BANK"
-                    else "ECB"
-                    if code == "ECB"
-                    else code
-                ),
-                "url": SOURCE_URLS.get(code),
-            }
-            for code in sorted(
-                source_codes, key=lambda code: SOURCE_PRIORITY.get(code, 5)
-            )
+            *[
+                {
+                    "code": code,
+                    "name": (
+                        "Norges Bank"
+                        if code == "NORGES_BANK"
+                        else "ECB"
+                        if code == "ECB"
+                        else code
+                    ),
+                    "url": SOURCE_URLS.get(code),
+                }
+                for code in sorted(
+                    source_codes, key=lambda code: SOURCE_PRIORITY.get(code, 5)
+                )
+            ]
         ],
         "method_note": (
             "Historiske BRL/NOK- og USD/NOK-kurser bruker Norges Bank foran ECB. "
