@@ -943,7 +943,7 @@ jobs:
           curl --fail-with-body -sS -X POST \
             -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
             --data-binary @request.json "$base/$db_id/query" -o results.json
-          for path in fx/dashboard dashboard/summary; do
+          for path in fx/dashboard dashboard/summary dashboard/bootstrap; do
             target="${PUBLIC_URL%/}/api/$path?fx_diag=$GITHUB_RUN_ID"
             out="${path//\//-}.json"
             curl -sS --max-time 25 -H 'Cache-Control: no-cache' "$target" -o "$out" || echo '{}' > "$out"
@@ -973,10 +973,14 @@ jobs:
               'source':(components.get('bmob3') or {}).get('brl_nok_source')},ensure_ascii=False))
           print('=== EXR_ROW_FOR_PREVIOUS_DAY ===')
           print(json.dumps(rows[4],ensure_ascii=False))
-          for p in ('fx-dashboard.json','dashboard-summary.json'):
+          for p in ('fx-dashboard.json','dashboard-summary.json','dashboard-bootstrap.json'):
             try: data=json.load(open(p))
             except Exception: data={}
-            if p.startswith('fx-'):
+            if p == 'dashboard-bootstrap.json':
+              sub=data.get('summary') or {}
+              print('=== PUBLIC_BOOTSTRAP ===')
+              print(json.dumps({'brl_nok':sub.get('brl_nok'),'fx_metadata':(sub.get('market_timestamps') or {}).get('brl_nok'),'meta':data.get('meta')},ensure_ascii=False))
+            elif p.startswith('fx-'):
               print('=== PUBLIC_FX ===')
               print(json.dumps({'ready':data.get('ready'),'current':data.get('current'),
                 'as_of_date':data.get('as_of_date')},ensure_ascii=False))
