@@ -23,9 +23,10 @@ export default function BemobiAfterOsloCard() {
   const theoreticalPrice = displayedTheoreticalOtecPrice(data, refreshFailed);
   const fx = displayedFxMovement(data, refreshFailed);
   const combinedPrice = displayedCombinedTheoreticalPrice(data, refreshFailed);
-  const effectTone = effect?.change_pct == null || effect.change_pct === 0 ? "neutral" : effect.change_pct > 0 ? "positive" : "negative";
-  const combinedTone = fx?.combined_pct_otec == null || fx.combined_pct_otec === 0 ? "neutral" : fx.combined_pct_otec > 0 ? "positive" : "negative";
+  const effectTone = effect?.change_per_share_nok == null || effect.change_per_share_nok === 0 ? "neutral" : effect.change_per_share_nok > 0 ? "positive" : "negative";
+  const combinedTone = fx?.combined_per_share_nok == null || fx.combined_per_share_nok === 0 ? "neutral" : fx.combined_per_share_nok > 0 ? "positive" : "negative";
   const fxTone = fx?.change_pct == null || fx.change_pct === 0 ? "neutral" : fx.change_pct > 0 ? "positive" : "negative";
+  const fxEffectTone = fx?.effect_per_share_nok == null || fx.effect_per_share_nok === 0 ? "neutral" : fx.effect_per_share_nok > 0 ? "positive" : "negative";
   const signed = (value: number, suffix: string) => `${value > 0 ? "+" : ""}${formatNumber(value, 2)}${suffix}`;
   const missingLabels: Record<string, string> = {
     otec_close: "OTEC-kurs ved close på Oslo Børs", fixed_fx: "fast valutakurs",
@@ -100,7 +101,7 @@ export default function BemobiAfterOsloCard() {
         </div>
         <div className="otecEffectBreakdown">
           <div><span>Bemobi-effekt</span><strong className={`numeric ${effectTone}`}>{effect ? signed(effect.change_per_share_nok!, " kr") : "—"}</strong></div>
-          <div><span>Valutaeffekt</span><strong className="numeric">{fx?.effect_per_share_nok != null ? signed(fx.effect_per_share_nok, " kr") : "—"}</strong></div>
+          <div><span>Valutaeffekt</span><strong className={`numeric ${fxEffectTone}`}>{fx?.effect_per_share_nok != null ? signed(fx.effect_per_share_nok, " kr") : "—"}</strong></div>
           <div className="otecEffectTotal"><span>Samlet effekt</span><strong className={`numeric ${combinedTone}`}>{fx?.combined_per_share_nok != null ? signed(fx.combined_per_share_nok, " kr") : "—"}</strong></div>
         </div>
         <div className="otecTheoreticalPrice">
