@@ -926,7 +926,16 @@ jobs:
             """SELECT s.code, COUNT(*) AS n, MAX(fr.observed_at) AS latest
             FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
             WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
-            GROUP BY s.code ORDER BY s.code"""
+            GROUP BY s.code ORDER BY s.code""",
+            """SELECT as_of_at,status,created_at,updated_at,components_json
+            FROM nav_snapshots WHERE calculation_version='core-market-nav-daily-v1'
+            ORDER BY as_of_at DESC LIMIT 2""",
+            """SELECT fr.observed_at, fr.rate FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+            WHERE s.code='EXCHANGERATE_DEV'
+              AND fr.base_currency='BRL' AND fr.quote_currency='NOK'
+              AND fr.observed_at>='2026-10-26T06:00:00Z'
+              AND fr.observed_at<'2026-10-26T23:00:00Z'
+            ORDER BY fr.observed_at DESC LIMIT 3"""
           ]
           json.dump({'batch':[{'sql':q} for q in statements]},open('request.json','w'))
           PY
@@ -955,7 +964,15 @@ jobs:
             fx=steps.get('exchangerate_dev_fx') or {}
             errs=[e for e in (md.get('errors') or []) if 'exchangerate' in str(e.get('step','')).lower()]
             print(json.dumps({'time':item['started_at'],'status':item['status'],
-              'exr_step':fx,'fx_errors':errs},ensure_ascii=False))
+              'exr_step':fx,'dirty_nav':steps.get('dirty_nav'),'fx_errors':errs},ensure_ascii=False))
+          print('=== CORE_NAV_SNAPSHOT ===')
+          for item in rows[3]:
+            components=json.loads(item.get('components_json') or '{}')
+            print(json.dumps({'date':item.get('as_of_at'),'updated':item.get('updated_at'),
+              'fx':(components.get('bmob3') or {}).get('brl_nok'),
+              'source':(components.get('bmob3') or {}).get('brl_nok_source')},ensure_ascii=False))
+          print('=== EXR_ROW_FOR_PREVIOUS_DAY ===')
+          print(json.dumps(rows[4],ensure_ascii=False))
           for p in ('fx-dashboard.json','dashboard-summary.json'):
             try: data=json.load(open(p))
             except Exception: data={}
