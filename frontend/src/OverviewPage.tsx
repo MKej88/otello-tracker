@@ -624,7 +624,7 @@ export default function OverviewPage() {
             <div className={`overviewDriverEffect ${tone(brl?.nav_effect_1m_per_share_nok)} numeric`}>
               {signed(brl?.nav_effect_1m_per_share_nok, 2, " kr NAV/aksje")}
             </div>
-            <small className="numeric">Siste kurs {shownBrlNok == null ? "—" : formatNumber(shownBrlNok, 4)}</small>
+            <small className="numeric">Dagens kurs {shownBrlNok == null ? "—" : formatNumber(shownBrlNok, 4)}</small>
           <OverviewRange
             current={shownBrlNok}
             low={brl?.range_1y?.low}
