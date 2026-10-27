@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import json
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any
 
@@ -1139,9 +1140,34 @@ async def refresh_full_nav_if_dirty(repository, as_of_date: str) -> dict[str, An
     }
 
 
-async def refresh_dirty_nav_layers(repository, *, target_date: str) -> dict[str, Any]:
-    """Recompute only the current model date whose deterministic inputs are dirty."""
+async def refresh_dirty_nav_layers(
+    repository, *, target_date: str, now: datetime | None = None
+) -> dict[str, Any]:
+    """Maintain dated NAV history and a current-day NAV using validated spot FX.
+
+    On a new Oslo day without a new stock trade, previous-day BMOB3/OTEC
+    prices may still be the latest available. If EXR has a validated quote
+    for the current day, build today's NAV with it rather than rewriting
+    yesterday's completed historical snapshot.
+    """
     nav_date, live_calendar_snapshot = await _latest_nav_date(repository, target_date)
+    live_fx_advanced_date = False
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    if (
+        nav_date is not None
+        and nav_date < target_date
+        and current.astimezone(ZoneInfo("Europe/Oslo")).date().isoformat() == target_date
+    ):
+        try:
+            from .exchangerate_dev_fx import current_indicative_brl_nok
+        except ImportError:
+            from exchangerate_dev_fx import current_indicative_brl_nok
+        fx_today = await current_indicative_brl_nok(
+            repository, day=target_date, now=current
+        )
+        if fx_today is not None and fx_today.get("rate_date") == target_date:
+            nav_date = target_date
+            live_fx_advanced_date = True
     if nav_date is None:
         return {
             "status": "not_ready",
@@ -1163,6 +1189,7 @@ async def refresh_dirty_nav_layers(repository, *, target_date: str) -> dict[str,
         "target_date": target_date,
         "nav_date": nav_date,
         "live_calendar_snapshot": live_calendar_snapshot,
+        "live_fx_advanced_date": live_fx_advanced_date,
         "dirty_layers": dirty,
         "not_ready_layers": not_ready,
         "steps": steps,
