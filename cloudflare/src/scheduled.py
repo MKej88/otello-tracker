@@ -555,7 +555,9 @@ async def run_fast_refresh(
 
     dirty_nav = await _safe_async_step(
         "dirty_nav",
-        lambda: refresh_dirty_nav_layers(repository, target_date=newsweb_date),
+        lambda: refresh_dirty_nav_layers(
+            repository, target_date=newsweb_date, now=scheduled_at
+        ),
         steps=steps,
         errors=errors,
         timings_ms=timings_ms,
