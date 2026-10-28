@@ -203,13 +203,18 @@ function fxObservationTime(value?: string | null): string | null {
   if (!value) return null;
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return null;
-  return instant.toLocaleString("nb-NO", {
+  const date = instant.toLocaleDateString("nb-NO", {
     timeZone: "Europe/Oslo",
     day: "2-digit",
     month: "2-digit",
+  });
+  const time = instant.toLocaleTimeString("nb-NO", {
+    timeZone: "Europe/Oslo",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
+  return `${date} kl. ${time}`;
 }
 
 function osloDateKey(now = new Date()) {
@@ -532,20 +537,16 @@ export default function OverviewPage() {
           </div>
           <small className="overviewUpdated numeric">NAV sist beregnet {updatedTimeLabel(nav?.calculated_at)}</small>
           <div className="overviewNavRefreshInfo" role="note" aria-label="Hvor ofte NAV og kursene oppdateres">
-            <strong>Kurser er ikke i sanntid</strong>
-            <p>NAV beregnes normalt hvert 30. minutt med sist tilgjengelige data.</p>
-            <p><b>Otello (OTEC):</b> Kursen sjekkes hvert 30. minutt på børsdager. Euronext-kursene er forsinket med opptil 15 minutter.</p>
-            <p><b>Bemobi (BMOB3):</b> Kursen sjekkes hvert 30. minutt i børsens åpningstid. B3-kurser er normalt minst 15 minutter forsinket.</p>
+            <strong>Kurser og oppdatering</strong>
+            <p>NAV beregnes normalt hvert 30. minutt med siste tilgjengelige data.</p>
+            <p><b>Aksjekurser:</b> Otello og Bemobi vises med forsinkede kurser (normalt ca. 15 minutter).</p>
             {fxSpot && currentFxTime ? (
-              <p><b>BRL/NOK:</b> Siste tilgjengelige markedskurs fra Exchangerate.dev: {formatNumber(fxSpot.brl_nok!, 4)} (kontrolleres hvert 30. minutt). Registrert {currentFxTime}.{fxSpot.carried_forward ? " Kursen er videreført fra siste registrerte handel." : ""}</p>
+              <p><b>BRL/NOK:</b> {formatNumber(fxSpot.brl_nok!, 4)} · Oppdatert {currentFxTime}.{fxSpot.carried_forward ? " Kursen er videreført fra siste registrerte handel." : ""}</p>
             ) : summary?.market_timestamps?.brl_nok?.source === "EXCHANGERATE_DEV" ? (
-              <p><b>BRL/NOK:</b> Nyeste markedskurs er ikke tilgjengelig nå. Sist brukte kurs i NAV: {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)}{navFxTime ? ` (registrert ${navFxTime})` : ""}.</p>
+              <p><b>BRL/NOK:</b> {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)} · {navFxTime ? `Sist oppdatert ${navFxTime}` : "Siste NAV-grunnlag"} (nyere markedskurs ikke tilgjengelig).</p>
             ) : (
-              <p><b>BRL/NOK:</b> Norges Banks referansekurs, normalt én ny kurs per bankdag.</p>
+              <p><b>BRL/NOK:</b> {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)} · Norges Banks referansekurs (bankdager).</p>
             )}
-            {fxSpot && currentFxTime && navFxTime && fxSpot.observed_at !== summary?.market_timestamps?.brl_nok?.observed_at ? (
-              <p><b>BRL/NOK i sist beregnede NAV:</b> {summary?.brl_nok == null ? "—" : formatNumber(summary.brl_nok, 4)} (registrert {navFxTime}).</p>
-            ) : null}
           </div>
         </article>
 
