@@ -663,13 +663,41 @@ async def estimated_nav_history(
 
     current = result.get("current") or {}
     current_date = str(current.get("date") or result.get("to") or "")
-    current_state = (
-        await life360_nav_adjustment(repository, as_of_date=current_date)
-        if current_date
-        else {"ready": False, "reason": "missing_current_date"}
-    )
+    current_life360 = _item(current.get("composition") or [], "life360")
+    snapshot = ((current_life360 or {}).get("details") or {}).get("valuation_snapshot")
+    # The materialized NAV is a historical valuation snapshot, not a live
+    # portfolio. Use its original LIF/FX inputs rather than mixing it with
+    # market quotes acquired later on the same trading date.
+    invalid_snapshot = False
+    if snapshot is not None:
+        invalid_snapshot = (
+            not isinstance(snapshot, dict)
+            or snapshot.get("as_of_date") != current_date
+            or (
+                snapshot.get("ready")
+                and any(snapshot.get(key) is None for key in (
+                    "adjustment_nok", "market_value_nok", "embedded_value_nok",
+                    "shares", "price", "fx_rate",
+                ))
+            )
+        )
+        current_state = (
+            {"ready": False, "reason": "invalid_materialized_life360_valuation_snapshot"}
+            if invalid_snapshot
+            else snapshot
+        )
+    else:
+        # Older history rows predate snapshot persistence. Preserve the
+        # existing strict reconciliation and fail-closed behavior for those.
+        current_state = (
+            await life360_nav_adjustment(repository, as_of_date=current_date)
+            if current_date
+            else {"ready": False, "reason": "missing_current_date"}
+        )
     split_ready = False
-    if current:
+    if current and invalid_snapshot:
+        current["composition_split_status"] = current_state
+    elif current:
         split_ready = await _split_current_composition(repository, current, current_state)
 
     change = result.get("change") or {}
