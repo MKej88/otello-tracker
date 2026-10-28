@@ -357,6 +357,11 @@ async def refresh_bemobi_web(
     result_release_degraded = _result_release_needs_attention(
         result, has_last_good=last_good_result
     )
+    if last_good_result:
+        secondary_warnings = [
+            item for item in secondary_warnings
+            if item["source"] != "result_release"
+        ]
     distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
     non_blocking_degraded = (
         ir_failed and not result_release_degraded and not distribution_degraded
