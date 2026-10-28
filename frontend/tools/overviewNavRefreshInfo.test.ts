@@ -9,27 +9,26 @@ test("NAV timestamp says calculated rather than implying live prices", () => {
   assert.doesNotMatch(overview, /NAV oppdatert/);
 });
 
-test("NAV card explains update frequency and non-live market data", () => {
-  assert.match(overview, /Kurser er ikke i sanntid/);
-  assert.match(overview, /hvert 30\. minutt/);
-  assert.match(overview, /Otello \(OTEC\)/);
-  assert.match(overview, /Euronext-kursene er forsinket med opptil 15 minutter/);
-  assert.match(overview, /Bemobi \(BMOB3\)/);
-  assert.match(overview, /15 minutter forsinket/);
-  assert.match(overview, /BRL\/NOK/);
-  assert.match(overview, /én ny kurs per bankdag/);
+test("NAV card shows concise, combined delayed-price information", () => {
+  assert.match(overview, /Kurser og oppdatering/);
+  assert.match(overview, /NAV beregnes normalt hvert 30\. minutt med siste tilgjengelige data/);
+  assert.match(overview, /Aksjekurser:/);
+  assert.match(overview, /Otello og Bemobi vises med forsinkede kurser \(normalt ca\. 15 minutter\)/);
+  assert.doesNotMatch(overview, /Kurser er ikke i sanntid/);
+  assert.doesNotMatch(overview, /Euronext-kursene er forsinket/);
+  assert.doesNotMatch(overview, /B3-kurser er normalt minst/);
 });
 
-test("BRL/NOK uses plain-language update timing without duplicate provider credit", () => {
-  assert.match(overview, /Siste tilgjengelige markedskurs fra Exchangerate\.dev/);
-  assert.match(overview, /Registrert/);
-  // Spot text must use the market FX endpoint, never the NAV snapshot timestamp.
+test("BRL/NOK shows one up-to-date value and offers source-aware fallbacks", () => {
   assert.match(overview, /usePollingResource<CurrentFxPayload>\(\s*"\/api\/fx\/dashboard"/);
   assert.match(overview, /const currentFxTime = fxObservationTime\(fxSpot\?\.observed_at\)/);
-  assert.match(overview, /BRL\/NOK i sist beregnede NAV:/);
+  assert.match(overview, /<b>BRL\/NOK:<\/b> \{formatNumber\(fxSpot\.brl_nok!, 4\)\} · Oppdatert \{currentFxTime\}/);
+  assert.match(overview, /Kursen er videreført fra siste registrerte handel/);
+  assert.match(overview, /nyere markedskurs ikke tilgjengelig/);
+  assert.match(overview, /Norges Banks referansekurs \(bankdager\)/);
   assert.match(overview, /Dagens kurs \{shownBrlNok == null/);
   assert.match(overview, /current=\{shownBrlNok\}/);
-  assert.match(overview, /kontrolleres hvert 30\. minutt/);
-  assert.doesNotMatch(overview, /Indikativ markedskurs/);
+  assert.doesNotMatch(overview, /BRL\/NOK i sist beregnede NAV:/);
+  assert.doesNotMatch(overview, /Siste tilgjengelige markedskurs fra Exchangerate\.dev/);
   assert.doesNotMatch(overview, /Rates by Exchangerate\.dev/);
 });
