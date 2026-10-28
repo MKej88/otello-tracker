@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import dedent
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
@@ -85,3 +88,61 @@ def test_production_acceptance_requires_source_backed_life360_holding() -> None:
     assert "life360_details.get('holding_source_document_id')" in step
     assert "life360_details.get('report_holding_source_document_id')" in step
     assert "float(life360.get('amount_mnok') or 0) > 0" not in step
+
+
+def _execute_history_acceptance(estimated: dict) -> dict:
+    step = _acceptance_step()
+    begin = step.index("          estimated_ready = estimated.get('ready') is True")
+    end = step.index("          assert economic.get('ready')", begin)
+    namespace = {"estimated": estimated}
+    exec(compile(dedent(step[begin:end]), "<production-history-acceptance>", "exec"), namespace)
+    return namespace
+
+
+def _legacy_history_fallback(reason: str = "life360_adjustment_does_not_reconcile") -> dict:
+    return {
+        "ready": True,
+        "composition_display_policy": "LEGACY_COMPOSITION_FAIL_CLOSED",
+        "current": {
+            "ready": True,
+            "date": "2026-10-28",
+            "nav_total_mnok": 150.0,
+            "reconciliation_residual_mnok": 0.0,
+            "composition_split_status": {"ready": False, "reason": reason},
+            "composition": [
+                {"key": key, "amount_mnok": amount}
+                for key, amount in [
+                    ("bemobi", 40.0),
+                    ("cash", 30.0),
+                    ("ona", 70.0),
+                    ("life360", 10.0),
+                    ("options", 0.0),
+                ]
+            ],
+        },
+    }
+
+
+def test_acceptance_allows_only_reconciled_intraday_life360_snapshot_fallback() -> None:
+    scope = _execute_history_acceptance(_legacy_history_fallback())
+    assert scope["estimated_ready"] is True
+    assert scope["composition_keys"] == {"bemobi", "cash", "ona", "life360", "options"}
+
+    for reason in ("missing_current_life360_holding", "display_composition_does_not_reconcile"):
+        with pytest.raises(AssertionError):
+            _execute_history_acceptance(_legacy_history_fallback(reason))
+
+    bad_total = _legacy_history_fallback()
+    bad_total["current"]["nav_total_mnok"] += 1.0
+    with pytest.raises(AssertionError):
+        _execute_history_acceptance(bad_total)
+
+    bad_residual = _legacy_history_fallback()
+    bad_residual["current"]["reconciliation_residual_mnok"] = 0.1
+    with pytest.raises(AssertionError):
+        _execute_history_acceptance(bad_residual)
+
+    bad_policy = _legacy_history_fallback()
+    bad_policy["composition_display_policy"] = "UNKNOWN"
+    with pytest.raises(AssertionError):
+        _execute_history_acceptance(bad_policy)
