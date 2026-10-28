@@ -329,6 +329,42 @@ def test_current_holding_change_does_not_rewrite_report_date_alliance_residual(m
     assert by_key["alliance_venture_spring"]["details"]["life360_report_shares"] == 37_028
 
 
+def test_materialized_life360_valuation_is_not_repriced_by_later_quote(monkeypatch) -> None:
+    base_result = _base_result()
+    point = base_result["current"]
+    life_component = next(item for item in point["composition"] if item["key"] == "life360")
+    life_component["details"]["valuation_snapshot"] = {
+        **_state(market="45000000", embedded="35000000", day="2026-04-02"),
+        "as_of_date": "2026-04-02",
+    }
+
+    async def base(_repository, *, days):
+        assert days == 30
+        return base_result
+
+    async def live_life360(_repository, *, as_of_date):
+        if as_of_date == "2026-04-02":
+            raise AssertionError("A stored historical valuation must not query new LIF quotes")
+        return _state(market="35000000", embedded="35000000", day=as_of_date)
+
+    async def report(_repository, report_date):
+        return _report_state()
+
+    monkeypatch.setattr(estimated_nav_history_display, "_estimated_nav_history", base)
+    monkeypatch.setattr(estimated_nav_history_display, "life360_nav_adjustment", live_life360)
+    monkeypatch.setattr(estimated_nav_history_display, "_report_split_state", report)
+    monkeypatch.setattr(estimated_nav_history_display, "_cash_breakdown", _cash_breakdown)
+
+    result = asyncio.run(estimated_nav_history_display.estimated_nav_history(Repository(), days=30))
+    assert result["composition_display_policy"] == "REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX"
+    current = result["current"]
+    assert current["composition_split_status"]["ready"] is True
+    life360 = next(item for item in current["composition"] if item["key"] == "life360")
+    assert life360["amount_mnok"] == 45.0
+    assert life360["details"]["display_basis"] == "CURRENT_MARKET_VALUE"
+    assert sum(item["amount_mnok"] for item in current["composition"]) == 150.0
+
+
 def test_missing_current_life360_quote_uses_last_report_value_instead_of_false_zero(monkeypatch) -> None:
     base_result = _base_result()
     life_component = next(item for item in base_result["current"]["composition"] if item["key"] == "life360")
