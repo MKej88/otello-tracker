@@ -164,6 +164,21 @@ async def _ensure_consensus_event(
     return 1
 
 
+def _result_release_needs_attention(
+    result: dict[str, Any], *, has_last_good: bool
+) -> bool:
+    """A routine between-quarter parse gap is not a production failure.
+
+    A known newer unparseable report must still alert, even with old facts.
+    """
+    if result.get("status") != "not_available":
+        return False
+    return not (
+        result.get("reason") == "result_documents_not_parseable"
+        and has_last_good
+    )
+
+
 async def refresh_bemobi_web(
     repository,
     *,
@@ -324,7 +339,24 @@ async def refresh_bemobi_web(
                 "error": agenda.get("error"),
             }
         )
-    result_release_degraded = result.get("status") == "not_available"
+    # No new parseable quarterly document is expected on most trading days.
+    # Match the UI's last-good policy while keeping genuinely newer, broken
+    # result documents visible as failures.
+    last_good_result = False
+    if (
+        result.get("status") == "not_available"
+        and result.get("reason") == "result_documents_not_parseable"
+    ):
+        previous = await repository.first(
+            "SELECT 1 AS found FROM bemobi_investor_facts "
+            "WHERE fact_type='RESULT' LIMIT 1"
+        )
+        last_good_result = previous is not None
+        if last_good_result:
+            result = {**result, "last_good_preserved": True}
+    result_release_degraded = _result_release_needs_attention(
+        result, has_last_good=last_good_result
+    )
     distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
     non_blocking_degraded = (
         ir_failed and not result_release_degraded and not distribution_degraded
@@ -357,6 +389,7 @@ async def refresh_bemobi_web(
         "best_effort_status": "degraded" if best_effort_warnings else "ok",
         "best_effort_warnings": best_effort_warnings,
         "non_blocking_degraded": non_blocking_degraded,
+        "result_release_expected_gap": last_good_result,
         "active_secondary_slot": active_slot,
         "secondary_refresh_max_delay_days": len(_SECONDARY_REFRESH_SLOTS) - 1,
         "policy": "ownership-core-confirmed-distribution-cash-analyst-best-effort-result-release-health-public-broker-models-xp-last-good-preserved",
