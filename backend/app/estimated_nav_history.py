@@ -747,6 +747,10 @@ def _estimated_point(
                 "active": bool(life360.get("ready")),
                 "price_date": life360.get("price_date"),
                 "anchor_date": life360.get("anchor_date"),
+                # Keep the *exact* source-backed valuation that was used when this
+                # history point was materialized. A same-day LIF/FX refresh must
+                # not reprice the display without also rebuilding its NAV total.
+                "valuation_snapshot": json.loads(json.dumps(life360, default=str)),
             },
         ),
         _component(

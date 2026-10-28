@@ -667,13 +667,36 @@ def estimated_nav_history(
 
     current = result.get("current") or {}
     current_date = str(current.get("date") or result.get("to") or "")
-    current_state = (
-        life360_nav_adjustment(as_of_date=current_date, database_path=database_path)
-        if current_date
-        else {"ready": False, "reason": "missing_current_date"}
-    )
+    current_life360 = _item(current.get("composition") or [], "life360")
+    snapshot = ((current_life360 or {}).get("details") or {}).get("valuation_snapshot")
+    invalid_snapshot = False
+    if snapshot is not None:
+        invalid_snapshot = (
+            not isinstance(snapshot, dict)
+            or snapshot.get("as_of_date") != current_date
+            or (
+                snapshot.get("ready")
+                and any(snapshot.get(key) is None for key in (
+                    "adjustment_nok", "market_value_nok", "embedded_value_nok",
+                    "shares", "price", "fx_rate",
+                ))
+            )
+        )
+        current_state = (
+            {"ready": False, "reason": "invalid_materialized_life360_valuation_snapshot"}
+            if invalid_snapshot
+            else snapshot
+        )
+    else:
+        current_state = (
+            life360_nav_adjustment(as_of_date=current_date, database_path=database_path)
+            if current_date
+            else {"ready": False, "reason": "missing_current_date"}
+        )
     split_ready = False
-    if current:
+    if current and invalid_snapshot:
+        current["composition_split_status"] = current_state
+    elif current:
         split_ready = _split_current_composition(database_path, current, current_state)
 
     change = result.get("change") or {}

@@ -419,43 +419,66 @@ jobs:
           estimated = discount_history.get('estimated') or {}
           estimated_ready = estimated.get('ready') is True
           if estimated_ready:
-              assert estimated.get('composition_display_policy') == (
-                  'REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX'
-              ), estimated
               estimated_current = estimated.get('current') or {}
               split_status = estimated_current.get('composition_split_status') or {}
-              assert split_status.get('ready') is True, estimated_current
               composition = estimated_current.get('composition') or []
               composition_keys = {str(item.get('key')) for item in composition}
-              required_composition = {
-                  'reported_cash',
-                  'operating_cost_since_report',
-                  'buybacks_since_report',
-                  'alliance_venture_spring',
-                  'life360',
-              }
-              assert required_composition <= composition_keys, {
-                  'missing': sorted(required_composition - composition_keys),
-                  'keys': sorted(composition_keys),
-                  'split_status': split_status,
-              }
-              assert 'cash' not in composition_keys, composition_keys
-              assert 'ona' not in composition_keys, composition_keys
-              alliance = next(
-                  item
-                  for item in composition
-                  if item.get('key') == 'alliance_venture_spring'
-              )
-              assert int((alliance.get('details') or {}).get('shares') or 0) == 7_411_532, alliance
-              life360 = next(item for item in composition if item.get('key') == 'life360')
-              life360_details = life360.get('details') or {}
-              life360_shares = life360_details.get('shares')
-              assert isinstance(life360_shares, int) and life360_shares >= 0, life360
-              assert life360_details.get('holding_effective_from'), life360
-              assert life360_details.get('holding_quality'), life360
-              assert life360_details.get('holding_basis'), life360
-              assert life360_details.get('holding_source_document_id'), life360
-              assert life360_details.get('report_holding_source_document_id'), life360
+              display_policy = estimated.get('composition_display_policy')
+              if display_policy == 'LEGACY_COMPOSITION_FAIL_CLOSED':
+                  # Older materialized NAV snapshots do not retain the exact
+                  # intraday Life360 FX/price inputs. A later quote can make
+                  # their presentation split fail, without changing the stored
+                  # reconciled total. Only this explicitly verified fallback
+                  # may pass acceptance; all other reasons still stop deploy.
+                  assert split_status.get('ready') is False, split_status
+                  assert split_status.get('reason') == 'life360_adjustment_does_not_reconcile', split_status
+                  assert estimated_current.get('ready') is True, estimated_current.get('date')
+                  assert composition_keys == {'bemobi', 'cash', 'ona', 'life360', 'options'}, composition_keys
+                  current_total = float(estimated_current['nav_total_mnok'])
+                  displayed_total = sum(float(row['amount_mnok']) for row in composition)
+                  assert abs(current_total - displayed_total) < 0.001, {
+                      'current_total_mnok': current_total,
+                      'components_total_mnok': displayed_total,
+                  }
+                  assert abs(float(estimated_current['reconciliation_residual_mnok'])) < 0.001
+                  print('::warning::Historical Life360 display is fail-closed after an intraday quote update. NAV totals reconcile; a fresh materialized snapshot will restore the split.')
+                  life360 = next(item for item in composition if item.get('key') == 'life360')
+                  life360_details = life360.get('details') or {}
+                  life360_shares = None
+              else:
+                  assert display_policy == (
+                      'REPORT_CASH_ALLIANCE_AND_RESIDUAL_WITH_EXPLICIT_MOVEMENTS_AND_FX'
+                  ), {'display_policy': display_policy, 'split_status': split_status}
+                  assert split_status.get('ready') is True, split_status
+                  required_composition = {
+                      'reported_cash',
+                      'operating_cost_since_report',
+                      'buybacks_since_report',
+                      'alliance_venture_spring',
+                      'life360',
+                  }
+                  assert required_composition <= composition_keys, {
+                      'missing': sorted(required_composition - composition_keys),
+                      'keys': sorted(composition_keys),
+                      'split_status': split_status,
+                  }
+                  assert 'cash' not in composition_keys, composition_keys
+                  assert 'ona' not in composition_keys, composition_keys
+                  alliance = next(
+                      item
+                      for item in composition
+                      if item.get('key') == 'alliance_venture_spring'
+                  )
+                  assert int((alliance.get('details') or {}).get('shares') or 0) == 7_411_532, alliance
+                  life360 = next(item for item in composition if item.get('key') == 'life360')
+                  life360_details = life360.get('details') or {}
+                  life360_shares = life360_details.get('shares')
+                  assert isinstance(life360_shares, int) and life360_shares >= 0, life360
+                  assert life360_details.get('holding_effective_from'), life360
+                  assert life360_details.get('holding_quality'), life360
+                  assert life360_details.get('holding_basis'), life360
+                  assert life360_details.get('holding_source_document_id'), life360
+                  assert life360_details.get('report_holding_source_document_id'), life360
           else:
               assert estimated.get('reason') == 'materialized_history_not_ready', estimated
               assert estimated.get('points') == [], estimated
