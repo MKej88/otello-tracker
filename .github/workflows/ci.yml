@@ -164,6 +164,11 @@ jobs:
           python -m pip install --require-hashes -r ../backend/requirements-dev.lock.txt
           python -m pip install --require-hashes -r worker-tooling.lock.txt
           python -m pip check
+      - name: Regress nightly NAV target-date and Bemobi status policies
+        run: >-
+          PYTHONPATH=.:src python -m pytest -q
+          tests/test_d1_preflight_derived_layers.py
+          tests/test_bemobi_result_gap_policy.py
       - name: Install pinned Wrangler
         run: npm ci --no-audit --no-fund
       - name: Apply schema to Worker local D1

@@ -199,7 +199,29 @@ def _source_group_detail(
                 detail_parts.append(f"feil: {error[:700]}")
             detail_parts.append("siste gode fakta ble beholdt")
             return "; ".join(detail_parts)[:1000]
-        return "En eller flere sekundære Bemobi-nettkilder var utilgjengelige; siste gode fakta ble beholdt."
+        for key, label in (
+            ("result_release", "Bemobi resultatrapport"),
+            ("distribution_cash", "Bekreftede Bemobi-utdelinger"),
+        ):
+            item = bemobi.get(key) or {}
+            status = item.get("status")
+            is_failure = (
+                status == "not_available"
+                if key == "result_release"
+                else status not in {"ok", "skipped", None}
+            )
+            if key == "result_release" and bemobi.get("result_release_expected_gap"):
+                is_failure = False
+            if is_failure:
+                detail_parts = [f"{label}: {status}"]
+                if item.get("reason"):
+                    detail_parts.append(str(item["reason"])[:160])
+                if item.get("error"):
+                    detail_parts.append(str(item["error"])[:500])
+                if item.get("errors"):
+                    detail_parts.append("; ".join(str(e) for e in item["errors"][:3])[:500])
+                return "; ".join(detail_parts)[:1000]
+        return "Bemobi weboppdatering er delvis ufullstendig; siste gyldige fakta beholdes."
     if source_code == "YAHOO_FINANCE" and any(status != "OK" for status in components.values()):
         life360 = source_results.get("life360") or {}
         series = life360.get("series") if isinstance(life360.get("series"), dict) else {}

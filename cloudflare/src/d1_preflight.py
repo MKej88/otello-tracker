@@ -47,6 +47,26 @@ def _fresh_enough(value: str | None, target: date, max_age_days: int = MAX_INPUT
     return observed <= target and (target - observed).days <= max_age_days
 
 
+async def _derived_layer_dates_as_of(repository, target_date: str) -> dict[str, Any]:
+    """Read the newest derived NAV layer *on or before* the nightly target date."""
+    return await repository.first(
+        """
+        SELECT
+          (SELECT MAX(estimate_date) FROM cash_daily_estimates
+             WHERE estimate_date <= ?) AS cash_to,
+          (SELECT MAX(estimate_date) FROM other_net_assets_daily_estimates
+             WHERE estimate_date <= ?) AS ona_to,
+          (SELECT MAX(substr(as_of_at,1,10)) FROM nav_snapshots
+             WHERE nav_scope='CORE' AND calculation_version='core-market-nav-daily-v1'
+               AND substr(as_of_at,1,10) <= ?) AS core_to,
+          (SELECT MAX(substr(as_of_at,1,10)) FROM nav_snapshots
+             WHERE nav_scope='FULL' AND calculation_version='full-market-nav-daily-v2'
+               AND substr(as_of_at,1,10) <= ?) AS full_to
+        """,
+        (target_date,) * 4,
+    ) or {}
+
+
 def _investor_nav_is_valid(
     economic: dict[str, Any],
     *,
@@ -378,17 +398,10 @@ async def run_d1_preflight(
     )
 
     if check_derived:
-        layers = await repository.first(
-            """
-            SELECT
-              (SELECT MAX(estimate_date) FROM cash_daily_estimates) AS cash_to,
-              (SELECT MAX(estimate_date) FROM other_net_assets_daily_estimates) AS ona_to,
-              (SELECT MAX(substr(as_of_at,1,10)) FROM nav_snapshots
-                 WHERE nav_scope='CORE' AND calculation_version='core-market-nav-daily-v1') AS core_to,
-              (SELECT MAX(substr(as_of_at,1,10)) FROM nav_snapshots
-                 WHERE nav_scope='FULL' AND calculation_version='full-market-nav-daily-v2') AS full_to
-            """
-        ) or {}
+        # The fast refresh may already have written today's NAV while the nightly
+        # workflow still validates yesterday's trading date. Never allow those
+        # future rows to conceal missing data or falsely fail a valid night.
+        layers = await _derived_layer_dates_as_of(repository, target_date)
         for name, key in (
             ("daily_cash_layer", "cash_to"),
             ("core_nav_layer", "core_to"),
