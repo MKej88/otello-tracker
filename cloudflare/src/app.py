@@ -60,6 +60,9 @@ app = FastAPI(
 
 @app.middleware("http")
 async def add_response_hardening(request: Request, call_next):
+    # Timing begins at the first FastAPI middleware, before endpoint routing.
+    # It does not include the ASGI adapter or Python isolate startup.
+    fastapi_started = perf_counter()
     response = await call_next(request)
     for header, value in SECURITY_HEADERS.items():
         response.headers[header] = value
@@ -72,6 +75,12 @@ async def add_response_hardening(request: Request, call_next):
         browser_policy = edge_policy = "no-store"
     response.headers["Cache-Control"] = browser_policy
     response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
+    if request.url.path.startswith("/api/"):
+        existing = response.headers.get("Server-Timing")
+        measurement = f"otello_fastapi;dur={(perf_counter() - fastapi_started) * 1000:.2f}"
+        response.headers["Server-Timing"] = (
+            f"{existing}, {measurement}" if existing else measurement
+        )
     return response
 
 
