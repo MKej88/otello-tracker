@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
-  isRateLimitError, parseRetryAfterMs, probeColdWithRetry,
+  isRateLimitError, isTimeoutError, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout,
 } from "./performance-diagnostics.mjs";
 
 const origin = "https://otellotracker.com";
@@ -195,4 +195,48 @@ test("HTTP 500 remains a real response failure and is not retried", async () => 
   assert.equal(result.response.status, 500);
   assert.equal(result.rateLimitedAttempts, 0);
   assert.equal(calls, 1);
+});
+
+test("A single synthetic API timeout is retried and reported without failure", async () => {
+  let calls = 0;
+  const waits = [];
+  const result = await retryOnTimeout(async () => {
+    calls++;
+    if (calls === 1) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    return { status: 200, totalMs: 45 };
+  }, { sleepFn: async (ms) => { waits.push(ms); } });
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [2000]);
+  assert.equal(result.timeoutRetries, 1);
+  assert.deepEqual(result.value, { status: 200, totalMs: 45 });
+});
+
+test("Repeated API timeouts exhaust the retry budget and remain failures", async () => {
+  let calls = 0;
+  const waits = [];
+  await assert.rejects(
+    () => retryOnTimeout(async () => {
+      calls++;
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }, { sleepFn: async (ms) => { waits.push(ms); } }),
+    (error) => isTimeoutError(error) && error.timeoutAttempts === 2,
+  );
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [2000]);
+});
+
+test("Non-timeout network errors, HTTP errors and unrelated aborts are never retried", async () => {
+  for (const error of [
+    new Error("HTTP 500"),
+    new TypeError("fetch failed: DNS lookup failed"),
+    new DOMException("Manual cancellation", "AbortError"),
+  ]) {
+    let calls = 0;
+    await assert.rejects(() => retryOnTimeout(async () => {
+      calls++;
+      throw error;
+    }, { sleepFn: async () => { throw new Error("unexpected retry"); } }), (raised) => raised === error);
+    assert.equal(calls, 1);
+  }
+  assert.equal(isTimeoutError(new DOMException("Canceled", "AbortError")), false);
 });
