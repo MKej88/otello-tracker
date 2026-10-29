@@ -101,9 +101,9 @@ export function summarizeReliability(reports, asOf) {
   const recoveredCold = current.reduce((sum, r) =>
     sum + (r.recoveredColdLoads?.length || 0), 0);
   const recoveredTimeouts = current.reduce((sum, r) =>
-    sum + r.api.reduce((n, a) => n + (a.timeoutRetries || 0), 0), 0);
+    sum + (r.api || []).reduce((n, a) => n + (a.timeoutRetries || 0), 0), 0);
   const apiSpikes = current.reduce((sum, r) => sum +
-    r.api.reduce((n, a) => n + (
+    (r.api || []).reduce((n, a) => n + (
       Array.isArray(a.sampleTotalMs)
         ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 1500).length
         : Number.isFinite(a.maxTotalMs) && a.maxTotalMs >= 1500 ? 1 : 0
