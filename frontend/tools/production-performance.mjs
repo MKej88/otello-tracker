@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { screenState } from "./performance-screen-state.mjs";
 import { median } from "./performance-trend-core.mjs";
+import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming, parseOtelloOriginTiming } from "./server-timing.mjs";
 import {
@@ -75,32 +76,48 @@ async function probeApi(path) {
     // Only the final, successful HTTP attempt contributes to timing samples.
     const retried = await retryOnTimeout(async () => {
       let started;
-      const { response, rateLimitedAttempts: limited } = await fetchWithRateLimitRetry(
-        new URL(path, base), {
-          beforeAttempt: paceApiRequest,
-          fetchFn: (...args) => {
-            started = performance.now();
-            return fetch(...args);
+      let transport = null;
+      try {
+        const { response, rateLimitedAttempts: limited } = await fetchWithRateLimitRetry(
+          new URL(path, base), {
+            beforeAttempt: paceApiRequest,
+            fetchFn: (...args) => {
+              // Every attempt has its own trace; 429 attempts must never
+              // contaminate the timings of the eventual successful request.
+              transport?.close();
+              started = performance.now();
+              transport = watchUndiciRequest(args[0]);
+              return fetch(...args);
+            },
           },
-        },
-      );
-      rateLimitedAttempts += limited;
-      const headersMs = rounded(performance.now() - started);
-      if (!response.ok) throw new Error("HTTP " + response.status + " for " + path);
-      const bytes = (await response.arrayBuffer()).byteLength;
-      const totalMs = rounded(performance.now() - started);
-      return {
-        headersMs, totalMs, bytes, status: response.status,
-        cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
-        ageSeconds: Number(response.headers.get("age")) || 0,
-        serverTiming: path === "/api/brazil/dashboard"
-          ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
-        healthD1Ms: path === "/api/health"
-          ? parseHealthD1Timing(response.headers.get("server-timing")) : null,
-        originTiming: [
-          "/api/bemobi/dashboard", "/api/bemobi/consensus", "/api/buybacks/dashboard",
-        ].includes(path) ? parseOtelloOriginTiming(response.headers.get("server-timing")) : null,
-      };
+        );
+        rateLimitedAttempts += limited;
+        const headersMs = rounded(performance.now() - started);
+        if (!response.ok) throw new Error("HTTP " + response.status + " for " + path);
+        const bytes = (await response.arrayBuffer()).byteLength;
+        const totalMs = rounded(performance.now() - started);
+        const ray = response.headers.get("cf-ray");
+        return {
+          headersMs, totalMs, bytes, status: response.status,
+          cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
+          cfColo: cloudflareColo(ray),
+          // Retained for targeted Cloudflare support correlation; never print
+          // raw response/request headers or user-data in the log.
+          cfRay: typeof ray === "string" && /^[0-9a-f]{8,32}-[a-z]{3}$/i.test(ray)
+            ? ray : null,
+          transport: transport?.snapshot(started) ?? null,
+          ageSeconds: Number(response.headers.get("age")) || 0,
+          serverTiming: path === "/api/brazil/dashboard"
+            ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
+          healthD1Ms: path === "/api/health"
+            ? parseHealthD1Timing(response.headers.get("server-timing")) : null,
+          originTiming: [
+            "/api/bemobi/dashboard", "/api/bemobi/consensus", "/api/buybacks/dashboard",
+          ].includes(path) ? parseOtelloOriginTiming(response.headers.get("server-timing")) : null,
+        };
+      } finally {
+        transport?.close();
+      }
     });
     samples.push(retried.value);
     timeoutRetries += retried.timeoutRetries;
@@ -116,6 +133,10 @@ async function probeApi(path) {
       sample.cfCacheStatus === "HIT").map((sample) => sample.totalMs)),
     responseBytes: samples.at(-1).bytes,
     cfCacheStatus: samples.map((sample) => sample.cfCacheStatus),
+    cfColo: samples.map((sample) => sample.cfColo),
+    cfRay: samples.map((sample) => sample.cfRay),
+    transport: samples.map((sample) => sample.transport),
+    sampleHeadersMs: samples.map((sample) => sample.headersMs),
     ageSeconds: samples.map((sample) => sample.ageSeconds),
     ...(path === "/api/brazil/dashboard"
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
@@ -759,6 +780,34 @@ async function main() {
     ...slowColdLoads.map((b) => "- SAKTE SIDESTART: " + b.route +
       " " + b.firstDataMs + " ms, avlesning etterslep " +
       (b.observerReadLagMs ?? "–") + " ms."),
+    "",
+    "### Cache-MISS – klienttransport og Cloudflare",
+    "",
+    "| Endepunkt | Totalt | Før utsending | Sendt → headere | App-handler | Resterende etter utsending | Cloudflare-datasenter |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ...result.api.map((a) => {
+      const transport = a.transport?.[0];
+      const handler = a.originTiming?.[0]?.handlerMs ?? a.serverTiming?.[0]?.handlerMs ?? null;
+      const afterSend = transport?.sendToHeadersMs ?? null;
+      const residue = Number.isFinite(afterSend) && Number.isFinite(handler)
+        ? Math.max(0, Math.round(afterSend - handler)) : null;
+      const beforeSend = transport && Number.isFinite(transport.fetchToRequestMs)
+        && Number.isFinite(transport.requestToSendMs)
+        ? transport.fetchToRequestMs + transport.requestToSendMs : null;
+      return "| `" + new URL(a.endpoint, base).pathname + "` | " +
+        a.sampleTotalMs[0] + " ms | " +
+        (beforeSend == null ? "–" : beforeSend + " ms") + " | " +
+        (afterSend == null ? "–" : afterSend + " ms") + " | " +
+        (handler == null ? "–" : handler + " ms") + " | " +
+        (residue == null ? "–" : residue + " ms") + " | " +
+        (a.cfColo?.[0] ?? "–") + " |";
+    }),
+    "",
+    "Før utsending omfatter Node/Undici-kø, eventuell DNS og tilkobling/TLS, men kan ikke skille delene.",
+    "Sendt → headere omfatter rundtur til Cloudflare, eventuell Worker-oppstart, ASGI/serialisering, D1 og returtrafikk.",
+    "Resterende etter utsending er IKKE dokumentert nettverkstid eller Worker CPU; dette er kun differansen mot målt handler.",
+    "Målingene gjelder første API-prøve per endepunkt. Cloudflare-datasenter er utledet fra CF-Ray, ikke antatt.",
+    "Undici-målinger er frivillige: hvis runtime ikke eksponerer kanalene, vises – i stedet for beregnede gjetninger.",
     "",
     "### Bemobi og tilbakekjøp – Worker-timing ved cache MISS",
     "",
