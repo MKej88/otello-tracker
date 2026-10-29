@@ -77,12 +77,10 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
             ),
             {"ready": True, "coverage": {"analysts": 2}},
         )
-        self.assertEqual(
-            await snapshots.load_investor_snapshot(
-                self.repo, "buybacks_dashboard", now=CLOCK
-            )["as_of_date"],
-            "2026-10-29",
+        buyback_payload = await snapshots.load_investor_snapshot(
+            self.repo, "buybacks_dashboard", now=CLOCK
         )
+        self.assertEqual(buyback_payload["as_of_date"], "2026-10-29")
 
     async def test_expired_future_and_version_mismatched_snapshots_fall_back(self):
         await self._seed()
