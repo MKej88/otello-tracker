@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildTrends, collectReports, median, seriesTrend, THRESHOLDS } from "./performance-trend-core.mjs";
+import { buildTrends, collectReports, median, seriesTrend, summarizeReliability, THRESHOLDS } from "./performance-trend-core.mjs";
 
 const NOW = "2026-10-19T20:00:00.000Z";
 const DAY_MS = 86400000;
@@ -111,4 +111,23 @@ test("invalid and missing per-page data are skipped independently", () => {
   assert.equal(trend.routes[0].cold.regression, false);
   assert.equal(trend.routes[1].cold.currentMedianMs, null);
   assert.equal(trend.routes[1].cold.regression, false);
+});
+
+test("recovered attempts and API tail latency are counted separately from weekly medians", () => {
+  const recovered = report(1, 3200);
+  recovered.recoveredColdLoads = [{ route: "#brasil", attempts: [{ outcome: "failed" }, { outcome: "success" }] }];
+  recovered.api[0].sampleTotalMs = [20, 1700, 2100];
+  recovered.api[0].timeoutRetries = 1;
+  const olderArtifact = report(2, 600);
+  olderArtifact.api[0].maxTotalMs = 2000;
+  const outsideWeek = report(10, 4000);
+  const value = summarizeReliability([recovered, olderArtifact, outsideWeek], NOW);
+  assert.equal(value.completeRuns, 2);
+  assert.equal(value.coldLoads, 2);
+  assert.equal(value.firstPassColdLoads, 1);
+  assert.equal(value.recoveredColdLoads, 1);
+  assert.equal(value.recoveredApiTimeouts, 1);
+  assert.equal(value.slowApiSamples, 3);
+  assert.equal(value.slowColdLoads, 1);
+  assert.equal(value.scope, "completed_unthrottled_runs");
 });
