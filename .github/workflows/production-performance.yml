@@ -18,6 +18,8 @@ on:
       - frontend/tools/server-timing.mjs
       - frontend/tools/server-timing.test.mjs
       - cloudflare/src/app.py
+      - cloudflare/src/entry.py
+      - cloudflare/src/worker_timing.py
       - cloudflare/src/brazil_snapshot.py
       - cloudflare/tests/test_brazil_snapshot.py
       - frontend/tools/performance-trend-core.mjs
@@ -75,7 +77,7 @@ jobs:
           node --check frontend/tools/performance-diagnostics.test.mjs
           node --check frontend/tools/performance-trends.mjs
           node --test frontend/tools/performance-trends.test.mjs frontend/tools/performance-diagnostics.test.mjs frontend/tools/performance-screen-state.test.mjs frontend/tools/cpu-profile-summary.test.mjs frontend/tools/server-timing.test.mjs frontend/tools/api-network-phases.test.mjs
-          python3 -m py_compile cloudflare/src/app.py cloudflare/src/brazil_snapshot.py
+          python3 -m py_compile cloudflare/src/app.py cloudflare/src/entry.py cloudflare/src/worker_timing.py cloudflare/src/brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_brazil_snapshot.py
 
       # PRs only test the scripts locally; rapid pushes otherwise hit
