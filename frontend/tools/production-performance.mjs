@@ -12,7 +12,7 @@ import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
-  fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, probeColdWithRetry, retryOnTimeout,
+  fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
 } from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
@@ -100,6 +100,8 @@ async function probeApi(path) {
         ageSeconds: Number(response.headers.get("age")) || 0,
         serverTiming: path === "/api/brazil/dashboard"
           ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
+        healthD1Ms: path === "/api/health"
+          ? parseHealthD1Timing(response.headers.get("server-timing")) : null,
       };
     });
     samples.push(retried.value);
@@ -110,11 +112,17 @@ async function probeApi(path) {
     medianHeadersMs: median(samples.map((sample) => sample.headersMs)),
     medianTotalMs: median(samples.map((sample) => sample.totalMs)),
     maxTotalMs: Math.max(...samples.map((sample) => sample.totalMs)),
+    firstSampleTotalMs: samples[0].totalMs,
+    sampleTotalMs: samples.map((sample) => sample.totalMs),
+    cacheHitMedianMs: median(samples.filter((sample) =>
+      sample.cfCacheStatus === "HIT").map((sample) => sample.totalMs)),
     responseBytes: samples.at(-1).bytes,
     cfCacheStatus: samples.map((sample) => sample.cfCacheStatus),
     ageSeconds: samples.map((sample) => sample.ageSeconds),
     ...(path === "/api/brazil/dashboard"
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
+    ...(path === "/api/health"
+      ? { healthD1Ms: samples.map((sample) => sample.healthD1Ms) } : {}),
     rateLimitedAttempts,
     timeoutRetries,
   };
@@ -344,6 +352,8 @@ function extractBrowserMetrics(transitionStartMs = 0) {
     longTaskCount: longTasks.length,
     longTaskTotalMs: Math.round(longTasks.reduce((sum, value) => sum + value, 0)),
     observerCaptured: Number.isFinite(markerAt) && markerAt >= transitionStartMs,
+    // Read lag does not count towards first-content time when observer captured it.
+    observerReadLagMs: Math.round(Math.max(0, now - firstReadyAt)),
     status,
   };
 }
@@ -489,6 +499,7 @@ async function probeSpaNavigationAttempt() {
         longTaskCount: metrics.longTaskCount,
         longTaskTotalMs: metrics.longTaskTotalMs,
         observerCaptured: metrics.observerCaptured,
+        observerReadLagMs: metrics.observerReadLagMs,
       });
     }
     return result;
