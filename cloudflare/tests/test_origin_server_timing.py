@@ -11,6 +11,11 @@ from src import app as api
 
 
 class _MetricsRepository:
+    async def first(self, sql, parameters=()):
+        # A missing persisted snapshot must preserve the original live API.
+        assert "runtime_state" in sql
+        return None
+
     def performance_metrics(self):
         return {
             "d1_read_ms": 123.45,
