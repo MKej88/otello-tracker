@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { screenState } from "./performance-screen-state.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
-import { parseBrazilServerTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseOtelloOriginTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
   fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
@@ -102,6 +102,9 @@ async function probeApi(path) {
           ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
         healthD1Ms: path === "/api/health"
           ? parseHealthD1Timing(response.headers.get("server-timing")) : null,
+        originTiming: [
+          "/api/bemobi/dashboard", "/api/bemobi/consensus", "/api/buybacks/dashboard",
+        ].includes(path) ? parseOtelloOriginTiming(response.headers.get("server-timing")) : null,
       };
     });
     samples.push(retried.value);
@@ -123,6 +126,8 @@ async function probeApi(path) {
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
     ...(path === "/api/health"
       ? { healthD1Ms: samples.map((sample) => sample.healthD1Ms) } : {}),
+    ...(samples.some((sample) => sample.originTiming != null)
+      ? { originTiming: samples.map((sample) => sample.originTiming) } : {}),
     rateLimitedAttempts,
     timeoutRetries,
   };
@@ -651,13 +656,16 @@ async function main() {
   }
   // Keep separate reliability measures: successful retries must not erase transient failures.
   const apiSpikes = result.api.filter((item) => item.maxTotalMs >= 1500);
+  const slowApiSamples = result.api.reduce((total, item) =>
+    total + item.sampleTotalMs.filter((value) => value >= 1500).length, 0);
   const slowColdLoads = result.browser.filter((item) => item.firstDataMs >= 3000);
   result.reliability = {
     coldFirstPass: result.browser.length - result.recoveredColdLoads.length,
     coldTotal: ROUTES.length,
     recoveredColdLoads: result.recoveredColdLoads.length,
     recoveredApiTimeouts: result.recoveredApiTimeouts.reduce((total, item) => total + item.retries, 0),
-    apiSpikeCount: apiSpikes.length,
+    apiSpikeCount: slowApiSamples,
+    apiSpikeEndpointCount: apiSpikes.length,
     slowColdLoadCount: slowColdLoads.length,
   };
   writeFileSync(reportPath, JSON.stringify(result, null, 2) + "\n");
@@ -747,14 +755,32 @@ async function main() {
     "Vellykket ved første forsøk: " + result.reliability.coldFirstPass + " av " +
       result.reliability.coldTotal + " direkte sideåpninger; " +
       result.reliability.recoveredColdLoads + " ble gjenopprettet.",
-    "Enkeltprøver med API over 1500 ms: " + apiSpikes.length +
-      "; førstegangsinnlasting over 3000 ms: " + slowColdLoads.length + ".",
+    "API-enkeltprøver >= 1500 ms: " + slowApiSamples +
+      " fordelt på " + apiSpikes.length + " endepunkter; førstegangsinnlasting >= 3000 ms: " +
+      slowColdLoads.length + ".",
     ...apiSpikes.map((a) => "- SAKTE API: `" + new URL(a.endpoint, base).pathname +
       "` prøver " + a.sampleTotalMs.join(" / ") + " ms; CF " +
       a.cfCacheStatus.join(" / ") + "."),
     ...slowColdLoads.map((b) => "- SAKTE SIDESTART: " + b.route +
       " " + b.firstDataMs + " ms, avlesning etterslep " +
       (b.observerReadLagMs ?? "–") + " ms."),
+    "",
+    "### Bemobi og tilbakekjøp – Worker-timing ved cache MISS",
+    "",
+    ...result.api.filter((a) => Array.isArray(a.originTiming)).flatMap((a) =>
+      a.originTiming.map((timing, index) => {
+        const cache = a.cfCacheStatus[index];
+        const timingLabel = !timing
+          ? "ingen Server-Timing (før utrulling eller fjernet av cache)"
+          : "handler " + (timing.handlerMs ?? "–") + " ms; sum D1-lesetid " +
+            (timing.d1TotalMs ?? "–") + " ms; D1-lesinger " + (timing.d1Reads ?? "–");
+        return "- `" + new URL(a.endpoint, base).pathname + "` prøve " + (index + 1) +
+          " (" + cache + ", ekstern " + a.sampleTotalMs[index] + " ms): " + timingLabel +
+          (cache === "HIT" ? " [timingen kan gjelde den tidligere cachefyllingen]" : "") + ".";
+      })
+    ),
+    "Sum D1-lesetid kan overstige handlerens veggklokketid ved parallelle spørringer.",
+    "Handler-tid omfatter ikke Worker-oppstart, CDN og nettverk før Python-ruten starter.",
     "",
     "### API-timeouts – nye forsøk",
     "",
