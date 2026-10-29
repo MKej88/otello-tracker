@@ -12,6 +12,7 @@ try:
     from .bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from .brazil_snapshot import refresh_brazil_snapshot
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from .investor_snapshots import refresh_investor_snapshots
     from .fx_freshness import repair_norges_bank_fx_if_stale
     from .exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
     from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
@@ -36,6 +37,7 @@ except ImportError:
     from bmob3_ingestion import maybe_finalize_bmob3_eod, refresh_bmob3_intraday_price
     from brazil_snapshot import refresh_brazil_snapshot
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from investor_snapshots import refresh_investor_snapshots
     from fx_freshness import repair_norges_bank_fx_if_stale
     from exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
     from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
@@ -592,6 +594,21 @@ async def run_fast_refresh(
         steps["dashboard_hot_snapshot"]["non_critical"] = True
 
     await renew("after dashboard snapshot")
+
+    # Precalculate Bemobi, consensus, and buyback responses while the scheduled
+    # writer owns the lock. Failure is non-critical; HTTP retains live fallback.
+    investor_snapshot_errors: list[dict[str, str]] = []
+    await _safe_async_step(
+        "investor_snapshots",
+        lambda: refresh_investor_snapshots(repository),
+        steps=steps,
+        errors=investor_snapshot_errors,
+        timings_ms=timings_ms,
+    )
+    if investor_snapshot_errors and isinstance(steps.get("investor_snapshots"), dict):
+        steps["investor_snapshots"]["non_critical"] = True
+
+    await renew("after investor snapshots")
 
     # Macro sources update independently of price ingestion. Warm this response every
     # half hour, including no-change runs, before a first-time visitor needs it.
