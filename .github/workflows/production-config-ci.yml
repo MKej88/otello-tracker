@@ -73,7 +73,8 @@ jobs:
           assert config['observability']['logs']['enabled'] is True
           assert config['observability']['logs']['invocation_logs'] is True
           assert config['observability']['logs']['head_sampling_rate'] == 0.05
-          assert config['observability']['traces']['enabled'] is False
+          assert config['observability']['traces']['enabled'] is True
+          assert config['observability']['traces']['head_sampling_rate'] == 0.10
           assert config['limits']['cpu_ms'] == 60000
           assert config['limits']['subrequests'] == 50000
           assert config['triggers']['crons'] == ['*/30 * * * *', '35 3 * * *', '37-43 14,15 * * 1-5', '17-23 11,12 * * 1-5']

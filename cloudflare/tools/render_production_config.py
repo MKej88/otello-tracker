@@ -56,9 +56,11 @@ def render_config(
         }
     }
 
-    # Keep enough production telemetry to diagnose failures without storing every request
-    # or paid trace span. Five percent is intentionally conservative for this low-traffic
-    # investor dashboard; real-time tailing remains available when debugging is needed.
+    # Capture a small, bounded sample of production requests for Cloudflare Workers
+    # traces. This is head sampling, so slow requests are NOT preferentially kept.
+    # Keep the existing 5% logs and a 10% trace rate while investigating sporadic
+    # 1-3s cache-MISS spikes. Do not log request headers or financial payload data.
+    # Reassess trace volume/cost before 2026-12-01 (pricing begins for stored traces).
     config["observability"] = {
         "enabled": True,
         "logs": {
@@ -67,8 +69,8 @@ def render_config(
             "head_sampling_rate": 0.05,
         },
         "traces": {
-            "enabled": False,
-            "head_sampling_rate": 0,
+            "enabled": True,
+            "head_sampling_rate": 0.10,
         },
     }
 

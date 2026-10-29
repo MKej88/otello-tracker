@@ -10,6 +10,7 @@ import { performance } from "node:perf_hooks";
 import { screenState } from "./performance-screen-state.mjs";
 import { median } from "./performance-trend-core.mjs";
 import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
+import { slowTraceCandidates } from "./trace-candidates.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
 import {
@@ -76,6 +77,7 @@ async function probeApi(path) {
     // Only the final, successful HTTP attempt contributes to timing samples.
     const retried = await retryOnTimeout(async () => {
       let started;
+      let requestStartedAt = null;
       let transport = null;
       try {
         const { response, rateLimitedAttempts: limited } = await fetchWithRateLimitRetry(
@@ -86,6 +88,7 @@ async function probeApi(path) {
               // contaminate the timings of the eventual successful request.
               transport?.close();
               started = performance.now();
+              requestStartedAt = new Date().toISOString();
               transport = watchUndiciRequest(args[0]);
               return fetch(...args);
             },
@@ -99,6 +102,7 @@ async function probeApi(path) {
         const ray = response.headers.get("cf-ray");
         return {
           headersMs, totalMs, bytes, status: response.status,
+          requestStartedAt,
           cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
           cfColo: cloudflareColo(ray),
           // Retained for targeted Cloudflare support correlation; never print
@@ -130,6 +134,7 @@ async function probeApi(path) {
     maxTotalMs: Math.max(...samples.map((sample) => sample.totalMs)),
     firstSampleTotalMs: samples[0].totalMs,
     sampleTotalMs: samples.map((sample) => sample.totalMs),
+    sampleStartedAt: samples.map((sample) => sample.requestStartedAt),
     cacheHitMedianMs: median(samples.filter((sample) =>
       sample.cfCacheStatus === "HIT").map((sample) => sample.totalMs)),
     responseBytes: samples.at(-1).bytes,
@@ -677,6 +682,7 @@ async function main() {
   const slowApiSamples = result.api.reduce((total, item) =>
     total + item.sampleTotalMs.filter((value) => value >= 1500).length, 0);
   const slowColdLoads = result.browser.filter((item) => item.firstDataMs >= 3000);
+  const traceCandidates = slowTraceCandidates(result.api);
   result.reliability = {
     coldFirstPass: result.browser.length - result.recoveredColdLoads.length,
     coldTotal: ROUTES.length,
@@ -782,6 +788,18 @@ async function main() {
     ...slowColdLoads.map((b) => "- SAKTE SIDESTART: " + b.route +
       " " + b.firstDataMs + " ms, avlesning etterslep " +
       (b.observerReadLagMs ?? "–") + " ms."),
+    "",
+    "### Cloudflare Traces – korrelasjon av langsomme API-forespørsler",
+    "",
+    "Produksjonen har 10 % tilfeldig Worker trace-sampling og 5 % loggsampling. Det er ikke sikkert disse forespørslene ble samplet. Ray-ID kan søkes med `cloudflare.ray_id = \"<ray-id>\"` i Cloudflare Observability > Traces (velg riktig tidsrom).",
+    "Kun API-sti uten spørringsparametere, UTC, Ray-ID, cachestatus og ekstern responstid vises. GitHub-testen kan gå via et annet Cloudflare-datasenter enn en norsk bruker.",
+    ...traceCandidates.map((candidate) =>
+      "- `" + candidate.path + "` " + candidate.elapsedMs + " ms" +
+      ", CF " + candidate.cache +
+      ", UTC " + (candidate.utc || "–") +
+      ", Ray-ID `" + (candidate.rayId || "–") + "`" +
+      ", datasenter " + (candidate.colo || "–") + "."),
+    ...(traceCandidates.length ? [] : ["Ingen enkeltforespørsler over 1 500 ms i denne kjøringen."]),
     "",
     "### Cache-MISS – klienttransport og Cloudflare",
     "",
