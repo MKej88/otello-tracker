@@ -90,6 +90,39 @@ export function seriesTrend(reports, extractor, asOf, threshold) {
   };
 }
 
+/** Reliability is tracked separately from successful-response medians.
+ * Older artifacts may lack the new fields, so use only observations they contain.
+ */
+export function summarizeReliability(reports, asOf) {
+  const cutoff = Date.parse(asOf) - TREND_DAYS * 86400000;
+  const current = collectReports(reports, asOf).filter((report) =>
+    Date.parse(report.checkedAt) >= cutoff);
+  const coldLoads = current.reduce((sum, r) => sum + r.browser.length, 0);
+  const recoveredCold = current.reduce((sum, r) =>
+    sum + (r.recoveredColdLoads?.length || 0), 0);
+  const recoveredTimeouts = current.reduce((sum, r) =>
+    sum + (r.api || []).reduce((n, a) => n + (a.timeoutRetries || 0), 0), 0);
+  const apiSpikes = current.reduce((sum, r) => sum +
+    (r.api || []).reduce((n, a) => n + (
+      Array.isArray(a.sampleTotalMs)
+        ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 1500).length
+        : Number.isFinite(a.maxTotalMs) && a.maxTotalMs >= 1500 ? 1 : 0
+    ), 0), 0);
+  const slowColdLoads = current.reduce((sum, r) =>
+    sum + r.browser.filter((b) => b.firstDataMs >= 3000).length, 0);
+  return {
+    completeRuns: current.length,
+    coldLoads,
+    firstPassColdLoads: coldLoads - recoveredCold,
+    recoveredColdLoads: recoveredCold,
+    recoveredApiTimeouts: recoveredTimeouts,
+    slowApiSamples: apiSpikes,
+    slowColdLoads,
+    // Failed or HTTP-429 runs are intentionally not part of this denominator.
+    scope: "completed_unthrottled_runs",
+  };
+}
+
 export function buildTrends(rawReports, asOf, routes) {
   const reports = collectReports(rawReports, asOf);
   const rowRoutes = routes.map(({ label, hash }) => ({
@@ -123,6 +156,7 @@ export function buildTrends(rawReports, asOf, routes) {
     minSamples: MIN_SAMPLES,
     minDistinctDays: MIN_DISTINCT_DAYS,
     reportCount: reports.length,
+    reliability: summarizeReliability(reports, asOf),
     routes: rowRoutes,
     apis,
     regressions,

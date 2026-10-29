@@ -169,6 +169,7 @@ jobs:
           PYTHONPATH=.:src python -m pytest -q
           tests/test_d1_preflight_derived_layers.py
           tests/test_bemobi_result_gap_policy.py
+          tests/test_health_server_timing.py
       - name: Install pinned Wrangler
         run: npm ci --no-audit --no-fund
       - name: Apply schema to Worker local D1

@@ -32,6 +32,14 @@ export function httpCategory(status) {
 /** Rate-limit aware API sampling. Keep all waits outside measured response timings. */
 export const API_PROBE_INTERVAL_MS = 1250;
 
+/** Read only the named health D1 duration; never report sensitive header values. */
+export function parseHealthD1Timing(header) {
+  const match = String(header || "").match(/(?:^|,)\s*d1\s*;\s*dur\s*=\s*([0-9]+(?:\.[0-9]+)?)(?=\s*(?:,|;|$))/i);
+  if (!match) return null;
+  const duration = Number(match[1]);
+  return Number.isFinite(duration) && duration >= 0 ? Math.round(duration * 10) / 10 : null;
+}
+
 export function parseRetryAfterMs(value, nowMs = Date.now()) {
   if (value == null || !String(value).trim()) return null;
   const raw = String(value).trim();

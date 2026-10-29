@@ -92,14 +92,17 @@ def _write_repository(request: Request) -> PerformanceD1WriteRepository:
 
 
 @app.get("/api/health")
-async def health(request: Request) -> dict[str, str]:
+async def health(request: Request, response: Response) -> dict[str, str]:
     repository = _repository(request)
+    d1_started = perf_counter()
     try:
         row = await repository.first("SELECT 1 AS ok")
     except Exception as exc:
         raise HTTPException(status_code=503, detail="D1 unavailable") from exc
     if row is None or int(row.get("ok", 0)) != 1:
         raise HTTPException(status_code=503, detail="D1 unavailable")
+    # D1 time is server-side only; external TTFB also includes Worker startup and network.
+    response.headers["Server-Timing"] = f"d1;dur={(perf_counter() - d1_started) * 1000:.2f}"
     env = request.scope.get("env")
     revision = str(getattr(env, "DEPLOYMENT_REVISION", "") or "local")
     return {

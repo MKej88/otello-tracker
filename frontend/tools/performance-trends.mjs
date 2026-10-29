@@ -168,6 +168,24 @@ function markdown(trend, history) {
     "| --- | ---: | ---: | ---: | --- |",
     ...apiRows.map((row) => "| " + row + " |"),
     "",
+    "### Datagrunnlag og sporadiske feil (siste 7 dager)",
+    "",
+    "Fullførte, ikke-ratebegrensede kjøringer: " + trend.reliability.completeRuns +
+      "; direkte sideåpninger vellykket ved første forsøk: " +
+      trend.reliability.firstPassColdLoads + " av " + trend.reliability.coldLoads + ".",
+    "Gjenopprettet etter ny Chrome-innlasting: " +
+      trend.reliability.recoveredColdLoads +
+      "; ekstra API-forsøk etter timeout: " + trend.reliability.recoveredApiTimeouts + ".",
+    "API-enkeltprøver >= 1500 ms: " + trend.reliability.slowApiSamples +
+      "; direkte sideinnlastinger >= 3000 ms: " + trend.reliability.slowColdLoads + ".",
+    "Dette teller kun fullførte målinger uten HTTP 429. Mislykkede kjøringer ligger i Actions-loggene, " +
+      "ikke i denne nevneren; grønt medianresultat er ikke en påstand om 100 % stabilitet.",
+    "Trenddekning (eksempel: Oversikt direkte): " +
+      (trend.routes[0] ? trend.routes[0].cold.currentSamples + " prøver på " +
+        trend.routes[0].cold.currentDays + " dager siste uke, mot " +
+        trend.routes[0].cold.priorSamples + " prøver på " +
+        trend.routes[0].cold.priorDays + " dager uken før." : "ingen prøver.") ,
+    "",
     "### Tolkning og varsler",
     "",
     ...trend.regressions.map((r) =>
