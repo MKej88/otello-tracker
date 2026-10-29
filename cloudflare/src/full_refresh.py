@@ -7,6 +7,7 @@ from typing import Any
 try:
     from .d1_preflight import run_d1_preflight
     from .dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from .investor_snapshots import refresh_investor_snapshots
     from .estimated_nav_history_materialization import (
         materialize_estimated_nav_history_batch,
     )
@@ -15,6 +16,7 @@ try:
 except ImportError:
     from d1_preflight import run_d1_preflight
     from dashboard_hot_snapshot import refresh_dashboard_hot_snapshot
+    from investor_snapshots import refresh_investor_snapshots
     from estimated_nav_history_materialization import (
         materialize_estimated_nav_history_batch,
     )
@@ -523,6 +525,13 @@ async def finish_full_refresh(
     except Exception as exc:
         hot_snapshot = {**error_result(exc), "non_critical": True}
 
+    # Current investor pages are built after NAV and market inputs settle.
+    # Any failure is non-critical and cannot change the source/NAV job status.
+    try:
+        investor_snapshots = await refresh_investor_snapshots(repository)
+    except Exception as exc:
+        investor_snapshots = {**error_result(exc), "non_critical": True}
+
     records_written = _records_written(source_results, nav_result)
     metadata = {
         "phase": PHASE,
@@ -539,6 +548,7 @@ async def finish_full_refresh(
         },
         "archive": _compact_source_result(archive_result),
         "dashboard_hot_snapshot": hot_snapshot,
+        "investor_snapshots": investor_snapshots,
         "estimated_nav_history": estimated_nav_history,
         "repository": repository.performance_metrics(),
     }
@@ -562,6 +572,7 @@ async def finish_full_refresh(
         "preflight": preflight_result,
         "archive": archive_result,
         "dashboard_hot_snapshot": hot_snapshot,
+        "investor_snapshots": investor_snapshots,
         "estimated_nav_history": estimated_nav_history,
         "errors": errors,
     }
