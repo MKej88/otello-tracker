@@ -127,7 +127,10 @@ test("recovered attempts and API tail latency are counted separately from weekly
   assert.equal(value.firstPassColdLoads, 1);
   assert.equal(value.recoveredColdLoads, 1);
   assert.equal(value.recoveredApiTimeouts, 1);
-  assert.equal(value.slowApiSamples, 3);
+  assert.equal(value.slowApiSamples, 2);
+  assert.equal(value.apiSampleCount, 3);
+  assert.equal(value.detailedApiRuns, 1);
+  assert.equal(value.legacyApiRuns, 1);
   assert.equal(value.slowColdLoads, 1);
   assert.equal(value.scope, "completed_unthrottled_runs");
 });
