@@ -172,6 +172,7 @@ jobs:
           tests/test_health_server_timing.py
           tests/test_origin_server_timing.py
           tests/test_investor_snapshots.py
+          tests/test_worker_timing.py
       - name: Install pinned Wrangler
         run: npm ci --no-audit --no-fund
       - name: Apply schema to Worker local D1
@@ -273,6 +274,18 @@ jobs:
           }
           assert health['status'] == 'ok'
           assert health['environment'] == 'cloudflare'
+          # Real Pyodide/ASGI smoke: all four timings survive the JS Response
+          # boundary and preserve the original endpoint Server-Timing header.
+          import re
+          raw = Path('/tmp/worker-summary.headers').read_text()
+          header = next(
+              (line for line in raw.splitlines()
+               if line.lower().startswith('server-timing:')), ''
+          )
+          for metric in ('otello_fetch', 'otello_asgi_import', 'otello_asgi', 'otello_fastapi'):
+              assert re.search(rf'\\b{metric};dur=\\d+\\.\\d{{2}}', header), (metric, header)
+          raw_history = Path('/tmp/worker-history.headers').read_text()
+          assert 'otello_fetch;dur=' in raw_history.lower(), raw_history
           for name, expected_payload in expected.items():
               actual_payload = actual[name]
               if actual_payload != expected_payload:
