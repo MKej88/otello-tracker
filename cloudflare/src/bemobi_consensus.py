@@ -104,8 +104,12 @@ def _beat_miss_payload(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-async def bemobi_consensus(repository) -> dict[str, Any]:
-    bemobi = await bemobi_dashboard(repository)
+async def bemobi_consensus(
+    repository, *, bemobi_payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    # The scheduled snapshot already computed the Bemobi dashboard. Reuse that
+    # exact result instead of running the full financial summary a second time.
+    bemobi = bemobi_payload if bemobi_payload is not None else await bemobi_dashboard(repository)
     if not bemobi.get("ready"):
         return {"ready": False, "reason": "bemobi_dashboard_not_ready"}
 

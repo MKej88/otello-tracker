@@ -767,7 +767,8 @@ async function main() {
         const cache = a.cfCacheStatus[index];
         const timingLabel = !timing
           ? "ingen Server-Timing (før utrulling eller fjernet av cache)"
-          : "handler " + (timing.handlerMs ?? "–") + " ms; Python-import " +
+          : "snapshot " + (timing.snapshot ?? "unknown") + "; handler " +
+            (timing.handlerMs ?? "–") + " ms; Python-import " +
             (timing.importMs ?? "–") + " ms; sum D1-lesetid " +
             (timing.d1TotalMs ?? "–") + " ms; D1-lesinger " + (timing.d1Reads ?? "–");
         return "- `" + new URL(a.endpoint, base).pathname + "` prøve " + (index + 1) +

@@ -171,6 +171,7 @@ jobs:
           tests/test_bemobi_result_gap_policy.py
           tests/test_health_server_timing.py
           tests/test_origin_server_timing.py
+          tests/test_investor_snapshots.py
       - name: Install pinned Wrangler
         run: npm ci --no-audit --no-fund
       - name: Apply schema to Worker local D1

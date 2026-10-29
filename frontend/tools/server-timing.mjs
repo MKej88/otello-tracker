@@ -30,6 +30,8 @@ export function parseOtelloOriginTiming(header) {
     }
     const count = /^\s*otello_reads;desc="(\d{1,5})"\s*$/.exec(component);
     if (count) result.d1Reads = Number(count[1]);
+    const source = /^\s*otello_snapshot;desc="(hit|fallback)"\s*$/.exec(component);
+    if (source) result.snapshot = source[1];
   }
   return Object.keys(result).length ? result : null;
 }

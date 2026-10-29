@@ -92,7 +92,12 @@ def _write_repository(request: Request) -> PerformanceD1WriteRepository:
 
 
 def _record_origin_read_timing(
-    response: Response, repository: PerformanceD1Repository, started: float, import_ms: float
+    response: Response,
+    repository: PerformanceD1Repository,
+    started: float,
+    import_ms: float,
+    *,
+    snapshot: str = "fallback",
 ) -> None:
     """Bounded response timing for troubleshooting cache MISS, without query contents.
 
@@ -105,7 +110,8 @@ def _record_origin_read_timing(
         f"otello_handler;dur={(perf_counter() - started) * 1000:.2f}, "
         f"otello_import;dur={import_ms:.2f}, "
         f"otello_d1;dur={metrics['d1_read_ms']:.2f}, "
-        f"otello_reads;desc=\"{metrics['d1_reads']}\""
+        f"otello_reads;desc=\"{metrics['d1_reads']}\", "
+        f"otello_snapshot;desc=\"{snapshot}\""
     )
 
 
@@ -282,10 +288,19 @@ async def get_buyback_dashboard(
     response: Response,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
+    from investor_snapshots import load_investor_snapshot
+
     started = perf_counter()
-    from buyback_dashboard import buyback_dashboard
-    import_ms = (perf_counter() - started) * 1000
     repository = _repository(request)
+    if as_of_date is None:
+        cached = await load_investor_snapshot(repository, "buybacks_dashboard")
+        if cached is not None:
+            _record_origin_read_timing(response, repository, started, 0.0, snapshot="hit")
+            return cached
+
+    importing = perf_counter()
+    from buyback_dashboard import buyback_dashboard
+    import_ms = (perf_counter() - importing) * 1000
     try:
         payload = await buyback_dashboard(repository, as_of_date=as_of_date)
     except ValueError as exc:
@@ -314,10 +329,18 @@ async def get_buyback_overview_status(
 
 @app.get("/api/bemobi/dashboard")
 async def get_bemobi_dashboard(request: Request, response: Response) -> dict:
+    from investor_snapshots import load_investor_snapshot
+
     started = perf_counter()
-    from bemobi_dashboard import bemobi_dashboard
-    import_ms = (perf_counter() - started) * 1000
     repository = _repository(request)
+    cached = await load_investor_snapshot(repository, "bemobi_dashboard")
+    if cached is not None:
+        _record_origin_read_timing(response, repository, started, 0.0, snapshot="hit")
+        return cached
+
+    importing = perf_counter()
+    from bemobi_dashboard import bemobi_dashboard
+    import_ms = (perf_counter() - importing) * 1000
     payload = await bemobi_dashboard(repository)
     _record_origin_read_timing(response, repository, started, import_ms)
     return payload
@@ -325,10 +348,18 @@ async def get_bemobi_dashboard(request: Request, response: Response) -> dict:
 
 @app.get("/api/bemobi/consensus")
 async def get_bemobi_consensus(request: Request, response: Response) -> dict:
+    from investor_snapshots import load_investor_snapshot
+
     started = perf_counter()
-    from bemobi_consensus_investor import bemobi_consensus
-    import_ms = (perf_counter() - started) * 1000
     repository = _repository(request)
+    cached = await load_investor_snapshot(repository, "bemobi_consensus")
+    if cached is not None:
+        _record_origin_read_timing(response, repository, started, 0.0, snapshot="hit")
+        return cached
+
+    importing = perf_counter()
+    from bemobi_consensus_investor import bemobi_consensus
+    import_ms = (perf_counter() - importing) * 1000
     payload = await bemobi_consensus(repository)
     _record_origin_read_timing(response, repository, started, import_ms)
     return payload

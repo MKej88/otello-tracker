@@ -21,4 +21,7 @@ test("origin timing parser is allow-listed and ignores private header values", (
   assert.equal(parseOtelloOriginTiming('otello_reads;desc="-2", otello_d1;dur=-1'), null);
   assert.equal(parseOtelloOriginTiming(null), null);
   assert.doesNotMatch(JSON.stringify(parseOtelloOriginTiming(sample)), /private|sensitive/);
+  assert.deepEqual(parseOtelloOriginTiming('otello_snapshot;desc="hit"'), { snapshot: "hit" });
+  assert.deepEqual(parseOtelloOriginTiming('otello_snapshot;desc="fallback"'), { snapshot: "fallback" });
+  assert.equal(parseOtelloOriginTiming('otello_snapshot;desc="unknown"'), null);
 });
