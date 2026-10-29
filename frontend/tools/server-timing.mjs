@@ -22,9 +22,10 @@ export function parseOtelloOriginTiming(header) {
   if (!header) return null;
   const result = {};
   for (const component of header.split(",")) {
-    const metric = /^\s*otello_(handler|d1);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(component);
+    const metric = /^\s*otello_(handler|d1|import);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(component);
     if (metric) {
-      result[metric[1] === "handler" ? "handlerMs" : "d1TotalMs"] = Number(metric[2]);
+      const name = { handler: "handlerMs", d1: "d1TotalMs", import: "importMs" }[metric[1]];
+      result[name] = Number(metric[2]);
       continue;
     }
     const count = /^\s*otello_reads;desc="(\d{1,5})"\s*$/.exec(component);
