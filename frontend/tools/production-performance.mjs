@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { screenState } from "./performance-screen-state.mjs";
+import { median } from "./performance-trend-core.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming, parseOtelloOriginTiming } from "./server-timing.mjs";
 import {
@@ -52,12 +53,6 @@ if (base.protocol !== "https:" && base.hostname !== "127.0.0.1") {
 
 function rounded(ms) {
   return Math.round(ms);
-}
-
-function median(values) {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor((sorted.length - 1) / 2)];
 }
 
 /** Fetch timing to headers (approx. externally observed TTFB) and full body. */
