@@ -278,7 +278,7 @@ jobs:
           # boundary and preserve the original endpoint Server-Timing header.
           raw = Path('/tmp/worker-summary.headers').read_text()
           header = next(
-              (line for line in raw.splitlines()
+              (line.partition(':')[2].strip() for line in raw.splitlines()
                if line.lower().startswith('server-timing:')), ''
           )
           for metric in ('otello_fetch', 'otello_asgi_import', 'otello_asgi', 'otello_fastapi'):
