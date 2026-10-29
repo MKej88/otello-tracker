@@ -12,7 +12,7 @@ import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
-  fetchWithRateLimitRetry, isRateLimitError, probeColdWithRetry,
+  fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, probeColdWithRetry, retryOnTimeout,
 } from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
@@ -74,29 +74,36 @@ async function paceApiRequest() {
 async function probeApi(path) {
   const samples = [];
   let rateLimitedAttempts = 0;
+  let timeoutRetries = 0;
   for (let i = 0; i < 3; i++) {
-    let started;
-    const { response, rateLimitedAttempts: retries } = await fetchWithRateLimitRetry(
-      new URL(path, base), {
-        beforeAttempt: paceApiRequest,
-        fetchFn: (...args) => {
-          started = performance.now();
-          return fetch(...args);
+    // Retry a single time if either the fetch or its body hits the deadline.
+    // Only the final, successful HTTP attempt contributes to timing samples.
+    const retried = await retryOnTimeout(async () => {
+      let started;
+      const { response, rateLimitedAttempts: limited } = await fetchWithRateLimitRetry(
+        new URL(path, base), {
+          beforeAttempt: paceApiRequest,
+          fetchFn: (...args) => {
+            started = performance.now();
+            return fetch(...args);
+          },
         },
-      },
-    );
-    rateLimitedAttempts += retries;
-    const headersMs = rounded(performance.now() - started);
-    const bytes = (await response.arrayBuffer()).byteLength;
-    const totalMs = rounded(performance.now() - started);
-    if (!response.ok) throw new Error("HTTP " + response.status + " for " + path);
-    samples.push({
-      headersMs, totalMs, bytes, status: response.status,
-      cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
-      ageSeconds: Number(response.headers.get("age")) || 0,
-      serverTiming: path === "/api/brazil/dashboard"
-        ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
+      );
+      rateLimitedAttempts += limited;
+      const headersMs = rounded(performance.now() - started);
+      if (!response.ok) throw new Error("HTTP " + response.status + " for " + path);
+      const bytes = (await response.arrayBuffer()).byteLength;
+      const totalMs = rounded(performance.now() - started);
+      return {
+        headersMs, totalMs, bytes, status: response.status,
+        cfCacheStatus: response.headers.get("cf-cache-status") || "ikke oppgitt",
+        ageSeconds: Number(response.headers.get("age")) || 0,
+        serverTiming: path === "/api/brazil/dashboard"
+          ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
+      };
     });
+    samples.push(retried.value);
+    timeoutRetries += retried.timeoutRetries;
   }
   return {
     endpoint: path,
@@ -109,6 +116,7 @@ async function probeApi(path) {
     ...(path === "/api/brazil/dashboard"
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
     rateLimitedAttempts,
+    timeoutRetries,
   };
 }
 
@@ -532,6 +540,8 @@ async function main() {
     api: [],
     recoveredColdLoads: [],
     coldFailures: [],
+    recoveredApiTimeouts: [],
+    persistentApiTimeouts: [],
     rateLimits: [],
     errors: [],
     overviewCpuProfile: null,
@@ -547,6 +557,11 @@ async function main() {
     try {
       const measured = await probeApi(endpoint);
       result.api.push(measured);
+      if (measured.timeoutRetries) {
+        result.recoveredApiTimeouts.push({
+          path: new URL(endpoint, base).pathname, retries: measured.timeoutRetries,
+        });
+      }
       if (measured.rateLimitedAttempts) {
         result.rateLimits.push({
           scope: "api", path: new URL(endpoint, base).pathname,
@@ -560,6 +575,11 @@ async function main() {
           attempts: error.rateLimitedAttempts, recovered: false,
         });
       } else {
+        if (isTimeoutError(error)) {
+          result.persistentApiTimeouts.push({
+            path: new URL(endpoint, base).pathname, attempts: error.timeoutAttempts || 1,
+          });
+        }
         result.errors.push(endpoint + ": " + String(error));
       }
     }
@@ -682,6 +702,17 @@ async function main() {
       (a.cfCacheStatus?.join(" / ") || "–") + " |"
     ),
     "",
+    "### API-timeouts – nye forsøk",
+    "",
+    ...result.recoveredApiTimeouts.map((item) =>
+      "- GJENOPPRETTET: `" + item.path + "` etter " + item.retries +
+      " ekstra forsøk (bare vellykkede målinger inngår i medianen)."),
+    ...result.persistentApiTimeouts.map((item) =>
+      "- VEDVARENDE FEIL: `" + item.path + "` etter " + item.attempts +
+      " forsøk (kjøringen feiler)."),
+    ...(result.recoveredApiTimeouts.length || result.persistentApiTimeouts.length ? [] :
+      ["Ingen API-timeouts registrert."]),
+    "",
     "### Brasil – origin-/D1-tidsfordeling",
     "",
     ...(brazil?.serverTiming?.map((timing, index) => {
@@ -753,6 +784,10 @@ async function main() {
   const summary = lines.join("\n") + "\n";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  for (const item of result.recoveredApiTimeouts) {
+    console.log("::warning::API-timeout gjenopprettet for " + item.path +
+      " etter " + item.retries + " ekstra forsøk.");
+  }
   for (const item of result.recoveredColdLoads) {
     console.log("::warning::Førsteinnlasting feilet, men nytt Chrome-forsøk lyktes for " +
       item.route + ": " + attemptSummary(item.attempts));
