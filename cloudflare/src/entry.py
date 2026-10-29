@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import types
+from time import perf_counter
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,7 @@ if _src_package is None:
 sys.modules.setdefault("src.oslo_calendar", oslo_calendar)
 
 from app import app  # noqa: E402
+from worker_timing import append_worker_timing  # noqa: E402
 from snapshot_drill import R2SnapshotDrillWorkflow  # noqa: E402,F401
 
 FULL_REFRESH_LOCK_TTL_SECONDS = 3 * 60 * 60
@@ -155,9 +157,25 @@ def _aggregate_history_rebuild(chunks: list[dict]) -> dict:
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        # The first clock starts at Python fetch entry, not during the
+        # Cloudflare/Pyodide isolate boot that happens before Python is called.
+        entered_at = perf_counter()
+        import_started = perf_counter()
         import asgi
 
-        return await asgi.fetch(app, request.js_object, self.env)
+        asgi_import_ms = (perf_counter() - import_started) * 1000
+        asgi_started = perf_counter()
+        response = await asgi.fetch(app, request.js_object, self.env)
+        asgi_ms = (perf_counter() - asgi_started) * 1000
+
+        # Append to FastAPI's existing Server-Timing; preserve body and all
+        # existing headers, and do not change the HTTP caching semantics.
+        return append_worker_timing(
+            response,
+            fetch_ms=(perf_counter() - entered_at) * 1000,
+            asgi_import_ms=asgi_import_ms,
+            asgi_ms=asgi_ms,
+        )
 
     async def scheduled(self, controller, env, ctx):
         from scheduled import run_scheduled
