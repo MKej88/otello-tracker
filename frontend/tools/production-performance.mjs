@@ -649,6 +649,17 @@ async function main() {
       };
     }
   }
+  // Keep separate reliability measures: successful retries must not erase transient failures.
+  const apiSpikes = result.api.filter((item) => item.maxTotalMs >= 1500);
+  const slowColdLoads = result.browser.filter((item) => item.firstDataMs >= 3000);
+  result.reliability = {
+    coldFirstPass: result.browser.length - result.recoveredColdLoads.length,
+    coldTotal: ROUTES.length,
+    recoveredColdLoads: result.recoveredColdLoads.length,
+    recoveredApiTimeouts: result.recoveredApiTimeouts.reduce((total, item) => total + item.retries, 0),
+    apiSpikeCount: apiSpikes.length,
+    slowColdLoadCount: slowColdLoads.length,
+  };
   writeFileSync(reportPath, JSON.stringify(result, null, 2) + "\n");
 
   function resourceLabel(resource) {
@@ -674,6 +685,7 @@ async function main() {
     }).join("; ");
   }
   const brazil = result.api.find((item) => item.endpoint === "/api/brazil/dashboard");
+  const health = result.api.find((item) => item.endpoint === "/api/health");
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
@@ -703,6 +715,11 @@ async function main() {
       (n.longTaskTotalMs ?? "–") + " ms |"
     ),
     "",
+    "Observatøravlesning etter første synlige hovedinnhold per sideskift: " +
+      result.navigation.map((item) => item.label + " " +
+        (item.observerReadLagMs ?? "–") + " ms").join("; ") + ".",
+    "Forsinkelsen ved avlesning må ikke legges til den målte tiden for første visning.",
+    "",
     "### API – median av tre forespørsler",
     "",
     "| Endepunkt | Headere | Hele svaret | Størrelse | CF-cache (3) |",
@@ -712,6 +729,32 @@ async function main() {
       a.medianTotalMs + " ms | " + a.responseBytes + " byte | " +
       (a.cfCacheStatus?.join(" / ") || "–") + " |"
     ),
+    "",
+    "### API-fordeling, D1-diagnostikk og stabilitet",
+    "",
+    ...result.api.map((a) => "- `" + new URL(a.endpoint, base).pathname +
+      "`: prøver " + a.sampleTotalMs.join(" / ") + " ms; første prøve " +
+      a.firstSampleTotalMs + " ms; cache HIT median " +
+      (a.cacheHitMedianMs == null ? "–" : a.cacheHitMedianMs + " ms") +
+      "; maks " + a.maxTotalMs + " ms."),
+    "",
+    ...(health?.healthD1Ms ? [
+      "Helsekontroll ekstern median " + health.medianTotalMs +
+      " ms, intern D1 SELECT 1: " +
+      health.healthD1Ms.map((v) => v == null ? "–" : v + " ms").join(" / ") +
+      ". Differansen inkluderer oppstart, annen Worker-behandling og nettverk; er ikke målt Worker-CPU.",
+    ] : ["Intern D1-timing for helseendepunktet mangler (mulig eldre deploy)."]),
+    "Vellykket ved første forsøk: " + result.reliability.coldFirstPass + " av " +
+      result.reliability.coldTotal + " direkte sideåpninger; " +
+      result.reliability.recoveredColdLoads + " ble gjenopprettet.",
+    "Enkeltprøver med API over 1500 ms: " + apiSpikes.length +
+      "; førstegangsinnlasting over 3000 ms: " + slowColdLoads.length + ".",
+    ...apiSpikes.map((a) => "- SAKTE API: `" + new URL(a.endpoint, base).pathname +
+      "` prøver " + a.sampleTotalMs.join(" / ") + " ms; CF " +
+      a.cfCacheStatus.join(" / ") + "."),
+    ...slowColdLoads.map((b) => "- SAKTE SIDESTART: " + b.route +
+      " " + b.firstDataMs + " ms, avlesning etterslep " +
+      (b.observerReadLagMs ?? "–") + " ms."),
     "",
     "### API-timeouts – nye forsøk",
     "",
@@ -795,6 +838,10 @@ async function main() {
   const summary = lines.join("\n") + "\n";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  for (const item of apiSpikes) {
+    console.log("::warning::API-enkeltprøve over 1500 ms for " +
+      new URL(item.endpoint, base).pathname + ": " + item.maxTotalMs + " ms.");
+  }
   for (const item of result.recoveredApiTimeouts) {
     console.log("::warning::API-timeout gjenopprettet for " + item.path +
       " etter " + item.retries + " ekstra forsøk.");
