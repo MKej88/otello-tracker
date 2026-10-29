@@ -102,12 +102,16 @@ export function summarizeReliability(reports, asOf) {
     sum + (r.recoveredColdLoads?.length || 0), 0);
   const recoveredTimeouts = current.reduce((sum, r) =>
     sum + (r.api || []).reduce((n, a) => n + (a.timeoutRetries || 0), 0), 0);
-  const apiSpikes = current.reduce((sum, r) => sum +
-    (r.api || []).reduce((n, a) => n + (
-      Array.isArray(a.sampleTotalMs)
-        ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 1500).length
-        : Number.isFinite(a.maxTotalMs) && a.maxTotalMs >= 1500 ? 1 : 0
-    ), 0), 0);
+  // Historical reports only stored one maximum per endpoint. Those maxima
+  // cannot be counted as individual samples; exclude them from the denominator.
+  const detailedRuns = current.filter((r) =>
+    (r.api || []).some((a) => Array.isArray(a.sampleTotalMs)));
+  const apiSampleCount = detailedRuns.reduce((sum, r) => sum +
+    (r.api || []).reduce((n, a) => n + (Array.isArray(a.sampleTotalMs)
+      ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 0).length : 0), 0), 0);
+  const apiSpikes = detailedRuns.reduce((sum, r) => sum +
+    (r.api || []).reduce((n, a) => n + (Array.isArray(a.sampleTotalMs)
+      ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 1500).length : 0), 0), 0);
   const slowColdLoads = current.reduce((sum, r) =>
     sum + r.browser.filter((b) => b.firstDataMs >= 3000).length, 0);
   return {
@@ -116,6 +120,9 @@ export function summarizeReliability(reports, asOf) {
     firstPassColdLoads: coldLoads - recoveredCold,
     recoveredColdLoads: recoveredCold,
     recoveredApiTimeouts: recoveredTimeouts,
+    detailedApiRuns: detailedRuns.length,
+    legacyApiRuns: current.length - detailedRuns.length,
+    apiSampleCount,
     slowApiSamples: apiSpikes,
     slowColdLoads,
     // Failed or HTTP-429 runs are intentionally not part of this denominator.
