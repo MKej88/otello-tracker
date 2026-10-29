@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
-  isRateLimitError, isTimeoutError, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout,
+  isRateLimitError, isTimeoutError, parseHealthD1Timing, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout,
 } from "./performance-diagnostics.mjs";
 
 const origin = "https://otellotracker.com";
@@ -239,4 +239,12 @@ test("Non-timeout network errors, HTTP errors and unrelated aborts are never ret
     assert.equal(calls, 1);
   }
   assert.equal(isTimeoutError(new DOMException("Canceled", "AbortError")), false);
+});
+
+test("Health Server-Timing exposes only the D1 duration", () => {
+  assert.equal(parseHealthD1Timing("d1;dur=12.35"), 12.4);
+  assert.equal(parseHealthD1Timing('other;dur=3, d1;dur=0.42;desc="read"'), 0.4);
+  assert.equal(parseHealthD1Timing("other;dur=3"), null);
+  assert.equal(parseHealthD1Timing("d1;dur=invalid"), null);
+  assert.equal(parseHealthD1Timing(null), null);
 });
