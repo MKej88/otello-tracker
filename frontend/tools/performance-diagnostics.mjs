@@ -86,6 +86,38 @@ export async function fetchWithRateLimitRetry(url, {
   }
 }
 
+/** Only an actual fetch deadline should be retried; never retry HTTP 4xx/5xx or DNS/TLS errors. */
+export function isTimeoutError(error) {
+  return error?.name === "TimeoutError" ||
+    (error?.name === "AbortError" && error?.cause?.name === "TimeoutError");
+}
+
+/**
+ * Retry one timed-out API sample, including a timed-out response body.
+ * Backoff happens outside measured response times, and only the successful
+ * attempt is returned. Exhausted deadlines remain genuine monitoring errors.
+ */
+export async function retryOnTimeout(runAttempt, {
+  sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  maxRetries = 1,
+  retryDelayMs = 2000,
+} = {}) {
+  let timeoutRetries = 0;
+  while (true) {
+    try {
+      return { value: await runAttempt(), timeoutRetries };
+    } catch (error) {
+      if (!isTimeoutError(error)) throw error;
+      timeoutRetries++;
+      if (timeoutRetries > maxRetries) {
+        error.timeoutAttempts = timeoutRetries;
+        throw error;
+      }
+      await sleepFn(retryDelayMs * timeoutRetries);
+    }
+  }
+}
+
 /** Never store full URLs, query strings, headers, response bodies or raw network errors. */
 export function createApiDiagnostics(origin) {
   const requests = new Map();
