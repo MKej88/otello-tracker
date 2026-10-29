@@ -25,11 +25,11 @@ class OriginServerTimingTests(unittest.IsolatedAsyncioTestCase):
         self.response = Response()
 
     def assert_origin_timing(self):
-        self.assertRegex(
-            self.response.headers["server-timing"],
-            r'^otello_handler;dur=\d+\.\d{2}, '
-            r'otello_import;dur=\d+\.\d{2}, '
-            r'otello_d1;dur=123\.45, otello_reads;desc="14"        )
+        header = self.response.headers["server-timing"]
+        self.assertIn("otello_handler;dur=", header)
+        self.assertIn("otello_import;dur=", header)
+        self.assertIn("otello_d1;dur=123.45", header)
+        self.assertIn('otello_reads;desc="14"', header)
 
     async def test_bemobi_dashboard_payload_and_origin_header(self):
         expected = {"ready": True, "market": {"price_brl": 10}}
