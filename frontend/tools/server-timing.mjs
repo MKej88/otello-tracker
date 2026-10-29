@@ -14,3 +14,22 @@ export function parseBrazilServerTiming(header) {
   }
   return Object.keys(result).length ? result : null;
 }
+
+/** Origin-only timings for Bemobi and buyback routes.
+ * D1 is a sum of concurrent read durations, not exclusive wall-clock time.
+ */
+export function parseOtelloOriginTiming(header) {
+  if (!header) return null;
+  const result = {};
+  for (const component of header.split(",")) {
+    const metric = /^\s*otello_(handler|d1|import);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(component);
+    if (metric) {
+      const name = { handler: "handlerMs", d1: "d1TotalMs", import: "importMs" }[metric[1]];
+      result[name] = Number(metric[2]);
+      continue;
+    }
+    const count = /^\s*otello_reads;desc="(\d{1,5})"\s*$/.exec(component);
+    if (count) result.d1Reads = Number(count[1]);
+  }
+  return Object.keys(result).length ? result : null;
+}

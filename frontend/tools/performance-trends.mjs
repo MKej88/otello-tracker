@@ -177,7 +177,10 @@ function markdown(trend, history) {
       trend.reliability.recoveredColdLoads +
       "; ekstra API-forsøk etter timeout: " + trend.reliability.recoveredApiTimeouts + ".",
     "API-enkeltprøver >= 1500 ms: " + trend.reliability.slowApiSamples +
-      "; direkte sideinnlastinger >= 3000 ms: " + trend.reliability.slowColdLoads + ".",
+      " av " + trend.reliability.apiSampleCount + " enkeltprøver fra " +
+      trend.reliability.detailedApiRuns + " fullstendig målte kjøringer; " +
+      trend.reliability.legacyApiRuns + " eldre kjøringer mangler sammenlignbare prøveverdier.",
+    "Direkte sideinnlastinger >= 3000 ms: " + trend.reliability.slowColdLoads + ".",
     "Dette teller kun fullførte målinger uten HTTP 429. Mislykkede kjøringer ligger i Actions-loggene, " +
       "ikke i denne nevneren; grønt medianresultat er ikke en påstand om 100 % stabilitet.",
     "Trenddekning (eksempel: Oversikt direkte): " +

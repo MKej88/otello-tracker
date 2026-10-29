@@ -91,6 +91,24 @@ def _write_repository(request: Request) -> PerformanceD1WriteRepository:
     return PerformanceD1WriteRepository(database)
 
 
+def _record_origin_read_timing(
+    response: Response, repository: PerformanceD1Repository, started: float, import_ms: float
+) -> None:
+    """Bounded response timing for troubleshooting cache MISS, without query contents.
+
+    D1 time is accumulated across reads and may exceed handler wall time when
+    independent requests run concurrently. Neither value includes network or
+    time spent starting the Worker before this function is entered.
+    """
+    metrics = repository.performance_metrics()
+    response.headers["Server-Timing"] = (
+        f"otello_handler;dur={(perf_counter() - started) * 1000:.2f}, "
+        f"otello_import;dur={import_ms:.2f}, "
+        f"otello_d1;dur={metrics['d1_read_ms']:.2f}, "
+        f"otello_reads;desc=\"{metrics['d1_reads']}\""
+    )
+
+
 @app.get("/api/health")
 async def health(request: Request, response: Response) -> dict[str, str]:
     repository = _repository(request)
@@ -261,15 +279,19 @@ async def get_buyback_forecast(
 @app.get("/api/buybacks/dashboard")
 async def get_buyback_dashboard(
     request: Request,
+    response: Response,
     as_of_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict:
+    started = perf_counter()
     from buyback_dashboard import buyback_dashboard
-
+    import_ms = (perf_counter() - started) * 1000
     repository = _repository(request)
     try:
-        return await buyback_dashboard(repository, as_of_date=as_of_date)
+        payload = await buyback_dashboard(repository, as_of_date=as_of_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid as_of_date") from exc
+    _record_origin_read_timing(response, repository, started, import_ms)
+    return payload
 
 
 @app.get("/api/buybacks/overview-status")
@@ -291,17 +313,25 @@ async def get_buyback_overview_status(
 
 
 @app.get("/api/bemobi/dashboard")
-async def get_bemobi_dashboard(request: Request) -> dict:
+async def get_bemobi_dashboard(request: Request, response: Response) -> dict:
+    started = perf_counter()
     from bemobi_dashboard import bemobi_dashboard
-
-    return await bemobi_dashboard(_repository(request))
+    import_ms = (perf_counter() - started) * 1000
+    repository = _repository(request)
+    payload = await bemobi_dashboard(repository)
+    _record_origin_read_timing(response, repository, started, import_ms)
+    return payload
 
 
 @app.get("/api/bemobi/consensus")
-async def get_bemobi_consensus(request: Request) -> dict:
+async def get_bemobi_consensus(request: Request, response: Response) -> dict:
+    started = perf_counter()
     from bemobi_consensus_investor import bemobi_consensus
-
-    return await bemobi_consensus(_repository(request))
+    import_ms = (perf_counter() - started) * 1000
+    repository = _repository(request)
+    payload = await bemobi_consensus(repository)
+    _record_origin_read_timing(response, repository, started, import_ms)
+    return payload
 
 
 @app.get("/api/bemobi/source-status")
