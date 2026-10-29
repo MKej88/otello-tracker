@@ -13,9 +13,9 @@ test("reads only allow-listed server metrics", () => {
 });
 
 test("origin timing parser is allow-listed and ignores private header values", () => {
-  const sample = 'otello_handler;dur=81.23, otello_d1;dur=94.72, otello_reads;desc="15", private;desc="sensitive"';
+  const sample = 'otello_handler;dur=81.23, otello_import;dur=17.5, otello_d1;dur=94.72, otello_reads;desc="15", private;desc="sensitive"';
   assert.deepEqual(parseOtelloOriginTiming(sample), {
-    handlerMs: 81.23, d1TotalMs: 94.72, d1Reads: 15,
+    handlerMs: 81.23, importMs: 17.5, d1TotalMs: 94.72, d1Reads: 15,
   });
   assert.equal(parseOtelloOriginTiming('private;desc="sensitive"'), null);
   assert.equal(parseOtelloOriginTiming('otello_reads;desc="-2", otello_d1;dur=-1'), null);
