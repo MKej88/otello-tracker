@@ -35,3 +35,24 @@ export function parseOtelloOriginTiming(header) {
   }
   return Object.keys(result).length ? result : null;
 }
+
+/**
+ * Python Worker and ASGI entry durations for all API routes.
+ * These timers start after Cloudflare has entered Python Default.fetch:
+ * they do not measure isolate startup before Python or the network RTT.
+ */
+export function parseWorkerFetchTiming(header) {
+  if (!header) return null;
+  const result = {};
+  const allowed = {
+    otello_fetch: "fetchMs",
+    otello_asgi_import: "asgiImportMs",
+    otello_asgi: "asgiMs",
+    otello_fastapi: "fastapiMs",
+  };
+  for (const part of header.split(",")) {
+    const match = /^\s*(otello_fetch|otello_asgi_import|otello_asgi|otello_fastapi);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(part);
+    if (match) result[allowed[match[1]]] = Number(match[2]);
+  }
+  return Object.keys(result).length ? result : null;
+}

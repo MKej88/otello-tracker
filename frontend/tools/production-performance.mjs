@@ -11,7 +11,7 @@ import { screenState } from "./performance-screen-state.mjs";
 import { median } from "./performance-trend-core.mjs";
 import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
-import { parseBrazilServerTiming, parseOtelloOriginTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
   fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
@@ -107,6 +107,7 @@ async function probeApi(path) {
             ? ray : null,
           transport: transport?.snapshot(started) ?? null,
           ageSeconds: Number(response.headers.get("age")) || 0,
+          workerTiming: parseWorkerFetchTiming(response.headers.get("server-timing")),
           serverTiming: path === "/api/brazil/dashboard"
             ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
           healthD1Ms: path === "/api/health"
@@ -138,6 +139,7 @@ async function probeApi(path) {
     transport: samples.map((sample) => sample.transport),
     sampleHeadersMs: samples.map((sample) => sample.headersMs),
     ageSeconds: samples.map((sample) => sample.ageSeconds),
+    workerTiming: samples.map((sample) => sample.workerTiming),
     ...(path === "/api/brazil/dashboard"
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
     ...(path === "/api/health"
@@ -808,6 +810,28 @@ async function main() {
     "Resterende etter utsending er IKKE dokumentert nettverkstid eller Worker CPU; dette er kun differansen mot målt handler.",
     "Målingene gjelder første API-prøve per endepunkt. Cloudflare-datasenter er utledet fra CF-Ray, ikke antatt.",
     "Undici-målinger er frivillige: hvis runtime ikke eksponerer kanalene, vises – i stedet for beregnede gjetninger.",
+    "",
+    "### Python Worker – oppstart, asgi-import og FastAPI ved cache MISS",
+    "",
+    "| Endepunkt | Sendt → headere | Worker fetch | asgi-import | ASGI-adapter inkl. app | FastAPI-middleware | Før/etter Python fetch* |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...result.api.map((a) => {
+      const net = a.transport?.[0]?.sendToHeadersMs;
+      const t = a.workerTiming?.[0];
+      const measuredFetch = t?.fetchMs;
+      const externalRemainder = Number.isFinite(net) && Number.isFinite(measuredFetch)
+        ? Math.max(0, Math.round(net - measuredFetch)) : null;
+      const ms = (value) => Number.isFinite(value) ? value + " ms" : "–";
+      return "| `" + new URL(a.endpoint, base).pathname + "` | " +
+        ms(net) + " | " + ms(measuredFetch) + " | " +
+        ms(t?.asgiImportMs) + " | " + ms(t?.asgiMs) + " | " +
+        ms(t?.fastapiMs) + " | " + ms(externalRemainder) + " |";
+    }),
+    "",
+    "*Resterende tid er tiden utenfor den målte Python fetch-funksjonen. Den inkluderer transport, Cloudflare og mulig initialisering av Python-runtime, men kan IKKE alene tolkes som cold start.",
+    "Worker fetch måles fra første instruksjon i Python Default.fetch til ASGI har returnert en Response. Start av isolatet/Pyodide før dette punktet er utenfor målingen.",
+    "ASGI-adapter inkluderer FastAPI, og FastAPI-middleware omfatter også ventetid i endepunkter. Disse tallene kan ikke summeres som uavhengige faser.",
+    "Cloudflare-cache HIT kan videreføre måleheadere fra en tidligere MISS; tabellen viser kun første prøve.",
     "",
     "### Bemobi og tilbakekjøp – Worker-timing ved cache MISS",
     "",
