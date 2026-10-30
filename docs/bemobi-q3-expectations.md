@@ -131,3 +131,51 @@ bekreftet rapportdato. Nettoresultatet lagres som net_income_mbrl, ikke som
 justert resultat; det vises under flere måltall og inngår ikke i snittet for
 justert nettoresultat. Samme dags HTML erstatter ikke PDF-verifiserte tall.
 Kilde: https://conteudos.xpi.com.br/wp-content/uploads/2026/10/Tech_3Q26-Preview-1.pdf
+
+## Itaú BBA og Safra – offentlige kilder kontrollert 30.10.2026
+
+SQLite-migrering `0043` og D1-migrering `0041` legger til de to
+meglerhusene under samme `NEXT_QUARTER/3Q26` som XP og BTG. De er
+additive og endrer verken eksisterende meglerhusverdier, rapportdato
+eller faktisk rapporterte resultater. Datagrunnlaget omfatter nå
+fire meglerhus. Hvert meglerhus teller én gang per måltall i snittet.
+
+**Itaú BBA** – bankens offentlige sektorartikkel:
+https://www.itau.com.br/investimentos/analises/bemobi-e-totvs-previa-balancos-3t/
+
+- Nettoomsetning: R$ 242 millioner (inkludert Paytime).
+- Justert EBITDA-margin: 34,4 %.
+- Justert nettoresultat: R$ 52 millioner.
+- Samlet omsetningsvekst: 29 % år/år; organisk vekst: 15 %.
+- Organisk vekst i Payments: 32 %; SaaS-vekst: 22 %.
+- Offentlig artikkel er verifisert 30.10.2026. Eksakt publiseringsdato
+  vises ikke i den kontrollerte kilden, og lagres derfor **ikke** som
+  en oppfunnet publiseringsdato. Original PDF er ikke kontrollert.
+- Justert EBITDA i beløp **er ikke eksplisitt oppgitt**. UI beregner
+  ca. R$ 83,2 mill. fra R$ 242 mill. × 34,4 % og markerer verdien med
+  stjerne/tooltip, ikke som et direkte Itaú-estimat.
+
+**Safra** – bankens offentlige oppsummering publisert 23.10.2026
+(research-rapport datert 22.10.2026):
+https://oespecialista.safra.com.br/totvs-lwsa-bemobi-intelbras-resultados-3t26/
+
+- Nettoomsetning (harmonisert, ekskl. M4U): R$ 231,9 millioner.
+- Justert EBITDA: R$ 79,3 millioner.
+- Justert nettoresultat: R$ 43,5 millioner.
+- Omsetningsvekst i Payments, inkludert Paytime: 53 % år/år.
+- TPV-vekst er beskrevet som «nær 40 %», og registreres **ikke**
+  som et eksakt estimat.
+- Justert EBITDA-margin er beskrevet som «om lag 34 %», uten nøyaktig
+  verdi. UI beregner 79,3 / 231,9 = ca. 34,2 % og markerer verdien
+  med stjerne/tooltip.
+- Tallene kommer fra Safras egen offentlig publiserte artikkel;
+  original research-PDF er ikke verifisert.
+
+**Proveniens:** Hvert måltall har meglerhus, lenke, kildeklassifisering,
+og kjent publiseringsdato eller faktisk kontrolldato.
+`OFFICIAL_BROKER_ARTICLE_VERIFIED` og `BROKER_PUBLISHED_SUMMARY`
+holdes adskilt fra `PDF_TABLE_VERIFIED`. Ingen PDF er gjetningsvis
+lenket. Beregnede tall merkes også i gjennomsnittet som vanlige
+beregnede observasjoner; `n` viser antall bidragsgivere per måltall.
+For justert nettoresultat inngår BTG, Itaú og Safra, men **ikke**
+XPs ordinære nettoresultat.
