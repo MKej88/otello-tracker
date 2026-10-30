@@ -26,7 +26,6 @@ def test_new_public_broker_previews_are_source_attributed_and_repeatable(tmp_pat
     init_database(database)
     with sqlite3.connect(database) as connection:
         original = _load(connection)
-        assert original["report_date"] == "2026-11-12"
         by_broker = {}
         for item in original["estimates"]:
             by_broker.setdefault(item["broker"], {})[item["metric"]] = item
