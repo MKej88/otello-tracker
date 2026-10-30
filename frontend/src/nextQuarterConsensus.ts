@@ -21,6 +21,7 @@ export type QuarterBrokerRow = {
   broker: string;
   publishedDate: string | null;
   verifiedDate: string | null;
+  sourceEvidence: string | null;
   sourceUrls: string[];
   values: Record<string, { value: number; derived: boolean; derivation?: string }>; 
 };
@@ -58,7 +59,8 @@ export function buildNextQuarterConsensus(estimates: NextQuarterEstimate[]) {
       if (!columns.has(key)) columns.set(key, { key, metric: estimate.metric, label: estimate.label, unit });
     }
     const verifiedDate = current.map((item) => item.verified_date || "").sort().at(-1) || null;
-    const row: QuarterBrokerRow = { broker: group.broker, publishedDate, verifiedDate, sourceUrls: [], values: {} };
+    const sourceEvidence = current.map((item) => item.source_evidence || "").find(Boolean) || null;
+    const row: QuarterBrokerRow = { broker: group.broker, publishedDate, verifiedDate, sourceEvidence, sourceUrls: [], values: {} };
     for (const [key, estimate] of selected) {
       row.values[key] = { value: Number.isFinite(estimate.value_mbrl) ? estimate.value_mbrl! : estimate.value_pct!, derived: false };
       if (estimate.source_url && !row.sourceUrls.includes(estimate.source_url)) row.sourceUrls.push(estimate.source_url);
