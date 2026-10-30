@@ -111,7 +111,8 @@ test("Itaú og Safra: beregnede beløp og margin merkes tydelig, per-kilde og ut
     amount("Safra", "adjusted_ebitda_mbrl", 79.3, "2026-10-23"),
     amount("Safra", "adjusted_net_income_mbrl", 43.5, "2026-10-23"),
   ];
-  const result = buildNextQuarterConsensus([...btg, ...xp, ...itau, ...safra]);
+  const publishedXp = xp.map((item) => item.metric === "adjusted_net_income_mbrl" ? { ...item, metric: "net_income_mbrl" } : item);
+  const result = buildNextQuarterConsensus([...btg, ...publishedXp, ...itau, ...safra]);
   assert.equal(result.brokers.length, 4);
   const itauRow = result.brokers.find((r) => r.broker === "Itaú BBA")!;
   const safraRow = result.brokers.find((r) => r.broker === "Safra")!;
