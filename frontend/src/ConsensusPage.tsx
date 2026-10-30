@@ -228,7 +228,9 @@ function QuarterBrokerTable({
             {preview.brokers.map((broker) => (
               <th scope="col" key={broker.broker}>
                 <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
-                <small>{dateLabel(broker.publishedDate)}</small>
+                <small>{broker.publishedDate ? dateLabel(broker.publishedDate) : broker.verifiedDate ? `Kontrollert ${dateLabel(broker.verifiedDate)}` : "Dato ikke oppgitt"}</small>
+                {broker.sourceEvidence === "OFFICIAL_BROKER_ARTICLE_VERIFIED" ? <small>Offentlig artikkel</small> : null}
+                {broker.sourceEvidence === "BROKER_PUBLISHED_SUMMARY" ? <small>Offentlig sammendrag</small> : null}
                 {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2} →</SourceLink></small>)}
               </th>
             ))}
@@ -241,7 +243,7 @@ function QuarterBrokerTable({
               <th scope="row">{column.label}</th>
               {preview.brokers.map((broker) => {
                 const cell = broker.values[column.key];
-                return <td className="numeric" key={broker.broker} title={cell?.derived ? "Beregnet fra dette meglerhusets justerte EBITDA og omsetning" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
+                return <td className="numeric" key={broker.broker} title={cell?.derived ? cell.derivation || "Beregnet fra dette meglerhusets publiserte tall" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
               })}
               <td className="numeric consensusAverageCell">
                 <strong>{format(preview.averages[column.key]?.value, column)}</strong>
