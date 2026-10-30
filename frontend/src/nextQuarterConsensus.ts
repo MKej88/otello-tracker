@@ -6,6 +6,7 @@ export type NextQuarterEstimate = {
   broker?: string | null;
   source_url?: string | null;
   published_date?: string | null;
+  verified_date?: string | null;
   source_evidence?: string | null;
 };
 
@@ -19,8 +20,9 @@ export type QuarterColumn = {
 export type QuarterBrokerRow = {
   broker: string;
   publishedDate: string | null;
+  verifiedDate: string | null;
   sourceUrls: string[];
-  values: Record<string, { value: number; derived: boolean }>;
+  values: Record<string, { value: number; derived: boolean; derivation?: string }>; 
 };
 
 export const MAIN_QUARTER_METRICS = [
@@ -55,20 +57,39 @@ export function buildNextQuarterConsensus(estimates: NextQuarterEstimate[]) {
       selected.set(key, estimate);
       if (!columns.has(key)) columns.set(key, { key, metric: estimate.metric, label: estimate.label, unit });
     }
-    const row: QuarterBrokerRow = { broker: group.broker, publishedDate, sourceUrls: [], values: {} };
+    const verifiedDate = current.map((item) => item.verified_date || "").sort().at(-1) || null;
+    const row: QuarterBrokerRow = { broker: group.broker, publishedDate, verifiedDate, sourceUrls: [], values: {} };
     for (const [key, estimate] of selected) {
       row.values[key] = { value: Number.isFinite(estimate.value_mbrl) ? estimate.value_mbrl! : estimate.value_pct!, derived: false };
       if (estimate.source_url && !row.sourceUrls.includes(estimate.source_url)) row.sourceUrls.push(estimate.source_url);
     }
+    // Web articles may disclose only revenue and a margin. Derive EBITDA from
+    // these figures in the same broker's source, explicitly flagging the estimate
+    // as calculated rather than published as an EBITDA amount.
+    const revenue = row.values["revenue_mbrl:mbrl"]?.value;
+    const ebitdaKey = "adjusted_ebitda_mbrl:mbrl";
+    const publishedMargin = row.values["ebitda_margin_pct:pct"]?.value;
+    if (!row.values[ebitdaKey] && revenue != null && publishedMargin != null) {
+      const derivedEbitda = revenue * publishedMargin / 100;
+      if (Number.isFinite(derivedEbitda)) {
+        row.values[ebitdaKey] = {
+          value: derivedEbitda,
+          derived: true,
+          derivation: "Beregnet fra meglerhusets omsetning og EBITDA-margin; EBITDA-beløpet er ikke eksplisitt oppgitt",
+        };
+        if (!columns.has(`${ebitdaKey}:mbrl`)) {
+          columns.set(`${ebitdaKey}:mbrl`, { key: `${ebitdaKey}:mbrl`, metric: "adjusted_ebitda_mbrl", label: "Justert EBITDA", unit: "mbrl" });
+        }
+      }
+    }
     // XP's prose can omit margin. Derive it within this broker/publication,
     // using the same adjusted EBITDA definition as the explicit margin.
-    const revenue = row.values["revenue_mbrl:mbrl"]?.value;
     const ebitda = row.values["adjusted_ebitda_mbrl:mbrl"]?.value;
     const marginKey = "ebitda_margin_pct:pct";
     if (!row.values[marginKey] && revenue != null && revenue !== 0 && ebitda != null) {
       const margin = ebitda / revenue * 100;
       if (Number.isFinite(margin)) {
-        row.values[marginKey] = { value: margin, derived: true };
+        row.values[marginKey] = { value: margin, derived: true, derivation: "Beregnet fra meglerhusets oppgitte omsetning og justerte EBITDA" };
         if (!columns.has(marginKey)) columns.set(marginKey, { key: marginKey, metric: "ebitda_margin_pct", label: "Justert EBITDA-margin", unit: "pct" });
       }
     }
