@@ -37,7 +37,8 @@ test("manglende tall regnes ikke som null og n varierer mellom kolonner", () => 
 test("margin kommer fra samme meglerhus og eksplisitt margin foretrekkes", () => {
   const result = buildNextQuarterConsensus([...btg, ...xp]);
   assert.deepEqual(result.brokers[0].values["ebitda_margin_pct:pct"], { value: 35.7, derived: false });
-  assert.deepEqual(result.brokers[1].values["ebitda_margin_pct:pct"], { value: 34.4, derived: true });
+  assert.equal(result.brokers[1].values["ebitda_margin_pct:pct"].value, 34.4);
+  assert.equal(result.brokers[1].values["ebitda_margin_pct:pct"].derived, true);
   assert.ok(Math.abs(result.averages["ebitda_margin_pct:pct"].value! - 35.05) < 1e-10);
   const separate = buildNextQuarterConsensus([amount("BTG", "revenue_mbrl", 240), amount("XP", "adjusted_ebitda_mbrl", 86)]);
   assert.equal(separate.averages["ebitda_margin_pct:pct"], undefined);
@@ -97,4 +98,33 @@ test("publiserte Q3-estimater gir ett snitt per måltall med separate resultatde
   assert.deepEqual(result.averages["adjusted_net_income_mbrl:mbrl"], { value: 48, count: 1 });
   assert.deepEqual(result.averages["net_income_mbrl:mbrl"], { value: 41, count: 1 });
   assert.equal(new Set(result.columns.map((column) => column.key)).size, result.columns.length);
+});
+
+test("Itaú og Safra: beregnede beløp og margin merkes tydelig, per-kilde og uten duplikat", () => {
+  const itau: NextQuarterEstimate[] = [
+    { broker: "Itaú BBA", metric: "revenue_mbrl", label: "Omsetning", value_mbrl: 242, verified_date: "2026-10-30", source_evidence: "OFFICIAL_BROKER_ARTICLE_VERIFIED" },
+    { broker: "Itaú BBA", metric: "ebitda_margin_pct", label: "Margin", value_pct: 34.4, verified_date: "2026-10-30", source_evidence: "OFFICIAL_BROKER_ARTICLE_VERIFIED" },
+    { broker: "Itaú BBA", metric: "adjusted_net_income_mbrl", label: "Justert resultat", value_mbrl: 52, verified_date: "2026-10-30" },
+  ];
+  const safra: NextQuarterEstimate[] = [
+    amount("Safra", "revenue_mbrl", 231.9, "2026-10-23"),
+    amount("Safra", "adjusted_ebitda_mbrl", 79.3, "2026-10-23"),
+    amount("Safra", "adjusted_net_income_mbrl", 43.5, "2026-10-23"),
+  ];
+  const publishedXp = xp.map((item) => item.metric === "adjusted_net_income_mbrl" ? { ...item, metric: "net_income_mbrl" } : item);
+  const result = buildNextQuarterConsensus([...btg, ...publishedXp, ...itau, ...safra]);
+  assert.equal(result.brokers.length, 4);
+  const itauRow = result.brokers.find((r) => r.broker === "Itaú BBA")!;
+  const safraRow = result.brokers.find((r) => r.broker === "Safra")!;
+  assert.equal(itauRow.publishedDate, null);
+  assert.equal(itauRow.verifiedDate, "2026-10-30");
+  assert.equal(itauRow.sourceEvidence, "OFFICIAL_BROKER_ARTICLE_VERIFIED");
+  assert.equal(itauRow.values["adjusted_ebitda_mbrl:mbrl"].value, 242 * 34.4 / 100);
+  assert.equal(itauRow.values["adjusted_ebitda_mbrl:mbrl"].derived, true);
+  assert.match(itauRow.values["adjusted_ebitda_mbrl:mbrl"].derivation!, /Beregnet/);
+  assert.equal(safraRow.values["ebitda_margin_pct:pct"].derived, true);
+  assert.ok(Math.abs(safraRow.values["ebitda_margin_pct:pct"].value - 79.3 / 231.9 * 100) < 1e-10);
+  assert.equal(result.averages["revenue_mbrl:mbrl"].count, 4);
+  assert.equal(result.averages["adjusted_ebitda_mbrl:mbrl"].count, 4);
+  assert.equal(result.averages["adjusted_net_income_mbrl:mbrl"].count, 3);
 });

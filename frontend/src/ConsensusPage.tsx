@@ -228,7 +228,9 @@ function QuarterBrokerTable({
             {preview.brokers.map((broker) => (
               <th scope="col" key={broker.broker}>
                 <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
-                <small>{dateLabel(broker.publishedDate)}</small>
+                <small>{broker.publishedDate ? dateLabel(broker.publishedDate) : broker.verifiedDate ? `Kontrollert ${dateLabel(broker.verifiedDate)}` : "Dato ikke oppgitt"}</small>
+                {broker.sourceEvidence === "OFFICIAL_BROKER_ARTICLE_VERIFIED" ? <small>Offentlig artikkel</small> : null}
+                {broker.sourceEvidence === "BROKER_PUBLISHED_SUMMARY" ? <small>Offentlig sammendrag</small> : null}
                 {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2} →</SourceLink></small>)}
               </th>
             ))}
@@ -241,7 +243,7 @@ function QuarterBrokerTable({
               <th scope="row">{column.label}</th>
               {preview.brokers.map((broker) => {
                 const cell = broker.values[column.key];
-                return <td className="numeric" key={broker.broker} title={cell?.derived ? "Beregnet fra dette meglerhusets justerte EBITDA og omsetning" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
+                return <td className="numeric" key={broker.broker} title={cell?.derived ? cell.derivation || "Beregnet fra dette meglerhusets publiserte tall" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
               })}
               <td className="numeric consensusAverageCell">
                 <strong>{format(preview.averages[column.key]?.value, column)}</strong>
@@ -381,7 +383,7 @@ export default function ConsensusPage() {
         <section className="card cardStandard consensusNextReport">
           <div className="cardHeader">
             <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
-            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
+            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBrokers.length} MEGLERHUS` : "VENTER"}</span>
           </div>
           {hasPublicPreview ? (
             <>
@@ -392,7 +394,7 @@ export default function ConsensusPage() {
                 </button>
               )}
               <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
-              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
+              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Beregnet tall fra samme meglerhus: EBITDA fra oppgitt omsetning og margin, eller margin fra oppgitt EBITDA og omsetning. Hold markøren over tallet for metode.</p>}
               <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
             </>
           ) : (
