@@ -123,8 +123,13 @@ def test_fast_refresh_watchdog_is_read_only_and_separate_from_daily_diagnosis():
     assert "name: Read-only fast-refresh watchdog" in workflow
     assert "CLOUDFLARE_READ_TOKEN" in workflow
     assert "WHERE job_name='cloudflare_fast_refresh'" in workflow
-    assert "timedelta(minutes=100)" in workflow
-    assert "status != 'SUCCESS'" in workflow
+    assert "metadata_json FROM job_runs" in workflow
+    assert "report = assess_fast_refresh(rows[0])" in workflow
+    policy = (ROOT / "cloudflare/src/fast_refresh_diagnostic.py").read_text(encoding="utf-8")
+    assert "MAX_AGE = timedelta(minutes=100)" in policy
+    assert 'if status != "PARTIAL":' in policy
+    assert 'step in NON_CRITICAL_STEPS' in policy
+    assert 'step_result.get("non_critical") is True' in policy
 
 
 def test_scheduled_production_alert_still_fails_on_genuine_unhealthy_status() -> None:
