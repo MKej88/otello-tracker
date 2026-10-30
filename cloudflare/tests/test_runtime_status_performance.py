@@ -14,7 +14,7 @@ def test_independent_runtime_status_reads_run_concurrently(monkeypatch) -> None:
 
     async def read(name: str, result):
         started.append(name)
-        if len(started) == 7:
+        if len(started) == 8:
             all_started.set()
         await asyncio.wait_for(all_started.wait(), timeout=0.5)
         return result
@@ -49,6 +49,11 @@ def test_independent_runtime_status_reads_run_concurrently(monkeypatch) -> None:
         "_current_dashboard_quality",
         lambda _repository: read("dashboard_quality", {"status": "OK", "reasons": []}),
     )
+    monkeypatch.setattr(
+        runtime_status,
+        "_oslo_close_fx_quality",
+        lambda _repository, *, now: read("oslo_close_fx", {"status": "OK"}),
+    )
 
     result = asyncio.run(
         runtime_status.runtime_status_summary(
@@ -56,7 +61,7 @@ def test_independent_runtime_status_reads_run_concurrently(monkeypatch) -> None:
         )
     )
 
-    assert len(started) == 7
+    assert len(started) == 8
     assert result["status"] == "DOWN"
 
 
