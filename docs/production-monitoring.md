@@ -32,6 +32,26 @@ eller ved manuell kjøring. Manuell kjøring viser avvik uten å feile proben.
   at feeden/arkivet faktisk er hentet, ikke at publiseringsdatoen er ny.
 - Eksisterende valutakontroll, 30-minuttersjobb og NAV-diagnostikk beholdes.
 
+### 30-minuttersvakt: årsak og alvorlighetsgrad
+
+Den planlagte, skrivebeskyttede vakten leser den siste posten for
+`cloudflare_fast_refresh` i D1, inkludert `metadata_json`. Loggen viser
+status, alder, feilet trinn, resultatkode og feilklasse; fritekst fra
+eksterne kilder, URL-er og rå metadata skrives **ikke** til offentlig
+GitHub Actions-logg. Fullstendige detaljer beholdes i D1-feltene
+`error_message` og `metadata_json.source_errors`.
+
+- SUCCESS med fersk jobb og uten registrerte kildefeil: grønn.
+- PARTIAL med **utelukkende** eksplisitt merket, kjent ikke-kritisk
+  trinn (dashboard-hot-snapshot, investor-snapshots eller Brasil-snapshot)
+  **og** bekreftet NAV-status OK: gul advarsel, ikke driftsincident.
+- Andre PARTIAL, FAILED, ukjent status, manglende feildetaljer, ugyldig
+  tidsstempel eller jobb eldre enn 100 minutter: rød produksjonsfeil.
+
+Ukjente trinn kan aldri markere seg selv som ikke-kritiske. Dette er en
+konservativ klassifisering; en faktisk kildefeil skal utbedres i
+produksjonsjobben, ikke skjules ved å svekke vakten.
+
 Rapporten viser kontroller med faktisk/forventet verdi og fullkjøringer siste
 åtte døgn med norsk tid. Rå metadata, kildefeil og hemmeligheter tas ikke med i
 den nye rapporten. SQL-spørringene er kun SELECT og krever ingen nye rettigheter.
