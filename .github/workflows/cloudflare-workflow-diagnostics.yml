@@ -21,6 +21,8 @@ on:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
       - cloudflare/src/production_diagnostic_policy.py
+      - cloudflare/src/fast_refresh_diagnostic.py
+      - cloudflare/tests/test_fast_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
@@ -72,6 +74,7 @@ jobs:
           PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
           PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_select_production_diagnostic.py'
           python3 -m unittest discover -s cloudflare/tests -p 'test_production_incident_notification.py'
+          PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
 
   diagnose:
     # Live production reads only after the nightly deadline, or on manual request.
@@ -738,6 +741,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Verify latest 30-minute refresh
         shell: bash
         run: |
@@ -763,7 +769,7 @@ jobs:
           )"
           python - <<'PY'
           import json
-          sql = ("SELECT status, started_at, finished_at FROM job_runs "
+          sql = ("SELECT status, started_at, finished_at, metadata_json FROM job_runs "
                  "WHERE job_name='cloudflare_fast_refresh' ORDER BY id DESC LIMIT 1")
           with open('fast-query.json', 'w', encoding='utf-8') as h:
               json.dump({'sql': sql}, h)
@@ -775,9 +781,10 @@ jobs:
             --data-binary @fast-query.json \
             "${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query" \
             > fast-query-result.json
-          python - <<'PY'
+          PYTHONPATH=cloudflare/src python - <<'PY'
           import json
-          from datetime import UTC, datetime, timedelta
+          from fast_refresh_diagnostic import assess_fast_refresh
+
           data = json.load(open('fast-query-result.json', encoding='utf-8'))
           groups = data.get('result') or []
           if data.get('success') is not True or not groups or groups[0].get('success') is False:
@@ -785,16 +792,22 @@ jobs:
           rows = groups[0].get('results') or []
           if not rows:
               raise SystemExit('No fast-refresh record available')
-          record = rows[0]
-          raw = record.get('finished_at') or record.get('started_at')
-          if not raw:
-              raise SystemExit('Latest fast-refresh has no timestamp')
-          last = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
-          age = datetime.now(UTC) - last.astimezone(UTC)
-          status = record.get('status')
-          print(f"Latest fast refresh: status={status} age={int(age.total_seconds() // 60)}min")
-          if status != 'SUCCESS' or not timedelta(0) <= age <= timedelta(minutes=100):
-              raise SystemExit('Fast-refresh production data is unhealthy or stale')
+
+          report = assess_fast_refresh(rows[0])
+          print(f"Latest fast refresh: status={report['status']} "
+                f"age={report['age_minutes']}min severity={report['severity']}")
+          for item in report["steps"][:10]:
+              print(f"Fast-refresh step: {item['step']} "
+                    f"type={item['type']} status={item['status']}")
+          if len(report["steps"]) > 10:
+              print(f"Fast-refresh: {len(report['steps']) - 10} more errors "
+                    "(details retained privately in D1)")
+          if report["severity"] == "WARNING":
+              print(f"::warning::Fast-refresh {report['reason']} (non-critical only)")
+          elif report["severity"] != "OK":
+              print(f"::error::Fast-refresh {report['reason']}; "
+                    "see redacted step summary above and D1 job_runs for details")
+              raise SystemExit(1)
           PY
 
   incident-notify:
