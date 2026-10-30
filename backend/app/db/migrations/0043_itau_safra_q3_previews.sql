@@ -18,8 +18,7 @@ SET payload_json = json_set(
         '$.note', COALESCE(json_extract(payload_json, '$.note') || ' ', '') || 'Itaú BBA: tall fra bankens åpne artikkel; publiseringsdato for artikkelen er ikke bekreftet. EBITDA i beløp beregnes kun fra bankens omsetning og oppgitte margin og merkes som beregnet.'
     ),
     as_of_date = MAX(COALESCE(as_of_date, ''), '2026-10-30'),
-    quality = 'PUBLIC_BROKER_PREVIEW_MIXED_EVIDENCE',
-    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    quality = 'PUBLIC_BROKER_PREVIEW_MIXED_EVIDENCE'
 WHERE fact_type = 'NEXT_QUARTER' AND fact_key = '3Q26'
   AND NOT EXISTS (
       SELECT 1 FROM json_each(bemobi_investor_facts.payload_json, '$.estimates')
@@ -42,8 +41,7 @@ SET payload_json = json_set(
         '$.note', COALESCE(json_extract(payload_json, '$.note') || ' ', '') || 'Safra: tall fra bankens offentlige sammendrag publisert 23.10.2026 (research datert 22.10); ingen original-PDF verifisert. Justert EBITDA-margin beregnes fra publiserte beløp og merkes som beregnet.'
     ),
     as_of_date = MAX(COALESCE(as_of_date, ''), '2026-10-30'),
-    quality = 'PUBLIC_BROKER_PREVIEW_MIXED_EVIDENCE',
-    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    quality = 'PUBLIC_BROKER_PREVIEW_MIXED_EVIDENCE'
 WHERE fact_type = 'NEXT_QUARTER' AND fact_key = '3Q26'
   AND NOT EXISTS (
       SELECT 1 FROM json_each(bemobi_investor_facts.payload_json, '$.estimates')
