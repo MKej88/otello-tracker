@@ -383,7 +383,7 @@ export default function ConsensusPage() {
         <section className="card cardStandard consensusNextReport">
           <div className="cardHeader">
             <div><span className="label">NESTE RAPPORT</span><h2 className="numeric">{nextQuarter?.period ?? "Neste kvartal"} forventninger</h2></div>
-            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBroker.toUpperCase()}-PREVIEW` : "VENTER"}</span>
+            <span className={`pill${hasPublicPreview ? "" : " muted"}`}>{hasPublicPreview ? `${previewBrokers.length} MEGLERHUS` : "VENTER"}</span>
           </div>
           {hasPublicPreview ? (
             <>
@@ -394,7 +394,7 @@ export default function ConsensusPage() {
                 </button>
               )}
               <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
-              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Margin beregnet fra samme meglerhusets justerte EBITDA og omsetning.</p>}
+              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Beregnet tall fra samme meglerhus: EBITDA fra oppgitt omsetning og margin, eller margin fra oppgitt EBITDA og omsetning. Hold markøren over tallet for metode.</p>}
               <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
             </>
           ) : (
