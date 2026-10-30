@@ -697,25 +697,50 @@
   }
 }
 
+/* Keep four broker headings legible. Narrow viewports scroll the table
+   horizontally instead of wrapping names/dates into vertical columns. */
 .consensusBrokerTable {
-  min-width: 0;
+  min-width: 780px;
+  table-layout: auto;
 }
 
 .consensusNextReport {
-  max-width: 760px;
+  min-width: 0;
+  max-width: none;
 }
 
 .consensusBrokerTable th,
 .consensusBrokerTable td {
-  padding: 7px 10px;
+  padding: 8px 10px;
 }
 
-.consensusBrokerTable th {
-  white-space: normal;
+.consensusBrokerTable thead th {
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  vertical-align: middle;
+  line-height: 1.35;
 }
 
-.consensusBrokerTable th:first-child {
-  width: 50%;
+.consensusBrokerTable thead th:first-child {
+  width: 30%;
+  min-width: 205px;
+}
+
+.consensusBrokerTable thead th:not(:first-child) {
+  min-width: 106px;
+}
+
+.consensusBrokerName {
+  display: block;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.consensusBrokerDate {
+  white-space: nowrap;
 }
 
 .consensusBrokerTable th small,
@@ -772,8 +797,8 @@
     padding: 7px 8px;
   }
 
-  .consensusBrokerTable th:first-child {
-    width: 40%;
+  .consensusBrokerTable thead th:first-child {
+    width: 30%;
   }
 
   .consensusBrokerTable .consensusAverageCount {
@@ -784,7 +809,7 @@
 
 .consensusQuarterCards {
   display: grid;
-  grid-template-columns: minmax(0, 760px);
+  grid-template-columns: minmax(0, 850px);
   gap: 16px;
   align-items: start;
 }
@@ -834,8 +859,10 @@
   font-size: var(--ot-type-meta);
 }
 
-@media (min-width: 1280px) {
+/* At ordinary desktop widths show the comparison below the broker table:
+   two equal columns leave too little room for four broker sources. */
+@media (min-width: 1700px) {
   .consensusQuarterCards.hasComparison {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 850px) minmax(0, 1fr);
   }
 }

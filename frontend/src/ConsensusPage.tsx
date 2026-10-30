@@ -132,6 +132,11 @@ function dateLabel(input?: string | null) {
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
+function compactDateLabel(input: string) {
+  const [year, month, day] = input.split("-");
+  return year && month && day ? `${day}.${month}.${year.slice(-2)}` : input;
+}
+
 function ratingLabel(input?: string | null) {
   if (input === "BUY") return "Kjøp";
   if (input === "HOLD") return "Hold";
@@ -226,12 +231,22 @@ function QuarterBrokerTable({
           <tr>
             <th scope="col">Måltall<small>Beløp i R$ mill.</small></th>
             {preview.brokers.map((broker) => (
-              <th scope="col" key={broker.broker}>
-                <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
-                <small>{broker.publishedDate ? dateLabel(broker.publishedDate) : broker.verifiedDate ? `Kontrollert ${dateLabel(broker.verifiedDate)}` : "Dato ikke oppgitt"}</small>
-                {broker.sourceEvidence === "OFFICIAL_BROKER_ARTICLE_VERIFIED" ? <small>Offentlig artikkel</small> : null}
-                {broker.sourceEvidence === "BROKER_PUBLISHED_SUMMARY" ? <small>Offentlig sammendrag</small> : null}
-                {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2} →</SourceLink></small>)}
+              <th
+                scope="col"
+                key={broker.broker}
+                title={broker.sourceEvidence === "OFFICIAL_BROKER_ARTICLE_VERIFIED"
+                  ? "Offentlig artikkel. Kontrollert dato er ikke publiseringsdato."
+                  : broker.sourceEvidence === "BROKER_PUBLISHED_SUMMARY"
+                    ? "Offentlig sammendrag fra meglerhuset."
+                    : undefined}
+              >
+                <span className="consensusBrokerName"><SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink></span>
+                <small className="consensusBrokerDate">{broker.publishedDate
+                  ? dateLabel(broker.publishedDate)
+                  : broker.verifiedDate
+                    ? `Sjekket ${compactDateLabel(broker.verifiedDate)}`
+                    : "Dato ukjent"}</small>
+                {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2}</SourceLink></small>)}
               </th>
             ))}
             <th scope="col" className="consensusAverageCell">Snitt</th>
@@ -393,7 +408,7 @@ export default function ConsensusPage() {
                   {showAllQuarterMetrics ? "Vis færre måltall" : "Vis flere måltall"}
                 </button>
               )}
-              <p className="consensusNote">Snitt: lik vekt per meglerhus. Manglende tall utelates; n viser antall bidrag.</p>
+              <p className="consensusNote">Klikk på meglernavnet for kilden. Itaú: offentlig artikkel (kontrolldato, ikke publiseringsdato). Safra: offentlig sammendrag. Snittet gir lik vekt per meglerhus; n viser antall bidrag.</p>
               {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Beregnet tall fra samme meglerhus: EBITDA fra oppgitt omsetning og margin, eller margin fra oppgitt EBITDA og omsetning. Hold markøren over tallet for metode.</p>}
               <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
             </>

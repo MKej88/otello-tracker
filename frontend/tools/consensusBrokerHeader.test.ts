@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const page = readFileSync(new URL("../src/ConsensusPage.tsx", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../src/consensus-page.css", import.meta.url), "utf8");
+
+test("quarter broker headings use a linked name and one non-breaking date row", () => {
+  assert.match(page, /className="consensusBrokerName"/);
+  assert.match(page, /className="consensusBrokerDate"/);
+  assert.match(page, /compactDateLabel\(broker\.verifiedDate\)/);
+  assert.doesNotMatch(page, /<small>Offentlig (?:artikkel|sammendrag)<\/small>/);
+  assert.match(page, /Klikk på meglernavnet for kilden/);
+});
+
+test("broker table keeps columns readable and allows horizontal scroll", () => {
+  assert.match(styles, /\.consensusBrokerTable\s*\{[^}]*min-width:\s*780px;/s);
+  assert.match(styles, /\.consensusBrokerTable thead th\s*\{[^}]*white-space:\s*nowrap;/s);
+  assert.match(styles, /\.consensusBrokerName\s*\{[^}]*white-space:\s*nowrap;/s);
+  assert.match(styles, /\.consensusBrokerDate\s*\{[^}]*white-space:\s*nowrap;/s);
+  assert.match(styles, /\.consensusTableWrap\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.match(styles, /@media \(min-width: 1700px\)/);
+});
