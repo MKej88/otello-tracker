@@ -132,6 +132,11 @@ function dateLabel(input?: string | null) {
   return year && month && day ? `${day}.${month}.${year}` : input;
 }
 
+function compactDateLabel(input: string) {
+  const [year, month, day] = input.split("-");
+  return year && month && day ? `${day}.${month}.${year.slice(-2)}` : input;
+}
+
 function ratingLabel(input?: string | null) {
   if (input === "BUY") return "Kjøp";
   if (input === "HOLD") return "Hold";
@@ -239,7 +244,7 @@ function QuarterBrokerTable({
                 <small className="consensusBrokerDate">{broker.publishedDate
                   ? dateLabel(broker.publishedDate)
                   : broker.verifiedDate
-                    ? `Sjekket ${dateLabel(broker.verifiedDate).slice(0, 6)}${broker.verifiedDate.slice(2, 4)}`
+                    ? `Sjekket ${compactDateLabel(broker.verifiedDate)`
                     : "Dato ukjent"}</small>
                 {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2}</SourceLink></small>)}
               </th>
