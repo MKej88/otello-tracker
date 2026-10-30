@@ -244,7 +244,7 @@ function QuarterBrokerTable({
                 <small className="consensusBrokerDate">{broker.publishedDate
                   ? dateLabel(broker.publishedDate)
                   : broker.verifiedDate
-                    ? `Sjekket ${compactDateLabel(broker.verifiedDate)`
+                    ? `Sjekket ${compactDateLabel(broker.verifiedDate)}`
                     : "Dato ukjent"}</small>
                 {broker.sourceUrls.slice(1).map((url, index) => <small key={url}><SourceLink url={url}>Kilde {index + 2}</SourceLink></small>)}
               </th>
