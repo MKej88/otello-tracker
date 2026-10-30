@@ -21,3 +21,16 @@ test("broker table keeps columns readable and allows horizontal scroll", () => {
   assert.match(styles, /\.consensusTableWrap\s*\{[^}]*overflow-x:\s*auto;/s);
   assert.match(styles, /@media \(min-width: 1700px\)/);
 });
+
+test("Q3 consensus shows one short footnote instead of detailed source prose", () => {
+  const start = page.indexOf('<p className="consensusNote">Klikk på meglernavnet for kilden.');
+  assert.ok(start >= 0);
+  const end = page.indexOf('            </>', start);
+  assert.ok(end > start);
+  const notes = page.slice(start, end);
+  assert.equal((notes.match(/className="consensusNote"/g) ?? []).length, 1);
+  assert.match(notes, /Snittet vekter meglerhus likt \(n = antall\)/);
+  assert.match(notes, /\* = beregnet verdi/);
+  assert.match(notes, /Ordinært og justert nettoresultat holdes adskilt/);
+  assert.doesNotMatch(notes, /nextQuarter\?\.note|Offentlig sammendrag|Hold markøren/);
+});
