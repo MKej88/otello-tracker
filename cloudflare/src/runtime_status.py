@@ -10,11 +10,15 @@ try:
     from .nightly_trigger import nightly_is_overdue
     from .dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from .fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
+    from .after_oslo_fx import fx_close_movement
+    from .bemobi_after_oslo import latest_oslo_close, iso, timestamp
 except ImportError:
     from nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
     from nightly_trigger import nightly_is_overdue
     from dashboard_hot_snapshot import dashboard_hot_snapshot_status
     from fx_freshness import expected_norges_bank_date, norges_bank_fx_coverage
+    from after_oslo_fx import fx_close_movement
+    from bemobi_after_oslo import latest_oslo_close, iso, timestamp
 
 FULL_JOB = "cloudflare_full_refresh"
 FAST_JOB = "cloudflare_fast_refresh"
@@ -364,6 +368,70 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
     }
 
 
+
+# Never include arbitrary provider error strings in the public runtime-status API.
+OSLO_FX_CAPTURE_REASONS = frozenset({
+    "fx_disabled_or_not_approved", "outside_reference_window",
+    "already_captured", "upstream_error",
+    "observation_not_near_oslo_close", "missing_sanity_reference",
+    "deviation_from_official_rate", "provider_error",
+})
+OSLO_FX_ERROR_TYPES = frozenset({
+    "ValueError", "TypeError", "RuntimeError", "TimeoutError",
+    "OSError", "JSONDecodeError", "OverflowError",
+})
+OSLO_FX_MOVEMENT_REASONS = frozenset({
+    "missing_oslo_close_fx_reference", "invalid_oslo_close_fx_reference",
+    "missing_fx_after_oslo_close", "invalid_latest_fx",
+})
+
+
+async def _oslo_close_fx_quality(repository, *, now: datetime) -> dict[str, Any]:
+    """Report a bounded, source-safe diagnostic for the latest Oslo close."""
+    close = latest_oslo_close(now)
+    movement, attempt_row = await asyncio.gather(
+        fx_close_movement(repository, close, now),
+        repository.first(
+            "SELECT value, updated_at FROM runtime_state WHERE key=?",
+            ("brlnok_oslo_capture_last_result",),
+        ),
+    )
+    capture: dict[str, Any] = {}
+    checked_at = _parse_timestamp((attempt_row or {}).get("updated_at"))
+    if checked_at and checked_at.date() == close.date():
+        capture = _json_object(attempt_row.get("value"))
+    capture_reason = capture.get("reason")
+    capture_reason = (capture_reason if capture_reason in OSLO_FX_CAPTURE_REASONS
+                      else None)
+    raw_error_type = capture.get("error_type")
+    error_type = (raw_error_type if raw_error_type in OSLO_FX_ERROR_TYPES
+                  else None)
+    provider_observed = timestamp(capture.get("observed_at"))
+    movement_reason = movement.get("reason")
+    reason = (movement_reason if movement_reason in OSLO_FX_MOVEMENT_REASONS
+              else None)
+    if movement.get("ready"):
+        status = "OK"
+        reason = None
+    elif now < close + timedelta(minutes=18):
+        status = "WAITING"
+    elif reason == "missing_fx_after_oslo_close" and now < close + timedelta(minutes=65):
+        status = "WAITING"
+    else:
+        status = "DEGRADED"
+    return {
+        "status": status,
+        "reason": reason,
+        "capture_reason": capture_reason,
+        "capture_error_type": error_type,
+        "capture_observed_at": iso(provider_observed) if provider_observed else None,
+        "capture_checked_at": iso(checked_at) if capture else None,
+        "oslo_close_at": iso(close),
+        "reference_at": movement.get("reference_at"),
+        "latest_at": movement.get("latest_at"),
+    }
+
+
 async def runtime_status_summary(
     repository,
     *,
@@ -378,6 +446,7 @@ async def runtime_status_summary(
         fx,
         hot_snapshot,
         dashboard_quality,
+        oslo_close_fx,
     ) = await asyncio.gather(
         _latest_job(repository, FULL_JOB),
         _latest_job(repository, FAST_JOB),
@@ -386,6 +455,7 @@ async def runtime_status_summary(
         norges_bank_fx_coverage(repository),
         dashboard_hot_snapshot_status(repository, now=current),
         _current_dashboard_quality(repository),
+        _oslo_close_fx_quality(repository, now=current),
     )
 
     full = _job_payload(
@@ -437,6 +507,7 @@ async def runtime_status_summary(
         "fast_refresh": fast,
         "hot_snapshot": hot_snapshot,
         "dashboard_quality": dashboard_quality,
+        "oslo_close_fx": oslo_close_fx,
         "norges_bank": {
             "status": health_status,
             "checked_at": (norges_bank_health or {}).get("checked_at"),

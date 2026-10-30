@@ -48,6 +48,15 @@ type Runtime = {
   dashboard_quality?: DashboardQuality;
   norges_bank?: { status?: string; checked_at?: string | null; has_error?: boolean };
   fx?: { current?: boolean; expected_date?: string | null; latest_common_date?: string | null };
+  oslo_close_fx?: {
+    status: string;
+    reason?: string | null;
+    capture_reason?: string | null;
+    capture_error_type?: string | null;
+    capture_observed_at?: string | null;
+    capture_checked_at?: string | null;
+    oslo_close_at?: string | null;
+  };
 };
 
 type Report = {
@@ -117,6 +126,19 @@ const AFFECTED_AREAS: Record<string, string> = {
   result_release: "Bemobi og NAV",
   consensus: "Konsensus",
   xp_preview: "Konsensus",
+};
+
+const OSLO_FX_REASONS: Record<string, string> = {
+  missing_oslo_close_fx_reference: "Godkjent valutakurs nær Oslo-stenging mangler.",
+  invalid_oslo_close_fx_reference: "Lagret referansekurs oppfylte ikke kontrollene.",
+  missing_fx_after_oslo_close: "Det finnes ingen nyere godkjent EXR-kurs etter Oslo-stenging.",
+  invalid_latest_fx: "Nyeste EXR-kurs kunne ikke valideres.",
+  observation_not_near_oslo_close: "EXR-kursens tidsstempel var utenfor det tillatte intervallet rundt kl. 16:25.",
+  upstream_error: "Valutaleverandøren svarte med en HTTP-feil.",
+  provider_error: "Forespørselen til valutaleverandøren feilet eller svaret ble avvist.",
+  missing_sanity_reference: "Norges Bank-referanse manglet for rimelighetskontroll.",
+  deviation_from_official_rate: "Kursen avvek for mye fra Norges Bank-referansen.",
+  fx_disabled_or_not_approved: "EXR-innhentingen er deaktivert eller ikke godkjent.",
 };
 
 const CRITICAL_INPUTS = [
@@ -245,9 +267,12 @@ export default function DataQualityPage() {
     sourceStatusForKey(sourceMap, "euronext"),
     sourceStatusForKey(sourceMap, "yahoo_finance"),
   ]);
-  const fxState = runtime?.fx?.current === false
-    ? "DEGRADED"
-    : normalizeStatus(sourceStatusForKey(sourceMap, "norges_bank"));
+  const fxState = worstStatus([
+    runtime?.fx?.current === false
+      ? "DEGRADED"
+      : sourceStatusForKey(sourceMap, "norges_bank"),
+    ...(runtime?.oslo_close_fx?.status === "DEGRADED" ? ["DEGRADED"] : []),
+  ]);
   const companyState = worstStatus([
     sourceStatusForKey(sourceMap, "ir"),
     sourceStatusForKey(sourceMap, "result_release"),
@@ -329,6 +354,23 @@ export default function DataQualityPage() {
         detail: `Siste felles valutadato er ${formatDate(runtime.fx.latest_common_date)}. Forventet minst ${formatDate(runtime.fx.expected_date)}.`,
         checkedAt: runtime.checked_at,
         affects: "NAV, Oversikt og Brasil",
+      });
+    }
+
+    const osloFx = runtime?.oslo_close_fx;
+    if (osloFx?.status === "DEGRADED") {
+      const code = osloFx.reason === "missing_fx_after_oslo_close"
+        ? osloFx.reason
+        : osloFx.capture_reason && osloFx.capture_reason !== "already_captured"
+          ? osloFx.capture_reason
+          : osloFx.reason ?? "unknown";
+      next.push({
+        id: "brlnok-oslo-close",
+        title: "BRL/NOK ved Oslo-slutt mangler",
+        state: "DEGRADED",
+        detail: `Feilkode: ${code}. ${OSLO_FX_REASONS[code] ?? "Nødvendig kursgrunnlag er ikke tilgjengelig."}${osloFx.capture_error_type ? ` Feiltype: ${osloFx.capture_error_type}.` : ""}${osloFx.capture_observed_at ? ` Sist avvist observasjon: ${formatDateTime(osloFx.capture_observed_at)}.` : ""} Systemet beregner ikke en usikker valutaeffekt.`,
+        checkedAt: osloFx.capture_checked_at ?? runtime?.checked_at,
+        affects: "Bemobi etter Oslo-slutt og samlet OTEC-effekt",
       });
     }
 

@@ -15,6 +15,7 @@ try:
     from .investor_snapshots import refresh_investor_snapshots
     from .fx_freshness import repair_norges_bank_fx_if_stale
     from .exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
+    from .after_oslo_fx import recover_fx_close_reference
     from .job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from .life360_market_data import repair_life360_lif_if_stale
     from .nav_refresh import refresh_dirty_nav_layers
@@ -40,6 +41,7 @@ except ImportError:
     from investor_snapshots import refresh_investor_snapshots
     from fx_freshness import repair_norges_bank_fx_if_stale
     from exchangerate_dev_fx import refresh_exchangerate_dev_brl_nok
+    from after_oslo_fx import recover_fx_close_reference
     from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
     from life360_market_data import repair_life360_lif_if_stale
     from nav_refresh import refresh_dirty_nav_layers
@@ -134,6 +136,7 @@ def _fast_refresh_records_written(steps: dict[str, Any]) -> int:
         total += int(fx_repair.get("rows_written") or 0)
 
     total += int(result("exchangerate_dev_fx").get("rows_written") or 0)
+    total += int(result("brlnok_oslo_reference_recovery").get("status") == "ok")
     total += len(result("dirty_nav").get("dirty_layers") or [])
     return total
 
@@ -493,6 +496,16 @@ async def run_fast_refresh(
     )
 
     await renew("after Exchangerate.dev FX")
+
+    # Recover only when the database already contains a validated, time-near
+    # EXR observation. A later spot quote must not impersonate Oslo close.
+    await _safe_async_step(
+        "brlnok_oslo_reference_recovery",
+        lambda: recover_fx_close_reference(repository, now=scheduled_at),
+        steps=steps,
+        errors=errors,
+        timings_ms=timings_ms,
+    )
 
     life360_repair = await _safe_async_step(
         "life360_lif_repair",
