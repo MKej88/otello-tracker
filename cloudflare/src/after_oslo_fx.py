@@ -13,11 +13,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 try:
-    from .bemobi_after_oslo import capture_window, iso, timestamp
+    from .bemobi_after_oslo import capture_window, iso, timestamp, latest_oslo_close
     from .exchangerate_dev_fx import URL, MAX_RESPONSE_BYTES, parse_brl_nok
     from .bounded_response import read_response_bytes
 except ImportError:
-    from bemobi_after_oslo import capture_window, iso, timestamp
+    from bemobi_after_oslo import capture_window, iso, timestamp, latest_oslo_close
     from exchangerate_dev_fx import URL, MAX_RESPONSE_BYTES, parse_brl_nok
     from bounded_response import read_response_bytes
 
@@ -165,6 +165,76 @@ async def capture_fx_close_reference(
     except Exception as exc:
         # Do not log the key, raw response, or stack traces containing headers.
         return {"status": "skipped", "reason": "provider_error", "error_type": type(exc).__name__}
+
+
+
+async def recover_fx_close_reference(repository: Any, *, now: datetime) -> dict[str, Any]:
+    """Repair a missed close using *stored* validated EXR intraday observations.
+
+    The free EXR endpoint has no historical minute lookup. Never synthesize a
+    near-close quote from a later spot value, an official daily fix or a provider
+    response whose timestamp falls outside the strict close window.
+    """
+    close = latest_oslo_close(now)
+    if now < close + timedelta(minutes=18):
+        return {"status": "skipped", "reason": "awaiting_reference_window"}
+    key = REFERENCE_PREFIX + close.astimezone(ZoneInfo("Europe/Oslo")).date().isoformat()
+    if await repository.first("SELECT value FROM runtime_state WHERE key=?", (key,)):
+        return {"status": "skipped", "reason": "already_captured"}
+    row = await repository.first(
+        """SELECT fr.rate, fr.observed_at
+           FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+           WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+             AND s.code='EXCHANGERATE_DEV'
+             AND julianday(fr.observed_at)>=julianday(?)
+             AND julianday(fr.observed_at)<=julianday(?)
+           ORDER BY julianday(fr.observed_at) DESC, fr.id DESC LIMIT 1""",
+        (iso(close - CLOSE_LOOKBACK), iso(close + CLOSE_FUTURE_TOLERANCE)),
+    )
+    if not row:
+        return {"status": "missing", "reason": "no_valid_stored_reference"}
+    try:
+        observed = timestamp(row.get("observed_at"))
+        rate = Decimal(str(row.get("rate")))
+    except (TypeError, ValueError, ArithmeticError):
+        return {"status": "missing", "reason": "invalid_stored_reference"}
+    if (observed is None or not close - CLOSE_LOOKBACK <= observed <= close + CLOSE_FUTURE_TOLERANCE
+            or not rate.is_finite() or rate <= 0):
+        return {"status": "missing", "reason": "invalid_stored_reference"}
+    official = await repository.first(
+        """SELECT fr.rate FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+           WHERE s.code='NORGES_BANK' AND fr.base_currency='BRL'
+             AND fr.quote_currency='NOK'
+             AND julianday(fr.observed_at)<=julianday(?)
+             AND julianday(fr.observed_at)>=julianday(?)
+           ORDER BY julianday(fr.observed_at) DESC LIMIT 1""",
+        (iso(close), iso(close - timedelta(days=7))),
+    )
+    if not official:
+        return {"status": "missing", "reason": "missing_sanity_reference"}
+    try:
+        nb_rate = Decimal(str(official["rate"]))
+    except (TypeError, ValueError, ArithmeticError):
+        return {"status": "missing", "reason": "invalid_sanity_reference"}
+    if (not nb_rate.is_finite() or nb_rate <= 0
+            or abs(rate / nb_rate - 1) > MAX_NB_DEVIATION):
+        return {"status": "missing", "reason": "deviation_from_official_rate"}
+    reference = {
+        "rate": format(rate, "f"),
+        "observed_at": iso(observed),
+        "oslo_close_at": iso(close),
+        "source": "EXCHANGERATE_DEV",
+        "approximate": True,
+        "delay_minutes": 15,
+        "recovered": True,
+    }
+    await repository.run(
+        """INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?)
+           ON CONFLICT(key) DO NOTHING""",
+        (key, json.dumps(reference, sort_keys=True), iso(now)),
+    )
+    return {"status": "ok", "reason": "recovered_from_stored_quote",
+            "observed_at": iso(observed), "close_at": iso(close)}
 
 
 async def run_fx_close_capture(database: Any, *, now: datetime, enabled: bool, approved: bool, api_key: str | None) -> dict[str, Any]:
