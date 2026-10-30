@@ -77,12 +77,12 @@ export function buildNextQuarterConsensus(estimates: NextQuarterEstimate[]) {
           derived: true,
           derivation: "Beregnet fra meglerhusets omsetning og EBITDA-margin; EBITDA-beløpet er ikke eksplisitt oppgitt",
         };
-        if (!columns.has(`${ebitdaKey}:mbrl`)) {
-          columns.set(`${ebitdaKey}:mbrl`, { key: `${ebitdaKey}:mbrl`, metric: "adjusted_ebitda_mbrl", label: "Justert EBITDA", unit: "mbrl" });
+        if (!columns.has(ebitdaKey)) {
+          columns.set(ebitdaKey, { key: ebitdaKey, metric: "adjusted_ebitda_mbrl", label: "Justert EBITDA", unit: "mbrl" });
         }
       }
     }
-    // XP's prose can omit margin. Derive it within this broker/publication,
+    // Some broker previews omit margin. Derive it within this broker/publication,
     // using the same adjusted EBITDA definition as the explicit margin.
     const ebitda = row.values["adjusted_ebitda_mbrl:mbrl"]?.value;
     const marginKey = "ebitda_margin_pct:pct";
