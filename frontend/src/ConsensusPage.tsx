@@ -408,9 +408,7 @@ export default function ConsensusPage() {
                   {showAllQuarterMetrics ? "Vis færre måltall" : "Vis flere måltall"}
                 </button>
               )}
-              <p className="consensusNote">Klikk på meglernavnet for kilden. Itaú: offentlig artikkel (kontrolldato, ikke publiseringsdato). Safra: offentlig sammendrag. Snittet gir lik vekt per meglerhus; n viser antall bidrag.</p>
-              {previewMatrix.brokers.some((row) => Object.values(row.values).some((cell) => cell.derived)) && <p className="consensusNote">* Beregnet tall fra samme meglerhus: EBITDA fra oppgitt omsetning og margin, eller margin fra oppgitt EBITDA og omsetning. Hold markøren over tallet for metode.</p>}
-              <p className="consensusNote">{nextQuarter?.note ?? "Meglerhus-spesifikt forhåndsestimat, ikke markedskonsensus."}</p>
+              <p className="consensusNote">Klikk på meglernavnet for kilden. Snittet vekter meglerhus likt (n = antall). * = beregnet verdi. Ordinært og justert nettoresultat holdes adskilt.</p>
             </>
           ) : (
             <div className="cardSecondary consensusWaitingPreview">
