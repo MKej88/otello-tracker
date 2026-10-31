@@ -534,3 +534,39 @@
     text-align: left;
   }
 }
+
+
+/* Avoid the mobile status badge overlapping the main quality summary. */
+@media (max-width: 440px) {
+  .dataQualityPage,
+  .dataQualityPage > *,
+  .qualityTrustHero {
+    min-width: 0;
+  }
+
+  .qualityTrustHero {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .qualityTrustLead {
+    grid-row: 1;
+    padding-right: 0;
+    min-width: 0;
+  }
+
+  .qualityTrustHero > .qualityState {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .qualityTrustDimensions {
+    grid-row: 3;
+  }
+
+  .qualitySourceRow > summary,
+  .qualityCriticalRow {
+    min-width: 0;
+  }
+}
