@@ -922,7 +922,8 @@
     overflow-wrap: anywhere;
   }
 
-  .fxTable tbody td:first-child {
+  .fxTable tbody td:first-child,
+  .fxTable tbody tr.current td:first-child {
     grid-column: 1 / -1;
     padding-bottom: 9px;
     border-bottom: 1px solid var(--ot-border-soft);
