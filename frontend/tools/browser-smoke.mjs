@@ -261,13 +261,14 @@ async function main() {
       && desktop && getComputedStyle(desktop).display === 'none';
   })()`);
   if (!mobileNavigationVisible) throw new Error("Mobilmeny-knappen er skjult eller desktopmenyen er synlig på mobil.");
-  const mobileMenuReady = await session.evaluate(`(() => {
-    document.querySelector('.mobileMenuButton')?.click();
-    return Boolean(document.querySelector('.mobileMenuPanel'))
-      && document.querySelectorAll('.mobileMenuPanel .navItem').length === 12;
-  })()`);
-  if (!mobileMenuReady) throw new Error("Mobilmenyen viser ikke alle de tolv sidene.");
+  await session.evaluate("document.querySelector('.mobileMenuButton')?.click()");
+  await waitFor(
+    session,
+    "Boolean(document.querySelector('.mobileMenuPanel')) && document.querySelectorAll('.mobileMenuPanel .navItem').length === 12",
+    "alle tolv sider i mobilmenyen"
+  );
   await session.evaluate("document.querySelector('.mobileMenuClose')?.click()");
+  await waitFor(session, "!document.querySelector('.mobileMenuPanel')", "lukket mobilmeny");
   await session.send("Emulation.clearDeviceMetricsOverride");
 
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
