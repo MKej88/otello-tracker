@@ -454,3 +454,118 @@ def test_bmob3_intraday_skips_outside_market_window_without_network() -> None:
     assert result["status"] == "skipped"
     assert result["reason"] == "before_b3_quote_window"
     assert called is False
+
+
+def test_eod_b3_unavailable_and_cotahist_pending_uses_verified_yahoo_last(monkeypatch) -> None:
+    """A same-session near-close secondary quote may fill LAST, never CLOSE."""
+    repository = FakeRepository()
+    quote_time = int(datetime(2026, 8, 17, 17, 0, tzinfo=B3_TZ).timestamp())
+    yahoo_payload = _yahoo_payload(timestamp=quote_time, price=23.75)
+    called: list[str] = []
+
+    async def fake_fetch(url: str, **kwargs):
+        called.append(_host(url))
+        if _host(url) == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        if _host(url) == "query1.finance.yahoo.com":
+            return FakeResponse(yahoo_payload)
+        raise AssertionError(f"unexpected endpoint: {url}")
+
+    async def missing_official(repo, *, target_date, max_lookback_days, **kwargs):
+        assert target_date == "2026-08-17"
+        assert max_lookback_days == 0
+        return {"status": "not_found", "attempted_dates": [target_date]}
+
+    monkeypatch.setattr(b3_full_refresh, "refresh_bmob3_close", missing_official)
+    result = asyncio.run(
+        finalize_bmob3_eod_price(
+            repository, target_date="2026-08-17", fetcher=fake_fetch
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["feed_mode"] == "yahoo_eod_last_fallback"
+    assert result["price_type"] == "LAST"
+    assert result["official_close_confirmed"] is False
+    assert result["source_policy"] == "UNOFFICIAL_SECONDARY_FALLBACK"
+    assert called == ["cotacao.b3.com.br", "query1.finance.yahoo.com"]
+    assert repository.documents[0]["source_code"] == "YAHOO_FINANCE"
+    assert repository.documents[0]["external_id"] == "bmob3-eod-last-check-2026-08-17"
+    assert repository.prices[0]["source_code"] == "YAHOO_FINANCE"
+    assert repository.prices[0]["price_type"] == "LAST"
+    assert repository.prices[0]["metadata"]["price_semantics"] == (
+        "SECONDARY_LATE_SESSION_LAST_NOT_OFFICIAL_CLOSE"
+    )
+    assert repository.prices[0]["metadata"]["fallback_only"] is True
+
+
+@pytest.mark.parametrize(
+    "quote_dt",
+    [
+        datetime(2026, 8, 16, 17, 0, tzinfo=B3_TZ),  # wrong trading date
+        datetime(2026, 8, 17, 13, 0, tzinfo=B3_TZ),  # too early to be EOD
+    ],
+)
+def test_eod_stale_yahoo_fallback_remains_critical(monkeypatch, quote_dt) -> None:
+    repository = FakeRepository()
+    payload = _yahoo_payload(timestamp=int(quote_dt.timestamp()))
+
+    async def fake_fetch(url: str, **kwargs):
+        if _host(url) == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        return FakeResponse(payload)
+
+    async def missing_official(repo, **kwargs):
+        return {"status": "not_found"}
+
+    monkeypatch.setattr(b3_full_refresh, "refresh_bmob3_close", missing_official)
+    with pytest.raises(RuntimeError, match="no verified late-session Yahoo LAST"):
+        asyncio.run(
+            finalize_bmob3_eod_price(
+                repository, target_date="2026-08-17", fetcher=fake_fetch
+            )
+        )
+    assert not repository.documents
+    assert not repository.prices
+
+
+def test_eod_all_three_providers_unavailable_still_fails(monkeypatch) -> None:
+    repository = FakeRepository()
+
+    async def fake_fetch(url: str, **kwargs):
+        return FakeResponse(status=526)
+
+    async def missing_official(repo, **kwargs):
+        return {"status": "not_found"}
+
+    monkeypatch.setattr(b3_full_refresh, "refresh_bmob3_close", missing_official)
+    with pytest.raises(RuntimeError, match="no verified late-session Yahoo LAST"):
+        asyncio.run(
+            finalize_bmob3_eod_price(
+                repository, target_date="2026-08-17", fetcher=fake_fetch
+            )
+        )
+    assert not repository.prices
+
+
+def test_eod_cotahist_http_failure_can_use_verified_yahoo_last(monkeypatch) -> None:
+    repository = FakeRepository()
+    quote_time = int(datetime(2026, 8, 17, 17, 0, tzinfo=B3_TZ).timestamp())
+
+    async def fake_fetch(url: str, **kwargs):
+        if _host(url) == "cotacao.b3.com.br":
+            return FakeResponse(status=526)
+        return FakeResponse(_yahoo_payload(timestamp=quote_time))
+
+    async def failed_official(repo, **kwargs):
+        raise RuntimeError("B3 COTAHIST HTTP 503")
+
+    monkeypatch.setattr(b3_full_refresh, "refresh_bmob3_close", failed_official)
+    result = asyncio.run(
+        finalize_bmob3_eod_price(
+            repository, target_date="2026-08-17", fetcher=fake_fetch
+        )
+    )
+    assert result["feed_mode"] == "yahoo_eod_last_fallback"
+    assert "HTTP 503" in result["cotahist_reason"]
+    assert repository.prices[0]["price_type"] == "LAST"
