@@ -524,3 +524,59 @@
     flex-direction: column;
   }
 }
+
+
+/* Cash KPI figures fit in two columns on standard phones. */
+@media (min-width: 380px) and (max-width: 760px) {
+  .cashKpiGrid,
+  .cashBuybackResultsPrimary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .cashPage,
+  .cashPage > *,
+  .cashMainGrid > *,
+  .cashBuybackLayout > *,
+  .cashBuybackLayoutSimplified > * {
+    min-width: 0;
+  }
+
+  .cashHero,
+  .cashKpi,
+  .cashCompositionCard,
+  .cashModelCard,
+  .cashEngineCard,
+  .cashDistributionCard {
+    padding: 14px;
+  }
+
+  .cashHeroMeta {
+    min-width: 0;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .cashKpi {
+    min-height: 0;
+    gap: 10px;
+  }
+
+  .cashKpi strong,
+  .cashBuybackResultsPrimary strong {
+    font-size: clamp(18px, 5.3vw, 23px);
+    overflow-wrap: anywhere;
+  }
+
+  .cashBuybackFlow > div {
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .cashBuybackFlow > div > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
