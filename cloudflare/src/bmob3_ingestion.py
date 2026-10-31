@@ -21,6 +21,9 @@ MAX_QUOTE_BYTES = 256 * 1024
 INTRADAY_START = dt_time(10, 15)
 ASH_WEDNESDAY_START = dt_time(13, 15)
 EOD_FINALIZE_AFTER = dt_time(19, 15)
+# A same-session secondary LAST quote may only qualify as EOD fallback late in the session.
+# This is never recorded as an official B3 CLOSE.
+SECONDARY_EOD_MIN_TIME = dt_time(16, 45)
 YAHOO_SYMBOL = "BMOB3.SA"
 YAHOO_QUERY1_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
 YAHOO_QUERY2_BASE = "https://query2.finance.yahoo.com/v8/finance/chart"
@@ -452,17 +455,21 @@ async def _persist_yahoo_quote(
     source_url: str,
     provider_base: str,
     fallback_reason: str,
+    eod_check: bool = False,
 ) -> int:
     digest = hashlib.sha256(payload).hexdigest()
     metadata = {
         "feed": "YAHOO_FINANCE_CHART",
-        "feed_mode": "SECONDARY_INTRADAY_FALLBACK",
+        "feed_mode": "SECONDARY_EOD_LAST_FALLBACK" if eod_check else "SECONDARY_INTRADAY_FALLBACK",
         "provider": "Yahoo Finance",
         "provider_symbol": YAHOO_SYMBOL,
         "provider_endpoint": provider_base,
         "provider_endpoints": list(YAHOO_CHART_BASES),
         "exchange_timezone": quote.exchange_timezone,
-        "price_semantics": "SECONDARY_INTRADAY_LAST_NOT_OFFICIAL_CLOSE",
+        "price_semantics": (
+            "SECONDARY_LATE_SESSION_LAST_NOT_OFFICIAL_CLOSE"
+            if eod_check else "SECONDARY_INTRADAY_LAST_NOT_OFFICIAL_CLOSE"
+        ),
         "market_data_effective_at": quote.observed_at,
         "provider_timestamp_utc": quote.provider_at,
         "source_policy": "UNOFFICIAL_SECONDARY_FALLBACK",
@@ -475,9 +482,15 @@ async def _persist_yahoo_quote(
     }
     document_id = await repository.create_source_document(
         source_code="YAHOO_FINANCE",
-        external_id=f"bmob3-yahoo-intraday-{digest[:20]}",
-        document_type="API_RESPONSE",
-        title=f"BMOB3 Yahoo Finance intraday fallback {quote.provider_at}",
+        external_id=(
+            f"bmob3-eod-last-check-{quote.trading_date}"
+            if eod_check else f"bmob3-yahoo-intraday-{digest[:20]}"
+        ),
+        document_type="EOD_MARKET_DATA_CHECK" if eod_check else "API_RESPONSE",
+        title=(
+            f"BMOB3 Yahoo Finance late-session LAST fallback {quote.trading_date}"
+            if eod_check else f"BMOB3 Yahoo Finance intraday fallback {quote.provider_at}"
+        ),
         url=source_url,
         published_at=quote.provider_at,
         content_sha256=digest,
@@ -618,7 +631,7 @@ async def bmob3_eod_check_done(repository: D1WriteRepository, target_date: str) 
         SELECT 1 AS ok
         FROM source_documents sd
         JOIN sources s ON s.id=sd.source_id
-        WHERE s.code='B3' AND sd.external_id=?
+        WHERE s.code IN ('B3','YAHOO_FINANCE') AND sd.external_id=?
         LIMIT 1
         """,
         (f"bmob3-eod-last-check-{target_date}",),
@@ -647,32 +660,84 @@ async def _official_eod_fallback(
     fetcher: Callable[..., Awaitable[Any]] | None,
     quote_error: str,
 ) -> dict[str, Any]:
+    """Prefer the official same-day CLOSE; use a clearly labelled secondary LAST only
+    when both B3 quote and the official daily file cannot provide today's data.
+
+    A stale Yahoo quote is not acceptable. If neither source supplies a validated
+    same-session late quote, the error remains critical for the watchdog.
+    """
     from b3_full_refresh import refresh_bmob3_close
 
-    fallback = await refresh_bmob3_close(
+    try:
+        fallback = await refresh_bmob3_close(
+            repository,
+            target_date=target_date,
+            max_lookback_days=0,
+            fetcher=fetcher,
+        )
+    except Exception as exc:
+        cotahist_problem = f"{type(exc).__name__}: {str(exc)[:300]}"
+    else:
+        if fallback.get("status") == "ok" and fallback.get("trading_date") == target_date:
+            return {
+                "status": "ok",
+                "feed_mode": "official_cotahist_fallback",
+                "target_date": target_date,
+                "price_id": fallback.get("price_id"),
+                "price_type": "CLOSE",
+                "quality": "DIRECT",
+                "price_brl": fallback.get("price_brl"),
+                "source_document_id": fallback.get("source_document_id"),
+                "fallback_from": "B3_PUBLIC_WEB_QUOTE",
+                "fallback_reason": quote_error[:700],
+                "attempted_dates": fallback.get("attempted_dates"),
+            }
+        cotahist_problem = f"not_available: {str(fallback)[:300]}"
+
+    try:
+        yahoo_url, yahoo_payload, yahoo_quote, provider_base = await download_bmob3_yahoo_quote(
+            fetcher=fetcher
+        )
+        if yahoo_quote.trading_date != target_date:
+            raise ValueError(
+                f"stale_yahoo_session: target={target_date}, provider={yahoo_quote.trading_date}"
+            )
+        if yahoo_quote.provider_datetime.astimezone(B3_TZ).time().replace(tzinfo=None) < SECONDARY_EOD_MIN_TIME:
+            raise ValueError("stale_yahoo_late_session: quote earlier than 16:45 Sao Paulo")
+    except Exception as exc:
+        raise RuntimeError(
+            "BMOB3 EOD: B3 quote unavailable, COTAHIST unavailable and "
+            "no verified late-session Yahoo LAST: "
+            f"quote={quote_error[:250]}; cotahist={cotahist_problem[:350]}; "
+            f"yahoo={type(exc).__name__}: {str(exc)[:350]}"
+        ) from exc
+
+    price_id = await _persist_yahoo_quote(
         repository,
-        target_date=target_date,
-        max_lookback_days=0,
-        fetcher=fetcher,
+        yahoo_quote,
+        yahoo_payload,
+        source_url=yahoo_url,
+        provider_base=provider_base,
+        fallback_reason=f"B3 quote: {quote_error[:250]}; COTAHIST: {cotahist_problem[:300]}",
+        eod_check=True,
     )
-    if fallback.get("status") == "ok" and fallback.get("trading_date") == target_date:
-        return {
-            "status": "ok",
-            "feed_mode": "official_cotahist_fallback",
-            "target_date": target_date,
-            "price_id": fallback.get("price_id"),
-            "price_type": "CLOSE",
-            "quality": "DIRECT",
-            "price_brl": fallback.get("price_brl"),
-            "source_document_id": fallback.get("source_document_id"),
-            "fallback_from": "B3_PUBLIC_WEB_QUOTE",
-            "fallback_reason": quote_error[:700],
-            "attempted_dates": fallback.get("attempted_dates"),
-        }
-    raise RuntimeError(
-        "B3 BMOB3 EOD-kilde feilet og offisiell COTAHIST var ikke tilgjengelig for "
-        f"{target_date}: quote={quote_error[:400]}; cotahist={str(fallback)[:500]}"
-    )
+    return {
+        "status": "ok",
+        "feed_mode": "yahoo_eod_last_fallback",
+        "target_date": target_date,
+        "price_id": price_id,
+        "price_type": "LAST",
+        "quality": "DIRECT",
+        "price_brl": format(yahoo_quote.price, "f"),
+        "observed_at": yahoo_quote.observed_at,
+        "provider_at": yahoo_quote.provider_at,
+        "source_url": yahoo_url,
+        "source_policy": "UNOFFICIAL_SECONDARY_FALLBACK",
+        "official_close_confirmed": False,
+        "fallback_from": "B3_PUBLIC_WEB_QUOTE_AND_COTAHIST",
+        "fallback_reason": quote_error[:700],
+        "cotahist_reason": cotahist_problem[:500],
+    }
 
 
 async def finalize_bmob3_eod_price(
