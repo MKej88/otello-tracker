@@ -316,3 +316,21 @@ td {
   font-size: var(--ot-type-help);
   line-height: var(--ot-line-help);
 }
+
+
+/* Shared phone viewport: reclaim usable space without changing the desktop shell. */
+@media (max-width: 480px) {
+  .main.investorMainV2 {
+    min-width: 0;
+    padding: 16px 12px 28px;
+  }
+
+  .investorMainV2 header {
+    margin-bottom: 16px;
+  }
+
+  .investorMainV2 h1 {
+    font-size: clamp(22px, 7vw, 26px);
+    overflow-wrap: anywhere;
+  }
+}

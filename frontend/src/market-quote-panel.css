@@ -30,3 +30,35 @@
   .marketQuoteCard { min-height: 380px; padding: 18px; }
   .marketQuoteHeadline > strong:first-child { font-size: 25px; }
 }
+
+
+@media (max-width: 620px) {
+  .marketQuoteSection,
+  .marketQuoteGrid,
+  .marketQuoteGrid > * {
+    min-width: 0;
+  }
+
+  .marketQuoteCard {
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .marketQuoteHeadline {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+
+  .marketQuoteHeadline > strong:first-child {
+    overflow-wrap: anywhere;
+  }
+
+  .marketMetricRow strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .marketQuoteFooter {
+    margin-top: 12px;
+  }
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 
 import {
@@ -194,7 +194,30 @@ function FxChart({ series, range }: { series: FxPoint[]; range: RangeKey }) {
   );
   const ma50All = useMemo(() => movingAverage(series, 50), [series]);
   const ma200All = useMemo(() => movingAverage(series, 200), [series]);
-  if (filtered.length < 2) return <div className="fxChartEmpty">Historikk mangler</div>;
+  const chartContainer = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(1000);
+  const hasHistory = filtered.length >= 2;
+
+  // Match SVG coordinates to the available width so chart labels remain
+  // readable on mobile rather than shrinking a 1000px viewBox.
+  useLayoutEffect(() => {
+    if (!hasHistory || !chartContainer.current) return;
+    const container = chartContainer.current;
+    const measure = () => {
+      const next = Math.max(240, Math.round(container.getBoundingClientRect().width));
+      setChartWidth((previous) => previous === next ? previous : next);
+    };
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [hasHistory]);
+
+  if (!hasHistory) return <div className="fxChartEmpty">Historikk mangler</div>;
 
   const dates = filtered.map((point) => point.date);
   const spotLine = filtered.map((point) => ({ date: point.date, value: point.brl_nok }));
@@ -210,15 +233,15 @@ function FxChart({ series, range }: { series: FxPoint[]; range: RangeKey }) {
   const padding = Math.max((maxRaw - minRaw) * 0.12, 0.015);
   const min = minRaw - padding;
   const max = maxRaw + padding;
-  const width = 1000;
-  const height = 330;
-  const padX = 62;
+  const width = chartWidth;
+  const height = width < 620 ? 270 : 330;
+  const padX = width < 620 ? 54 : 62;
   const padY = 24;
   const grid = Array.from({ length: 5 }, (_, index) => max - index / 4 * (max - min));
   const labelIndices = [0, Math.round((filtered.length - 1) / 2), filtered.length - 1];
 
   return (
-    <div className="fxChartWrap">
+    <div className="fxChartWrap" ref={chartContainer}>
       <svg className="fxChart" role="img" viewBox={`0 0 ${width} ${height}`} aria-label={`BRL/NOK ${range}`}>
         {grid.map((value) => {
           const y = padY + (max - value) / (max - min) * (height - padY * 2);
@@ -479,11 +502,11 @@ export default function FxPage() {
             <tbody>
               {sensitivity.map((row) => (
                 <tr className={row.move === 0 ? "current" : ""} key={row.move}>
-                  <td className="numeric">{row.move === 0 ? "Dagens kurs" : signedPct(row.move, 0)}</td>
-                  <td className="numeric">{number(row.scenarioFx, 4)}</td>
-                  <td className="numeric">{finite(row.valueM) ? `${number(row.valueM, 0)} MNOK` : "–"}</td>
-                  <td className={`numeric ${finite(row.deltaM) && row.deltaM > 0 ? "positive" : finite(row.deltaM) && row.deltaM < 0 ? "negative" : ""}`}>{finite(row.deltaM) ? `${row.deltaM > 0 ? "+" : ""}${number(row.deltaM, 1)} MNOK` : "–"}</td>
-                  <td className={`numeric ${finite(row.deltaPerShare) && row.deltaPerShare > 0 ? "positive" : finite(row.deltaPerShare) && row.deltaPerShare < 0 ? "negative" : ""}`}>{signedNok(row.deltaPerShare)}</td>
+                  <td className="numeric" data-label="BRL-bevegelse">{row.move === 0 ? "Dagens kurs" : signedPct(row.move, 0)}</td>
+                  <td className="numeric" data-label="BRL/NOK">{number(row.scenarioFx, 4)}</td>
+                  <td className="numeric" data-label="Bemobi-post">{finite(row.valueM) ? `${number(row.valueM, 0)} MNOK` : "–"}</td>
+                  <td className={`numeric ${finite(row.deltaM) && row.deltaM > 0 ? "positive" : finite(row.deltaM) && row.deltaM < 0 ? "negative" : ""}`} data-label="Endring">{finite(row.deltaM) ? `${row.deltaM > 0 ? "+" : ""}${number(row.deltaM, 1)} MNOK` : "–"}</td>
+                  <td className={`numeric ${finite(row.deltaPerShare) && row.deltaPerShare > 0 ? "positive" : finite(row.deltaPerShare) && row.deltaPerShare < 0 ? "negative" : ""}`} data-label="Direkte / OTEC">{signedNok(row.deltaPerShare)}</td>
                 </tr>
               ))}
             </tbody>

@@ -95,3 +95,56 @@
   .exactScenarioFields { grid-template-columns:1fr; }
   .selectedHeader { flex-direction:column; }
 }
+
+
+/* Preserve the interactive matrix: only the matrix scrolls, not the page. */
+.sensitivityScrollHint {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .sensitivityPage > *,
+  .sensitivityMatrixCard,
+  .sensitivityMatrixHeader > * {
+    min-width: 0;
+  }
+
+  .sensitivityScrollHint {
+    display: block;
+    margin: 0 0 7px;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-meta);
+    line-height: 1.45;
+  }
+
+  .sensitivityTableWrap {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sensitivityTable {
+    border-spacing: 4px;
+  }
+
+  .sensitivityCell {
+    min-height: 52px;
+  }
+
+  .sensitivityKpi,
+  .sensitivitySelected {
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .sensitivityKpi strong {
+    font-size: clamp(17px, 5.3vw, 21px);
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 380px) {
+  .sensitivityKpis > :last-child {
+    grid-column: 1 / -1;
+  }
+}
