@@ -799,3 +799,28 @@
     border-top:1px solid var(--ot-border-soft);
   }
 }
+
+
+/* Keep event summaries and numeric snapshots within narrow phone cards. */
+@media (max-width: 600px) {
+  .overviewV3,
+  .overviewV3 > *,
+  .overviewEventPreview,
+  .overviewEventPreview dl > div {
+    min-width: 0;
+  }
+
+  .overviewEventPreview dd,
+  .overviewConsensusLink {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .overviewEventPreview dl {
+    gap: 8px;
+  }
+
+  .overviewCapitalValue {
+    overflow-wrap: anywhere;
+  }
+}
