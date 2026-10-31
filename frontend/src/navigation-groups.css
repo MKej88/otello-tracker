@@ -181,3 +181,33 @@
     border-radius: 0 3px 3px 0;
   }
 }
+
+
+/* The menu is the primary way to reach every view on a phone. */
+@media (max-width: 480px) {
+  .mobileNavigationBar {
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .mobileNavigationBar .brand {
+    min-width: 0;
+  }
+
+  .mobileMenuButton,
+  .mobileMenuClose {
+    min-height: 44px;
+    flex: 0 0 auto;
+  }
+
+  .mobileMenuPanel {
+    padding: 12px 12px calc(20px + env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobileInvestorNav .navItem {
+    min-height: 44px;
+    align-items: center;
+  }
+}
