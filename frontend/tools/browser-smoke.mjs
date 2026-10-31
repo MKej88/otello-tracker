@@ -254,10 +254,20 @@ async function main() {
     mobile: true
   });
   const mobileNavigationVisible = await session.evaluate(`(() => {
-    const navigation = document.querySelector('.sidebar nav');
-    return navigation && getComputedStyle(navigation).display !== 'none' && navigation.getBoundingClientRect().height > 0;
+    const button = document.querySelector('.mobileMenuButton');
+    const desktop = document.querySelector('.desktopSidebar');
+    return button && button.getBoundingClientRect().height > 0
+      && getComputedStyle(button).display !== 'none'
+      && desktop && getComputedStyle(desktop).display === 'none';
   })()`);
-  if (!mobileNavigationVisible) throw new Error("Hovedmenyen er skjult på mobil.");
+  if (!mobileNavigationVisible) throw new Error("Mobilmeny-knappen er skjult eller desktopmenyen er synlig på mobil.");
+  const mobileMenuReady = await session.evaluate(`(() => {
+    document.querySelector('.mobileMenuButton')?.click();
+    return Boolean(document.querySelector('.mobileMenuPanel'))
+      && document.querySelectorAll('.mobileMenuPanel .navItem').length === 12;
+  })()`);
+  if (!mobileMenuReady) throw new Error("Mobilmenyen viser ikke alle de tolv sidene.");
+  await session.evaluate("document.querySelector('.mobileMenuClose')?.click()");
   await session.send("Emulation.clearDeviceMetricsOverride");
 
   await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
@@ -273,6 +283,52 @@ async function main() {
   await clickView(session, "Nyheter", "Nyheter og hendelser", ".newsEventsPage");
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
+  // Check all twelve investor routes at narrow phone and tablet widths.
+  // Scrollable data tables are permitted, but the page itself must not overflow.
+  const mobileViews = [
+    ["oversikt", "Otello investoroversikt"],
+    ["nav", "NAV"],
+    ["nav-sensitivitet", "NAV-sensitivitet"],
+    ["historikk", "Historisk NAV-rabatt"],
+    ["tilbakekjop", "Tilbakekjøpsprogram"],
+    ["cash", "Cash & kapitalallokering"],
+    ["bemobi", "Bemobi"],
+    ["brl-nok", "BRL/NOK"],
+    ["brasil", "Brasil"],
+    ["konsensus", "Konsensus"],
+    ["nyheter", "Nyheter og hendelser"],
+    ["datakvalitet", "Datakvalitet"],
+  ];
+  for (const width of [390, 320, 768]) {
+    await session.send("Emulation.setDeviceMetricsOverride", {
+      width, height: 844, deviceScaleFactor: 1, mobile: true
+    });
+    for (const [slug, heading] of mobileViews) {
+      await session.evaluate(`location.hash = ${JSON.stringify("#" + slug)}`);
+      await waitFor(
+        session,
+        `document.querySelector('h1')?.textContent?.trim() === ${JSON.stringify(heading)}`,
+        `mobilrute ${heading} ved ${width}px`
+      );
+      await waitFor(
+        session,
+        "!document.querySelector('.loadingPlaceholderPage')",
+        `ferdig mobilvisning ${heading} ved ${width}px`
+      );
+      const dimensions = await session.evaluate(`(() => ({
+        viewport: document.documentElement.clientWidth,
+        html: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
+      }))()`);
+      if (dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
+        throw new Error(`Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}`);
+      }
+    }
+  }
+  await session.send("Emulation.clearDeviceMetricsOverride");
+
+  console.log("Mobilvisning kontrollert for alle 12 sider ved 320, 390 og 768 px.");
   console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
   session.close();
 }
