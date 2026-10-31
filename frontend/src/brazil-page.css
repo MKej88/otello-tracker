@@ -828,3 +828,42 @@
     padding: 9px 8px;
   }
 }
+
+
+/* Compact overview metrics while keeping the policy and source details legible. */
+@media (max-width: 520px) {
+  .brazilPage,
+  .brazilPage > *,
+  .brazilLatestCompact,
+  .brazilDetailBody {
+    min-width: 0;
+  }
+
+  .brazilLatestCompactValues {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .brazilLatestCompactValues > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .brazilLatestCompactValues > div {
+    min-width: 0;
+  }
+
+  .brazilLatestCompactValues strong {
+    overflow-wrap: anywhere;
+  }
+
+  .brazilTableWrap {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .brazilRatePathThree > div {
+    min-width: 0;
+    flex: 1 1 85px;
+  }
+}
