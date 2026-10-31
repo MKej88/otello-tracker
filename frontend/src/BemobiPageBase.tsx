@@ -496,11 +496,11 @@ export default function BemobiPageBase() {
                   : null;
                 return (
                   <tr key={quarter.period}>
-                    <td><strong className="numeric">{quarter.period}</strong></td>
-                    <td className="numeric">R$ {value(revenue, 1)}m</td>
-                    <td className="numeric">R$ {value(ebitda, 1)}m</td>
-                    <td className="numeric">{value(margin, 1)} %</td>
-                    <td className="numeric">R$ {value(quarter.adjusted_net_income_mbrl, 1)}m</td>
+                    <td data-label="Kvartal"><strong className="numeric">{quarter.period}</strong></td>
+                    <td className="numeric" data-label="Omsetning">R$ {value(revenue, 1)}m</td>
+                    <td className="numeric" data-label="Justert EBITDA">R$ {value(ebitda, 1)}m</td>
+                    <td className="numeric" data-label="Margin">{value(margin, 1)} %</td>
+                    <td className="numeric" data-label="Justert resultat">R$ {value(quarter.adjusted_net_income_mbrl, 1)}m</td>
                   </tr>
                 );
               })}
