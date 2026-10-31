@@ -33,3 +33,16 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Match the compact two-column KPI layout on ordinary phone screens. */
+@media (min-width: 361px) and (max-width: 600px) {
+  .bemobiCleanValuationGridFive {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .bemobiCleanValuationGridFive > div:last-child {
+    grid-column: 1 / -1;
+  }
+}
