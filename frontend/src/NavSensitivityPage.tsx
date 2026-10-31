@@ -536,6 +536,7 @@ export default function NavSensitivityPage() {
           </form>
         )}
 
+        <p className="sensitivityScrollHint">Sveip sidelengs i matrisen for å se flere BRL/NOK- og Bemobi-scenarier.</p>
         <div className="sensitivityTableWrap">
           <table className="sensitivityTable" style={{ minWidth: `${Math.max(900, 110 + bemobiPrices.length * 95)}px` }}>
             <thead>
