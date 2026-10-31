@@ -866,3 +866,246 @@
     grid-template-columns: minmax(0, 850px) minmax(0, 1fr);
   }
 }
+
+
+/* Mobile: show each metric as a readable card instead of a clipped five-column table.
+   Desktop tables remain unchanged, including their linked broker headers. */
+.consensusMobileBrokerLabel {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .consensusPageV2 {
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .consensusPageV2 > *,
+  .consensusQuarterCards > * {
+    min-width: 0;
+  }
+
+  .consensusHeroV2 {
+    min-height: 0;
+    gap: 16px;
+  }
+
+  .consensusHeroV2 h2 {
+    font-size: clamp(23px, 7vw, 28px);
+  }
+
+  .consensusHeroPrice {
+    min-width: 0;
+  }
+
+  .consensusKpisV2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .consensusKpisV2 article {
+    min-width: 0;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .consensusKpisV2 article:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .consensusKpisV2 strong {
+    font-size: clamp(20px, 6vw, 24px);
+  }
+
+  .consensusNextReport,
+  .consensusComparisonCard,
+  .consensusBeatSummary,
+  .consensusForwardV2,
+  .consensusRevisionSection,
+  .consensusTargetRange {
+    padding: 14px;
+  }
+
+  .consensusPageV2 .cardHeader {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .consensusPageV2 .cardHeader > div {
+    min-width: 0;
+  }
+
+  .consensusNextTableWrap {
+    min-width: 0;
+    max-width: 100%;
+    overflow: visible;
+    border: 0;
+  }
+
+  .consensusBrokerTable,
+  .consensusComparisonTable {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    background: transparent;
+  }
+
+  /* Retain the original table headers for assistive technology. */
+  .consensusBrokerTable thead,
+  .consensusComparisonTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .consensusBrokerTable tbody,
+  .consensusComparisonTable tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .consensusBrokerTable tbody tr,
+  .consensusComparisonTable tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--ot-border-soft);
+    border-radius: 10px;
+    background: var(--ot-surface-raised);
+  }
+
+  .consensusBrokerTable tbody th,
+  .consensusComparisonTable tbody td:first-child {
+    position: static;
+    display: block;
+    grid-column: 1 / -1;
+    padding: 0 0 9px;
+    border: 0;
+    border-bottom: 1px solid var(--ot-border-soft);
+    background: transparent;
+    box-shadow: none;
+    color: var(--ot-text);
+    font-size: var(--ot-type-body);
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: normal;
+  }
+
+  .consensusBrokerTable tbody td,
+  .consensusComparisonTable tbody td:not(:first-child) {
+    position: static;
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: 4px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--ot-text);
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .consensusBrokerTable .consensusMobileBrokerLabel {
+    display: grid;
+    gap: 2px;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-meta);
+    font-weight: 600;
+  }
+
+  .consensusMobileBrokerLabel a {
+    color: var(--ot-accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .consensusMobileBrokerLabel small {
+    display: block;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-label);
+    font-weight: 400;
+  }
+
+  .consensusBrokerTable .consensusBrokerValue {
+    color: var(--ot-text);
+    font-size: var(--ot-type-body);
+    font-weight: 700;
+  }
+
+  .consensusBrokerTable tbody td.consensusAverageCell {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--ot-border-soft);
+    border-radius: 7px;
+    background: var(--ot-surface);
+  }
+
+  .consensusBrokerTable tbody td.consensusAverageCell::before {
+    content: "Snitt";
+    margin-right: auto;
+    color: var(--ot-text-secondary);
+    font-size: var(--ot-type-meta);
+  }
+
+  .consensusBrokerTable .consensusAverageCount {
+    display: inline;
+    margin: 0;
+  }
+
+  .consensusComparisonTable tbody td:not(:first-child)::before {
+    content: attr(data-label);
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-label);
+    line-height: 1.4;
+  }
+
+  .consensusComparisonTable tbody td small {
+    margin-top: 0;
+  }
+
+  .consensusForwardMatrixWrap::before {
+    content: "Sveip sidelengs for å se alle år →";
+    display: block;
+    margin: 0 0 8px;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-label);
+  }
+
+  .consensusBeatSummaryGrid,
+  .consensusRevisionEventGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .beatMissHeader {
+    flex-wrap: wrap;
+  }
+
+  .beatMissRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .beatMissRow > strong {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 360px) {
+  .consensusBrokerTable tbody tr,
+  .consensusComparisonTable tbody tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

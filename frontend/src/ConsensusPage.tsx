@@ -258,7 +258,13 @@ function QuarterBrokerTable({
               <th scope="row">{column.label}</th>
               {preview.brokers.map((broker) => {
                 const cell = broker.values[column.key];
-                return <td className="numeric" key={broker.broker} title={cell?.derived ? cell.derivation || "Beregnet fra dette meglerhusets publiserte tall" : undefined}>{format(cell?.value, column)}{cell?.derived ? " *" : ""}</td>;
+                return <td className="numeric" key={broker.broker} title={cell?.derived ? cell.derivation || "Beregnet fra dette meglerhusets publiserte tall" : undefined}>
+                   <span className="consensusMobileBrokerLabel">
+                     <SourceLink url={broker.sourceUrls[0]}>{broker.broker}</SourceLink>
+                     <small>{broker.publishedDate ? dateLabel(broker.publishedDate) : broker.verifiedDate ? `Sjekket ${compactDateLabel(broker.verifiedDate)}` : "Dato ukjent"}</small>
+                   </span>
+                   <span className="consensusBrokerValue">{format(cell?.value, column)}{cell?.derived ? " *" : ""}</span>
+                 </td>;
               })}
               <td className="numeric consensusAverageCell">
                 <strong>{format(preview.averages[column.key]?.value, column)}</strong>
@@ -438,15 +444,15 @@ export default function ConsensusPage() {
                     return (
                       <tr key={`${estimate.metric}:${isAmount ? "mbrl" : "pct"}`}>
                         <td><strong>{estimate.label}</strong></td>
-                        <td className="numeric">{formattedEstimate}<small className="consensusAverageCount">n = {estimate.brokerCount}</small></td>
+                        <td className="numeric" data-label={`${nextQuarter?.period ?? "Neste kvartal"} snitt`}>{formattedEstimate}<small className="consensusAverageCount">n = {estimate.brokerCount}</small></td>
                         {[latestReport, priorYearReport].map((report, index) => {
                           const comparison = compareQuarterMetric(estimate, report);
-                          return <td className="numeric" key={index}>
+                          return <td className="numeric" key={index} data-label={report?.period ?? (index === 0 ? "Siste rapport" : "Samme kvartal i fjor")}>
                             {finite(comparison.actual) ? isAmount ? `R$ ${value(comparison.actual, 1)}m` : `${value(comparison.actual, 1)} %` : "–"}
                             <small className={tone(comparison.change)}>{quarterChangeLabel(comparison.change, comparison.isPercent)}</small>
                           </td>;
                         })}
-                        <td className="numeric">{hasBeatThreshold ? `> ${formattedEstimate}` : "–"}</td>
+                        <td className="numeric" data-label="Beat-grense">{hasBeatThreshold ? `> ${formattedEstimate}` : "–"}</td>
                       </tr>
                     );
                   })}
