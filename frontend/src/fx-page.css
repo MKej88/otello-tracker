@@ -695,3 +695,276 @@
     justify-content: flex-start;
   }
 }
+
+
+/* BRL/NOK mobile layout: readable chart, compact KPI cards and a vertical
+   scenario comparison. The desktop table and calculations remain unchanged. */
+@media (max-width: 680px) {
+  .fxPage {
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .fxPage > *,
+  .fxTwoColumn > *,
+  .fxPage .fxSectionHead > div {
+    min-width: 0;
+  }
+
+  .fxHero {
+    gap: 12px;
+  }
+
+  .fxHero h2 {
+    font-size: clamp(24px, 7vw, 30px);
+  }
+
+  .fxHeroMeta {
+    min-width: 0;
+    gap: 3px;
+  }
+
+  .fxKpiGrid {
+    gap: 8px;
+  }
+
+  .fxKpi {
+    min-width: 0;
+    min-height: 0;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .fxKpi:first-child,
+  .fxKpi:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .fxKpi strong {
+    font-size: clamp(19px, 5.8vw, 24px);
+    line-height: 1.18;
+    overflow-wrap: anywhere;
+  }
+
+  .fxKpi.primary strong {
+    font-size: clamp(28px, 8vw, 34px);
+  }
+
+  .fxKpi small {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .fxHistoryCard,
+  .fxExposureCard,
+  .fxDriverCard,
+  .fxPositionCard,
+  .fxContextCard,
+  .fxMethodCard {
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .fxSectionHead {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .fxRangeButtons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 7px;
+  }
+
+  .fxRangeButtons button {
+    min-width: 0;
+    min-height: 40px;
+  }
+
+  .fxHistorySummary {
+    gap: 8px;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .fxPage .fxHistorySummary > div {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--ot-border-soft);
+    border-radius: 9px;
+    background: var(--ot-surface-muted);
+  }
+
+  .fxHistorySummary > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .fxHistorySummary span {
+    font-size: var(--ot-type-label);
+    letter-spacing: normal;
+  }
+
+  .fxHistorySummary strong {
+    font-size: clamp(14px, 4.4vw, 17px);
+    overflow-wrap: anywhere;
+  }
+
+  /* The viewBox now follows its container width; no miniature chart labels. */
+  .fxChart {
+    height: auto;
+    min-height: 0;
+    max-width: 100%;
+  }
+
+  .fxLegend {
+    gap: 9px 14px;
+    margin-top: 8px;
+    font-size: var(--ot-type-label);
+  }
+
+  .fxDriverHeadline {
+    min-width: 0;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+
+  .fxDriverHeadline strong {
+    font-size: clamp(21px, 6.2vw, 28px);
+    overflow-wrap: anywhere;
+  }
+
+  .fxDriverRow,
+  .fxDriverNet,
+  .fxPositionRows > div {
+    gap: 10px;
+  }
+
+  .fxDriverRow > div {
+    min-width: 0;
+  }
+
+  .fxDriverRow > strong {
+    min-width: 70px;
+  }
+
+  .fxPositionGauge > div:last-child {
+    flex-wrap: wrap;
+    gap: 5px 9px;
+  }
+
+  .fxExposureHeadline {
+    min-width: 0;
+  }
+
+  .fxExposureMeta {
+    gap: 6px 12px;
+    margin-top: 0;
+  }
+
+  .fxTableWrap {
+    min-width: 0;
+    overflow: visible;
+    border: 0;
+  }
+
+  .fxTable {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Preserve accessible column headings; mobile cells show the same labels. */
+  .fxTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .fxTable tbody {
+    display: grid;
+    gap: 9px;
+  }
+
+  .fxTable tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--ot-border-soft);
+    border-radius: 10px;
+    background: var(--ot-surface-raised);
+  }
+
+  .fxTable tbody tr.current {
+    background: var(--ot-accent-soft);
+    border-color: var(--ot-accent-border);
+  }
+
+  .fxTable tbody td,
+  .fxTable tbody tr.current td,
+  .fxTable tbody tr.current td:first-child {
+    position: static;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--ot-text);
+    font-size: var(--ot-type-body);
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .fxTable tbody td:first-child {
+    grid-column: 1 / -1;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--ot-border-soft);
+    font-weight: 700;
+  }
+
+  .fxTable tbody td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-label);
+    font-weight: 400;
+    line-height: 1.4;
+  }
+
+  .fxTable tbody td:first-child::before {
+    display: none;
+  }
+
+  .fxTable tbody td.positive {
+    color: var(--ot-positive);
+  }
+
+  .fxTable tbody td.negative {
+    color: var(--ot-negative);
+  }
+
+  .fxMethodCard,
+  .fxMethodCard > div {
+    min-width: 0;
+  }
+
+  .fxSources {
+    justify-content: flex-start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 350px) {
+  .fxTable tbody tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
