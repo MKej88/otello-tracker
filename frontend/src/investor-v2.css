@@ -199,3 +199,66 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+
+/* Shared responsive content sizing across the twelve investor views. */
+@media (max-width: 600px) {
+  .investorTopbar {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .investorTopbarStatus {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .investorPage,
+  .investorPage > *,
+  .normalBemobiView,
+  .normalBemobiView > *,
+  .compositionCard,
+  .navDriversCard,
+  .historyAxisCard,
+  .historyV2Header {
+    min-width: 0;
+  }
+
+  .investorPage {
+    gap: 12px;
+  }
+
+  .estimatedHero,
+  .compositionCard,
+  .navDriversCard,
+  .historyAxisCard,
+  .historyV2Header {
+    padding: 16px;
+  }
+
+  .estimatedHero h2 {
+    overflow-wrap: anywhere;
+    font-size: clamp(28px, 9vw, 38px);
+  }
+
+  .estimatedHeroSide,
+  .estimatedHeroSide > div,
+  .compositionRow,
+  .compositionTotal,
+  .compositionRow > *,
+  .compositionTotal > * {
+    min-width: 0;
+  }
+
+  .compositionRow,
+  .compositionTotal {
+    gap: 7px 10px;
+    padding: 12px 4px;
+  }
+
+  .fxProviderCredit {
+    padding-inline: 0;
+    overflow-wrap: anywhere;
+  }
+}
