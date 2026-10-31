@@ -511,8 +511,9 @@ export default function BuybackPage() {
           <span className="pill muted numeric">{weeks.length} UKER</span>
         </div>
         {weeks.length ? (
-          <p className="buybackTableHint">Sveip sidelengs for å se alle tilbakekjøpstallene.</p>
-        <div className="buybackTableWrap">
+          <>
+            <p className="buybackTableHint">Sveip sidelengs for å se alle tilbakekjøpstallene.</p>
+            <div className="buybackTableWrap">
             <table className="buybackTable">
               <thead>
                 <tr>
@@ -544,7 +545,8 @@ export default function BuybackPage() {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         ) : (
           <div className="buybackEmpty">Ikke nok historikk til å vise walk-forward-test ennå.</div>
         )}
