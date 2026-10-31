@@ -123,3 +123,69 @@
   .accuracyGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .buybackRows > div { gap: 12px; }
 }
+
+
+.buybackTableHint {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .buybackPage,
+  .buybackPage > *,
+  .buybackEffectGrid > *,
+  .buybackTwoCol > * {
+    min-width: 0;
+  }
+
+  .buybackHero {
+    padding: 16px;
+  }
+
+  .simplifiedBuybackHero .buybackHeroCopy h2 {
+    font-size: clamp(23px, 7vw, 28px);
+  }
+
+  .buybackTableHint {
+    display: block;
+    margin: 10px 0 6px;
+    color: var(--ot-text-muted);
+    font-size: var(--ot-type-meta);
+    line-height: 1.4;
+  }
+
+  .buybackTableWrap {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .buybackKpi {
+    min-width: 0;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .buybackKpi > strong {
+    font-size: clamp(18px, 5.3vw, 24px);
+    overflow-wrap: anywhere;
+  }
+
+  .buybackProgressLabels {
+    flex-wrap: wrap;
+  }
+
+  .buybackInvestorNote strong {
+    white-space: normal;
+  }
+}
+
+@media (min-width: 380px) and (max-width: 700px) {
+  .buybackKpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .buybackKpis > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
