@@ -5,6 +5,7 @@ import {
   subscribeDashboardRevalidation,
 } from "./dashboardBootstrapFetch";
 import { shouldRunScheduledPoll, subscribePageResumeRefresh } from "./pageResumeRefresh";
+import { readShortLivedResource, retainShortLivedResource } from "./shortLivedResourceCache";
 
 export type PollingResourceState<T> = {
   data: T | null;
@@ -19,7 +20,9 @@ export function usePollingResource<T>(
   retryWhen?: (data: T) => boolean,
 ): PollingResourceState<T> {
   const [data, setData] = useState<T | null>(() => (
-    usePreloadedInitial ? getCachedDashboardComponentForUrl<T>(url) : null
+    usePreloadedInitial
+      ? (getCachedDashboardComponentForUrl<T>(url) ?? readShortLivedResource<T>(url))
+      : null
   ));
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
@@ -62,6 +65,7 @@ export function usePollingResource<T>(
         firstLoad = false;
         if (!active) return;
         retrySoon = retryWhen?.(result) ?? false;
+        if (!retrySoon) retainShortLivedResource(url, result);
         setData(result);
         setRefreshFailed(false);
         setLastUpdatedAt(new Date());
