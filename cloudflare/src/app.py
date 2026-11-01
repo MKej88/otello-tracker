@@ -31,7 +31,9 @@ CACHE_POLICIES = {
     "/api/dashboard/economic": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/waterfall": ("public, max-age=15", "public, max-age=60, stale-while-revalidate=120"),
     "/api/dashboard/fx-backtest": ("public, max-age=1800", "public, max-age=21600, stale-while-revalidate=43200"),
-    "/api/fx/dashboard": ("public, max-age=30", "public, max-age=60, stale-while-revalidate=120"),
+    # FX is refreshed by the background job every 30 minutes. Keep browser TTL
+    # at 30 seconds, but absorb more first-hit Python Worker starts at the edge.
+    "/api/fx/dashboard": ("public, max-age=30", "public, max-age=120, stale-while-revalidate=180"),
     "/api/dashboard/history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/discount-history": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
     "/api/dashboard/nav-periods": ("public, max-age=300", "public, max-age=1800, stale-while-revalidate=3600"),
