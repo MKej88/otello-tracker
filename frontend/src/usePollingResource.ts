@@ -20,9 +20,8 @@ export function usePollingResource<T>(
   retryWhen?: (data: T) => boolean,
 ): PollingResourceState<T> {
   const [data, setData] = useState<T | null>(() => (
-    usePreloadedInitial
-      ? (getCachedDashboardComponentForUrl<T>(url) ?? readShortLivedResource<T>(url))
-      : null
+    usePreloadedInitial ? getCachedDashboardComponentForUrl<T>(url)
+      ?? readShortLivedResource<T>(url) : null
   ));
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
