@@ -35,6 +35,8 @@ on:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
       - cloudflare/src/production_diagnostic_policy.py
+      - cloudflare/src/fast_refresh_diagnostic.py
+      - cloudflare/tests/test_fast_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
@@ -369,7 +371,7 @@ jobs:
                   "sql": job_columns + """
                       WHERE job_name = 'cloudflare_fast_refresh'
                       ORDER BY id DESC
-                      LIMIT 1
+                      LIMIT 12
                   """
               },
               {
@@ -460,6 +462,7 @@ jobs:
               core_nav_quality, diagnostic_severity, secondary_bemobi_warning_candidate,
           )
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
+          from fast_refresh_diagnostic import assess_fast_refresh_window
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -562,6 +565,7 @@ jobs:
           )
 
           now = datetime.now(UTC)
+          fast_report = assess_fast_refresh_window(fast_rows, now=now, max_age=FAST_MAX_AGE)
           expected_fx = expected_fx_date(now)
           fx_current = bool(latest_common_fx and latest_common_fx >= expected_fx)
 
@@ -613,7 +617,7 @@ jobs:
           )
           d1_status = diagnostic_severity(
               full_status=full_status, fast_status=fast_status,
-              fresh=fresh,
+              fast_severity=fast_report['severity'], fresh=fresh,
               monitoring_unhealthy=monitoring["unhealthy"],
               nav_audit_unhealthy=nav_audit["unhealthy"],
               secondary_bemobi_warning=allow_secondary_warning,
@@ -623,6 +627,24 @@ jobs:
           core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
           d1_warning = d1_status == "ADVARSEL"
+          critical_causes = []
+          if fast_report["severity"] == "FAILURE":
+              critical_causes.append("fast_refresh:" + fast_report["reason"])
+          if full_stale:
+              critical_causes.append("full_refresh_stale")
+          if not fx_current:
+              critical_causes.append("fx_outdated")
+          if monitoring["unhealthy"]:
+              critical_causes.extend(
+                  "source_or_market:" + clean(c["name"], 90)
+                  for c in monitoring["checks"] if c["state"] == "AVVIK"
+              )
+          if nav_audit["unhealthy"]:
+              critical_causes.append("nav_or_cache_audit_failed")
+          if core_quality == "AVVIK":
+              critical_causes.append("core_nav_invalid")
+          if full_status != "SUCCESS" and not (full_status == "PARTIAL" and allow_secondary_warning):
+              critical_causes.append("full_refresh_status:" + clean(full_status, 30))
           full_age_minutes = (
               int(full_age.total_seconds() // 60)
               if full_age is not None
@@ -651,6 +673,9 @@ jobs:
               f"- Fulljobb alder: `{cell(full_age_minutes, 20)} min` – {'FOR GAMMEL' if full_stale else 'OK'}",
               f"- Siste 30-minuttersjobb: **{cell(fast_status, 40)}** – `{cell((fast or {}).get('finished_at') or (fast or {}).get('started_at'), 80)}`",
               f"- 30-minuttersjobb alder: `{cell(fast_age_minutes, 20)} min` – {'FOR GAMMEL' if fast_stale else 'OK'}",
+              f"- 30-minuttersdiagnose: **{fast_report['severity']}** – kode `{fast_report['reason']}`",
+              f"- Forrige fullførte 30-minuttersjobb (ved RUNNING): `{cell(fast_report.get('previous_status'), 30)}` – alder `{cell(fast_report.get('previous_age_minutes'), 20)} min`",
+              f"- Kritiske årsaker: {cell(', '.join(critical_causes) if critical_causes else 'ingen', 700)}",
               f"- Siste felles Norges Bank FX-dato: `{cell(latest_common_fx, 20)}`",
               f"- Forventet Norges Bank-dato: `{cell(expected_fx, 20)}`",
               f"- FX er handelsdagsmessig fersk: **{'JA' if fx_current else 'NEI'}**",
@@ -770,7 +795,7 @@ jobs:
           python - <<'PY'
           import json
           sql = ("SELECT status, started_at, finished_at, metadata_json FROM job_runs "
-                 "WHERE job_name='cloudflare_fast_refresh' ORDER BY id DESC LIMIT 1")
+                 "WHERE job_name='cloudflare_fast_refresh' ORDER BY id DESC LIMIT 12")
           with open('fast-query.json', 'w', encoding='utf-8') as h:
               json.dump({'sql': sql}, h)
           PY
@@ -783,7 +808,7 @@ jobs:
             > fast-query-result.json
           PYTHONPATH=cloudflare/src python - <<'PY'
           import json
-          from fast_refresh_diagnostic import assess_fast_refresh
+          from fast_refresh_diagnostic import assess_fast_refresh_window
 
           data = json.load(open('fast-query-result.json', encoding='utf-8'))
           groups = data.get('result') or []
@@ -793,9 +818,11 @@ jobs:
           if not rows:
               raise SystemExit('No fast-refresh record available')
 
-          report = assess_fast_refresh(rows[0])
+          report = assess_fast_refresh_window(rows)
           print(f"Latest fast refresh: status={report['status']} "
-                f"age={report['age_minutes']}min severity={report['severity']}")
+                f"age={report['age_minutes']}min severity={report['severity']} "
+                f"reason={report['reason']} previous={report.get('previous_status', '-')} "
+                f"previous_age={report.get('previous_age_minutes', '-')}min")
           for item in report["steps"][:10]:
               print(f"Fast-refresh step: {item['step']} "
                     f"type={item['type']} status={item['status']}")
