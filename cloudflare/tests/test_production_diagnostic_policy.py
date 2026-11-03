@@ -149,6 +149,32 @@ class SeverityTests(unittest.TestCase):
             core_nav_status="BACKFILLED"), "OK")
 
 
+class FastStatusSeverityTests(unittest.TestCase):
+    def kwargs(self):
+        return dict(full_status="SUCCESS", fast_status="RUNNING",
+                    fast_severity="WARNING", fresh=True,
+                    monitoring_unhealthy=False, nav_audit_unhealthy=False,
+                    secondary_bemobi_warning=False, core_nav_status="BACKFILLED")
+
+    def test_running_window_warning_not_critical_if_independent_checks_pass(self):
+        self.assertEqual(diagnostic_severity(**self.kwargs()), "ADVARSEL")
+
+    def test_running_stale_or_failed_remains_critical(self):
+        for changed in (
+            {"fast_severity": "FAILURE"}, {"fresh": False},
+            {"nav_audit_unhealthy": True}, {"monitoring_unhealthy": True},
+            {"fast_severity": "OK"}, {"fast_severity": "unexpected"},
+        ):
+            with self.subTest(changed=changed):
+                self.assertEqual(
+                    diagnostic_severity(**{**self.kwargs(), **changed}), "AVVIK",
+                )
+
+    def test_normal_success_remains_green(self):
+        args = {**self.kwargs(), "fast_status": "SUCCESS", "fast_severity": "OK"}
+        self.assertEqual(diagnostic_severity(**args), "OK")
+
+
 class CoreNavQualityTests(unittest.TestCase):
     def test_normal_between_report_cash_forecast_is_model_information(self):
         components = {"cash": {"quality": "FORECAST_PARTIAL",

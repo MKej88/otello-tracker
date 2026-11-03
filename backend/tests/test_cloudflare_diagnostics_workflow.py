@@ -124,7 +124,8 @@ def test_fast_refresh_watchdog_is_read_only_and_separate_from_daily_diagnosis():
     assert "CLOUDFLARE_READ_TOKEN" in workflow
     assert "WHERE job_name='cloudflare_fast_refresh'" in workflow
     assert "metadata_json FROM job_runs" in workflow
-    assert "report = assess_fast_refresh(rows[0])" in workflow
+    assert "report = assess_fast_refresh_window(rows)" in workflow
+    assert "ORDER BY id DESC LIMIT 12" in workflow
     policy = (ROOT / "cloudflare/src/fast_refresh_diagnostic.py").read_text(encoding="utf-8")
     assert "MAX_AGE = timedelta(minutes=100)" in policy
     assert 'if status != "PARTIAL":' in policy
@@ -145,6 +146,8 @@ def test_merge_offline_gate_tracks_all_diagnostic_policy_inputs() -> None:
     for source in (
         "cloudflare/src/production_monitor.py",
         "cloudflare/src/production_diagnostic_policy.py",
+        "cloudflare/src/fast_refresh_diagnostic.py",
+        "cloudflare/tests/test_fast_refresh_diagnostic.py",
         "cloudflare/src/cvm_freshness.py",
         "cloudflare/src/nav_cache_audit.py",
         "cloudflare/tests/test_production_diagnostic_policy.py",
