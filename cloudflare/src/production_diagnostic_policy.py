@@ -123,11 +123,21 @@ def diagnostic_severity(
     secondary_bemobi_warning: bool,
     core_nav_status: str,
     core_nav_components: dict | None = None,
+    fast_severity: str | None = None,
 ) -> str:
     """OK / ADVARSEL / AVVIK; expected NAV modeling is not an incident."""
     nav_quality = core_nav_quality(core_nav_status, core_nav_components)
-    if (
+    # Legacy callers may omit fast_severity. Production passes the shared
+    # watchdog assessment, including bounded RUNNING and metadata checks.
+    fast_invalid = (
         fast_status not in {"SUCCESS", "PARTIAL"}
+        if fast_severity is None else
+        fast_severity not in {"OK", "WARNING"}
+        or (fast_severity == "OK" and fast_status != "SUCCESS")
+        or (fast_severity == "WARNING" and fast_status not in {"RUNNING", "PARTIAL"})
+    )
+    if (
+        fast_invalid
         or not fresh
         or monitoring_unhealthy
         or nav_audit_unhealthy
@@ -136,7 +146,7 @@ def diagnostic_severity(
         return "AVVIK"
     if full_status == "SUCCESS":
         return ("ADVARSEL" if secondary_bemobi_warning
-                or nav_quality == "ADVARSEL" else "OK")
+                or nav_quality == "ADVARSEL" or fast_severity == "WARNING" else "OK")
     if full_status == "PARTIAL" and secondary_bemobi_warning:
         return "ADVARSEL"
     return "AVVIK"
