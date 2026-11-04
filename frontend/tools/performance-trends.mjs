@@ -145,12 +145,18 @@ function markdown(trend, history) {
     row.cold.regression || row.navigation.regression ? "**FORVERRET**" : "–",
   ].join(" | "));
   const apiRows = trend.apis.map((a) => [
-    "\`" + a.endpoint.replace(/\|/g, "") + "\`",
-    formatMs(a.timing.currentMedianMs),
-    formatMs(a.timing.priorMedianMs),
-    formatChange(a.timing),
-    a.timing.regression ? "**FORVERRET**" : "–",
+    "`" + a.endpoint.replace(/\\|/g, "") + "`",
+    formatMs(a.firstUncached.currentMedianMs),
+    formatMs(a.firstUncached.priorMedianMs),
+    formatChange(a.firstUncached),
+    formatMs(a.cacheHit.currentMedianMs),
+    formatMs(a.cacheHit.priorMedianMs),
+    formatChange(a.cacheHit),
+    a.firstUncached.regression || a.cacheHit.regression
+      ? "**FORVERRET**"
+      : a.slowFirstUncached.persistent ? "**VEDVARENDE TREGT**" : "–",
   ].join(" | "));
+
 
   return [
     "## Ytelsestrend – 7 dager mot foregående 7 dager",
@@ -162,11 +168,16 @@ function markdown(trend, history) {
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ...rows.map((row) => "| " + row + " |"),
     "",
-    "### API-trend",
+    "### API-trend – første ikke-HIT og cachetreff hver for seg",
     "",
-    "| Endepunkt | 7d median | Forrige 7d | Endring | Status |",
-    "| --- | ---: | ---: | ---: | --- |",
+    "| Endepunkt | Første ikke-HIT 7d | Før 7d | Endring | HIT 7d | Før 7d | Endring | Status |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ...apiRows.map((row) => "| " + row + " |"),
+    "",
+    "Første ikke-HIT betyr at første API-prøve hadde CF-cache-status MISS, EXPIRED, " +
+      "BYPASS, DYNAMIC eller REVALIDATED. HIT gjelder kun eksplisitte cachetreff. " +
+      "Manglende/ukjent status blir ikke tolket som cachemiss, og blandet API-median " +
+      "benyttes ikke til varsling.",
     "",
     "### Datagrunnlag og sporadiske feil (siste 7 dager)",
     "",
@@ -180,6 +191,10 @@ function markdown(trend, history) {
       " av " + trend.reliability.apiSampleCount + " enkeltprøver fra " +
       trend.reliability.detailedApiRuns + " fullstendig målte kjøringer; " +
       trend.reliability.legacyApiRuns + " eldre kjøringer mangler sammenlignbare prøveverdier.",
+    "Fordeling av klassifiserte API-prøver: " + trend.reliability.uncachedApiSamples +
+      " ikke-HIT, " + trend.reliability.hitApiSamples + " HIT og " +
+      trend.reliability.unknownCacheApiSamples + " med uavklart cache-status. " +
+      "Første ikke-HIT >= 2000 ms: " + trend.reliability.slowFirstUncachedSamples + ".",
     "Direkte sideinnlastinger >= 3000 ms: " + trend.reliability.slowColdLoads + ".",
     "Dette teller kun fullførte målinger uten HTTP 429. Mislykkede kjøringer ligger i Actions-loggene, " +
       "ikke i denne nevneren; grønt medianresultat er ikke en påstand om 100 % stabilitet.",
@@ -197,16 +212,30 @@ function markdown(trend, history) {
       " (" + formatChange(r) + "); " + sampleCount(r) + " målinger (7d / før)."),
     ...(trend.regressions.length ? [] : [
       trend.routes.some((row) => row.cold.comparable && row.navigation.comparable) ||
-        trend.apis.some((row) => row.timing.comparable)
+        trend.apis.some((row) => row.firstUncached.comparable || row.cacheHit.comparable)
         ? "Ingen bekreftede vesentlige ytelsesforverringer i de sammenlignbare målingene."
         : "**For lite historikk til å vurdere utviklingen.** Tallene er foreløpige " +
           "og gir ikke grunnlag for å si om ytelsen har forbedret eller forverret seg.",
     ]),
     "",
+    "",
+    "### Vedvarende trege første API-kall (uten cachetreff)",
+    "",
+    ...(trend.slowFirstUncached.length ? trend.slowFirstUncached.map((r) =>
+      "- **VEDVARENDE TREGT** `" + r.endpoint + "`: første ikke-HIT " +
+      formatMs(r.medianMs) + " (7-dagersmedian), minst " + r.slowCount +
+      "/4 siste målinger over " + r.thresholdMs +
+      " ms, med to siste målinger over terskelen.") :
+      ["Ingen bekreftede vedvarende trege første API-kall, eller utilstrekkelig datagrunnlag."]),
+    "Dette er en egen GitHub Actions-advarsel, ikke automatisk jobbfeil. " +
+      "Varsel krever minst seks klassifiserte målinger på tre dager siste uke, " +
+      "samt tre av fire siste målinger (inkludert de to siste) over 2000 ms på minst to dager.",
+    "",
     "Sammenligning vises først med minst 6 målinger på minst 3 forskjellige dager " +
     "**i hver** 7-dagersperiode. De to siste målingene må dessuten vise vedvarende treghet.",
     "Varslingsgrenser: direktelasting +35 % og +500 ms (minst 1 s); " +
-    "sideskifte +35 % og +300 ms (minst 600 ms); API +45 % og +150 ms (minst 250 ms).",
+    "sideskifte +35 % og +300 ms (minst 600 ms); cachetreff +45 % og +150 ms (minst 250 ms); " +
+    "første ikke-HIT +45 % og +600 ms (minst 1500 ms).",
     "",
     "Antall historiske målinger: " + history.reports.length +
     " lest fra " + history.discovered + " GitHub-artifacts; med dagens kjøring " +
@@ -256,6 +285,16 @@ async function main() {
     warn("BEKREFTET YTELSESFORVERRING " + regression.scope + " " +
       regression.key + ": " + regression.priorMedianMs + " -> " +
       regression.currentMedianMs + " ms (" + regression.changePct + "%)");
+  }
+  // One bounded annotation, not a flood of per-endpoint annotations on every
+  // scheduled run. Persistently slow starts remain visible when medians are green.
+  if (trend.slowFirstUncached.length && process.env.GITHUB_EVENT_NAME === "schedule" &&
+      process.env.GITHUB_REF === "refs/heads/main") {
+    const top = [...trend.slowFirstUncached]
+      .sort((a, b) => (b.medianMs || 0) - (a.medianMs || 0));
+    warn("VEDVARENDE TREGT FØRSTE API-KALL uten cachetreff (>=2000 ms): " +
+      top.slice(0, 5).map((a) => a.endpoint + " " + a.medianMs + " ms").join("; ") +
+      (top.length > 5 ? "; +" + (top.length - 5) + " andre (se Job Summary)" : ""));
   }
   // Failure sends an Actions failure signal (subject to GitHub notification
   // settings). Avoid blocking PRs for production regressions unrelated to PR.
