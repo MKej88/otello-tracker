@@ -116,7 +116,7 @@ test("Completed overnight FX and OTEC estimates keep the same frozen calculation
   assert.doesNotMatch(chart.line, /NaN|Infinity/);
 });
 
-test("Overnight cards place FX below the balanced Bemobi and OTEC row", () => {
+test("Wide screens show three compact cards and small screens stack FX responsively", () => {
   const read = (name: string) => requireFixture(name);
   const component = read("BemobiAfterOsloCard.tsx");
   const css = read("bemobi-after-oslo.css");
@@ -125,8 +125,11 @@ test("Overnight cards place FX below the balanced Bemobi and OTEC row", () => {
   const fxAt = component.indexOf('aria-label="BRL/NOK over perioden da Oslo Børs var stengt"');
   assert.ok(bemobiAt >= 0 && otecAt > bemobiAt && fxAt > otecAt);
   assert.ok(component.includes('className="bemobiAfterOsloFxChartPanel"'));
-  assert.match(css, /\.bemobiAfterOsloFxCard\s*\{\s*grid-column:1 \/ -1;/);
-  assert.match(css, /@media\(max-width:760px\)/);
+  assert.match(css, /@media\(min-width:1280px\)/);
+  assert.match(css, /grid-template-columns:repeat\(3, minmax\(0,1fr\)\)/);
+  assert.match(css, /@media\(min-width:1001px\) and \(max-width:1279px\)/);
+  assert.match(css, /max-width:650px/);
+  assert.match(css, /@media\(max-width:620px\)/);
 });
 
 function requireFixture(name: string): string {
