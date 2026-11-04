@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedCombinedTheoreticalPrice, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
@@ -114,3 +115,20 @@ test("Completed overnight FX and OTEC estimates keep the same frozen calculation
   assert.equal(chart.end, "2026-11-04T07:45:00Z");
   assert.doesNotMatch(chart.line, /NaN|Infinity/);
 });
+
+test("Overnight cards place FX below the balanced Bemobi and OTEC row", () => {
+  const read = (name: string) => requireFixture(name);
+  const component = read("BemobiAfterOsloCard.tsx");
+  const css = read("bemobi-after-oslo.css");
+  const bemobiAt = component.indexOf('aria-label="Bemobi siden Oslo Børs stengte"');
+  const otecAt = component.indexOf('aria-label="Teoretisk OTEC-effekt fra Bemobi"');
+  const fxAt = component.indexOf('aria-label="BRL/NOK over perioden da Oslo Børs var stengt"');
+  assert.ok(bemobiAt >= 0 && otecAt > bemobiAt && fxAt > otecAt);
+  assert.ok(component.includes('className="bemobiAfterOsloFxChartPanel"'));
+  assert.match(css, /\.bemobiAfterOsloFxCard\s*\{\s*grid-column:1 \/ -1;/);
+  assert.match(css, /@media\(max-width:760px\)/);
+});
+
+function requireFixture(name: string): string {
+  return readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
+}
