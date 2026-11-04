@@ -171,3 +171,28 @@ def test_quality_waits_for_later_quote_after_valid_reference():
     after = asyncio.run(_oslo_close_fx_quality(repo, now=NOW))
     assert after["status"] == "OK"
     assert after["reason"] is None
+
+
+def test_friday_to_monday_open_freezes_fx_and_chart_without_later_quotes():
+    repo = Repository()
+    repo.official()
+    repo.quote(OBSERVED, "1.7100")
+    repo.quote(iso(CLOSE + timedelta(hours=2)), "1.7200")
+    repo.quote("2026-11-02T07:55:00Z", "1.7400")  # Monday 08:55 Oslo
+    repo.quote("2026-11-02T08:05:00Z", "1.8000")  # After Oslo opens
+    assert asyncio.run(recover_fx_close_reference(repo, now=NOW))["status"] == "ok"
+    before = asyncio.run(fx_close_movement(repo, CLOSE, datetime.fromisoformat("2026-11-02T07:58:00+00:00")))
+    at_open = asyncio.run(fx_close_movement(repo, CLOSE, datetime.fromisoformat("2026-11-02T08:00:00+00:00")))
+    later = asyncio.run(fx_close_movement(repo, CLOSE, datetime.fromisoformat("2026-11-02T14:00:00+00:00")))
+    assert before["ready"] and at_open["ready"] and later["ready"]
+    assert before["measurement_complete"] is False
+    assert at_open["measurement_complete"] is True
+    assert later["measurement_complete"] is True
+    assert later["next_oslo_open_at"] == "2026-11-02T08:00:00Z"
+    assert later["measurement_end_at"] == "2026-11-02T08:00:00Z"
+    assert at_open["latest_rate"] == later["latest_rate"] == 1.74
+    assert at_open["change_pct"] == later["change_pct"]
+    assert at_open["points"] == later["points"]
+    assert later["points"][0] == {"at": iso(CLOSE), "change_pct": 0.0}
+    assert later["points"][-1]["at"] == "2026-11-02T07:55:00Z"
+    assert all(point["at"] < "2026-11-02T08:00:00Z" for point in later["points"])

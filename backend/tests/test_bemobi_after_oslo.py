@@ -708,36 +708,36 @@ def test_friday_result_is_retained_through_weekend_and_b3_holiday(now):
 @pytest.mark.parametrize(
     "now",
     [
-        "2026-10-09T13:00:00Z",  # actual B3 opening, before delayed quotes
-        "2026-10-09T13:15:00Z",  # screenshot: 15:15 Oslo
-        "2026-10-09T14:24:59Z",  # last second before Oslo close
-        "2026-12-08T13:00:00Z",  # winter: B3 opens at 14:00 Oslo
-        "2026-12-08T15:24:59Z",  # winter: Oslo closes at 15:25 UTC
+        "2026-10-09T13:00:00Z",
+        "2026-10-09T13:15:00Z",
+        "2026-10-09T14:24:59Z",
+        "2026-12-08T13:00:00Z",
+        "2026-12-08T15:24:59Z",
     ],
 )
-def test_overlapping_sessions_hide_all_prices_and_effects(now):
+def test_next_oslo_session_retains_frozen_previous_close_effect(now):
     repo = effect_repo()
     day = dt(now).date() - timedelta(days=1)
     close = feature.iso(feature.closing_auction(day))
     repo.anchor(day=day.isoformat(), price=31.46, observed=close)
-    repo.quote(close, 31.46)
     repo.quote(f"{day.isoformat()}T20:00:00Z", 31.5, source=2)
     repo.quote(now, 33.62, source=2)
     result = asyncio.run(feature.bemobi_after_oslo(repo, now=dt(now)))
-    assert not result["ready"]
-    assert result["status"] == "waiting_oslo_close"
-    assert result["points"] == []
-    for key in (
-        "reference", "latest", "change_pct", "change_brl", "otec_effect", "oslo_close_at"
-    ):
-        assert key not in result
+    assert result["ready"]
+    assert result["status"] == "ready"
+    assert result["measurement_complete"] is True
+    assert result["latest"]["price"] == 31.5
+    assert result["otec_effect"]["ready"]
+    assert all(point["at"] <= result["measurement_end_at"] for point in result["points"])
 
 
-def test_waiting_for_oslo_close_does_not_require_quotes_or_reference():
+def test_missing_previous_reference_still_does_not_invent_a_result_after_open():
     result = asyncio.run(
-        feature.bemobi_after_oslo(None, now=dt("2026-10-09T13:00:00Z"))
+        feature.bemobi_after_oslo(Repository(), now=dt("2026-10-09T13:00:00Z"))
     )
-    assert result["status"] == "waiting_oslo_close"
+    assert not result["ready"]
+    assert result["status"] == "missing_reference"
+    assert result["measurement_complete"] is True
 
 
 @pytest.mark.parametrize("now", ["2026-04-01T12:59:59Z", "2026-04-01T13:00:00Z"])
@@ -784,3 +784,36 @@ def test_after_oslo_close_uses_today_reference_and_not_previous_session():
     assert result["reference"]["price"] == 33.7
     assert result["change_pct"] == pytest.approx((33.8 / 33.7 - 1) * 100)
     assert all(point["at"] >= "2026-10-09T14:25:00Z" for point in result["points"])
+
+
+@pytest.mark.parametrize(
+    "close, next_open",
+    [
+        ("2026-10-09T14:25:00Z", "2026-10-12T07:00:00Z"),  # Weekend, summer time
+        ("2026-11-03T15:25:00Z", "2026-11-04T08:00:00Z"),  # Winter time
+        ("2026-04-01T11:05:00Z", "2026-04-07T07:00:00Z"),  # Easter + half day
+        ("2026-12-30T15:25:00Z", "2027-01-04T08:00:00Z"),  # New Year closures
+    ],
+)
+def test_next_oslo_open_uses_trading_calendar_and_dst(close, next_open):
+    assert feature.iso(feature.next_oslo_open_after(dt(close))) == next_open
+
+
+def test_bemobi_effect_freezes_at_oslo_open_and_resets_after_next_close():
+    repo = Repository()
+    repo.anchor(day="2026-10-05", price=20, observed="2026-10-05T14:25:00Z")
+    repo.quote("2026-10-05T20:00:00Z", 21)
+    repo.quote("2026-10-06T07:05:00Z", 40)  # After Oslo's next 09:00 opening
+    early = asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-06T06:59:59Z")))
+    opening = asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-06T07:00:00Z")))
+    midday = asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-06T12:00:00Z")))
+    assert early["measurement_complete"] is False
+    assert opening["measurement_complete"] is True
+    assert opening["measurement_end_at"] == "2026-10-06T07:00:00Z"
+    assert midday["measurement_complete"] is True
+    assert early["latest"]["price"] == opening["latest"]["price"] == midday["latest"]["price"] == 21.0
+    assert early["change_pct"] == opening["change_pct"] == midday["change_pct"]
+    assert opening["points"] == midday["points"]
+    new_close = asyncio.run(feature.bemobi_after_oslo(repo, now=dt("2026-10-06T14:25:00Z")))
+    assert new_close["status"] == "waiting_reference"
+    assert new_close["measurement_complete"] is False
