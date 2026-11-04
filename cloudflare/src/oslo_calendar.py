@@ -59,3 +59,14 @@ def closing_auction(day: date) -> datetime:
     return datetime.combine(
         day, time(13, 5) if half_day else time(16, 25), ZoneInfo("Europe/Oslo")
     )
+
+
+def next_oslo_open_after(close: datetime) -> datetime:
+    """First regular Oslo opening after a close (weekends/holidays/DST aware)."""
+    tz = ZoneInfo("Europe/Oslo")
+    day = close.astimezone(tz).date() + timedelta(days=1)
+    for _ in range(20):
+        if is_oslo_bors_trading_day(day):
+            return datetime.combine(day, time(9, 0), tz)
+        day += timedelta(days=1)
+    raise ValueError("No next Oslo trading day")

@@ -16,10 +16,12 @@ try:
     from .bemobi_after_oslo import capture_window, iso, timestamp, latest_oslo_close
     from .exchangerate_dev_fx import URL, MAX_RESPONSE_BYTES, parse_brl_nok
     from .bounded_response import read_response_bytes
+    from .oslo_calendar import next_oslo_open_after
 except ImportError:
     from bemobi_after_oslo import capture_window, iso, timestamp, latest_oslo_close
     from exchangerate_dev_fx import URL, MAX_RESPONSE_BYTES, parse_brl_nok
     from bounded_response import read_response_bytes
+    from oslo_calendar import next_oslo_open_after
 
 REFERENCE_PREFIX = "brlnok_oslo_reference_v1:"
 CLOSE_LOOKBACK = timedelta(minutes=3)
@@ -30,7 +32,9 @@ MAX_NB_DEVIATION = Decimal("0.12")
 
 
 async def fx_close_movement(repository: Any, close: datetime, current: datetime) -> dict[str, Any]:
-    """Use only a proven near-close intraday reference and later EXR quotes."""
+    """Measure the closed Oslo session only, ending at the next opening."""
+    next_open = next_oslo_open_after(close)
+    measured_until = min(current, next_open)
     key = REFERENCE_PREFIX + close.astimezone(ZoneInfo("Europe/Oslo")).date().isoformat()
     stored = await repository.first("SELECT value FROM runtime_state WHERE key=?", (key,))
     if not stored:
@@ -60,7 +64,7 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
              AND julianday(fr.observed_at)>julianday(?)
              AND julianday(fr.observed_at)<=julianday(?)
            ORDER BY julianday(fr.observed_at) DESC, fr.id DESC LIMIT 1""",
-        (iso(close), iso(current)),
+        (iso(close), iso(measured_until)),
     )
     if not latest:
         return {"ready": False, "reason": "missing_fx_after_oslo_close", "reference_rate": float(rate), "reference_at": iso(observed)}
@@ -71,8 +75,37 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
         return {"ready": False, "reason": "invalid_latest_fx"}
     if not recent.is_finite() or recent <= 0 or latest_at is None:
         return {"ready": False, "reason": "invalid_latest_fx"}
+    # Use stored intraday observations for a compact, date-accurate FX chart.
+    history = await repository.all(
+        """SELECT fr.rate, fr.observed_at
+           FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+           WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+             AND s.code='EXCHANGERATE_DEV'
+             AND julianday(fr.observed_at)>julianday(?)
+             AND julianday(fr.observed_at)<=julianday(?)
+           ORDER BY julianday(fr.observed_at) DESC, fr.id DESC LIMIT 320""",
+        (iso(close), iso(measured_until)),
+    )
+    points = [{"at": iso(close), "change_pct": 0.0}]
+    for quote in reversed(history):
+        try:
+            quote_at = timestamp(quote.get("observed_at"))
+            quote_rate = Decimal(str(quote.get("rate")))
+        except (TypeError, ValueError, ArithmeticError):
+            continue
+        if (quote_at is None or not close < quote_at <= measured_until
+                or not quote_rate.is_finite() or quote_rate <= 0):
+            continue
+        points.append({"at": iso(quote_at), "change_pct": float((quote_rate / rate - 1) * 100)})
+    # Keep the displayed latest observation at the end even if the chart is capped.
+    if points[-1]["at"] != iso(latest_at):
+        points.append({"at": iso(latest_at), "change_pct": float((recent / rate - 1) * 100)})
     return {
         "ready": True,
+        "measurement_complete": current >= next_open,
+        "next_oslo_open_at": iso(next_open),
+        "measurement_end_at": iso(measured_until),
+        "points": points,
         "reference_rate": float(rate),
         "reference_at": iso(observed),
         "reference_source": "EXCHANGERATE_DEV",

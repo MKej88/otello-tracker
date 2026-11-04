@@ -60,6 +60,9 @@ class Repository:
             return {"outstanding_shares": "10"}
         return None
 
+    async def all(self, sql, args=()):
+        return []
+
     async def source_id(self, code):
         if code != "EXCHANGERATE_DEV":
             raise AssertionError(code)

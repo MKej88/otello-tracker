@@ -16,10 +16,10 @@ from zoneinfo import ZoneInfo
 
 try:
     from .b3_calendar import b3_opening, is_b3_trading_day
-    from .oslo_calendar import closing_auction, is_oslo_bors_trading_day
+    from .oslo_calendar import closing_auction, is_oslo_bors_trading_day, next_oslo_open_after
 except ImportError:
-    from b3_calendar import b3_opening, is_b3_trading_day
-    from oslo_calendar import closing_auction, is_oslo_bors_trading_day
+    from b3_calendar import b3_opening as b3_opening, is_b3_trading_day
+    from oslo_calendar import closing_auction, is_oslo_bors_trading_day, next_oslo_open_after
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
 B3_TZ = ZoneInfo("America/Sao_Paulo")
@@ -422,31 +422,18 @@ async def bemobi_after_oslo(
     repository, *, now: datetime | None = None
 ) -> dict[str, Any]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    oslo_day = current.astimezone(OSLO_TZ).date()
-    b3_day = current.astimezone(B3_TZ).date()
-    if (
-        is_oslo_bors_trading_day(oslo_day)
-        and is_b3_trading_day(b3_day)
-        and b3_opening(b3_day) <= current < closing_auction(oslo_day)
-    ):
-        # Today's B3 trading must never be measured against yesterday's Oslo
-        # reference while Oslo is still trading. Gate on the actual opening,
-        # independently of delayed quotes and without exposing the old basis.
-        return {
-            "ready": False,
-            "status": "waiting_oslo_close",
-            "symbol": "BMOB3",
-            "currency": "BRL",
-            "generated_at": iso(current),
-            "points": [],
-        }
     close = latest_oslo_close(current)
+    next_open = next_oslo_open_after(close)
+    measured_until = min(current, next_open)
     result: dict[str, Any] = {
         "ready": False,
         "status": "missing_reference",
         "symbol": "BMOB3",
         "currency": "BRL",
         "oslo_close_at": iso(close),
+        "next_oslo_open_at": iso(next_open),
+        "measurement_end_at": iso(measured_until),
+        "measurement_complete": current >= next_open,
         "generated_at": iso(current),
         "points": [],
     }
@@ -502,9 +489,9 @@ async def bemobi_after_oslo(
         """,
         (
             observed.astimezone(B3_TZ).date().isoformat(),
-            current.astimezone(B3_TZ).date().isoformat(),
+            measured_until.astimezone(B3_TZ).date().isoformat(),
             iso(observed),
-            iso(current),
+            iso(measured_until),
         ),
     )
     valid = [
@@ -519,9 +506,8 @@ async def bemobi_after_oslo(
     latest = valid[0]
     latest_time = timestamp(latest["observed_at"])
     assert latest_time is not None
-    # This card measures movement since the latest Oslo close, not live freshness.
-    # Outside overlapping trading hours, retain the latest validated quote until
-    # a new Oslo close; the UI shows its actual timestamp across overnight gaps.
+    # This card measures the closed Oslo session. Once Oslo reopens, both Bemobi
+    # and FX remain frozen until a new Oslo close creates a new reference.
     try:
         metadata = json.loads(latest.get("metadata_json") or "{}")
     except (TypeError, ValueError):

@@ -83,3 +83,34 @@ test("Combined FX effect requires matching, valid reference and readable estimat
   assert.equal(displayedFxMovement({ ...valid, otec_effect: { ...valid.otec_effect,
     fx_movement: { ...valid.otec_effect.fx_movement, combined_pct_otec: Infinity } } }), null);
 });
+
+
+test("Completed overnight FX and OTEC estimates keep the same frozen calculation", () => {
+  const data = {
+    ready: true, status: "ready", change_pct: 2.12,
+    measurement_complete: true, next_oslo_open_at: "2026-11-04T08:00:00Z",
+    measurement_end_at: "2026-11-04T08:00:00Z",
+    otec_effect: { ready: true, change_pct: 1.6, change_per_share_nok: 0.25, otec_price_nok: 20,
+      fx_movement: { ready: true, measurement_complete: true,
+        reference_rate: 1.6927, latest_rate: 1.6871, change_pct: -0.33,
+        next_oslo_open_at: "2026-11-04T08:00:00Z",
+        measurement_end_at: "2026-11-04T08:00:00Z",
+        points: [
+          { at: "2026-11-03T15:25:00Z", change_pct: 0 },
+          { at: "2026-11-03T20:00:00Z", change_pct: -0.15 },
+          { at: "2026-11-04T07:45:00Z", change_pct: -0.33 },
+        ],
+        effect_per_share_nok: -0.05, combined_per_share_nok: 0.20,
+        combined_pct_otec: 1, theoretical_otec_price_nok: 20.20,
+      },
+    },
+  };
+  assert.equal(displayedFxMovement(data)?.measurement_complete, true);
+  assert.equal(displayedFxMovement(data)?.next_oslo_open_at, data.next_oslo_open_at);
+  assert.equal(displayedCombinedTheoreticalPrice(data), 20.20);
+  assert.equal(displayedFxMovement(data)?.combined_per_share_nok, 0.20);
+  const chart = movementChart(displayedFxMovement(data)?.points);
+  assert.ok(chart);
+  assert.equal(chart.end, "2026-11-04T07:45:00Z");
+  assert.doesNotMatch(chart.line, /NaN|Infinity/);
+});

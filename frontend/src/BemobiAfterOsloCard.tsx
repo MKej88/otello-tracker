@@ -22,6 +22,8 @@ export default function BemobiAfterOsloCard() {
   const effect = displayedOtecEffect(data, refreshFailed);
   const theoreticalPrice = displayedTheoreticalOtecPrice(data, refreshFailed);
   const fx = displayedFxMovement(data, refreshFailed);
+  const finished = data?.measurement_complete === true;
+  const fxChart = fx ? movementChart(fx.points) : null;
   const combinedPrice = displayedCombinedTheoreticalPrice(data, refreshFailed);
   const effectTone = effect?.change_per_share_nok == null || effect.change_per_share_nok === 0 ? "neutral" : effect.change_per_share_nok > 0 ? "positive" : "negative";
   const combinedTone = fx?.combined_per_share_nok == null || fx.combined_per_share_nok === 0 ? "neutral" : fx.combined_per_share_nok > 0 ? "positive" : "negative";
@@ -39,14 +41,15 @@ export default function BemobiAfterOsloCard() {
         <div className="bemobiAfterOsloMain">
           <div>
             <span className="label">ETTER CLOSE PÅ OSLO BØRS</span>
-            <h2>Bemobi siden Oslo Børs stengte</h2>
+            <h2>{finished ? "Bemobi frem til Oslo-åpning" : "Bemobi siden Oslo Børs stengte"}</h2>
             <strong className={`bemobiAfterOsloValue numeric ${tone}`}>
               {change == null ? "—" : `${change > 0 ? "+" : ""}${formatNumber(change, 2)} %`}
             </strong>
             <div className="bemobiAfterOsloStatus" role="status">
               {statusLabel(data?.status, refreshFailed)}
             </div>
-            {data?.oslo_close_at && <small>close på Oslo Børs: {formatDateTime(data.oslo_close_at)}</small>}
+            {data?.oslo_close_at && <small>Close på Oslo Børs: {formatDateTime(data.oslo_close_at)}</small>}
+            {data?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">{finished ? "Avsluttet ved" : "Måles frem til"} Oslo-åpning: {formatDateTime(data.next_oslo_open_at)}</small>}
           </div>
           <div className="bemobiAfterOsloMovement">
             <div className="bemobiAfterOsloPrices">
@@ -66,16 +69,24 @@ export default function BemobiAfterOsloCard() {
         </div>
         <div className="bemobiAfterOsloFxMovement">
           <div className="bemobiAfterOsloFxHeading">
-            <b>BRL/NOK siden Oslo Børs stengte</b>
+            <b>{finished ? "BRL/NOK – frem til Oslo-åpning" : "BRL/NOK siden Oslo Børs stengte"}</b>
             <strong className={`numeric ${fxTone}`}>{fx?.change_pct != null ? signed(fx.change_pct, " %") : "—"}</strong>
           </div>
           {fx ? (
             <>
               <div className="bemobiAfterOsloPrices">
                 <span>Ved Oslo-slutt <strong className="numeric">{formatNumber(fx.reference_rate, 4)} NOK</strong></span>
-                <span>Siste kurs <strong className="numeric">{formatNumber(fx.latest_rate, 4)} NOK</strong></span>
+                <span>{finished ? "Siste kurs før åpning" : "Siste kurs"} <strong className="numeric">{formatNumber(fx.latest_rate, 4)} NOK</strong></span>
               </div>
-              <small>Referanse: {formatDateTime(fx.reference_at)} · siste kurs: {formatDateTime(fx.latest_at)}. Omtrentlig kurs ved Oslo-slutt.</small>
+              {fxChart && <>
+                <svg viewBox="0 0 480 100" preserveAspectRatio="none" className={`bemobiAfterOsloChart bemobiAfterOsloFxChart ${fxTone}`} role="img"
+                  aria-label={`BRL/NOK i måleperioden: ${formatNumber(fx.change_pct!, 2)} prosent endring.`}>
+                  <line x1="8" x2="472" y1={fxChart.zeroY} y2={fxChart.zeroY} className="bemobiAfterOsloZero" />
+                  <polyline points={fxChart.line} />
+                </svg>
+                <div className="bemobiAfterOsloTimes numeric"><span>{timeLabel(fxChart.start)}</span><span>{timeLabel(fxChart.end)}</span></div>
+              </>}
+              <small>Referanse: {formatDateTime(fx.reference_at)} · målt kurs: {formatDateTime(fx.latest_at)}. Omtrentlig kurs ved Oslo-slutt.{finished ? " Endringen er fryst ved neste Oslo-åpning." : ""}</small>
             </>
           ) : <small>Mangler valutakurs nær Oslo-stenging eller en senere oppdatert valutakurs. Ingen valutaeffekt beregnes.</small>}
         </div>
@@ -86,7 +97,7 @@ export default function BemobiAfterOsloCard() {
             <p>{reference?.source === "YAHOO_FINANCE"
               ? "Omtrentlig referanse fra Yahoo Finance: sluttkursen i siste avsluttede minutt før close på Oslo Børs, høyst tre minutter tidligere."
               : "Omtrentlig referanse: B3s svartidspunkt minus 15 minutter. Godtas innen tre minutter fra close på Oslo Børs."} Alle tidspunkt vises i norsk tid.</p>
-            <p>Bemobi-endringen gjelder aksjekursen i BRL. Valutaendringen vises separat og måles mot en lagret BRL/NOK-kurs nær Oslo-slutt.</p>
+            <p>Bemobi-endringen gjelder aksjekursen i BRL. Valutaendringen vises separat og måles mot en lagret BRL/NOK-kurs nær Oslo-slutt. Begge målingene avsluttes ved neste børsåpning kl. 09:00 (etter handelskalenderen). Siste faktisk registrerte kurstid oppgis, også hvis den er tidligere enn kl. 09:00.</p>
           </div>
         </details>
       </section>
@@ -110,18 +121,18 @@ export default function BemobiAfterOsloCard() {
         </div>
         {theoreticalPrice != null && <small>Kun Bemobi, med valutakurs holdt fast: {formatNumber(theoreticalPrice, 2)} kr.</small>}
         <div className="bemobiAfterOsloStatus" role="status">
-          {effect ? fx ? "Beregnet fra Bemobi og BRL/NOK etter Oslo-slutt" : "Beregnet Bemobi-effekt; valutareferanse mangler"
+          {effect ? fx ? (finished ? "Avsluttet ved neste Oslo-åpning · Bemobi og BRL/NOK" : "Beregnet fra Bemobi og BRL/NOK etter Oslo-slutt") : "Beregnet Bemobi-effekt; valutareferanse mangler"
             : change == null ? statusLabel(data?.status, refreshFailed)
             : `Mangler ${data?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
         </div>
-        <small>Teoretisk kurs med utgangspunkt i OTEC ved Oslo-slutt. Aksje- og valutaeffekt vises separat.</small>
+        <small>Teoretisk kurs med utgangspunkt i OTEC ved Oslo-slutt. Aksje- og valutaeffekt vises separat og avgrenses til neste Oslo-åpning. Ordinær NAV oppdateres uavhengig.</small>
         <details className="bemobiAfterOsloDetails">
           <summary>Vis beregningsgrunnlag</summary>
           {effect && <>
             <p>OTEC ved close på Oslo Børs: {formatNumber(effect.otec_price_nok, 2)} kr · {effect.otec_source}
               {effect.otec_price_type === "LAST" ? " · siste tilgjengelige handel i børsøkten, inkludert sluttauksjonen (omtrentlig)" : " · sluttkurs"}.</p>
             <p>BRL/NOK ved Oslo-slutt: {formatNumber(effect.fixed_brl_nok, 4)} · {formatDateTime(effect.fx_observed_at)} · {effect.fx_source}{fx ? " (omtrentlig tidsnær referanse)" : " (eldre dagsreferanse for Bemobi-beregningen)" }.</p>
-            {fx && <p>Siste BRL/NOK: {formatNumber(fx.latest_rate, 4)} · {formatDateTime(fx.latest_at)} · {fx.latest_source}. Valutaendring: {signed(fx.change_pct!, " %")}.</p>}
+            {fx && <p>BRL/NOK ved slutten av måleperioden: {formatNumber(fx.latest_rate, 4)} · faktisk kurstid {formatDateTime(fx.latest_at)} · {fx.latest_source}. Valutaendring: {signed(fx.change_pct!, " %")}. Neste Oslo-åpning: {fx.next_oslo_open_at ? formatDateTime(fx.next_oslo_open_at) : "–"}.</p>}
             <p>Bemobi-beholdning: {formatNumber(effect.holding_shares, 0)} aksjer. Utestående OTEC-aksjer: {formatNumber(effect.otec_outstanding_shares, 0)}.</p>
           </>}
           <p>Bemobi-effekt = (siste Bemobi-kurs − Bemobi ved Oslo-slutt) × BRL/NOK ved Oslo-slutt × Bemobi-aksjer / OTEC-aksjer.</p>

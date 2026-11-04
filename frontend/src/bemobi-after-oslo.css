@@ -34,3 +34,10 @@
 .otecEffectBreakdown span { color:var(--ot-text-secondary); }
 .otecEffectBreakdown strong { color:var(--ot-text); }
 .otecEffectBreakdown .otecEffectTotal { border-top:1px solid var(--ot-border-soft); padding-top:10px; font-weight:700; }
+
+.bemobiAfterOsloPeriod { display:block; margin-top:5px; }
+.bemobiAfterOsloFxChart { height:72px; margin-top:4px; }
+@media(max-width:620px) {
+  .bemobiAfterOsloFxHeading { align-items:flex-start; }
+  .bemobiAfterOsloFxChart { height:64px; }
+}
