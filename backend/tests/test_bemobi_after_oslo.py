@@ -720,6 +720,10 @@ def test_next_oslo_session_retains_frozen_previous_close_effect(now):
     day = dt(now).date() - timedelta(days=1)
     close = feature.iso(feature.closing_auction(day))
     repo.anchor(day=day.isoformat(), price=31.46, observed=close)
+    # The reusable fixture starts at 5 October; synchronize its OTEC and FX
+    # closing reference with the session under test.
+    repo.db.execute("UPDATE market_prices SET observed_at=?,trading_date=? WHERE id=10", (close, day.isoformat()))
+    repo.db.execute("UPDATE fx_rates SET observed_at=? WHERE id=1", (feature.iso(dt(close) - timedelta(hours=2)),))
     repo.quote(f"{day.isoformat()}T20:00:00Z", 31.5, source=2)
     repo.quote(now, 33.62, source=2)
     result = asyncio.run(feature.bemobi_after_oslo(repo, now=dt(now)))
