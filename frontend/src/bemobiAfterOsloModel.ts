@@ -2,6 +2,9 @@ export type BemobiAfterOslo = {
   ready: boolean;
   status: string;
   oslo_close_at?: string;
+  next_oslo_open_at?: string;
+  measurement_end_at?: string;
+  measurement_complete?: boolean;
   generated_at?: string;
   change_pct?: number;
   change_brl?: number;
@@ -22,6 +25,10 @@ export type BemobiAfterOslo = {
     fx_movement?: {
       ready: boolean;
       reason?: string;
+      measurement_complete?: boolean;
+      next_oslo_open_at?: string;
+      measurement_end_at?: string;
+      points?: Array<{ at: string; change_pct: number }>;
       reference_rate?: number;
       reference_at?: string;
       reference_source?: string;
