@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDateTime, formatNumber } from "./uiFormat";
 import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedCombinedTheoreticalPrice, movementChart, statusLabel, type BemobiAfterOslo } from "./bemobiAfterOsloModel";
@@ -8,6 +9,62 @@ function timeLabel(at?: string) {
   return new Date(at).toLocaleTimeString("nb-NO", {
     timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit",
   });
+}
+
+
+type MarketMovementProps = {
+  title: string;
+  change: number | null;
+  tone: string;
+  status: string;
+  referenceLabel: string;
+  referenceValue: string;
+  latestLabel: string;
+  latestValue: string;
+  chart: ReturnType<typeof movementChart>;
+  chartLabel: string;
+  sourceNote: ReactNode;
+};
+
+/** Shared price/percentage/chart rows keep Bemobi and BRL/NOK aligned. */
+function MarketMovement({
+  title, change, tone, status, referenceLabel, referenceValue,
+  latestLabel, latestValue, chart, chartLabel, sourceNote,
+}: MarketMovementProps) {
+  return (
+    <div className="bemobiAfterOsloMarket">
+      <header className="bemobiAfterOsloMarketHeader">
+        <span className="label">ETTER CLOSE PÅ OSLO BØRS</span>
+        <h2>{title}</h2>
+      </header>
+      <div className="bemobiAfterOsloMarketChange">
+        <strong className={["bemobiAfterOsloValue", "numeric", tone].join(" ")}>
+          {change == null ? "—" : (change > 0 ? "+" : "") + formatNumber(change, 2) + " %"}
+        </strong>
+        <div className="bemobiAfterOsloStatus" role="status">{status}</div>
+      </div>
+      <div className="bemobiAfterOsloPrices">
+        <span>{referenceLabel}<strong className="numeric">{referenceValue}</strong></span>
+        <span>{latestLabel}<strong className="numeric">{latestValue}</strong></span>
+      </div>
+      <div className="bemobiAfterOsloMarketChartPanel">
+        {chart ? (
+          <>
+            <svg viewBox="0 0 480 100" preserveAspectRatio="none"
+              className={["bemobiAfterOsloChart", tone].join(" ")}
+              role="img" aria-label={chartLabel}>
+              <line x1="8" x2="472" y1={chart.zeroY} y2={chart.zeroY} className="bemobiAfterOsloZero" />
+              <polyline points={chart.line} />
+            </svg>
+            <div className="bemobiAfterOsloTimes numeric">
+              <span>{timeLabel(chart.start)}</span><span>{timeLabel(chart.end)}</span>
+            </div>
+          </>
+        ) : <><div className="bemobiAfterOsloChartPlaceholder">Kurshistorikk ikke tilgjengelig ennå</div><div className="bemobiAfterOsloTimes numeric"><span>—</span><span>—</span></div></>}
+      </div>
+      <div className="bemobiAfterOsloMarketSource">{sourceNote}</div>
+    </div>
+  );
 }
 
 export default function BemobiAfterOsloCard() {
@@ -37,39 +94,27 @@ export default function BemobiAfterOsloCard() {
   };
   return (
     <div className="bemobiAfterOsloGrid">
-      <section className="card cardStandard bemobiAfterOslo" aria-label="Bemobi siden Oslo Børs stengte">
-        <div className="bemobiAfterOsloMain">
-          <div>
-            <span className="label">ETTER CLOSE PÅ OSLO BØRS</span>
-            <h2>{finished ? "Bemobi frem til Oslo-åpning" : "Bemobi siden Oslo Børs stengte"}</h2>
-            <strong className={`bemobiAfterOsloValue numeric ${tone}`}>
-              {change == null ? "—" : `${change > 0 ? "+" : ""}${formatNumber(change, 2)} %`}
-            </strong>
-            <div className="bemobiAfterOsloStatus" role="status">
-              {statusLabel(data?.status, refreshFailed)}
-            </div>
-            {data?.oslo_close_at && <small>Close på Oslo Børs: {formatDateTime(data.oslo_close_at)}</small>}
-            {data?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">{finished ? "Avsluttet ved" : "Måles frem til"} Oslo-åpning: {formatDateTime(data.next_oslo_open_at)}</small>}
-          </div>
-          <div className="bemobiAfterOsloMovement">
-            <div className="bemobiAfterOsloPrices">
-              <span>Ved close på Oslo Børs <strong className="numeric">{reference ? `R$ ${formatNumber(reference.price, 2)}` : "—"}</strong></span>
-              <span>Siste kurs <strong className="numeric">{latest ? `R$ ${formatNumber(latest.price, 2)}` : "—"}</strong></span>
-            </div>
-            {chart && <>
-              <svg viewBox="0 0 480 100" preserveAspectRatio="none" className={`bemobiAfterOsloChart ${tone}`} role="img"
-                aria-label={`Bemobis lagrede kursutvikling siden close på Oslo Børs: ${formatNumber(change, 2)} prosent.`}>
-                <line x1="8" x2="472" y1={chart.zeroY} y2={chart.zeroY} className="bemobiAfterOsloZero" />
-                <polyline points={chart.line} />
-              </svg>
-              <div className="bemobiAfterOsloTimes numeric"><span>{timeLabel(chart.start)}</span><span>{timeLabel(chart.end)}</span></div>
-            </>}
+      <section className="card cardStandard bemobiAfterOslo bemobiAfterOsloMarketCard" aria-label="Bemobi siden Oslo Børs stengte">
+        <MarketMovement
+          title={finished ? "Bemobi frem til Oslo-åpning" : "Bemobi siden Oslo Børs stengte"}
+          change={change}
+          tone={tone}
+          status={statusLabel(data?.status, refreshFailed)}
+          referenceLabel="Ved Oslo-slutt"
+          referenceValue={reference ? "R$ " + formatNumber(reference.price, 2) : "—"}
+          latestLabel="Siste kurs"
+          latestValue={latest ? "R$ " + formatNumber(latest.price, 2) : "—"}
+          chart={chart}
+          chartLabel={change == null ? "Ingen Bemobi-kursutvikling tilgjengelig" : "Bemobis lagrede kursutvikling siden Oslo-slutt: " + formatNumber(change, 2) + " prosent."}
+          sourceNote={<>
             {latest && <small>Siste kurstid: {formatDateTime(latest.observed_at)} · {latest.source === "YAHOO_FINANCE" ? "Yahoo Finance" : latest.source}{latest.delay_minutes === 15 ? " · 15 min forsinket" : ""}</small>}
-          </div>
-        </div>
+            {data?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">{finished ? "Avsluttet ved" : "Måles til"} Oslo-åpning: {formatDateTime(data.next_oslo_open_at)}</small>}
+          </>}
+        />
         <details className="bemobiAfterOsloDetails">
           <summary>Vis kursgrunnlag</summary>
           <div>
+            {data?.oslo_close_at && <p>Oslo Børs stengte: {formatDateTime(data.oslo_close_at)}.</p>}
             {reference && <p>Referansekurs: R$ {formatNumber(reference.price, 2)} · {formatDateTime(reference.observed_at)} · {reference.source === "YAHOO_FINANCE" ? "Yahoo Finance" : reference.source}.</p>}
             <p>{reference?.source === "YAHOO_FINANCE"
               ? "Omtrentlig referanse fra Yahoo Finance: sluttkursen i siste avsluttede minutt før close på Oslo Børs, høyst tre minutter tidligere."
@@ -114,30 +159,32 @@ export default function BemobiAfterOsloCard() {
           <p><b>Forbehold:</b> Kursgrunnlaget nær Oslo-slutt er omtrentlig. Øvrige NAV-endringer er ikke medregnet.</p>
         </details>
       </section>
-      <section className="card cardStandard bemobiAfterOslo bemobiAfterOsloFxCard" aria-label="BRL/NOK over perioden da Oslo Børs var stengt">
-        <div className="bemobiAfterOsloFxMovement">
-          <div className="bemobiAfterOsloFxHeading">
-            <b>{finished ? "BRL/NOK – frem til Oslo-åpning" : "BRL/NOK siden Oslo Børs stengte"}</b>
-            <strong className={`numeric ${fxTone}`}>{fx?.change_pct != null ? signed(fx.change_pct, " %") : "—"}</strong>
+      <section className="card cardStandard bemobiAfterOslo bemobiAfterOsloMarketCard bemobiAfterOsloFxCard" aria-label="BRL/NOK over perioden da Oslo Børs var stengt">
+        <MarketMovement
+          title={finished ? "BRL/NOK frem til Oslo-åpning" : "BRL/NOK siden Oslo Børs stengte"}
+          change={fx?.change_pct ?? null}
+          tone={fxTone}
+          status={fx ? "Endring i BRL/NOK" : "Valutagrunnlag ikke tilgjengelig"}
+          referenceLabel="Ved Oslo-slutt"
+          referenceValue={fx ? formatNumber(fx.reference_rate, 4) + " NOK" : "—"}
+          latestLabel="Siste kurs"
+          latestValue={fx ? formatNumber(fx.latest_rate, 4) + " NOK" : "—"}
+          chart={fxChart}
+          chartLabel={fx ? "BRL/NOK i måleperioden: " + formatNumber(fx.change_pct!, 2) + " prosent endring." : "Ingen valutakursutvikling tilgjengelig"}
+          sourceNote={fx
+            ? <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}.</small>
+            : <small>Mangler valutakurs nær Oslo-stenging eller en senere oppdatert valutakurs. Ingen valutaeffekt beregnes.</small>}
+        />
+        <details className="bemobiAfterOsloDetails">
+          <summary>Vis kursgrunnlag</summary>
+          <div>
+            {fx && <>
+              <p>BRL/NOK ved Oslo-slutt: {formatNumber(fx.reference_rate, 4)} NOK · {formatDateTime(fx.reference_at)} · {fx.reference_source || "Ukjent kilde"}.</p>
+              <p>Siste valutakurs: {formatNumber(fx.latest_rate, 4)} NOK · {formatDateTime(fx.latest_at)} · {fx.latest_source || "Ukjent kilde"}.</p>
+            </>}
+            <p>Referansen ved Oslo-slutt er omtrentlig. Valutaendringen måles frem til neste Oslo-åpning og beregnes separat fra Bemobis aksjekurs.</p>
           </div>
-          {fx ? (
-            <>
-              <div className="bemobiAfterOsloPrices">
-                <span>Ved Oslo-slutt <strong className="numeric">{formatNumber(fx.reference_rate, 4)} NOK</strong></span>
-                <span>{finished ? "Siste kurs før åpning" : "Siste kurs"} <strong className="numeric">{formatNumber(fx.latest_rate, 4)} NOK</strong></span>
-              </div>
-              {fxChart && <div className="bemobiAfterOsloFxChartPanel">
-                <svg viewBox="0 0 480 100" preserveAspectRatio="none" className={`bemobiAfterOsloChart bemobiAfterOsloFxChart ${fxTone}`} role="img"
-                  aria-label={`BRL/NOK i måleperioden: ${formatNumber(fx.change_pct!, 2)} prosent endring.`}>
-                  <line x1="8" x2="472" y1={fxChart.zeroY} y2={fxChart.zeroY} className="bemobiAfterOsloZero" />
-                  <polyline points={fxChart.line} />
-                </svg>
-                <div className="bemobiAfterOsloTimes numeric"><span>{timeLabel(fxChart.start)}</span><span>{timeLabel(fxChart.end)}</span></div>
-              </div>}
-              <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}. Referansen ved Oslo-slutt er omtrentlig.</small>
-            </>
-          ) : <small>Mangler valutakurs nær Oslo-stenging eller en senere oppdatert valutakurs. Ingen valutaeffekt beregnes.</small>}
-        </div>
+        </details>
       </section>
     </div>
   );

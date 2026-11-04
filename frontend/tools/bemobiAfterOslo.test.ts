@@ -116,17 +116,30 @@ test("Completed overnight FX and OTEC estimates keep the same frozen calculation
   assert.doesNotMatch(chart.line, /NaN|Infinity/);
 });
 
-test("Wide screens show three compact cards and small screens stack FX responsively", () => {
-  const read = (name: string) => requireFixture(name);
-  const component = read("BemobiAfterOsloCard.tsx");
-  const css = read("bemobi-after-oslo.css");
+test("Bemobi and FX reuse the same percentage, price and chart layout", () => {
+  const component = requireFixture("BemobiAfterOsloCard.tsx");
+  const css = requireFixture("bemobi-after-oslo.css");
+  const overviewCss = requireFixture("overview-page.css");
   const bemobiAt = component.indexOf('aria-label="Bemobi siden Oslo Børs stengte"');
   const otecAt = component.indexOf('aria-label="Teoretisk OTEC-effekt fra Bemobi"');
   const fxAt = component.indexOf('aria-label="BRL/NOK over perioden da Oslo Børs var stengt"');
   assert.ok(bemobiAt >= 0 && otecAt > bemobiAt && fxAt > otecAt);
-  assert.ok(component.includes('className="bemobiAfterOsloFxChartPanel"'));
+  assert.match(component, /function MarketMovement\(/);
+  assert.equal((component.match(/<MarketMovement\b/g) ?? []).length, 2);
+  assert.equal((component.match(/className="bemobiAfterOsloMarketChartPanel"/g) ?? []).length, 1);
+  assert.equal((component.match(/latestLabel="Siste kurs"/g) ?? []).length, 2);
+  assert.match(component, /className="bemobiAfterOsloMarketChange"/);
+  assert.match(component, /className="bemobiAfterOsloPrices"/);
+  assert.match(css, /\.bemobiAfterOsloMarket\s*\{[^}]*grid-template-rows:/s);
+  assert.match(css, /\.bemobiAfterOsloPrices\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/s);
+  assert.match(overviewCss, /\.overviewV3 \.bemobiAfterOsloMarketChartPanel \.bemobiAfterOsloChart/);
+  assert.match(overviewCss, /\.bemobiAfterOsloChartPlaceholder \{ height:72px; \}/);
+});
+
+test("Wide screens show three compact cards and smaller screens stack them", () => {
+  const css = requireFixture("bemobi-after-oslo.css");
   assert.match(css, /@media\(min-width:1280px\)/);
-  assert.match(css, /grid-template-columns:repeat\(3, minmax\(0,1fr\)\)/);
+  assert.match(css, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(min-width:1001px\) and \(max-width:1279px\)/);
   assert.match(css, /max-width:650px/);
   assert.match(css, /@media\(max-width:620px\)/);

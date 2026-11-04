@@ -360,56 +360,16 @@
   text-align:center;
 }
 
-/* Compact overview variant; the full Bemobi page keeps its existing sizing. */
-.overviewV3 .bemobiAfterOslo {
-  padding:12px 16px;
-}
-
-.overviewV3 .bemobiAfterOsloMain {
-  grid-template-columns:1fr;
-  gap:12px;
-}
-
-.overviewV3 .bemobiAfterOsloMain>div:first-child {
-  display:grid;
-  grid-template-columns:auto minmax(0,1fr);
-  gap:4px 12px;
-  align-items:center;
-}
-
-.overviewV3 .bemobiAfterOsloMain>div:first-child>.label,
-.overviewV3 .bemobiAfterOslo h2,
-.overviewV3 .bemobiAfterOsloMain>div:first-child>small {
-  grid-column:1/-1;
-}
-
-.overviewV3 .bemobiAfterOslo h2 {
-  margin:0 0 4px;
-  font-size:1rem;
-}
-
-.overviewV3 .bemobiAfterOsloValue {
-  font-size:1.75rem;
-  line-height:1.2;
-}
-
-.overviewV3 .bemobiAfterOsloStatus {
-  margin:0;
-}
-
-.overviewV3 .bemobiAfterOsloChart {
-  height:48px;
-  margin-top:6px;
-}
-
-.overviewV3 .bemobiAfterOsloDetails {
-  margin-top:8px;
-}
-
-.overviewV3 .bemobiAfterOsloDetails summary {
-  min-height:44px;
-  padding:10px 0;
-}
+/* Both after-Oslo market cards use matching metrics, charts and source rows. */
+.overviewV3 .bemobiAfterOslo { padding:12px 16px; }
+.overviewV3 .bemobiAfterOslo h2 { margin:0 0 4px; font-size:1rem; }
+.overviewV3 .bemobiAfterOsloMarketHeader h2 { margin:4px 0 0; }
+.overviewV3 .bemobiAfterOsloValue { font-size:1.75rem; line-height:1.2; }
+.overviewV3 .bemobiAfterOsloMarketChartPanel .bemobiAfterOsloChart,
+.overviewV3 .bemobiAfterOsloMarketChartPanel .bemobiAfterOsloChartPlaceholder { height:72px; }
+.overviewV3 .bemobiAfterOsloDetails { margin-top:8px; }
+.overviewV3 .bemobiAfterOsloMarketCard>.bemobiAfterOsloDetails { margin-top:auto; }
+.overviewV3 .bemobiAfterOsloDetails summary { min-height:44px; padding:10px 0; }
 
 .overviewSection {
   display:grid;
