@@ -125,20 +125,16 @@ export default function BemobiAfterOsloCard() {
             : change == null ? statusLabel(data?.status, refreshFailed)
             : `Mangler ${data?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
         </div>
-        <small>Teoretisk kurs med utgangspunkt i OTEC ved Oslo-slutt. Aksje- og valutaeffekt vises separat og avgrenses til neste Oslo-åpning. Ordinær NAV oppdateres uavhengig.</small>
+        <small>Teoretisk estimat for Bemobi-investeringen fra Oslo-slutt til neste åpning; ikke en kursprognose.</small>
         <details className="bemobiAfterOsloDetails">
           <summary>Vis beregningsgrunnlag</summary>
           {effect && <>
-            <p>OTEC ved close på Oslo Børs: {formatNumber(effect.otec_price_nok, 2)} kr · {effect.otec_source}
-              {effect.otec_price_type === "LAST" ? " · siste tilgjengelige handel i børsøkten, inkludert sluttauksjonen (omtrentlig)" : " · sluttkurs"}.</p>
-            <p>BRL/NOK ved Oslo-slutt: {formatNumber(effect.fixed_brl_nok, 4)} · {formatDateTime(effect.fx_observed_at)} · {effect.fx_source}{fx ? " (omtrentlig tidsnær referanse)" : " (eldre dagsreferanse for Bemobi-beregningen)" }.</p>
-            {fx && <p>BRL/NOK ved slutten av måleperioden: {formatNumber(fx.latest_rate, 4)} · faktisk kurstid {formatDateTime(fx.latest_at)} · {fx.latest_source}. Valutaendring: {signed(fx.change_pct!, " %")}. Neste Oslo-åpning: {fx.next_oslo_open_at ? formatDateTime(fx.next_oslo_open_at) : "–"}.</p>}
-            <p>Bemobi-beholdning: {formatNumber(effect.holding_shares, 0)} aksjer. Utestående OTEC-aksjer: {formatNumber(effect.otec_outstanding_shares, 0)}.</p>
+            <p><b>OTEC ved Oslo-slutt:</b> {formatNumber(effect.otec_price_nok, 2)} kr · {effect.otec_source}{effect.otec_price_type === "LAST" ? " (omtrentlig)" : ""}.</p>
+            <p><b>BRL/NOK:</b> {formatNumber(effect.fixed_brl_nok, 4)} ({formatDateTime(effect.fx_observed_at)}){fx && <> → {formatNumber(fx.latest_rate, 4)} ({formatDateTime(fx.latest_at)})</>} · {effect.fx_source}{fx && effect.fx_source !== fx.latest_source ? ` / ${fx.latest_source}` : ""}{fx ? " · " : ""}{fx && signed(fx.change_pct!, " %")}.</p>
+            <p><b>Aksjer:</b> {formatNumber(effect.holding_shares, 0)} Bemobi / {formatNumber(effect.otec_outstanding_shares, 0)} OTEC.</p>
           </>}
-          <p>Bemobi-effekt = (siste Bemobi-kurs − Bemobi ved Oslo-slutt) × BRL/NOK ved Oslo-slutt × Bemobi-aksjer / OTEC-aksjer.</p>
-          <p>Valutaeffekt = siste Bemobi-kurs × (siste BRL/NOK − BRL/NOK ved Oslo-slutt) × Bemobi-aksjer / OTEC-aksjer. Samlet effekt er summen, uten dobbelttelling.</p>
-          <p>Teoretisk OTEC-kurs er OTEC ved Oslo-slutt pluss samlet effekt per aksje. Uavrundede verdier brukes. Manglende tidsnær valutareferanse gir ingen beregnet samlet effekt.</p>
-          <p>Alle estimatene gjelder kun Bemobi-investeringen. Øvrige endringer i Otellos NAV er ikke medregnet. Dette er ikke en prognose for faktisk OTEC-kurs.</p>
+          <p><b>Metode:</b> Endring i (Bemobi-kurs × BRL/NOK) × Bemobi-beholdning / OTEC-aksjer. Teoretisk OTEC-kurs = Oslo-sluttkurs + beregnet effekt.</p>
+          <p><b>Forbehold:</b> Kursgrunnlaget nær Oslo-slutt er omtrentlig. Øvrige NAV-endringer er ikke medregnet.</p>
         </details>
       </section>
     </div>
