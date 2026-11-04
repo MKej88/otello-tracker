@@ -18,7 +18,7 @@ try:
     from .b3_calendar import b3_opening, is_b3_trading_day
     from .oslo_calendar import closing_auction, is_oslo_bors_trading_day, next_oslo_open_after
 except ImportError:
-    from b3_calendar import b3_opening, is_b3_trading_day
+    from b3_calendar import b3_opening as b3_opening, is_b3_trading_day
     from oslo_calendar import closing_auction, is_oslo_bors_trading_day, next_oslo_open_after
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
