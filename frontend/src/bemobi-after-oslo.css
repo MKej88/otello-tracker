@@ -41,3 +41,28 @@
   .bemobiAfterOsloFxHeading { align-items:flex-start; }
   .bemobiAfterOsloFxChart { height:64px; }
 }
+
+/* Keep the two primary cards balanced; put the FX history in its own wide row
+   instead of forcing an almost empty OTEC card to match the old tall left card. */
+.bemobiAfterOsloFxCard { grid-column:1 / -1; }
+.bemobiAfterOsloFxCard .bemobiAfterOsloFxMovement {
+  margin:0;
+  padding:0;
+  border-top:0;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);
+  column-gap:28px;
+  row-gap:10px;
+  align-items:center;
+}
+.bemobiAfterOsloFxCard .bemobiAfterOsloFxHeading,
+.bemobiAfterOsloFxCard .bemobiAfterOsloPrices,
+.bemobiAfterOsloFxCard .bemobiAfterOsloFxMovement > small {
+  grid-column:1;
+}
+.bemobiAfterOsloFxChartPanel { grid-column:2; grid-row:1 / span 3; min-width:0; }
+.bemobiAfterOsloFxChartPanel .bemobiAfterOsloFxChart { height:90px; margin-top:0; }
+@media(max-width:760px) {
+  .bemobiAfterOsloFxCard .bemobiAfterOsloFxMovement { grid-template-columns:minmax(0,1fr); }
+  .bemobiAfterOsloFxChartPanel { grid-column:1; grid-row:auto; }
+  .bemobiAfterOsloFxChartPanel .bemobiAfterOsloFxChart { height:72px; }
+}
