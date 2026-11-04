@@ -10,6 +10,7 @@ export const THRESHOLDS = Object.freeze({
   cold: { fraction: 0.35, minIncreaseMs: 500, minCurrentMs: 1000 },
   navigation: { fraction: 0.35, minIncreaseMs: 300, minCurrentMs: 600 },
   api: { fraction: 0.45, minIncreaseMs: 150, minCurrentMs: 250 },
+  firstUncached: { fraction: 0.45, minIncreaseMs: 600, minCurrentMs: 1500 },
 });
 
 export function median(values) {
@@ -20,6 +21,43 @@ export function median(values) {
     ? sorted[center]
     : (sorted[center - 1] + sorted[center]) / 2;
   return Math.round(middle);
+}
+
+// Cloudflare statuses are explicit evidence. Never infer a MISS from a slow
+// response, nor count STALE/UPDATING/unknown as an origin request.
+const UNCACHED_STATUSES = new Set(["MISS", "EXPIRED", "BYPASS", "DYNAMIC", "REVALIDATED"]);
+export const SLOW_FIRST_UNCACHED_MS = 2000;
+
+export function cacheClass(status) {
+  if (typeof status !== "string") return "unknown";
+  const normalized = status.trim().toUpperCase();
+  if (normalized === "HIT") return "hit";
+  if (UNCACHED_STATUSES.has(normalized)) return "uncached";
+  return "unknown";
+}
+
+export function classifiedApiSamples(api) {
+  const times = Array.isArray(api?.sampleTotalMs) ? api.sampleTotalMs : [];
+  const statuses = Array.isArray(api?.cfCacheStatus) ? api.cfCacheStatus : [];
+  const hit = [];
+  const uncached = [];
+  let unknownCount = 0;
+  for (let i = 0; i < times.length; i++) {
+    if (!validTime(times[i])) continue;
+    const kind = cacheClass(statuses[i]);
+    if (kind === "hit") hit.push(times[i]);
+    else if (kind === "uncached") uncached.push(times[i]);
+    else unknownCount++;
+  }
+  return {
+    hitMedianMs: median(hit),
+    uncachedMedianMs: median(uncached),
+    firstUncachedMs: validTime(times[0]) && cacheClass(statuses[0]) === "uncached"
+      ? times[0] : null,
+    hitCount: hit.length,
+    uncachedCount: uncached.length,
+    unknownCount,
+  };
 }
 
 function validTime(value) {
@@ -90,6 +128,33 @@ export function seriesTrend(reports, extractor, asOf, threshold) {
   };
 }
 
+/** Sustained slow first origin/bypass response, including when the 7d baseline
+ * was already slow. Require six usable runs on three distinct days, and 3/4
+ * recent non-HIT first calls >=2s (including the last two, on >=2 days).
+ * Unknown cache statuses and missing runs cannot silently count as evidence.
+ */
+export function persistentSlowFirstUncached(reports, endpoint, asOf) {
+  const cutoff = Date.parse(asOf) - TREND_DAYS * 86400000;
+  const recent = reports.filter((r) => Date.parse(r.checkedAt) >= cutoff)
+    .map((r) => ({
+      checkedAt: r.checkedAt,
+      value: classifiedApiSamples(r.api?.find((a) => a.endpoint === endpoint)).firstUncachedMs,
+    }));
+  const valid = recent.filter((r) => validTime(r.value));
+  const days = new Set(valid.map((r) => r.checkedAt.slice(0, 10))).size;
+  const lastFour = recent.slice(-4);
+  const slowCount = lastFour.filter((r) =>
+    validTime(r.value) && r.value >= SLOW_FIRST_UNCACHED_MS).length;
+  const lastTwo = lastFour.slice(-2);
+  const distinctDays = new Set(lastFour.map((r) => r.checkedAt.slice(0, 10))).size;
+  const persistent = valid.length >= MIN_SAMPLES && days >= MIN_DISTINCT_DAYS &&
+    lastFour.length === 4 && lastFour.every((r) => validTime(r.value)) &&
+    distinctDays >= 2 && slowCount >= 3 &&
+    lastTwo.every((r) => r.value >= SLOW_FIRST_UNCACHED_MS);
+  return { persistent, thresholdMs: SLOW_FIRST_UNCACHED_MS, slowCount,
+    lastFourCount: lastFour.length, recentSamples: valid.length, recentDays: days };
+}
+
 /** Reliability is tracked separately from successful-response medians.
  * Older artifacts may lack the new fields, so use only observations they contain.
  */
@@ -112,6 +177,13 @@ export function summarizeReliability(reports, asOf) {
   const apiSpikes = detailedRuns.reduce((sum, r) => sum +
     (r.api || []).reduce((n, a) => n + (Array.isArray(a.sampleTotalMs)
       ? a.sampleTotalMs.filter((ms) => Number.isFinite(ms) && ms >= 1500).length : 0), 0), 0);
+  const classified = detailedRuns.flatMap((r) =>
+    (r.api || []).map((api) => classifiedApiSamples(api)));
+  const hitApiSamples = classified.reduce((n, x) => n + x.hitCount, 0);
+  const uncachedApiSamples = classified.reduce((n, x) => n + x.uncachedCount, 0);
+  const unknownCacheApiSamples = classified.reduce((n, x) => n + x.unknownCount, 0);
+  const slowFirstUncachedSamples = classified.reduce((n, x) =>
+    n + (x.firstUncachedMs != null && x.firstUncachedMs >= SLOW_FIRST_UNCACHED_MS ? 1 : 0), 0);
   const slowColdLoads = current.reduce((sum, r) =>
     sum + r.browser.filter((b) => b.firstDataMs >= 3000).length, 0);
   return {
@@ -124,6 +196,10 @@ export function summarizeReliability(reports, asOf) {
     legacyApiRuns: current.length - detailedRuns.length,
     apiSampleCount,
     slowApiSamples: apiSpikes,
+    hitApiSamples,
+    uncachedApiSamples,
+    unknownCacheApiSamples,
+    slowFirstUncachedSamples,
     slowColdLoads,
     // Failed or HTTP-429 runs are intentionally not part of this denominator.
     scope: "completed_unthrottled_runs",
@@ -145,16 +221,29 @@ export function buildTrends(rawReports, asOf, routes) {
   ))].sort();
   const apis = apiNames.map((endpoint) => ({
     endpoint,
+    // Retain the original mixed median in JSON for backwards compatibility;
+    // it is NOT used to judge cache-MISS or cache-HIT performance.
     timing: seriesTrend(reports, (r) =>
       r.api?.find((v) => v.endpoint === endpoint)?.medianTotalMs, asOf, THRESHOLDS.api),
+    firstUncached: seriesTrend(reports, (r) =>
+      classifiedApiSamples(r.api?.find((v) => v.endpoint === endpoint)).firstUncachedMs,
+      asOf, THRESHOLDS.firstUncached),
+    cacheHit: seriesTrend(reports, (r) =>
+      classifiedApiSamples(r.api?.find((v) => v.endpoint === endpoint)).hitMedianMs,
+      asOf, THRESHOLDS.api),
+    slowFirstUncached: persistentSlowFirstUncached(reports, endpoint, asOf),
   }));
   const regressions = [
     ...rowRoutes.flatMap((r) => [
       ...(r.cold.regression ? [{ scope: "Direkte åpning", key: r.label, ...r.cold }] : []),
       ...(r.navigation.regression ? [{ scope: "Sideskifte", key: r.label, ...r.navigation }] : []),
     ]),
-    ...apis.filter((a) => a.timing.regression).map((a) =>
-      ({ scope: "API", key: a.endpoint, ...a.timing })),
+    ...apis.flatMap((a) => [
+      ...(a.firstUncached.regression
+        ? [{ scope: "Første API-kall uten cachetreff", key: a.endpoint, ...a.firstUncached }] : []),
+      ...(a.cacheHit.regression
+        ? [{ scope: "API-cachetreff", key: a.endpoint, ...a.cacheHit }] : []),
+    ]),
   ];
   return {
     generatedAt: asOf,
@@ -166,6 +255,10 @@ export function buildTrends(rawReports, asOf, routes) {
     reliability: summarizeReliability(reports, asOf),
     routes: rowRoutes,
     apis,
+    slowFirstUncached: apis.filter((a) => a.slowFirstUncached.persistent).map((a) => ({
+      endpoint: a.endpoint, ...a.slowFirstUncached,
+      medianMs: a.firstUncached.currentMedianMs,
+    })),
     regressions,
   };
 }

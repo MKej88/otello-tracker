@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { screenState } from "./performance-screen-state.mjs";
-import { median } from "./performance-trend-core.mjs";
+import { median, classifiedApiSamples } from "./performance-trend-core.mjs";
 import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
 import { slowTraceCandidates } from "./trace-candidates.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
@@ -127,8 +127,15 @@ async function probeApi(path) {
     samples.push(retried.value);
     timeoutRetries += retried.timeoutRetries;
   }
+  const classified = classifiedApiSamples({
+    sampleTotalMs: samples.map((sample) => sample.totalMs),
+    cfCacheStatus: samples.map((sample) => sample.cfCacheStatus),
+  });
   return {
     endpoint: path,
+    firstUncachedMs: classified.firstUncachedMs,
+    uncachedMedianMs: classified.uncachedMedianMs,
+    hitMedianMs: classified.hitMedianMs,
     medianHeadersMs: median(samples.map((sample) => sample.headersMs)),
     medianTotalMs: median(samples.map((sample) => sample.totalMs)),
     maxTotalMs: Math.max(...samples.map((sample) => sample.totalMs)),
@@ -752,22 +759,28 @@ async function main() {
         (item.observerReadLagMs ?? "–") + " ms").join("; ") + ".",
     "Forsinkelsen ved avlesning må ikke legges til den målte tiden for første visning.",
     "",
-    "### API – median av tre forespørsler",
+    "### API – cachetreff og ikke-cachetreff måles separat",
     "",
-    "| Endepunkt | Headere | Hele svaret | Størrelse | CF-cache (3) |",
-    "| --- | ---: | ---: | ---: | --- |",
+    "| Endepunkt | Første ikke-HIT | Ikke-HIT median | HIT median | Blandet median | CF-cache (3) |",
+    "| --- | ---: | ---: | ---: | ---: | --- |",
     ...result.api.map((a) =>
-      "| \`" + a.endpoint + "\` | " + a.medianHeadersMs + " ms | " +
-      a.medianTotalMs + " ms | " + a.responseBytes + " byte | " +
-      (a.cfCacheStatus?.join(" / ") || "–") + " |"
+      "| `" + a.endpoint + "` | " +
+      (a.firstUncachedMs == null ? "–" : a.firstUncachedMs + " ms") + " | " +
+      (a.uncachedMedianMs == null ? "–" : a.uncachedMedianMs + " ms") + " | " +
+      (a.hitMedianMs == null ? "–" : a.hitMedianMs + " ms") + " | " +
+      a.medianTotalMs + " ms | " + (a.cfCacheStatus?.join(" / ") || "–") + " |"
     ),
+    "Ikke-HIT krever eksplisitt CF-cache MISS, EXPIRED, BYPASS, DYNAMIC eller REVALIDATED. " +
+      "STALE, UPDATING og manglende status regnes ikke automatisk som cachemiss. " +
+      "Første ikke-HIT vises bare når **første** vellykkede prøve hadde slik status.",
     "",
     "### API-fordeling, D1-diagnostikk og stabilitet",
     "",
     ...result.api.map((a) => "- `" + new URL(a.endpoint, base).pathname +
       "`: prøver " + a.sampleTotalMs.join(" / ") + " ms; første prøve " +
-      a.firstSampleTotalMs + " ms; cache HIT median " +
-      (a.cacheHitMedianMs == null ? "–" : a.cacheHitMedianMs + " ms") +
+      a.firstSampleTotalMs + " ms; første uten cachetreff " +
+      (a.firstUncachedMs == null ? "–" : a.firstUncachedMs + " ms") + "; cache HIT median " +
+      (a.hitMedianMs == null ? "–" : a.hitMedianMs + " ms") +
       "; maks " + a.maxTotalMs + " ms."),
     "",
     ...(health?.healthD1Ms ? [
