@@ -134,7 +134,7 @@ export default function BemobiAfterOsloCard() {
                 </svg>
                 <div className="bemobiAfterOsloTimes numeric"><span>{timeLabel(fxChart.start)}</span><span>{timeLabel(fxChart.end)}</span></div>
               </div>}
-              <small>Referanse: {formatDateTime(fx.reference_at)} · målt kurs: {formatDateTime(fx.latest_at)}. Omtrentlig kurs ved Oslo-slutt.{finished ? " Endringen er fryst ved neste Oslo-åpning." : ""}</small>
+              <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}. Referansen ved Oslo-slutt er omtrentlig.</small>
             </>
           ) : <small>Mangler valutakurs nær Oslo-stenging eller en senere oppdatert valutakurs. Ingen valutaeffekt beregnes.</small>}
         </div>
