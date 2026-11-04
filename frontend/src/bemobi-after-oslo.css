@@ -1,5 +1,4 @@
 .bemobiAfterOslo { padding:var(--ot-card-standard-padding,20px); min-width:0; }
-.bemobiAfterOsloMain { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:center; }
 .bemobiAfterOslo h2 { margin:6px 0 12px; font-size:var(--ot-type-section-title); }
 .bemobiAfterOsloValue { display:block; font-size:var(--ot-type-key-value-large); letter-spacing:-.03em; }
 .bemobiAfterOslo .positive { color:var(--ot-positive); }
@@ -7,60 +6,60 @@
 .bemobiAfterOslo .neutral { color:var(--ot-text-secondary); }
 .bemobiAfterOsloStatus { margin:6px 0; color:var(--ot-text-secondary); font-size:var(--ot-type-body); }
 .bemobiAfterOslo small,.bemobiAfterOsloTimes { color:var(--ot-text-muted); font-size:var(--ot-type-meta); }
-.bemobiAfterOsloMovement { min-width:0; }
-.bemobiAfterOsloPrices { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--ot-text-muted); font-size:var(--ot-type-meta); }
-.bemobiAfterOsloPrices strong { display:block; color:var(--ot-text); font-size:var(--ot-type-body); margin-top:5px; }
-.bemobiAfterOsloChart { display:block; width:100%; height:90px; margin-top:10px; overflow:visible; }
+.bemobiAfterOsloPrices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; color:var(--ot-text-muted); font-size:var(--ot-type-meta); }
+.bemobiAfterOsloPrices>span { min-width:0; }
+.bemobiAfterOsloPrices>span:last-child { text-align:right; }
+.bemobiAfterOsloPrices strong { display:block; color:var(--ot-text); font-size:var(--ot-type-body); margin-top:5px; overflow-wrap:anywhere; }
+.bemobiAfterOsloChart { display:block; width:100%; height:90px; overflow:visible; }
 .bemobiAfterOsloChart polyline { fill:none; stroke:currentColor; stroke-width:2; vector-effect:non-scaling-stroke; stroke-linecap:round; stroke-linejoin:round; }
 .bemobiAfterOsloChart .bemobiAfterOsloZero { stroke:var(--ot-border-soft); stroke-width:1; }
-.bemobiAfterOsloTimes { display:flex; justify-content:space-between; margin:4px 0 8px; }
+.bemobiAfterOsloTimes { display:flex; justify-content:space-between; margin:4px 0 0; }
 .bemobiAfterOsloDetails { margin-top:16px; border-top:1px solid var(--ot-border-soft); color:var(--ot-text-secondary); font-size:var(--ot-type-meta); }
 .bemobiAfterOsloDetails summary { padding:12px 0 0; cursor:pointer; min-height:44px; }
 .bemobiAfterOsloDetails p { line-height:1.5; margin:8px 0; }
-@media(max-width:620px) { .bemobiAfterOsloMain { grid-template-columns:1fr; gap:18px; } }
 
 .bemobiAfterOsloGrid { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); gap:14px; align-items:stretch; }
 .otecEffectAmount { margin:8px 0; font-size:var(--ot-type-body); font-weight:600; }
 .otecTheoreticalPrice { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:12px 0; color:var(--ot-text-secondary); font-size:var(--ot-type-body); }
 .otecTheoreticalPrice strong { color:var(--ot-text); }
-@media(max-width:1000px) { .bemobiAfterOsloGrid { grid-template-columns:1fr; } }
-
-.bemobiAfterOsloFxMovement { border-top:1px solid var(--ot-border-soft); padding:14px 0 0; margin-top:16px; display:grid; gap:10px; }
-.bemobiAfterOsloFxHeading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; font-size:var(--ot-type-body); }
-.bemobiAfterOsloFxHeading strong { font-size:var(--ot-type-section-title); }
-.bemobiAfterOsloFxMovement small { line-height:1.5; }
 .otecEffectBreakdown { display:grid; gap:10px; margin:16px 0 12px; font-size:var(--ot-type-body); }
 .otecEffectBreakdown>div { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; }
 .otecEffectBreakdown span { color:var(--ot-text-secondary); }
 .otecEffectBreakdown strong { color:var(--ot-text); }
 .otecEffectBreakdown .otecEffectTotal { border-top:1px solid var(--ot-border-soft); padding-top:10px; font-weight:700; }
 
-.bemobiAfterOsloPeriod { display:block; margin-top:5px; }
-.bemobiAfterOsloFxChart { height:72px; margin-top:4px; }
-@media(max-width:620px) {
-  .bemobiAfterOsloFxHeading { align-items:flex-start; }
-  .bemobiAfterOsloFxChart { height:64px; }
+/* Shared grid ensures title, change, prices and graph are at the same height in both market cards. */
+.bemobiAfterOsloMarketCard { display:flex; flex-direction:column; }
+.bemobiAfterOsloMarket {
+  display:grid;
+  grid-template-rows:minmax(44px,auto) minmax(58px,auto) auto auto auto;
+  align-content:start;
+  gap:10px;
+  min-width:0;
 }
+.bemobiAfterOsloMarketHeader { min-width:0; }
+.bemobiAfterOsloMarketHeader h2 { margin:5px 0 0; font-size:1rem; line-height:1.3; }
+.bemobiAfterOsloMarketChange { display:grid; align-content:start; gap:3px; }
+.bemobiAfterOsloMarketChange .bemobiAfterOsloValue { line-height:1.15; }
+.bemobiAfterOsloMarketChange .bemobiAfterOsloStatus { margin:0; }
+.bemobiAfterOsloMarketChartPanel { min-width:0; }
+.bemobiAfterOsloChartPlaceholder {
+  display:flex;
+  align-items:center;
+  height:90px;
+  color:var(--ot-text-muted);
+  font-size:var(--ot-type-meta);
+}
+.bemobiAfterOsloMarketSource { display:grid; align-content:start; gap:4px; min-height:42px; }
+.bemobiAfterOsloMarketSource small { display:block; line-height:1.4; }
+.bemobiAfterOsloMarketCard>.bemobiAfterOsloDetails { margin-top:auto; }
+.bemobiAfterOsloMarketCard>.bemobiAfterOsloDetails:not([open]) { padding-top:8px; }
 
-/* Three compact investor cards on wide screens instead of a full-width FX strip. */
-.bemobiAfterOsloFxCard .bemobiAfterOsloFxMovement {
-  margin:0;
-  padding:0;
-  border-top:0;
-  grid-template-columns:minmax(0,1fr);
-  gap:12px;
-  align-items:stretch;
-}
-.bemobiAfterOsloFxChartPanel { min-width:0; }
-.bemobiAfterOsloFxChartPanel .bemobiAfterOsloFxChart { height:90px; margin-top:0; }
-
-@media(min-width:1280px) {
-  .bemobiAfterOsloGrid { grid-template-columns:repeat(3, minmax(0,1fr)); }
-  .bemobiAfterOsloMain { grid-template-columns:minmax(0,1fr); gap:14px; align-items:start; }
-}
+@media(max-width:1000px) { .bemobiAfterOsloGrid { grid-template-columns:1fr; } }
+@media(min-width:1280px) { .bemobiAfterOsloGrid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media(min-width:1001px) and (max-width:1279px) {
   .bemobiAfterOsloFxCard { grid-column:1 / -1; width:100%; max-width:650px; justify-self:center; }
 }
 @media(max-width:620px) {
-  .bemobiAfterOsloFxChartPanel .bemobiAfterOsloFxChart { height:72px; }
+  .bemobiAfterOsloMarket { grid-template-rows:minmax(44px,auto) minmax(58px,auto) auto auto auto; }
 }
