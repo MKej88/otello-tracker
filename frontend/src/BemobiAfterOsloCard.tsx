@@ -60,7 +60,7 @@ function MarketMovement({
               <span>{timeLabel(chart.start)}</span><span>{timeLabel(chart.end)}</span>
             </div>
           </>
-        ) : <div className="bemobiAfterOsloChartPlaceholder">Kurshistorikk ikke tilgjengelig ennå</div>}
+        ) : <><div className="bemobiAfterOsloChartPlaceholder">Kurshistorikk ikke tilgjengelig ennå</div><div className="bemobiAfterOsloTimes numeric"><span>—</span><span>—</span></div></>}
       </div>
       <div className="bemobiAfterOsloMarketSource">{sourceNote}</div>
     </div>
@@ -167,7 +167,7 @@ export default function BemobiAfterOsloCard() {
           status={fx ? "Endring i BRL/NOK" : "Valutagrunnlag ikke tilgjengelig"}
           referenceLabel="Ved Oslo-slutt"
           referenceValue={fx ? formatNumber(fx.reference_rate, 4) + " NOK" : "—"}
-          latestLabel={finished ? "Siste kurs før åpning" : "Siste kurs"}
+          latestLabel="Siste kurs"
           latestValue={fx ? formatNumber(fx.latest_rate, 4) + " NOK" : "—"}
           chart={fxChart}
           chartLabel={fx ? "BRL/NOK i måleperioden: " + formatNumber(fx.change_pct!, 2) + " prosent endring." : "Ingen valutakursutvikling tilgjengelig"}
