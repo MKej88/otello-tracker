@@ -437,6 +437,17 @@ async def bemobi_after_oslo(
         "generated_at": iso(current),
         "points": [],
     }
+    # FX is a separate market observation, not an output of the OTEC estimate.
+    # After the next Oslo opening the previous after-close window is no longer live.
+    try:
+        from .after_oslo_fx import fx_close_movement
+    except ImportError:
+        from after_oslo_fx import fx_close_movement
+    result["fx_movement"] = (
+        await fx_close_movement(repository, close, current)
+        if current < next_open
+        else {"ready": False, "reason": "waiting_oslo_close"}
+    )
     row = await repository.first(
         "SELECT value FROM runtime_state WHERE key=?",
         (STATE_PREFIX + close.date().isoformat(),),
