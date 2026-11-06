@@ -323,7 +323,8 @@ async def run_fx_close_capture(database: Any, *, now: datetime, enabled: bool, a
     )
     # The last reference-window attempt also tries a strictly time-validated
     # quote already saved by the ordinary FX poller. Never synthesize a close.
-    if result.get("status") != "ok" and now >= capture_window(now) + timedelta(minutes=18):
+    if (enabled and approved and result.get("status") != "ok"
+            and now >= capture_window(now) + timedelta(minutes=18)):
         recovery = await recover_fx_close_reference(repository, now=now)
         if recovery.get("status") == "ok":
             result = {**recovery, "capture_fallback_reason": result.get("reason")}
