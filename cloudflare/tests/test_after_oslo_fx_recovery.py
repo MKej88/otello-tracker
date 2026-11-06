@@ -196,3 +196,43 @@ def test_friday_to_monday_open_freezes_fx_and_chart_without_later_quotes():
     assert later["points"][0] == {"at": iso(CLOSE), "change_pct": 0.0}
     assert later["points"][-1]["at"] == "2026-11-02T07:55:00Z"
     assert all(point["at"] < "2026-11-02T08:00:00Z" for point in later["points"])
+
+def test_missing_reference_still_returns_last_verified_fx_and_capture_cause():
+    repo = Repository()
+    repo.official()
+    later = iso(CLOSE + timedelta(minutes=35))
+    repo.quote(later, "1.7351")
+    repo.capture_attempt("observation_not_near_oslo_close", observed_at=iso(CLOSE - timedelta(minutes=5)))
+    result = asyncio.run(fx_close_movement(repo, CLOSE, NOW))
+    assert result["ready"] is False
+    assert result["reason"] == "missing_oslo_close_fx_reference"
+    assert result["capture_reason"] == "observation_not_near_oslo_close"
+    assert result["latest_rate"] == 1.7351
+    assert result["latest_at"] == later
+    assert "change_pct" not in result
+
+
+def test_bemobi_reference_missing_does_not_hide_independent_fx_market_move():
+    from src.bemobi_after_oslo import bemobi_after_oslo
+    repo = Repository()
+    repo.official()
+    repo.quote(OBSERVED, "1.7100")
+    repo.quote(iso(CLOSE + timedelta(minutes=35)), "1.7351")
+    assert asyncio.run(recover_fx_close_reference(repo, now=NOW))["status"] == "ok"
+    outcome = asyncio.run(bemobi_after_oslo(repo, now=NOW))
+    assert outcome["ready"] is False
+    assert outcome["status"] == "missing_reference"
+    assert outcome["fx_movement"]["ready"] is True
+    assert outcome["fx_movement"]["change_pct"] > 0
+
+
+def test_fx_card_waits_for_new_close_after_next_oslo_open():
+    from src.bemobi_after_oslo import bemobi_after_oslo
+    repo = Repository()
+    repo.official()
+    repo.quote(OBSERVED, "1.7100")
+    repo.quote(iso(CLOSE + timedelta(hours=2)), "1.7200")
+    assert asyncio.run(recover_fx_close_reference(repo, now=NOW))["status"] == "ok"
+    monday_after_open = datetime.fromisoformat("2026-11-02T08:05:00+00:00")
+    outcome = asyncio.run(bemobi_after_oslo(repo, now=monday_after_open))
+    assert outcome["fx_movement"] == {"ready": False, "reason": "waiting_oslo_close"}

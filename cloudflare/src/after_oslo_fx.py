@@ -36,9 +36,58 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
     next_open = next_oslo_open_after(close)
     measured_until = min(current, next_open)
     key = REFERENCE_PREFIX + close.astimezone(ZoneInfo("Europe/Oslo")).date().isoformat()
+    # The latest stored EXR quote is useful to show independently, even when
+    # no valid close benchmark exists. It never becomes a fabricated benchmark.
+    latest = await repository.first(
+        """SELECT fr.rate, fr.observed_at, s.code AS source
+           FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
+           WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
+             AND s.code='EXCHANGERATE_DEV'
+             AND julianday(fr.observed_at)>julianday(?)
+             AND julianday(fr.observed_at)<=julianday(?)
+           ORDER BY julianday(fr.observed_at) DESC, fr.id DESC LIMIT 1""",
+        (iso(close), iso(measured_until)),
+    )
+    latest_display: dict[str, Any] = {}
+    if latest:
+        try:
+            latest_rate = Decimal(str(latest["rate"]))
+            latest_at = timestamp(latest.get("observed_at"))
+            if latest_rate.is_finite() and latest_rate > 0 and latest_at is not None:
+                latest_display = {
+                    "latest_rate": float(latest_rate), "latest_at": iso(latest_at),
+                    "latest_source": "EXCHANGERATE_DEV",
+                }
+        except (TypeError, ValueError, ArithmeticError):
+            pass
     stored = await repository.first("SELECT value FROM runtime_state WHERE key=?", (key,))
     if not stored:
-        return {"ready": False, "reason": "missing_oslo_close_fx_reference"}
+        attempt = await repository.first(
+            "SELECT value, updated_at FROM runtime_state WHERE key=?",
+            ("brlnok_oslo_capture_last_result",),
+        )
+        capture_details: dict[str, Any] = {}
+        if attempt:
+            try:
+                captured_at = timestamp(attempt.get("updated_at"))
+                details = json.loads(attempt["value"])
+                if (captured_at is not None and close <= captured_at <= measured_until
+                        and isinstance(details, dict)):
+                    allowed = {
+                        "fx_disabled_or_not_approved", "upstream_error",
+                        "observation_not_near_oslo_close", "missing_sanity_reference",
+                        "deviation_from_official_rate", "provider_error",
+                        "no_valid_stored_reference",
+                    }
+                    if details.get("reason") in allowed:
+                        capture_details["capture_reason"] = details["reason"]
+                    observed = timestamp(details.get("observed_at"))
+                    if observed is not None:
+                        capture_details["capture_observed_at"] = iso(observed)
+            except (TypeError, ValueError, ArithmeticError, KeyError):
+                pass
+        return {"ready": False, "reason": "missing_oslo_close_fx_reference",
+                **latest_display, **capture_details}
     try:
         ref = json.loads(stored["value"])
         close_time = timestamp(ref.get("oslo_close_at"))
@@ -55,19 +104,12 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
         or rate <= 0
         or ref.get("source") != "EXCHANGERATE_DEV"
     ):
-        return {"ready": False, "reason": "invalid_oslo_close_fx_reference"}
-    latest = await repository.first(
-        """SELECT fr.rate, fr.observed_at, s.code AS source
-           FROM fx_rates fr JOIN sources s ON s.id=fr.source_id
-           WHERE fr.base_currency='BRL' AND fr.quote_currency='NOK'
-             AND s.code='EXCHANGERATE_DEV'
-             AND julianday(fr.observed_at)>julianday(?)
-             AND julianday(fr.observed_at)<=julianday(?)
-           ORDER BY julianday(fr.observed_at) DESC, fr.id DESC LIMIT 1""",
-        (iso(close), iso(measured_until)),
-    )
+        return {"ready": False, "reason": "invalid_oslo_close_fx_reference",
+                **latest_display}
     if not latest:
-        return {"ready": False, "reason": "missing_fx_after_oslo_close", "reference_rate": float(rate), "reference_at": iso(observed)}
+        return {"ready": False, "reason": "missing_fx_after_oslo_close",
+                "reference_rate": float(rate), "reference_at": iso(observed),
+                "reference_source": "EXCHANGERATE_DEV"}
     try:
         recent = Decimal(str(latest["rate"]))
         latest_at = timestamp(latest.get("observed_at"))
@@ -279,6 +321,13 @@ async def run_fx_close_capture(database: Any, *, now: datetime, enabled: bool, a
     result = await capture_fx_close_reference(
         repository, now=now, enabled=enabled, license_approved=approved, api_key=api_key,
     )
+    # The last reference-window attempt also tries a strictly time-validated
+    # quote already saved by the ordinary FX poller. Never synthesize a close.
+    if (enabled and approved and result.get("status") != "ok"
+            and now >= capture_window(now) + timedelta(minutes=18)):
+        recovery = await recover_fx_close_reference(repository, now=now)
+        if recovery.get("status") == "ok":
+            result = {**recovery, "capture_fallback_reason": result.get("reason")}
     # Explicit, non-secret result for later read-only production diagnostics.
     await repository.run(
         """INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?)

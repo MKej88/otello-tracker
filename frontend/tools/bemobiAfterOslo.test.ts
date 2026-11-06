@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedCombinedTheoreticalPrice, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
+import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedFxEffect, fxStatusLabel, displayedCombinedTheoreticalPrice, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
 
 test("Missing, stale and failed refreshes never display a percentage", () => {
   assert.equal(displayedChange(null), null);
@@ -75,13 +75,13 @@ test("Combined FX effect requires matching, valid reference and readable estimat
         effect_per_share_nok: 0.2, combined_per_share_nok: -0.9, combined_pct_otec: -4.86,
         theoretical_otec_price_nok: 17.6 } },
   };
-  assert.equal(displayedFxMovement(valid)?.combined_per_share_nok, -0.9);
+  assert.equal(displayedFxEffect(valid)?.combined_per_share_nok, -0.9);
   assert.equal(displayedCombinedTheoreticalPrice(valid), 17.6);
-  assert.equal(displayedFxMovement({ ...valid, otec_effect: { ...valid.otec_effect, fx_movement: { ready: false } } }), null);
+  assert.equal(displayedFxEffect({ ...valid, otec_effect: { ...valid.otec_effect, fx_movement: { ready: false } } }), null);
   assert.equal(displayedCombinedTheoreticalPrice({ ...valid, otec_effect: { ...valid.otec_effect, fx_movement: { ready: false } } }), null);
-  assert.equal(displayedFxMovement(valid, true), null);
+  assert.equal(displayedFxEffect(valid, true), null);
   assert.equal(displayedCombinedTheoreticalPrice(valid, true), null);
-  assert.equal(displayedFxMovement({ ...valid, otec_effect: { ...valid.otec_effect,
+  assert.equal(displayedFxEffect({ ...valid, otec_effect: { ...valid.otec_effect,
     fx_movement: { ...valid.otec_effect.fx_movement, combined_pct_otec: Infinity } } }), null);
 });
 
@@ -106,11 +106,11 @@ test("Completed overnight FX and OTEC estimates keep the same frozen calculation
       },
     },
   };
-  assert.equal(displayedFxMovement(data)?.measurement_complete, true);
-  assert.equal(displayedFxMovement(data)?.next_oslo_open_at, data.next_oslo_open_at);
+  assert.equal(displayedFxEffect(data)?.measurement_complete, true);
+  assert.equal(displayedFxEffect(data)?.next_oslo_open_at, data.next_oslo_open_at);
   assert.equal(displayedCombinedTheoreticalPrice(data), 20.20);
-  assert.equal(displayedFxMovement(data)?.combined_per_share_nok, 0.20);
-  const chart = movementChart(displayedFxMovement(data)?.points);
+  assert.equal(displayedFxEffect(data)?.combined_per_share_nok, 0.20);
+  const chart = movementChart(displayedFxEffect(data)?.points);
   assert.ok(chart);
   assert.equal(chart.end, "2026-11-04T07:45:00Z");
   assert.doesNotMatch(chart.line, /NaN|Infinity/);
@@ -148,3 +148,31 @@ test("Wide screens show three compact cards and smaller screens stack them", () 
 function requireFixture(name: string): string {
   return readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
 }
+
+test("BRL/NOK chart works independently of Bemobi and OTEC valuations", () => {
+  const fx_movement = {
+    ready: true, reference_rate: 1.7, latest_rate: 1.73, change_pct: 1.76,
+    reference_at: "2026-11-06T15:24:00Z", latest_at: "2026-11-06T16:10:00Z",
+    points: [{ at: "2026-11-06T15:25:00Z", change_pct: 0 },
+             { at: "2026-11-06T16:10:00Z", change_pct: 1.76 }],
+  };
+  const noBemobi = { ready: false, status: "missing_reference", fx_movement };
+  assert.equal(displayedFxMovement(noBemobi), fx_movement);
+  assert.equal(displayedFxEffect(noBemobi), null);
+  assert.ok(movementChart(displayedFxMovement(noBemobi)?.points));
+  assert.equal(displayedFxMovement(noBemobi, true), null);
+  assert.equal(displayedFxMovement({ ...noBemobi, fx_movement: { ...fx_movement, latest_rate: NaN } }), null);
+});
+
+test("FX failure details are specific and never fabricate a percent change", () => {
+  const missing = { ready: false, reason: "missing_oslo_close_fx_reference",
+    capture_reason: "observation_not_near_oslo_close", latest_rate: 1.7042 };
+  assert.equal(displayedFxMovement({ ready: true, status: "ready", fx_movement: missing }), null);
+  assert.match(fxStatusLabel(missing), /avvist/i);
+  assert.match(fxStatusLabel({ ready: false, reason: "missing_fx_after_oslo_close" }), /nyere BRL\/NOK/);
+  assert.match(fxStatusLabel({ ready: false, reason: "waiting_oslo_close" }), /Venter/);
+  assert.match(fxStatusLabel(missing, true), /Kunne ikke/);
+  const component = requireFixture("BemobiAfterOsloCard.tsx");
+  assert.match(component, /fxLatest != null/);
+  assert.match(component, /Årsakskode:/);
+});

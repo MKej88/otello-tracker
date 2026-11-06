@@ -1,3 +1,27 @@
+export type FxMovement = {
+  ready: boolean;
+  reason?: string;
+  capture_reason?: string;
+  capture_observed_at?: string;
+  measurement_complete?: boolean;
+  next_oslo_open_at?: string;
+  measurement_end_at?: string;
+  points?: Array<{ at: string; change_pct: number }>;
+  reference_rate?: number;
+  reference_at?: string;
+  reference_source?: string;
+  reference_approximate?: boolean;
+  latest_rate?: number;
+  latest_at?: string;
+  latest_source?: string;
+  change_pct?: number;
+  effect_per_share_nok?: number;
+  effect_pct_otec?: number;
+  combined_per_share_nok?: number;
+  combined_pct_otec?: number;
+  theoretical_otec_price_nok?: number | null;
+};
+
 export type BemobiAfterOslo = {
   ready: boolean;
   status: string;
@@ -6,6 +30,7 @@ export type BemobiAfterOslo = {
   measurement_end_at?: string;
   measurement_complete?: boolean;
   generated_at?: string;
+  fx_movement?: FxMovement;
   change_pct?: number;
   change_brl?: number;
   reference?: { price: number; observed_at: string; source: string; approximate: boolean };
@@ -22,27 +47,7 @@ export type BemobiAfterOslo = {
     fixed_brl_nok?: number;
     fx_observed_at?: string;
     fx_source?: string;
-    fx_movement?: {
-      ready: boolean;
-      reason?: string;
-      measurement_complete?: boolean;
-      next_oslo_open_at?: string;
-      measurement_end_at?: string;
-      points?: Array<{ at: string; change_pct: number }>;
-      reference_rate?: number;
-      reference_at?: string;
-      reference_source?: string;
-      reference_approximate?: boolean;
-      latest_rate?: number;
-      latest_at?: string;
-      latest_source?: string;
-      change_pct?: number;
-      effect_per_share_nok?: number;
-      effect_pct_otec?: number;
-      combined_per_share_nok?: number;
-      combined_pct_otec?: number;
-      theoretical_otec_price_nok?: number | null;
-    };
+    fx_movement?: FxMovement;
     holding_shares?: number;
     otec_outstanding_shares?: number;
   };
@@ -105,6 +110,14 @@ export function displayedTheoreticalOtecPrice(data: BemobiAfterOslo | null, refr
 }
 
 export function displayedFxMovement(data: BemobiAfterOslo | null, refreshFailed = false) {
+  // A quoted BRL/NOK move is independent of Bemobi and OTEC estimates.
+  const fx = data?.fx_movement;
+  return !refreshFailed && fx?.ready
+    && [fx.reference_rate, fx.latest_rate, fx.change_pct].every(v => v != null && Number.isFinite(v))
+    ? fx : null;
+}
+
+export function displayedFxEffect(data: BemobiAfterOslo | null, refreshFailed = false) {
   const fx = displayedOtecEffect(data, refreshFailed)?.fx_movement;
   return fx?.ready
     && [fx.reference_rate, fx.latest_rate, fx.change_pct, fx.effect_per_share_nok,
@@ -112,8 +125,30 @@ export function displayedFxMovement(data: BemobiAfterOslo | null, refreshFailed 
     ? fx : null;
 }
 
+export function fxStatusLabel(fx?: FxMovement, refreshFailed = false): string {
+  if (refreshFailed) return "Kunne ikke oppdatere valutadata";
+  if (fx?.ready) return "Endring i BRL/NOK";
+  switch (fx?.reason) {
+    case "waiting_oslo_close": return "Venter på dagens Oslo-stenging";
+    case "missing_fx_after_oslo_close": return "Referansekurs lagret – venter på nyere BRL/NOK-kurs";
+    case "invalid_latest_fx": return "Nyeste BRL/NOK-kurs er ugyldig";
+    case "invalid_oslo_close_fx_reference": return "Lagret referansekurs ved Oslo-slutt er ugyldig";
+    case "missing_oslo_close_fx_reference":
+      switch (fx.capture_reason) {
+        case "observation_not_near_oslo_close": return "Referansekurs avvist: for langt fra Oslo-stenging";
+        case "upstream_error": return "Valutakilden svarte med feil ved Oslo-stenging";
+        case "provider_error": return "Valutakilden kunne ikke levere gyldig referanse";
+        case "fx_disabled_or_not_approved": return "Innhenting av intradag-valuta er deaktivert";
+        case "missing_sanity_reference": return "Mangler Norges Bank-kurs til kontroll";
+        case "deviation_from_official_rate": return "Valutakurs avvist: stort avvik fra Norges Bank";
+        default: return "Mangler verifisert BRL/NOK-kurs ved Oslo-stenging";
+      }
+    default: return "Venter på valutagrunnlag";
+  }
+}
+
 export function displayedCombinedTheoreticalPrice(data: BemobiAfterOslo | null, refreshFailed = false) {
-  const fx = displayedFxMovement(data, refreshFailed);
+  const fx = displayedFxEffect(data, refreshFailed);
   return fx?.theoretical_otec_price_nok != null && Number.isFinite(fx.theoretical_otec_price_nok)
     && fx.theoretical_otec_price_nok > 0 ? fx.theoretical_otec_price_nok : null;
 }
