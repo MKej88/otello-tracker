@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBrazilServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
 
 test("reads only allow-listed server metrics", () => {
   const output = parseBrazilServerTiming(
@@ -40,4 +40,23 @@ test("Worker fetch timing exposes phase durations without unrelated header data"
   assert.equal(parseWorkerFetchTiming("otello_asgi;dur=-10"), null);
   assert.equal(parseWorkerFetchTiming("otello_fetch;dur=not-a-number"), null);
   assert.deepEqual(parseWorkerFetchTiming("otello_fetch;dur=0.00"), { fetchMs: 0 });
+});
+
+test("NAV history diagnostics parse only fixed reasons, cache states and aggregate timings", () => {
+  const header = 'navhist_cache;desc="fallback", navhist_reason;desc="date_mismatch", ' +
+    'navhist_lookup;dur=23.17, navhist_fallback;dur=245.60, navhist_d1;dur=68.34, ' +
+    'navhist_reads;desc="19", private;desc="financial payload"';
+  const timing = parseNavHistoryServerTiming(header);
+  assert.deepEqual(timing, {
+    cache: "fallback", reason: "date_mismatch", lookupMs: 23.17,
+    fallbackMs: 245.6, d1TotalMs: 68.34, d1Reads: 19,
+  });
+  assert.doesNotMatch(JSON.stringify(timing), /private|financial|payload/);
+  assert.deepEqual(parseNavHistoryServerTiming('navhist_cache;desc="hit", navhist_reason;desc="none"'),
+    { cache: "hit", reason: "none" });
+  assert.equal(parseNavHistoryServerTiming('navhist_reason;desc="user-supplied"'), null);
+  assert.equal(parseNavHistoryServerTiming('navhist_cache;desc="secret"'), null);
+  assert.equal(parseNavHistoryServerTiming('navhist_d1;dur=-1'), null);
+  assert.equal(parseNavHistoryServerTiming('navhist_d1;dur=NaN'), null);
+  assert.equal(parseNavHistoryServerTiming(null), null);
 });

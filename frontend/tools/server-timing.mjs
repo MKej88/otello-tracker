@@ -56,3 +56,33 @@ export function parseWorkerFetchTiming(header) {
   }
   return Object.keys(result).length ? result : null;
 }
+
+ 
+/** Only fixed NAV-history cache states and aggregate durations are reportable. */
+export function parseNavHistoryServerTiming(header) {
+  if (!header) return null;
+  const result = {};
+  const timingNames = {
+    lookup: "lookupMs", fallback: "fallbackMs", d1: "d1TotalMs",
+  };
+  for (const component of header.split(",")) {
+    const metric = /^\s*navhist_(lookup|fallback|d1);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(component);
+    if (metric) {
+      result[timingNames[metric[1]]] = Number(metric[2]);
+      continue;
+    }
+    const cache = /^\s*navhist_cache;desc="(hit|fallback)"\s*$/.exec(component);
+    if (cache) {
+      result.cache = cache[1];
+      continue;
+    }
+    const reason = /^\s*navhist_reason;desc="(none|non_preset|no_history|missing_entry|date_mismatch|version_mismatch)"\s*$/.exec(component);
+    if (reason) {
+      result.reason = reason[1];
+      continue;
+    }
+    const reads = /^\s*navhist_reads;desc="(\d{1,5})"\s*$/.exec(component);
+    if (reads) result.d1Reads = Number(reads[1]);
+  }
+  return Object.keys(result).length ? result : null;
+}

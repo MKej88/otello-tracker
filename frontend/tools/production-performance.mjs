@@ -12,7 +12,7 @@ import { median, classifiedApiSamples } from "./performance-trend-core.mjs";
 import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
 import { slowTraceCandidates } from "./trace-candidates.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
-import { parseBrazilServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
   fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
@@ -116,6 +116,8 @@ async function probeApi(path) {
             ? parseBrazilServerTiming(response.headers.get("server-timing")) : null,
           healthD1Ms: path === "/api/health"
             ? parseHealthD1Timing(response.headers.get("server-timing")) : null,
+          navHistoryTiming: new URL(path, base).pathname === "/api/dashboard/discount-history"
+            ? parseNavHistoryServerTiming(response.headers.get("server-timing")) : null,
           originTiming: [
             "/api/bemobi/dashboard", "/api/bemobi/consensus", "/api/buybacks/dashboard",
           ].includes(path) ? parseOtelloOriginTiming(response.headers.get("server-timing")) : null,
@@ -156,6 +158,8 @@ async function probeApi(path) {
       ? { serverTiming: samples.map((sample) => sample.serverTiming) } : {}),
     ...(path === "/api/health"
       ? { healthD1Ms: samples.map((sample) => sample.healthD1Ms) } : {}),
+    ...(new URL(path, base).pathname === "/api/dashboard/discount-history"
+      ? { navHistoryTiming: samples.map((sample) => sample.navHistoryTiming) } : {}),
     ...(samples.some((sample) => sample.originTiming != null)
       ? { originTiming: samples.map((sample) => sample.originTiming) } : {}),
     rateLimitedAttempts,
@@ -725,6 +729,8 @@ async function main() {
   }
   const brazil = result.api.find((item) => item.endpoint === "/api/brazil/dashboard");
   const health = result.api.find((item) => item.endpoint === "/api/health");
+  const navHistory = result.api.find((item) =>
+    new URL(item.endpoint, base).pathname === "/api/dashboard/discount-history");
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
@@ -863,6 +869,26 @@ async function main() {
     "Worker fetch måles fra første instruksjon i Python Default.fetch til ASGI har returnert en Response. Start av isolatet/Pyodide før dette punktet er utenfor målingen.",
     "ASGI-adapter inkluderer FastAPI, og FastAPI-middleware omfatter også ventetid i endepunkter. Disse tallene kan ikke summeres som uavhengige faser.",
     "Cloudflare-cache HIT kan videreføre måleheadere fra en tidligere MISS; tabellen viser kun første prøve.",
+    "",
+    "### Historisk NAV-rabatt – forhåndsberegning og D1",
+    "",
+    ...(navHistory?.navHistoryTiming?.map((timing, index) => {
+      const cache = navHistory.cfCacheStatus[index];
+      if (!timing) {
+        return "- Prøve " + (index + 1) + ": ingen NAV-historikk Server-Timing (eldre deploy eller cache).";
+      }
+      const ms = (value) => Number.isFinite(value) ? value + " ms" : "–";
+      return "- Prøve " + (index + 1) + " (Cloudflare " + cache +
+        ", ekstern " + navHistory.sampleTotalMs[index] + " ms): forhåndsberegnet " +
+        (timing.cache ?? "ukjent") + "; årsak " + (timing.reason ?? "ukjent") +
+        "; cacheoppslag " + ms(timing.lookupMs) +
+        "; reserveberegning " + ms(timing.fallbackMs) +
+        "; samlet D1-lesetid " + ms(timing.d1TotalMs) +
+        "; D1-lesinger " + (timing.d1Reads ?? "–") +
+        (cache === "HIT" ? " [origin-timing fra tidligere cachefylling]" : "") + ".";
+    }) || ["Ingen NAV-historikk API-prøver registrert."]),
+    "Forhåndsberegnet HIT/FALLBACK er intern D1-cache, ikke Cloudflare-cache. Manglende timing betyr ikke nødvendigvis reserveberegning.",
+    "D1-lesetid summerer spørringer (og kan overstige veggklokketid ved parallellitet). Ingen NAV-verdier eller SQL-parametere logges.",
     "",
     "### Bemobi og tilbakekjøp – Worker-timing ved cache MISS",
     "",
