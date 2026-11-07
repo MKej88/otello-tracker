@@ -21,6 +21,8 @@ on:
       - frontend/tools/server-timing.test.mjs
       - cloudflare/src/app.py
       - cloudflare/src/entry.py
+      - cloudflare/src/materialized_discount_history.py
+      - cloudflare/tests/test_materialized_discount_history_timing.py
       - cloudflare/src/worker_timing.py
       - cloudflare/src/brazil_snapshot.py
       - cloudflare/tests/test_brazil_snapshot.py
@@ -83,6 +85,7 @@ jobs:
           node --test frontend/tools/performance-trends.test.mjs frontend/tools/performance-diagnostics.test.mjs frontend/tools/performance-screen-state.test.mjs frontend/tools/cpu-profile-summary.test.mjs frontend/tools/server-timing.test.mjs frontend/tools/api-network-phases.test.mjs frontend/tools/trace-candidates.test.mjs
           python3 -m py_compile cloudflare/src/app.py cloudflare/src/entry.py cloudflare/src/worker_timing.py cloudflare/src/brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_brazil_snapshot.py
+          python3 -m unittest discover -s cloudflare/tests -p test_materialized_discount_history_timing.py
 
       # PRs only test the scripts locally; rapid pushes otherwise hit
       # Cloudflare rate limits and generate false production alerts.
