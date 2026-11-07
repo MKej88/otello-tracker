@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date
+from time import perf_counter
 from typing import Any
 
 try:
@@ -258,13 +259,20 @@ async def materialized_discount_history(
     days: int = 365,
     max_points: int = 600,
     year_to_date: bool = False,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Serve a nightly precomputed preset when fresh, otherwise preserve live fallback."""
+    """Serve a nightly precomputed preset when fresh, otherwise preserve live fallback.
+
+    Diagnostics contain only allow-listed timings and fixed reason codes.
+    Neither the payload nor financial values are changed.
+    """
+    lookup_started = perf_counter()
     period_key = _period_key(
         days=days,
         max_points=max_points,
         year_to_date=year_to_date,
     )
+    miss_reason = "non_preset"
     if period_key is not None:
         latest_history_date = await _latest_history_date(repository)
         entry = await _load_entry(repository, period_key)
@@ -274,16 +282,41 @@ async def materialized_discount_history(
             and entry.get("source_date") == latest_history_date
             and entry.get("calculation_version") == PERIOD_CACHE_VERSION
         ):
+            if diagnostics is not None:
+                diagnostics.update(
+                    cache="hit",
+                    reason="none",
+                    lookup_ms=(perf_counter() - lookup_started) * 1000,
+                    fallback_ms=0.0,
+                )
             return dict(entry["payload"])
+        if latest_history_date is None:
+            miss_reason = "no_history"
+        elif entry is None:
+            miss_reason = "missing_entry"
+        elif entry.get("source_date") != latest_history_date:
+            miss_reason = "date_mismatch"
+        else:
+            miss_reason = "version_mismatch"
 
-    payload = await discount_history(
-        repository,
-        days=days,
-        max_points=max_points,
-        year_to_date=year_to_date,
-    )
-    return await _enrich_life360_period(repository, payload)
-
+    if diagnostics is not None:
+        diagnostics.update(
+            cache="fallback",
+            reason=miss_reason,
+            lookup_ms=(perf_counter() - lookup_started) * 1000,
+        )
+    fallback_started = perf_counter()
+    try:
+        payload = await discount_history(
+            repository,
+            days=days,
+            max_points=max_points,
+            year_to_date=year_to_date,
+        )
+        return await _enrich_life360_period(repository, payload)
+    finally:
+        if diagnostics is not None:
+            diagnostics["fallback_ms"] = (perf_counter() - fallback_started) * 1000
 
 async def materialized_nav_period_bundle(repository) -> dict[str, Any]:
     """Return every precomputed NAV period in one small payload for instant UI switching."""
