@@ -240,18 +240,34 @@ async def get_dashboard_history(
 @app.get("/api/dashboard/discount-history")
 async def get_discount_history(
     request: Request,
+    response: Response,
     days: int = Query(default=365, ge=30, le=3650),
     max_points: int = Query(default=600, ge=50, le=1000),
     year_to_date: bool = Query(default=False),
 ) -> dict:
     from materialized_discount_history import materialized_discount_history
 
-    return await materialized_discount_history(
-        _repository(request),
+    repository = _repository(request)
+    diagnostics: dict = {}
+    payload = await materialized_discount_history(
+        repository,
         days=days,
         max_points=max_points,
         year_to_date=year_to_date,
+        diagnostics=diagnostics,
     )
+    metrics = repository.performance_metrics()
+    # Fixed status/reason codes and aggregate timing only. No NAV data, SQL,
+    # parameters, client identifiers or payloads enter monitoring headers.
+    response.headers["Server-Timing"] = (
+        f'navhist_cache;desc="{diagnostics["cache"]}", '
+        f'navhist_reason;desc="{diagnostics["reason"]}", '
+        f'navhist_lookup;dur={diagnostics["lookup_ms"]:.2f}, '
+        f'navhist_fallback;dur={diagnostics["fallback_ms"]:.2f}, '
+        f'navhist_d1;dur={metrics["d1_read_ms"]:.2f}, '
+        f'navhist_reads;desc="{min(metrics["d1_reads"], 99999)}"'
+    )
+    return payload
 
 
 @app.get("/api/dashboard/nav-periods")
