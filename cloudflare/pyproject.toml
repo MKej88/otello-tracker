@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.162.0",
   "pypdf==6.21.4",
-  "tzdata==2026.5",
+  "tzdata==2026.6",
 ]
 
 [dependency-groups]
