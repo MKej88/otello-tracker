@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { focusPublicationDates } from "./focusPublicationSchedule";
 import "./brazil-page.css";
 
 type Tone = "positive" | "negative" | "neutral";
@@ -464,6 +465,7 @@ export default function BrazilPage() {
   const currentYear = data.focus?.focus_meta?.current_year ?? Number(data.as_of_date.slice(0, 4));
   const nextYear = data.focus?.focus_meta?.next_year ?? currentYear + 1;
   const currentFocusDate = data.focus?.focus_meta?.ref_date;
+  const focusDates = focusPublicationDates(currentFocusDate, data.as_of_date);
   const comparisonFocusDate = data.focus_trend?.comparisons?.["30d"]?.ref_date;
   const selicCurrent30d = trendPoint(data, "30d", "selic", currentYear);
   const selicNext30d = trendPoint(data, "30d", "selic", nextYear);
@@ -616,10 +618,10 @@ export default function BrazilPage() {
           <summary><span><span className="label">MARKEDSFORVENTNINGER</span><h2>Forventninger til rente, inflasjon, vekst og valuta</h2></span><span>Vis detaljer</span></summary>
           <div className="brazilDetailBody">
             <p>Medianforventningen blant banker, forvaltere og andre markedsaktører i Brasils sentralbanks ukentlige forventningsundersøkelse.</p>
-            {currentFocusDate ? <p><small className="numeric">Focus {dateLabel(currentFocusDate)}</small></p> : null}
+            {currentFocusDate ? <p><small className="numeric">Focus {dateLabel(currentFocusDate)}{focusDates.publishedDate ? ` · Publisert ${dateLabel(focusDates.publishedDate)}` : ""}{focusDates.nextExpectedDate ? ` · Neste forventede publisering ${dateLabel(focusDates.nextExpectedDate)}` : ""}</small></p> : null}
             {data.focus?.focus_meta?.stale ? <p className="sourceWarn"><small>Obs: Ett eller flere tall er eldre enn tre uker. Se måledato for hver indikator.</small></p> : null}
             <FocusTable focus={data.focus?.values} year={currentYear} />
-            <p><small>Kilde: {data.focus?.source_url ? <a href={data.focus.source_url} target="_blank" rel="noreferrer">Banco Central do Brasil – Focus-undersøkelsen</a> : "Banco Central do Brasil – Focus-undersøkelsen"}.</small></p>
+            <p><small>Kilde: {data.focus?.source_url ? <a href={data.focus.source_url} target="_blank" rel="noreferrer">Banco Central do Brasil – Focus-undersøkelsen</a> : "Banco Central do Brasil – Focus-undersøkelsen"}. Publiseringsdatoene er beregnet etter sentralbankens normale ukeplan; endringer kan forekomme.</small></p>
           </div>
         </details>
 
