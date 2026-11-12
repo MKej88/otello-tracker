@@ -50,6 +50,13 @@ CACHE_POLICIES = {
     "/api/market/bemobi-after-oslo": ("public, max-age=15", "public, max-age=15"),
 }
 
+# Aggregate per-request D1 timings only for the two slow production endpoints.
+# Counts and durations are diagnostic metadata, never SQL text or results.
+D1_TIMING_ROUTES = frozenset({
+    "/api/news-events",
+    "/api/dashboard/runtime-status",
+})
+
 app = FastAPI(
     title="Otello NAV-oversikt",
     version=API_VERSION,
@@ -78,10 +85,21 @@ async def add_response_hardening(request: Request, call_next):
     response.headers["Cache-Control"] = browser_policy
     response.headers["Cloudflare-CDN-Cache-Control"] = edge_policy
     if request.url.path.startswith("/api/"):
+        measurements = []
+        repository = getattr(request.state, "performance_repository", None)
+        if request.url.path in D1_TIMING_ROUTES and repository is not None:
+            metrics = repository.performance_metrics()
+            # Sum of concurrent D1 reads is not exclusive wall-clock time.
+            read_ms = max(0.0, min(float(metrics["d1_read_ms"]), 120_000.0))
+            read_count = max(0, min(int(metrics["d1_reads"]), 99_999))
+            measurements.append(f"otello_req_d1;dur={read_ms:.2f}")
+            measurements.append(f'otello_req_reads;desc="{read_count}"')
+        measurements.append(
+            f"otello_fastapi;dur={(perf_counter() - fastapi_started) * 1000:.2f}"
+        )
         existing = response.headers.get("Server-Timing")
-        measurement = f"otello_fastapi;dur={(perf_counter() - fastapi_started) * 1000:.2f}"
-        response.headers["Server-Timing"] = (
-            f"{existing}, {measurement}" if existing else measurement
+        response.headers["Server-Timing"] = ", ".join(
+            ([existing] if existing else []) + measurements
         )
     return response
 
@@ -91,7 +109,10 @@ def _repository(request: Request) -> PerformanceD1Repository:
     database = getattr(env, "DB", None) if env is not None else None
     if database is None:
         raise HTTPException(status_code=503, detail="D1 binding unavailable")
-    return PerformanceD1Repository(database)
+    repository = PerformanceD1Repository(database)
+    if request.url.path in D1_TIMING_ROUTES:
+        request.state.performance_repository = repository
+    return repository
 
 
 def _write_repository(request: Request) -> PerformanceD1WriteRepository:
