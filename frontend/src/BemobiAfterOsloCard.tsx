@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDateTime, formatNumber } from "./uiFormat";
-import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedFxEffect, fxStatusLabel, displayedCombinedTheoreticalPrice, movementChart, statusLabel, type BemobiAfterOslo } from "./bemobiAfterOsloModel";
+import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedFxEffect, fxStatusLabel, displayedCombinedTheoreticalPrice, movementChart, statusLabel, waitingForOsloClose, type BemobiAfterOslo } from "./bemobiAfterOsloModel";
 import "./bemobi-after-oslo.css";
 
 function timeLabel(at?: string) {
@@ -71,21 +71,37 @@ export default function BemobiAfterOsloCard() {
   const { data, refreshFailed } = usePollingResource<BemobiAfterOslo>(
     "/api/market/bemobi-after-oslo", 2 * 60 * 1000,
   );
-  const change = displayedChange(data, refreshFailed);
+  // A stale response may remain cached until the next two-minute poll.
+  // Re-render exactly at Oslo opening and hide every previous-session value.
+  const [, setOpenBoundaryTick] = useState(0);
+  useEffect(() => {
+    const nextOpenMs = Date.parse(data?.next_oslo_open_at ?? "");
+    const remaining = nextOpenMs - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
+    const timer = window.setTimeout(() => setOpenBoundaryTick(value => value + 1), remaining);
+    return () => window.clearTimeout(timer);
+  }, [data?.next_oslo_open_at]);
+  const waiting = waitingForOsloClose(data);
+  const visibleData: BemobiAfterOslo | null = waiting && data
+    ? { ...data, ready: false, status: "waiting_oslo_close",
+        reference: undefined, latest: undefined, otec_effect: undefined,
+        fx_movement: { ready: false, reason: "waiting_oslo_close" }, points: [] }
+    : data;
+  const displayRefreshFailed = refreshFailed && !waiting;
+  const change = displayedChange(visibleData, displayRefreshFailed);
   const tone = change == null || change === 0 ? "neutral" : change > 0 ? "positive" : "negative";
-  const chart = change == null ? null : movementChart(data?.points);
-  const reference = data?.reference;
-  const latest = data?.latest;
-  const effect = displayedOtecEffect(data, refreshFailed);
-  const theoreticalPrice = displayedTheoreticalOtecPrice(data, refreshFailed);
-  const fx = displayedFxMovement(data, refreshFailed);
-  const rawFx = data?.fx_movement;
-  const fxEffect = displayedFxEffect(data, refreshFailed);
+  const chart = change == null ? null : movementChart(visibleData?.points);
+  const reference = visibleData?.reference;
+  const latest = visibleData?.latest;
+  const effect = displayedOtecEffect(visibleData, displayRefreshFailed);
+  const theoreticalPrice = displayedTheoreticalOtecPrice(visibleData, displayRefreshFailed);
+  const fx = displayedFxMovement(visibleData, displayRefreshFailed);
+  const rawFx = visibleData?.fx_movement;
+  const fxEffect = displayedFxEffect(visibleData, displayRefreshFailed);
   const fxReference = rawFx?.reference_rate != null && Number.isFinite(rawFx.reference_rate) ? rawFx.reference_rate : null;
   const fxLatest = rawFx?.latest_rate != null && Number.isFinite(rawFx.latest_rate) ? rawFx.latest_rate : null;
-  const finished = data?.measurement_complete === true;
   const fxChart = fx ? movementChart(fx.points) : null;
-  const combinedPrice = displayedCombinedTheoreticalPrice(data, refreshFailed);
+  const combinedPrice = displayedCombinedTheoreticalPrice(visibleData, displayRefreshFailed);
   const effectTone = effect?.change_per_share_nok == null || effect.change_per_share_nok === 0 ? "neutral" : effect.change_per_share_nok > 0 ? "positive" : "negative";
   const combinedTone = fxEffect?.combined_per_share_nok == null || fxEffect.combined_per_share_nok === 0 ? "neutral" : fxEffect.combined_per_share_nok > 0 ? "positive" : "negative";
   const fxTone = fx?.change_pct == null || fx.change_pct === 0 ? "neutral" : fx.change_pct > 0 ? "positive" : "negative";
@@ -100,10 +116,10 @@ export default function BemobiAfterOsloCard() {
     <div className="bemobiAfterOsloGrid">
       <section className="card cardStandard bemobiAfterOslo bemobiAfterOsloMarketCard" aria-label="Bemobi siden Oslo Børs stengte">
         <MarketMovement
-          title={finished ? "Bemobi frem til Oslo-åpning" : "Bemobi siden Oslo Børs stengte"}
+          title="Bemobi siden Oslo Børs stengte"
           change={change}
           tone={tone}
-          status={statusLabel(data?.status, refreshFailed)}
+          status={statusLabel(visibleData?.status, displayRefreshFailed)}
           referenceLabel="Ved Oslo-slutt"
           referenceValue={reference ? "R$ " + formatNumber(reference.price, 2) : "—"}
           latestLabel="Siste kurs"
@@ -112,13 +128,13 @@ export default function BemobiAfterOsloCard() {
           chartLabel={change == null ? "Ingen Bemobi-kursutvikling tilgjengelig" : "Bemobis lagrede kursutvikling siden Oslo-slutt: " + formatNumber(change, 2) + " prosent."}
           sourceNote={<>
             {latest && <small>Siste kurstid: {formatDateTime(latest.observed_at)} · {latest.source === "YAHOO_FINANCE" ? "Yahoo Finance" : latest.source}{latest.delay_minutes === 15 ? " · 15 min forsinket" : ""}</small>}
-            {data?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">{finished ? "Avsluttet ved" : "Måles til"} Oslo-åpning: {formatDateTime(data.next_oslo_open_at)}</small>}
+            {!waiting && visibleData?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">Måles til Oslo-åpning: {formatDateTime(visibleData.next_oslo_open_at)}</small>}
           </>}
         />
         <details className="bemobiAfterOsloDetails">
           <summary>Vis kursgrunnlag</summary>
           <div>
-            {data?.oslo_close_at && <p>Oslo Børs stengte: {formatDateTime(data.oslo_close_at)}.</p>}
+            {visibleData?.oslo_close_at && <p>Oslo Børs stengte: {formatDateTime(visibleData.oslo_close_at)}.</p>}
             {reference && <p>Referansekurs: R$ {formatNumber(reference.price, 2)} · {formatDateTime(reference.observed_at)} · {reference.source === "YAHOO_FINANCE" ? "Yahoo Finance" : reference.source}.</p>}
             <p>{reference?.source === "YAHOO_FINANCE"
               ? "Omtrentlig referanse fra Yahoo Finance: sluttkursen i siste avsluttede minutt før close på Oslo Børs, høyst tre minutter tidligere."
@@ -134,7 +150,7 @@ export default function BemobiAfterOsloCard() {
           {fxEffect?.combined_pct_otec != null ? signed(fxEffect.combined_pct_otec, " %") : "—"}
         </strong>
         <div className={`otecEffectAmount numeric ${combinedTone}`}>
-          {fxEffect?.combined_per_share_nok != null ? signed(fxEffect.combined_per_share_nok, " kr per OTEC-aksje") : "Valutaeffekt ikke tilgjengelig"}
+          {fxEffect?.combined_per_share_nok != null ? signed(fxEffect.combined_per_share_nok, " kr per OTEC-aksje") : waiting ? "—" : "Valutaeffekt ikke tilgjengelig"}
         </div>
         <div className="otecEffectBreakdown">
           <div><span>Bemobi-effekt</span><strong className={`numeric ${effectTone}`}>{effect ? signed(effect.change_per_share_nok!, " kr") : "—"}</strong></div>
@@ -147,9 +163,9 @@ export default function BemobiAfterOsloCard() {
         </div>
         {theoreticalPrice != null && <small>Kun Bemobi, med valutakurs holdt fast: {formatNumber(theoreticalPrice, 2)} kr.</small>}
         <div className="bemobiAfterOsloStatus" role="status">
-          {effect ? fxEffect ? (finished ? "Avsluttet ved neste Oslo-åpning · Bemobi og BRL/NOK" : "Beregnet fra Bemobi og BRL/NOK etter Oslo-slutt") : "Beregnet Bemobi-effekt; valutareferanse mangler"
-            : change == null ? statusLabel(data?.status, refreshFailed)
-            : `Mangler ${data?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
+          {effect ? fxEffect ? "Beregnet fra Bemobi og BRL/NOK etter Oslo-slutt" : "Beregnet Bemobi-effekt; valutareferanse mangler"
+            : change == null ? statusLabel(visibleData?.status, displayRefreshFailed)
+            : `Mangler ${visibleData?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
         </div>
         <small>Teoretisk estimat for Bemobi-investeringen fra Oslo-slutt til neste åpning; ikke en kursprognose.</small>
         <details className="bemobiAfterOsloDetails">
@@ -165,10 +181,10 @@ export default function BemobiAfterOsloCard() {
       </section>
       <section className="card cardStandard bemobiAfterOslo bemobiAfterOsloMarketCard bemobiAfterOsloFxCard" aria-label="BRL/NOK over perioden da Oslo Børs var stengt">
         <MarketMovement
-          title={finished ? "BRL/NOK frem til Oslo-åpning" : "BRL/NOK siden Oslo Børs stengte"}
+          title="BRL/NOK siden Oslo Børs stengte"
           change={fx?.change_pct ?? null}
           tone={fxTone}
-          status={fxStatusLabel(rawFx, refreshFailed)}
+          status={fxStatusLabel(rawFx, displayRefreshFailed)}
           referenceLabel="Ved Oslo-slutt"
           referenceValue={fxReference != null ? formatNumber(fxReference, 4) + " NOK" : "—"}
           latestLabel="Siste kurs"
@@ -177,7 +193,7 @@ export default function BemobiAfterOsloCard() {
           chartLabel={fx ? "BRL/NOK i måleperioden: " + formatNumber(fx.change_pct!, 2) + " prosent endring." : "Ingen valutakursutvikling tilgjengelig"}
           sourceNote={fx
             ? <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}.</small>
-            : <small>{fxStatusLabel(rawFx, refreshFailed)}. {fxLatest != null && rawFx?.latest_at
+            : <small>{fxStatusLabel(rawFx, displayRefreshFailed)}. {fxLatest != null && rawFx?.latest_at
               ? `Siste dokumenterte kurs: ${formatDateTime(rawFx.latest_at)}. `
               : ""}Ingen prosentvis valutaeffekt beregnes uten gyldig referanse.</small>}
         />

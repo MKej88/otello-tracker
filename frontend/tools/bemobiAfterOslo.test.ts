@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedFxEffect, fxStatusLabel, displayedCombinedTheoreticalPrice, movementChart, statusLabel } from "../src/bemobiAfterOsloModel.ts";
+import { displayedChange, displayedOtecEffect, displayedTheoreticalOtecPrice, displayedFxMovement, displayedFxEffect, fxStatusLabel, displayedCombinedTheoreticalPrice, movementChart, statusLabel, waitingForOsloClose } from "../src/bemobiAfterOsloModel.ts";
 
 test("Missing, stale and failed refreshes never display a percentage", () => {
   assert.equal(displayedChange(null), null);
@@ -32,10 +32,24 @@ test("Chart uses elapsed time and includes zero in positive and negative domains
 test("Waiting for Oslo close suppresses Bemobi and OTEC values", () => {
   const data = { ready: false, status: "waiting_oslo_close", change_pct: 6.87,
     otec_effect: { ready: true, change_pct: 2, change_per_share_nok: .4, otec_price_nok: 20 } };
-  assert.equal(statusLabel(data.status), "Venter på at Oslo Børs stenger");
+  assert.equal(statusLabel(data.status), "Venter på dagens Oslo-stenging");
   assert.equal(displayedChange(data), null);
   assert.equal(displayedOtecEffect(data), null);
   assert.equal(displayedTheoreticalOtecPrice(data), null);
+});
+
+test("All three cards expire at the exact next Oslo opening, even with a cached ready response", () => {
+  const data = { ready: true, status: "ready", next_oslo_open_at: "2026-11-12T08:00:00Z" };
+  assert.equal(waitingForOsloClose(data, Date.parse("2026-11-12T07:59:59Z")), false);
+  assert.equal(waitingForOsloClose(data, Date.parse("2026-11-12T08:00:00Z")), true);
+  assert.equal(waitingForOsloClose(data, Date.parse("2026-11-12T11:00:00Z")), true);
+  assert.equal(waitingForOsloClose({ ...data, status: "waiting_oslo_close" }, 0), true);
+  // After today's close, the API supplies a new next-open timestamp.
+  assert.equal(waitingForOsloClose(
+    { ...data, next_oslo_open_at: "2026-11-13T08:00:00Z" },
+    Date.parse("2026-11-12T15:25:00Z"),
+  ), false);
+  assert.equal(waitingForOsloClose(null, Date.parse("2026-11-12T08:00:00Z")), false);
 });
 
 test("OTEC effect shares the Bemobi freshness gate and requires finite results", () => {

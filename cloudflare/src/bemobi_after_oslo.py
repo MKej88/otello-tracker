@@ -437,17 +437,19 @@ async def bemobi_after_oslo(
         "generated_at": iso(current),
         "points": [],
     }
+    # All three cards measure the period while Oslo Børs is closed. Once
+    # Oslo opens again, do not expose yesterday's Bemobi or OTEC calculations.
+    # The next Oslo close creates a fresh reference and starts a new period.
+    if current >= next_open:
+        result["status"] = "waiting_oslo_close"
+        result["fx_movement"] = {"ready": False, "reason": "waiting_oslo_close"}
+        return result
     # FX is a separate market observation, not an output of the OTEC estimate.
-    # After the next Oslo opening the previous after-close window is no longer live.
     try:
         from .after_oslo_fx import fx_close_movement
     except ImportError:
         from after_oslo_fx import fx_close_movement
-    result["fx_movement"] = (
-        await fx_close_movement(repository, close, current)
-        if current < next_open
-        else {"ready": False, "reason": "waiting_oslo_close"}
-    )
+    result["fx_movement"] = await fx_close_movement(repository, close, current)
     row = await repository.first(
         "SELECT value FROM runtime_state WHERE key=?",
         (STATE_PREFIX + close.date().isoformat(),),
@@ -517,8 +519,7 @@ async def bemobi_after_oslo(
     latest = valid[0]
     latest_time = timestamp(latest["observed_at"])
     assert latest_time is not None
-    # This card measures the closed Oslo session. Once Oslo reopens, both Bemobi
-    # and FX remain frozen until a new Oslo close creates a new reference.
+    # No quotes later than the next Oslo opening enter this measurement.
     try:
         metadata = json.loads(latest.get("metadata_json") or "{}")
     except (TypeError, ValueError):

@@ -50,19 +50,19 @@ etter referansen og ikke senere enn faktisk klokke. `CLOSE` med syntetiske
 dagstidspunkt brukes ikke. Nyeste kurstid vinner; B3 prioriteres ved lik kurstid,
 med Yahoo som eksisterende sekundærkilde. Kurver viser lagrede observasjoner.
 
-Siste gyldige, tidsstemplede kurs etter referansen beholdes over natten, før neste
-B3-åpning og gjennom helger/helligdager. Når B3 åpner mens Oslo Børs fortsatt
-handler, viser kortet «Venter på at Oslo Børs stenger». Kurs, prosent, graf,
-gårsdagens referanse og beregnet OTEC-effekt skjules frem til dagens Oslo-slutt.
-Dette styres av faktisk B3-åpning (10:00 i São Paulo, 13:00 på askeonsdag), ikke
-ankomsten av forsinkede kursdata. Begge børsenes handelskalendere og lokale
-tidssoner brukes; hvis Oslo allerede har stengt på en halv børsdag, skjules ikke
-dagens etter-close-resultat når B3 åpner.
-Alder alene skjuler ikke Bemobi-endring, OTEC-effekt eller teoretisk OTEC-kurs;
-faktisk siste kurstidspunkt vises fortsatt. Nye gyldige kurser oppdaterer resultatet.
-Fremtidige kurser, ugyldige tall og CLOSE med syntetiske tidspunkt avvises fortsatt.
-Nettverksfeil i kortet undertrykker prosentvisningen. Referansen beholdes til neste
-close på Oslo Børs.
+Siste gyldige, tidsstemplede kurs etter referansen beholdes over natten og gjennom
+helger/helligdager, men bare frem til **neste Oslo-åpning kl. 09:00**.
+Fra Oslo-åpning til neste Oslo-slutt viser alle tre kortene
+«Venter på dagens Oslo-stenging». Prosent, kursgrunnlag, grafer,
+teoretisk OTEC-kurs og både Bemobi- og valutaeffekt fra forrige måleperiode
+skjules, også hvis B3 ennå ikke har åpnet. Styringen følger Oslo-kalenderen,
+inkludert sommertid, halv handelsdag og helligdager, ikke B3-åpning eller
+ankomst av forsinkede kurser. Nettleseren skjuler også eventuelle cachede
+pre-open-tall straks Oslo åpner, uten å vente på neste to-minutters polling.
+Ved ny Oslo-slutt starter en ny måleperiode med ny, dokumentert referanse.
+Alder alene skjuler ikke gyldige kursobservasjoner mens måleperioden er aktiv,
+og siste faktiske kurstidspunkt vises. Fremtidige kurser, ugyldige tall og CLOSE
+med syntetiske tidspunkt avvises fortsatt. Nettverksfeil undertrykker prosentvisningen.
 Når ny sluttauksjon er passert, venter kortet på den nye forsinkede referansen.
 
 Endringen gjelder Cloudflare-produksjonsløsningen. Referanse-backendens lokale API

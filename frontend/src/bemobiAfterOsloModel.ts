@@ -54,6 +54,13 @@ export type BemobiAfterOslo = {
   points?: Array<{ at: string; change_pct: number }>;
 };
 
+/** A closed-session estimate must not survive into the next Oslo trading day. */
+export function waitingForOsloClose(data: BemobiAfterOslo | null, nowMs = Date.now()): boolean {
+  if (data?.status === "waiting_oslo_close") return true;
+  const nextOpenMs = Date.parse(data?.next_oslo_open_at ?? "");
+  return Number.isFinite(nextOpenMs) && nowMs >= nextOpenMs;
+}
+
 export function displayedChange(data: BemobiAfterOslo | null, refreshFailed = false) {
   return !refreshFailed && data?.ready && data.status === "ready"
     && Number.isFinite(data.change_pct) ? data.change_pct! : null;
@@ -62,7 +69,7 @@ export function displayedChange(data: BemobiAfterOslo | null, refreshFailed = fa
 export function statusLabel(status?: string, refreshFailed = false): string {
   if (refreshFailed) return "Kunne ikke oppdatere kursdata";
   switch (status) {
-    case "waiting_oslo_close": return "Venter på at Oslo Børs stenger";
+    case "waiting_oslo_close": return "Venter på dagens Oslo-stenging";
     case "waiting_reference": return "Venter på forsinket kurs ved close på Oslo Børs";
     case "missing_reference": return "Mangler kurs ved close på Oslo Børs";
     case "waiting_quote": return "Venter på neste Bemobi-kurs";
