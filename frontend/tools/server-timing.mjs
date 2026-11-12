@@ -49,10 +49,13 @@ export function parseWorkerFetchTiming(header) {
     otello_asgi_import: "asgiImportMs",
     otello_asgi: "asgiMs",
     otello_fastapi: "fastapiMs",
+    otello_req_d1: "requestD1TotalMs",
   };
   for (const part of header.split(",")) {
-    const match = /^\s*(otello_fetch|otello_asgi_import|otello_asgi|otello_fastapi);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(part);
+    const match = /^\s*(otello_fetch|otello_asgi_import|otello_asgi|otello_fastapi|otello_req_d1);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(part);
     if (match) result[allowed[match[1]]] = Number(match[2]);
+    const count = /^\s*otello_req_reads;desc="(\d{1,5})"\s*$/.exec(part);
+    if (count) result.requestD1Reads = Number(count[1]);
   }
   return Object.keys(result).length ? result : null;
 }
