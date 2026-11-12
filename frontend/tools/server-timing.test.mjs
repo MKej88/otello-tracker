@@ -42,6 +42,19 @@ test("Worker fetch timing exposes phase durations without unrelated header data"
   assert.deepEqual(parseWorkerFetchTiming("otello_fetch;dur=0.00"), { fetchMs: 0 });
 });
 
+test("request D1 timing exposes only bounded, allow-listed aggregates", () => {
+  const header = 'otello_fetch;dur=240.00, otello_req_d1;dur=190.12, ' +
+    'otello_req_reads;desc="8", secret;desc="customer-data"';
+  const metrics = parseWorkerFetchTiming(header);
+  assert.deepEqual(metrics, {
+    fetchMs: 240, requestD1TotalMs: 190.12, requestD1Reads: 8,
+  });
+  assert.doesNotMatch(JSON.stringify(metrics), /secret|customer/);
+  assert.equal(parseWorkerFetchTiming('otello_req_d1;dur=-10'), null);
+  assert.equal(parseWorkerFetchTiming('otello_req_reads;desc="-2"'), null);
+  assert.equal(parseWorkerFetchTiming('otello_req_reads;desc="123456"'), null);
+});
+
 test("NAV history diagnostics parse only fixed reasons, cache states and aggregate timings", () => {
   const header = 'navhist_cache;desc="fallback", navhist_reason;desc="date_mismatch", ' +
     'navhist_lookup;dur=23.17, navhist_fallback;dur=245.60, navhist_d1;dur=68.34, ' +
