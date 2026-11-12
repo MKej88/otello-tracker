@@ -850,8 +850,8 @@ async function main() {
     "",
     "### Python Worker – oppstart, asgi-import og FastAPI ved cache MISS",
     "",
-    "| Endepunkt | Sendt → headere | Worker fetch | asgi-import | ASGI-adapter inkl. app | FastAPI-middleware | Før/etter Python fetch* |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Endepunkt | Sendt → headere | Worker fetch | asgi-import | ASGI-adapter inkl. app | FastAPI-middleware | Sum D1-lesetid | D1-lesinger | Før/etter Python fetch* |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...result.api.map((a) => {
       const net = a.transport?.[0]?.sendToHeadersMs;
       const t = a.workerTiming?.[0];
@@ -862,12 +862,14 @@ async function main() {
       return "| `" + new URL(a.endpoint, base).pathname + "` | " +
         ms(net) + " | " + ms(measuredFetch) + " | " +
         ms(t?.asgiImportMs) + " | " + ms(t?.asgiMs) + " | " +
-        ms(t?.fastapiMs) + " | " + ms(externalRemainder) + " |";
+        ms(t?.fastapiMs) + " | " + ms(t?.requestD1TotalMs) + " | " +
+        (t?.requestD1Reads ?? "–") + " | " + ms(externalRemainder) + " |";
     }),
     "",
     "*Resterende tid er tiden utenfor den målte Python fetch-funksjonen. Den inkluderer transport, Cloudflare og mulig initialisering av Python-runtime, men kan IKKE alene tolkes som cold start.",
     "Worker fetch måles fra første instruksjon i Python Default.fetch til ASGI har returnert en Response. Start av isolatet/Pyodide før dette punktet er utenfor målingen.",
     "ASGI-adapter inkluderer FastAPI, og FastAPI-middleware omfatter også ventetid i endepunkter. Disse tallene kan ikke summeres som uavhengige faser.",
+    "D1-målingene gjelder kun Nyheter og Datakvalitet. D1-lesetid summerer databaseoppslag i én forespørsel og kan overstige veggklokketiden ved parallellitet; den er ikke en egen oppstartsfase.",
     "Cloudflare-cache HIT kan videreføre måleheadere fra en tidligere MISS; tabellen viser kun første prøve.",
     "",
     "### Historisk NAV-rabatt – forhåndsberegning og D1",
