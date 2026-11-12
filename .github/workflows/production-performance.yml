@@ -86,6 +86,7 @@ jobs:
           python3 -m py_compile cloudflare/src/app.py cloudflare/src/entry.py cloudflare/src/worker_timing.py cloudflare/src/brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_materialized_discount_history_timing.py
+          python3 -m unittest discover -s cloudflare/tests -p test_request_d1_timing.py
 
       # PRs only test the scripts locally; rapid pushes otherwise hit
       # Cloudflare rate limits and generate false production alerts.
