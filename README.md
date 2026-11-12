@@ -36,8 +36,9 @@ Den aktive investorvisningen består av:
 Oversikten viser også **Bemobi siden Oslo Børs stengte**, med kursendring i BRL,
 teoretisk OTEC-effekt og teoretisk OTEC-kurs. Beregningen bruker fast valutakurs
 og en omtrentlig Bemobi-referanse rundt Oslo-sluttauksjonen. Kortet beholder
-siste gyldige resultat frem til neste handelssesjon og venter på dagens
-Oslo-stenging når begge børsene handler. Manglende grunnlag vises tydelig.
+siste gyldige resultat frem til neste åpning på Oslo Børs kl. 09:00. Deretter
+venter alle tre kortene (Bemobi, OTEC-effekt og BRL/NOK) på dagens Oslo-stenging,
+uten å vise forrige måleperiodes beregninger. Manglende grunnlag vises tydelig.
 Se [`docs/bemobi-etter-oslo.md`](docs/bemobi-etter-oslo.md) for metode og forbehold.
 
 ## Hvordan løsningen henger sammen
