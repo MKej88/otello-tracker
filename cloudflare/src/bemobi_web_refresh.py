@@ -357,6 +357,28 @@ def _extract_metric(text: str, labels: tuple[str, ...], *, percent: bool = False
     return None
 
 
+def _extract_result_amount(text: str, labels: tuple[str, ...]) -> float | None:
+    """Prefer reported R$/BRL amounts over growth percentages in narrative PDFs.
+
+    Example: 'Net Revenue grew 31% YoY to R$245.3 million' must yield 245.3,
+    not 31. Keep the original numeric-table parser as a fallback.
+    """
+    for label in labels:
+        for match in re.finditer(label, text, re.IGNORECASE):
+            segment = text[match.end():match.end() + 125]
+            monetary = re.search(
+                r"(?:R\$|BRL)\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)\b",
+                segment,
+                re.IGNORECASE,
+            )
+            if monetary:
+                try:
+                    return _number(monetary.group(1))
+                except ValueError:
+                    continue
+    return _extract_metric(text, labels)
+
+
 def _extract_yoy_percentage(text: str, labels: tuple[str, ...]) -> float | None:
     number = r"-?\d{1,4}(?:[\.,]\d{1,2})?"
     for label in labels:
@@ -424,10 +446,10 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     revenue_labels = (r"Receita L[ií]quida(?: Ajustada)?", r"Net Revenue")
     ebitda_labels = (r"EBITDA Ajustad[oa]", r"Adjusted EBITDA")
     net_income_labels = (r"Lucro L[ií]quido Ajustad[oa]", r"Adjusted Net Income")
-    revenue = _extract_metric(normalized, revenue_labels)
-    ebitda = _extract_metric(normalized, ebitda_labels)
-    net_income = _extract_metric(normalized, net_income_labels)
-    cash_generation = _extract_metric(
+    revenue = _extract_result_amount(normalized, revenue_labels)
+    ebitda = _extract_result_amount(normalized, ebitda_labels)
+    net_income = _extract_result_amount(normalized, net_income_labels)
+    cash_generation = _extract_result_amount(
         normalized,
         (r"EBITDA(?: Ajustad[oa])?\s*[-–−]\s*Capex", r"(?:Adjusted )?EBITDA\s*[-–−]\s*Capex"),
     )
