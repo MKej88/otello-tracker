@@ -1063,12 +1063,21 @@ async def sync_latest_result_release(
         LIMIT 6
         """
     )
-    # Prioritize direct issuer releases, with structured CVM documents as fallback.
-    # Do not parse a stale archived CVM release ahead of a newer IR publication.
-    candidates = ir_candidates + [
-        row for row in cvm_candidates
-        if int(row["id"]) not in {int(ir["id"]) for ir in ir_candidates}
-    ]
+    # Always try the newest publication first. IR wins over CVM only for
+    # the same publication date: an older stored IR release must never mask a
+    # newly filed CVM result when the issuer feed itself is delayed.
+    seen_ids = {int(row["id"]) for row in ir_candidates}
+    candidates = sorted(
+        ir_candidates + [
+            row for row in cvm_candidates if int(row["id"]) not in seen_ids
+        ],
+        key=lambda row: (
+            str(row.get("published_at") or "")[:10],
+            row.get("source_code") == "BEMOBI_IR",
+            str(row.get("published_at") or ""),
+        ),
+        reverse=True,
+    )
     if not candidates:
         return {"status": "skipped", "reason": "no_official_result_document", "rows_written": 0}
 
