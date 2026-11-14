@@ -125,13 +125,24 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
             # Baseline notices are mandatory and independently validated.
             for item in await read_feed(selected, list(CATEGORIES), include_reports=False):
                 rows[item["id"]] = item
-            try:
-                # Empty categories requests all official categories, when supported.
-                for item in await read_feed(selected, [], include_reports=True):
-                    if item["document_kind"] != "NOTICE":
-                        rows[item["id"]] = item
-            except Exception as exc:
-                report_feed_errors.append(f"{selected}: {type(exc).__name__}: {str(exc)[:180]}")
+            # The all-categories response may omit result releases. Also query
+            # the issuer's named Release de Resultados category explicitly.
+            report_discovered = False
+            failures = []
+            for categories in ([], ["release-de-resultados"]):
+                try:
+                    for item in await read_feed(selected, categories, include_reports=True):
+                        if item["document_kind"] != "NOTICE":
+                            rows[item["id"]] = item
+                            if item["document_kind"] == "EARNINGS_RELEASE":
+                                report_discovered = True
+                except Exception as exc:
+                    failures.append(
+                        f"{selected} ({','.join(categories) or 'all'}): "
+                        f"{type(exc).__name__}: {str(exc)[:160]}"
+                    )
+            if failures and not report_discovered:
+                report_feed_errors.extend(failures)
 
         if report_feed_errors or not any(
             item["document_kind"] != "NOTICE" for item in rows.values()
