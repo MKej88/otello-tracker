@@ -199,3 +199,42 @@ def test_optional_report_discovery_cannot_remove_last_good_documents():
     assert second["report_feed_status"] == "partial"
     saved = json.loads(repository.value)
     assert {item["id"] for item in saved["rows"]} == {"filing-1", "earnings-2q26"}
+
+
+def test_named_earnings_category_recovers_release_when_general_feed_omits_it():
+    repository = Repository()
+    notice = row()
+    release = dict(notice)
+    release.update(id="release-3q26", internal_name="release-de-resultados",
+                   file_title="Earnings Release 3Q26",
+                   file_published_date="2026-11-12T00:00:00Z")
+
+    class Response:
+        ok = True
+
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def text(self):
+            return json.dumps(payload(self.rows))
+
+    calls = []
+
+    async def fetch(url, **kwargs):
+        categories = json.loads(kwargs["body"])["categories"]
+        calls.append(categories)
+        if categories == ["release-de-resultados"]:
+            return Response([release])
+        return Response([notice])
+
+    result = asyncio.run(ir.refresh_ir_news(
+        repository, target_date="2026-11-13", fetcher=fetch,
+    ))
+    assert result["status"] == "ok"
+    assert result["report_feed_status"] == "ok"
+    assert ["release-de-resultados"] in calls
+    news, warning = asyncio.run(ir.official_ir_news(
+        repository, target_date="2026-11-13",
+    ))
+    assert warning is None
+    assert any(item["headline"] == "Earnings Release 3Q26" for item in news)
