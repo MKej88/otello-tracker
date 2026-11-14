@@ -17,7 +17,7 @@ CATEGORIES = ("comunicados", "aviso-acionistas", "fatos-relevantes-e-comunicados
 # Discover official results without guessing MZiQ internal category slugs.
 REPORT_TITLES = (
     ("EARNINGS_PRESENTATION", re.compile(r"\b(?:earnings presentation|apresentacao de resultados)\b")),
-    ("EARNINGS_RELEASE", re.compile(r"\b(?:earnings release|release de resultados|press release de resultados|relatorio de resultados)\b")),
+    ("EARNINGS_RELEASE", re.compile(r"\b(?:earnings release|release de resultados|press release de resultados|relatorio de resultados|relatorio trimestral de resultados)\b")),
     ("FINANCIAL_STATEMENTS", re.compile(
         r"\b(?:itr\s*[1-4][qt]\s*\d{2}|dfp\b|quarterly information|"
         r"standardized financial statements|consolidated financial statements|"
@@ -125,13 +125,24 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
             # Baseline notices are mandatory and independently validated.
             for item in await read_feed(selected, list(CATEGORIES), include_reports=False):
                 rows[item["id"]] = item
-            try:
-                # Empty categories requests all official categories, when supported.
-                for item in await read_feed(selected, [], include_reports=True):
-                    if item["document_kind"] != "NOTICE":
-                        rows[item["id"]] = item
-            except Exception as exc:
-                report_feed_errors.append(f"{selected}: {type(exc).__name__}: {str(exc)[:180]}")
+            # The all-categories response may omit result releases. Also query
+            # the issuer's named Release de Resultados category explicitly.
+            report_discovered = False
+            failures = []
+            for categories in ([], ["release-de-resultados"]):
+                try:
+                    for item in await read_feed(selected, categories, include_reports=True):
+                        if item["document_kind"] != "NOTICE":
+                            rows[item["id"]] = item
+                            if item["document_kind"] == "EARNINGS_RELEASE":
+                                report_discovered = True
+                except Exception as exc:
+                    failures.append(
+                        f"{selected} ({','.join(categories) or 'all'}): "
+                        f"{type(exc).__name__}: {str(exc)[:160]}"
+                    )
+            if failures and not report_discovered:
+                report_feed_errors.extend(failures)
 
         if report_feed_errors or not any(
             item["document_kind"] != "NOTICE" for item in rows.values()
@@ -156,7 +167,16 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         final_rows = sorted(
             rows.values(), key=lambda item: (item["date"], item["id"]), reverse=True
         )
-        snapshot = dict(checked_date=target_date, rows=final_rows, source_url=SOURCE_URL)
+        report_count = sum(
+            item.get("document_kind") == "EARNINGS_RELEASE" for item in final_rows
+        )
+        report_feed_status = (
+            "partial" if report_feed_errors else "ok" if report_count else "empty"
+        )
+        snapshot = dict(
+            checked_date=target_date, rows=final_rows, source_url=SOURCE_URL,
+            report_feed_status=report_feed_status,
+        )
         await repository.run(
             "INSERT INTO runtime_state(key,value) VALUES (?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
@@ -165,7 +185,7 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         )
         return dict(
             status="ok", documents=len(final_rows), checked_date=target_date,
-            report_feed_status="partial" if report_feed_errors else "ok",
+            report_feed_status=report_feed_status,
             report_feed_errors=report_feed_errors[:2],
         )
     except Exception as exc:
@@ -175,6 +195,7 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         )
 
 async def official_ir_news(repository, *, target_date: str) -> tuple[list[dict], str | None]:
+    snapshot = {}
     row = await repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", (STATE_KEY,))
     if row:
         try:
@@ -193,6 +214,9 @@ async def official_ir_news(repository, *, target_date: str) -> tuple[list[dict],
         return [], None
     age = (date.fromisoformat(target_date) - date.fromisoformat(checked)).days
     warning = "Bemobi IR meldinger: siste vellykkede kildekontroll er forsinket" if age > 1 else None
+    if snapshot.get("report_feed_status") in {"partial", "empty"}:
+        report_warning = "Bemobi IR: resultatdokumenter ble ikke fullstendig verifisert"
+        warning = "; ".join(filter(None, (warning, report_warning)))
     items = []
     for record in records:
         if record["date"] > target_date:

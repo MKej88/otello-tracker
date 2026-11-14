@@ -354,6 +354,8 @@ class _ResultRepository:
         raise AssertionError(sql)
 
     async def first(self, sql: str, parameters=()):
+        if "FROM runtime_state" in sql:
+            return None
         if "fact_type='RESULT'" in sql:
             return {"id": 1} if int(parameters[0]) == 19 else None
         raise AssertionError(sql)

@@ -510,10 +510,6 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             async def cvm_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
                 result = await refresh_bemobi_cvm(repository, target_date=target_date)
-                ir_news = await refresh_ir_news(repository, target_date=target_date)
-                result["ir_news"] = ir_news
-                if ir_news.get("status") != "ok" and result.get("status") == "ok":
-                    result["status"] = "partial"
                 return {**result, "repository": repository.performance_metrics()}
 
             try:
@@ -558,11 +554,20 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             )
             async def bemobi_web_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
+                # The issuer feed must run even when CVM's bulk archive fails.
+                # Its persisted documents are the first candidates for KPI ingestion.
+                ir_news = await refresh_ir_news(repository, target_date=target_date)
                 result = await refresh_bemobi_web(
                     repository,
                     target_date=target_date,
                     archive_bucket=self.env.SOURCE_ARCHIVE,
                 )
+                result["ir_news"] = ir_news
+                if (
+                    ir_news.get("status") != "ok"
+                    or ir_news.get("report_feed_status") not in {"ok", None}
+                ) and result.get("status") == "ok":
+                    result["status"] = "partial"
                 return {**result, "repository": repository.performance_metrics()}
 
             try:

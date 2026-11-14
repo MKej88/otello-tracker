@@ -250,42 +250,37 @@ async def refresh_bemobi_web(
     }
     event_rows = 0
 
-    if active_slot == "result_release":
-        result = await sync_latest_result_release(
-            repository,
-            target_date=target_date,
-            archive_bucket=archive_bucket,
-            fetcher=fetcher,
-        )
-        event_rows = await _ensure_consensus_event(
-            repository,
-            result_refresh=result,
-            target_date=target_date,
-        )
-        if event_rows:
-            result = {**result, "consensus_event_rows_written": event_rows}
-        if result.get("status") == "ok" and result.get("period"):
-            if fetcher is None:
-                try:
-                    post_result_cvm = await refresh_cvm_financials_after_new_result(
-                        repository,
-                        target_date=target_date,
-                        period=str(result["period"]),
-                    )
-                except Exception as exc:
-                    post_result_cvm = {
-                        "status": "error",
-                        "reason": "post_result_cvm_refresh_failed",
-                        "error": str(exc)[:700],
-                        "rows_written": 0,
-                    }
-            else:
+    # Check issuer results every night. The source is a cheap, persisted IR
+    # document index; limiting this to alternating nights delayed earnings.
+    result = await sync_latest_result_release(
+        repository,
+        target_date=target_date,
+        archive_bucket=archive_bucket,
+        fetcher=fetcher,
+    )
+    event_rows = await _ensure_consensus_event(
+        repository, result_refresh=result, target_date=target_date,
+    )
+    if event_rows:
+        result = {**result, "consensus_event_rows_written": event_rows}
+    if result.get("status") == "ok" and result.get("period"):
+        if fetcher is None:
+            try:
+                post_result_cvm = await refresh_cvm_financials_after_new_result(
+                    repository, target_date=target_date, period=str(result["period"]),
+                )
+            except Exception as exc:
                 post_result_cvm = {
-                    "status": "skipped",
-                    "reason": "custom_web_fetcher",
-                    "rows_written": 0,
+                    "status": "error",
+                    "reason": "post_result_cvm_refresh_failed",
+                    "error": str(exc)[:700], "rows_written": 0,
                 }
-    else:
+        else:
+            post_result_cvm = {
+                "status": "skipped", "reason": "custom_web_fetcher",
+                "rows_written": 0,
+            }
+    if active_slot != "result_release":
         xp = {"status": "skipped", "reason": "checked_by_daily_q3_watch", "rows_written": 0}
 
     # Q3 previews are checked every night, including official-result nights.

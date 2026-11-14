@@ -10,6 +10,8 @@ from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlparse
 
+from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
+
 try:
     from .bounded_response import read_response_bytes
     from .r2_archive import archive_bytes
@@ -355,6 +357,28 @@ def _extract_metric(text: str, labels: tuple[str, ...], *, percent: bool = False
     return None
 
 
+def _extract_result_amount(text: str, labels: tuple[str, ...]) -> float | None:
+    """Prefer reported R$/BRL amounts over growth percentages in narrative PDFs.
+
+    Example: 'Net Revenue grew 31% YoY to R$245.3 million' must yield 245.3,
+    not 31. Keep the original numeric-table parser as a fallback.
+    """
+    for label in labels:
+        for match in re.finditer(label, text, re.IGNORECASE):
+            segment = text[match.end():match.end() + 125]
+            monetary = re.search(
+                r"(?:R\$|BRL)\s*([0-9]{1,4}(?:[.,][0-9]{1,2})?)\b",
+                segment,
+                re.IGNORECASE,
+            )
+            if monetary:
+                try:
+                    return _number(monetary.group(1))
+                except ValueError:
+                    continue
+    return _extract_metric(text, labels)
+
+
 def _extract_yoy_percentage(text: str, labels: tuple[str, ...]) -> float | None:
     number = r"-?\d{1,4}(?:[\.,]\d{1,2})?"
     for label in labels:
@@ -422,10 +446,10 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     revenue_labels = (r"Receita L[ií]quida(?: Ajustada)?", r"Net Revenue")
     ebitda_labels = (r"EBITDA Ajustad[oa]", r"Adjusted EBITDA")
     net_income_labels = (r"Lucro L[ií]quido Ajustad[oa]", r"Adjusted Net Income")
-    revenue = _extract_metric(normalized, revenue_labels)
-    ebitda = _extract_metric(normalized, ebitda_labels)
-    net_income = _extract_metric(normalized, net_income_labels)
-    cash_generation = _extract_metric(
+    revenue = _extract_result_amount(normalized, revenue_labels)
+    ebitda = _extract_result_amount(normalized, ebitda_labels)
+    net_income = _extract_result_amount(normalized, net_income_labels)
+    cash_generation = _extract_result_amount(
         normalized,
         (r"EBITDA(?: Ajustad[oa])?\s*[-–−]\s*Capex", r"(?:Adjusted )?EBITDA\s*[-–−]\s*Capex"),
     )
@@ -945,6 +969,80 @@ async def _store_resolved_result_document(
     )
 
 
+async def _official_ir_result_candidates(repository, *, target_date: str) -> list[dict[str, Any]]:
+    """Use the same verified Bemobi IR documents as News, not the lagging CVM ZIP.
+
+    Only earnings releases are fed to the adjusted-KPI parser; ITR statements
+    and slide presentations are not equivalent documents. The MZiQ company ID,
+    HTTPS host, publication date and document kind are checked again because
+    the runtime snapshot may be stale or malformed.
+    """
+    state = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
+        (BEMOBI_IR_STATE_KEY,),
+    )
+    if not state:
+        return []
+    try:
+        snapshot = json.loads(str(state.get("value") or "{}"))
+        checked = date.fromisoformat(str(snapshot["checked_date"]))
+        target = date.fromisoformat(target_date)
+        records = snapshot["rows"]
+        if checked > target or not isinstance(records, list):
+            return []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+    eligible = []
+    for row in records:
+        if not isinstance(row, dict) or row.get("document_kind") != "EARNINGS_RELEASE":
+            continue
+        url = str(row.get("url") or "")
+        parsed = urlparse(url)
+        identifier = str(row.get("id") or "")
+        published = str(row.get("date") or "")
+        try:
+            if date.fromisoformat(published) > target:
+                continue
+        except ValueError:
+            continue
+        if (
+            not identifier or not str(row.get("title") or "").strip()
+            or parsed.scheme != "https"
+            or parsed.hostname not in {"api.mziq.com", "filemanager-cdn.mziq.com"}
+            or BEMOBI_IR_COMPANY_ID not in parsed.path
+        ):
+            continue
+        eligible.append(row)
+
+    # Keep only recent release candidates; older periods already have stored facts.
+    eligible.sort(key=lambda item: (str(item["date"]), str(item["id"])), reverse=True)
+    candidates = []
+    for row in eligible[:3]:
+        document_id = await repository.create_source_document(
+            source_code="BEMOBI_IR",
+            external_id=f"bemobi-ir-earnings-release:{row['id']}",
+            document_type="RESULT_RELEASE_PDF",
+            title=str(row["title"]),
+            url=str(row["url"]),
+            published_at=f"{row['date']}T00:00:00Z",
+            metadata={
+                "workflow": "cloudflare_full_refresh",
+                "discovered_via": "bemobi_official_ir_news",
+                "mziq_document_id": str(row["id"]),
+                "document_kind": "EARNINGS_RELEASE",
+            },
+        )
+        candidates.append({
+            "id": document_id,
+            "url": str(row["url"]),
+            "title": str(row["title"]),
+            "published_at": f"{row['date']}T00:00:00Z",
+            "source_code": "BEMOBI_IR",
+        })
+    return candidates
+
+
 async def sync_latest_result_release(
     repository,
     *,
@@ -952,7 +1050,8 @@ async def sync_latest_result_release(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    candidates = await repository.all(
+    ir_candidates = await _official_ir_result_candidates(repository, target_date=target_date)
+    cvm_candidates = await repository.all(
         """
         SELECT sd.id, sd.url, sd.title, sd.published_at, s.code AS source_code
         FROM company_news cn
@@ -964,8 +1063,23 @@ async def sync_latest_result_release(
         LIMIT 6
         """
     )
+    # Always try the newest publication first. IR wins over CVM only for
+    # the same publication date: an older stored IR release must never mask a
+    # newly filed CVM result when the issuer feed itself is delayed.
+    seen_ids = {int(row["id"]) for row in ir_candidates}
+    candidates = sorted(
+        ir_candidates + [
+            row for row in cvm_candidates if int(row["id"]) not in seen_ids
+        ],
+        key=lambda row: (
+            str(row.get("published_at") or "")[:10],
+            row.get("source_code") == "BEMOBI_IR",
+            str(row.get("published_at") or ""),
+        ),
+        reverse=True,
+    )
     if not candidates:
-        return {"status": "skipped", "reason": "no_cvm_result_document", "rows_written": 0}
+        return {"status": "skipped", "reason": "no_official_result_document", "rows_written": 0}
 
     errors: list[str] = []
     for candidate in candidates:
