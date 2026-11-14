@@ -184,6 +184,7 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         )
 
 async def official_ir_news(repository, *, target_date: str) -> tuple[list[dict], str | None]:
+    snapshot = {}
     row = await repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", (STATE_KEY,))
     if row:
         try:
