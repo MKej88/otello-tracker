@@ -10,6 +10,8 @@ from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlparse
 
+from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
+
 try:
     from .bounded_response import read_response_bytes
     from .r2_archive import archive_bytes
@@ -945,6 +947,80 @@ async def _store_resolved_result_document(
     )
 
 
+async def _official_ir_result_candidates(repository, *, target_date: str) -> list[dict[str, Any]]:
+    """Use the same verified Bemobi IR documents as News, not the lagging CVM ZIP.
+
+    Only earnings releases are fed to the adjusted-KPI parser; ITR statements
+    and slide presentations are not equivalent documents. The MZiQ company ID,
+    HTTPS host, publication date and document kind are checked again because
+    the runtime snapshot may be stale or malformed.
+    """
+    state = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1",
+        (BEMOBI_IR_STATE_KEY,),
+    )
+    if not state:
+        return []
+    try:
+        snapshot = json.loads(str(state.get("value") or "{}"))
+        checked = date.fromisoformat(str(snapshot["checked_date"]))
+        target = date.fromisoformat(target_date)
+        records = snapshot["rows"]
+        if checked > target or not isinstance(records, list):
+            return []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+    eligible = []
+    for row in records:
+        if not isinstance(row, dict) or row.get("document_kind") != "EARNINGS_RELEASE":
+            continue
+        url = str(row.get("url") or "")
+        parsed = urlparse(url)
+        identifier = str(row.get("id") or "")
+        published = str(row.get("date") or "")
+        try:
+            if date.fromisoformat(published) > target:
+                continue
+        except ValueError:
+            continue
+        if (
+            not identifier or not str(row.get("title") or "").strip()
+            or parsed.scheme != "https"
+            or parsed.hostname not in {"api.mziq.com", "filemanager-cdn.mziq.com"}
+            or BEMOBI_IR_COMPANY_ID not in parsed.path
+        ):
+            continue
+        eligible.append(row)
+
+    # Keep only recent release candidates; older periods already have stored facts.
+    eligible.sort(key=lambda item: (str(item["date"]), str(item["id"])), reverse=True)
+    candidates = []
+    for row in eligible[:3]:
+        document_id = await repository.create_source_document(
+            source_code="BEMOBI_IR",
+            external_id=f"bemobi-ir-earnings-release:{row['id']}",
+            document_type="RESULT_RELEASE_PDF",
+            title=str(row["title"]),
+            url=str(row["url"]),
+            published_at=f"{row['date']}T00:00:00Z",
+            metadata={
+                "workflow": "cloudflare_full_refresh",
+                "discovered_via": "bemobi_official_ir_news",
+                "mziq_document_id": str(row["id"]),
+                "document_kind": "EARNINGS_RELEASE",
+            },
+        )
+        candidates.append({
+            "id": document_id,
+            "url": str(row["url"]),
+            "title": str(row["title"]),
+            "published_at": f"{row['date']}T00:00:00Z",
+            "source_code": "BEMOBI_IR",
+        })
+    return candidates
+
+
 async def sync_latest_result_release(
     repository,
     *,
@@ -952,7 +1028,8 @@ async def sync_latest_result_release(
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
-    candidates = await repository.all(
+    ir_candidates = await _official_ir_result_candidates(repository, target_date=target_date)
+    cvm_candidates = await repository.all(
         """
         SELECT sd.id, sd.url, sd.title, sd.published_at, s.code AS source_code
         FROM company_news cn
@@ -964,8 +1041,14 @@ async def sync_latest_result_release(
         LIMIT 6
         """
     )
+    # Prioritize direct issuer releases, with structured CVM documents as fallback.
+    # Do not parse a stale archived CVM release ahead of a newer IR publication.
+    candidates = ir_candidates + [
+        row for row in cvm_candidates
+        if int(row["id"]) not in {int(ir["id"]) for ir in ir_candidates}
+    ]
     if not candidates:
-        return {"status": "skipped", "reason": "no_cvm_result_document", "rows_written": 0}
+        return {"status": "skipped", "reason": "no_official_result_document", "rows_written": 0}
 
     errors: list[str] = []
     for candidate in candidates:
