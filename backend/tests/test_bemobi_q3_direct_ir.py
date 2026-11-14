@@ -123,3 +123,35 @@ def test_snapshot_rejects_unverified_or_future_issuer_release():
         repo, target_date="2026-11-13"
     )) == []
     assert repo.documents == []
+
+
+def test_newer_cvm_report_is_not_masked_by_older_ir_release(monkeypatch):
+    repo = IssuerRepository()
+    old = json.loads(repo.snapshot)
+    old["rows"][0]["date"] = "2026-08-11"
+    old["rows"][0]["title"] = "Earnings Release 2Q26"
+    repo.snapshot = json.dumps(old)
+
+    async def cvm_rows(sql, parameters=()):
+        assert "FROM company_news" in sql
+        return [{
+            "id": 88, "url": "https://www.rad.cvm.gov.br/release-3q26.pdf",
+            "title": "Earnings Release 3Q26",
+            "published_at": "2026-11-12T19:00:00Z",
+            "source_code": "CVM",
+        }]
+
+    observed = []
+
+    async def fetch_pdf(url, *, fetcher=None):
+        observed.append(url)
+        return b"%PDF-1.4 test", url, False
+
+    repo.all = cvm_rows
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _raw: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-13",
+    ))
+    assert result["period"] == "3Q26"
+    assert observed[0] == "https://www.rad.cvm.gov.br/release-3q26.pdf"
