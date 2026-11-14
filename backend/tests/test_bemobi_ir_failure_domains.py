@@ -131,6 +131,8 @@ def test_runtime_reports_analyst_failure_without_degrading_bemobi_source(monkeyp
         return {"status": "ok", "rows_written": 0}
 
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ir_with_analyst_warning)
+    # Daily earnings checks also run on the XP-preview slot.
+    monkeypatch.setattr(runtime, "sync_latest_result_release", no_xp)
     monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
     monkeypatch.setattr(runtime, "sync_q3_previews", no_xp)
     monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", no_distribution_cash)
