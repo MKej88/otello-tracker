@@ -139,6 +139,10 @@ def merge_bemobi_ir_news_health(
 
     release = merged.get("result_release") or {}
     if release.get("status") == "ok" and release.get("period"):
+        # Preserve a DEGRADED source warning, while allowing a successful
+        # full refresh when the new official results were verified.
+        merged["status"] = "partial"
+        merged["non_blocking_degraded"] = True
         merged["best_effort_status"] = "degraded"
         merged["best_effort_warnings"] = [
             *(merged.get("best_effort_warnings") or []),
