@@ -11,7 +11,7 @@ SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
 import bemobi_web_refresh_runtime as runtime  # noqa: E402
-from full_refresh import _source_group_detail, merge_bemobi_ir_news_health  # noqa: E402
+from full_refresh import _source_group_detail, _degraded_source_blocks_job, merge_bemobi_ir_news_health  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,9 @@ def test_optional_report_feed_failure_is_nonblocking_after_verified_new_release(
         {"status": "ok", "result_release": release, "best_effort_warnings": []},
         {"status": "ok", "report_feed_status": "partial", "report_feed_errors": ["HTTP 503"]},
     )
-    assert result["status"] == "ok"
+    assert result["status"] == "partial"
+    assert result["non_blocking_degraded"] is True
+    assert not _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": result})
     assert result["result_release"] == release
     assert result["report_feed_warning_non_blocking"] is True
     assert result["best_effort_status"] == "degraded"
