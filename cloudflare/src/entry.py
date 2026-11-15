@@ -257,6 +257,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             MAX_HISTORY_MATERIALIZATION_BATCHES,
             error_result,
             finish_full_refresh,
+            merge_bemobi_ir_news_health,
             materialize_history_batch,
             preflight,
             refresh_nav,
@@ -562,12 +563,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     target_date=target_date,
                     archive_bucket=self.env.SOURCE_ARCHIVE,
                 )
-                result["ir_news"] = ir_news
-                if (
-                    ir_news.get("status") != "ok"
-                    or ir_news.get("report_feed_status") not in {"ok", None}
-                ) and result.get("status") == "ok":
-                    result["status"] = "partial"
+                result = merge_bemobi_ir_news_health(result, ir_news)
                 return {**result, "repository": repository.performance_metrics()}
 
             try:
