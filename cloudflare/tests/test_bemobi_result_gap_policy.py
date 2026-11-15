@@ -11,7 +11,7 @@ SOURCE_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_DIR))
 
 import bemobi_web_refresh_runtime as runtime  # noqa: E402
-from full_refresh import _source_group_detail  # noqa: E402
+from full_refresh import _source_group_detail, merge_bemobi_ir_news_health  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -143,3 +143,63 @@ def test_bemobi_newer_result_failure_explains_source_warning() -> None:
     )
     assert "Bemobi resultatrapport" in message
     assert "new report parse failed" in message
+
+
+def test_optional_report_feed_failure_is_nonblocking_after_verified_new_release() -> None:
+    release = {"status": "ok", "period": "3Q26", "rows_written": 3}
+    result = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": release, "best_effort_warnings": []},
+        {"status": "ok", "report_feed_status": "partial", "report_feed_errors": ["HTTP 503"]},
+    )
+    assert result["status"] == "ok"
+    assert result["result_release"] == release
+    assert result["report_feed_warning_non_blocking"] is True
+    assert result["best_effort_status"] == "degraded"
+    assert result["best_effort_warnings"][0]["errors"] == ["HTTP 503"]
+
+
+def test_optional_report_feed_failure_still_degrades_without_new_verified_release() -> None:
+    result = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": {"status": "skipped", "reason": "latest_result_already_ingested"}},
+        {"status": "ok", "report_feed_status": "partial", "report_feed_errors": ["HTTP 503"]},
+    )
+    assert result["status"] == "partial"
+    detail = _source_group_detail(
+        "BEMOBI_IR", {"bemobi_web": result}, {"bemobi_web": "DEGRADED"}
+    )
+    assert "dokumentfeed" in detail
+    assert "HTTP 503" in detail
+
+
+def test_mandatory_ir_notices_failure_still_degrades_even_with_valid_release() -> None:
+    result = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": {"status": "ok", "period": "3Q26"}},
+        {"status": "not_available", "error": "HTTP 429", "last_good_preserved": True},
+    )
+    assert result["status"] == "partial"
+    assert not result.get("report_feed_warning_non_blocking")
+    detail = _source_group_detail(
+        "BEMOBI_IR", {"bemobi_web": result}, {"bemobi_web": "DEGRADED"}
+    )
+    assert "HTTP 429" in detail
+
+
+def test_newer_unparseable_release_takes_precedence_over_optional_feed_detail() -> None:
+    result = merge_bemobi_ir_news_health(
+        {
+            "status": "partial",
+            "ir": {"status": "ok"},
+            "result_release": {
+                "status": "not_available",
+                "reason": "newer_result_documents_not_parseable",
+                "errors": ["bad Q3 PDF"],
+            },
+        },
+        {"status": "ok", "report_feed_status": "partial", "report_feed_errors": ["HTTP 503"]},
+    )
+    assert result["status"] == "partial"
+    detail = _source_group_detail(
+        "BEMOBI_IR", {"bemobi_web": result}, {"bemobi_web": "DEGRADED"}
+    )
+    assert "bad Q3 PDF" in detail
+    assert "Bemobi resultatrapport" in detail
