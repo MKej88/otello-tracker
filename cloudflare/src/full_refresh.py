@@ -116,6 +116,50 @@ def _compact_source_result(result: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
+def merge_bemobi_ir_news_health(
+    result: dict[str, Any], ir_news: dict[str, Any]
+) -> dict[str, Any]:
+    """Never fail a verified earnings refresh only because optional feed discovery failed.
+
+    The mandatory issuer notices remain blocking. Optional report discovery
+    is non-blocking ONLY if this same refresh parsed a new official result.
+    Missing or unparseable new results still produce a PARTIAL job.
+    """
+    merged = {**result, "ir_news": ir_news}
+    if merged.get("status") != "ok":
+        return merged
+
+    if ir_news.get("status") != "ok":
+        merged["status"] = "partial"
+        return merged
+
+    report_feed_status = ir_news.get("report_feed_status")
+    if report_feed_status in {"ok", None}:
+        return merged
+
+    release = merged.get("result_release") or {}
+    if release.get("status") == "ok" and release.get("period"):
+        # Preserve a DEGRADED source warning, while allowing a successful
+        # full refresh when the new official results were verified.
+        merged["status"] = "partial"
+        merged["non_blocking_degraded"] = True
+        merged["best_effort_status"] = "degraded"
+        merged["best_effort_warnings"] = [
+            *(merged.get("best_effort_warnings") or []),
+            {
+                "source": "bemobi_report_feed",
+                "status": "not_available",
+                "reason": "report_feed_unavailable_but_official_result_verified",
+                "feed_status": report_feed_status,
+                "errors": (ir_news.get("report_feed_errors") or [])[:2],
+            },
+        ]
+        merged["report_feed_warning_non_blocking"] = True
+    else:
+        merged["status"] = "partial"
+    return merged
+
+
 async def start_full_refresh(database: Any, *, target_date: str, trigger: str) -> int:
     repository = PerformanceD1WriteRepository(database)
     return await repository.start_job(
@@ -223,6 +267,20 @@ def _source_group_detail(
                 if item.get("errors"):
                     detail_parts.append("; ".join(str(e) for e in item["errors"][:3])[:500])
                 return "; ".join(detail_parts)[:1000]
+        ir_news = bemobi.get("ir_news") if isinstance(bemobi.get("ir_news"), dict) else {}
+        if ir_news and (
+            ir_news.get("status") != "ok"
+            or ir_news.get("report_feed_status") not in {"ok", None}
+        ):
+            status = str(ir_news.get("status") or "unknown")
+            feed_status = str(ir_news.get("report_feed_status") or "-")
+            details = [f"Bemobi IR dokumentfeed: status={status}, rapportfeed={feed_status}"]
+            if ir_news.get("error"):
+                details.append(str(ir_news["error"])[:500])
+            for error in (ir_news.get("report_feed_errors") or [])[:2]:
+                details.append(str(error)[:300])
+            details.append("siste gyldige dokumenter beholdes")
+            return "; ".join(details)[:1000]
         return "Bemobi weboppdatering er delvis ufullstendig; siste gyldige fakta beholdes."
     if source_code == "YAHOO_FINANCE" and any(status != "OK" for status in components.values()):
         life360 = source_results.get("life360") or {}
