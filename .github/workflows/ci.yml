@@ -403,6 +403,31 @@ jobs:
       - name: Verify backend reference timezone
         run: docker run --rm otello-backend:local python -c "import os, time; assert os.environ.get('TZ') == 'Europe/Oslo'; assert time.tzname[0] in {'CET','CEST'}; print(os.environ['TZ'], time.tzname)"
 
+      - name: Smoke-test backend startup, migrations, API and scheduler inside Docker
+        run: |
+          set -euo pipefail
+          container="otello-backend-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker run -d --rm --name "$container" \
+            -e DATABASE_PATH=/tmp/otello-ci-smoke.db otello-backend:local
+          trap 'docker logs "$container" 2>&1 | tail -100 || true; docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+
+          ready=0
+          for attempt in $(seq 1 45); do
+            if docker exec "$container" python -c 'import json, urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=2); assert response.status == 200; assert json.load(response)["status"] == "ok"' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::Backend failed to start or /api/health failed in the Docker image"
+            exit 1
+          fi
+          echo "Backend HTTP health check passed"
+
+          docker exec "$container" python -c 'import sqlite3; db = sqlite3.connect("/tmp/otello-ci-smoke.db"); n = db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]; assert n > 0, "No database migrations applied"; print(f"Database migrations: {n}")'
+          docker exec "$container" python -c 'from app.jobs.scheduler import load_config; import sys; cfg = load_config(); assert cfg.database_path == "/tmp/otello-ci-smoke.db"; print(f"Scheduler import/config OK on Python {sys.version.split()[0]}")'
+
   deploy-production:
     name: Deploy Cloudflare production
     needs: [backend, frontend, d1-parity, worker, docker-reference]
