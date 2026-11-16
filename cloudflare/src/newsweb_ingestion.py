@@ -20,6 +20,15 @@ def _title(value: str) -> str:
 
 def classify_newsweb_message(message: NewsWebMessage) -> tuple[str, bool, str]:
     title = _title(message.title)
+    # An OTEC announcement of Bemobi's earnings is not an Otello group
+    # financial report. Keep it in news, never send it to the Otello PDF/NAV
+    # anchor pipeline (e.g. NewsWeb 686525: "Bemobi 3Q 26 Reporting").
+    if (
+        title.startswith("bemobi ")
+        and re.search(r"\b(?:[1-4][qt]|q[1-4])\s*\d{2,4}\b", title)
+        and any(term in title for term in ("report", "result"))
+    ):
+        return "CORPORATE", False, "Bemobi subsidiary results announcement; not an Otello report"
     if any(
         term in title
         for term in (

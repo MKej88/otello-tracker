@@ -32,6 +32,7 @@ from newsweb_client import (  # noqa: E402
     parse_list_payload,
 )
 from newsweb_ingestion import classify_newsweb_message, history_start_for_refresh  # noqa: E402
+from otello_report_ingestion import _pending_report_news  # noqa: E402
 from newsweb_daily_buybacks import parse_buyback_transaction_text as parse_worker_transaction_text  # noqa: E402
 
 FIRST_WEEK_2023 = """
@@ -642,3 +643,52 @@ def test_worker_newsweb_persists_disclosed_maximum_purchase_price_with_provenanc
         assert provenance["url"] == message.public_url
     finally:
         repository.connection.close()
+
+
+def test_bemobi_earnings_announcement_is_not_otello_financial_report() -> None:
+    for title in ("Bemobi 3Q 26 Reporting", "Bemobi 3Q26 Reporting",
+                  "Bemobi 2Q 26 Results"):
+        category, review, reason = classify_newsweb_message(_message(686525, title))
+        assert (category, review) == ("CORPORATE", False)
+        assert "Bemobi" in reason
+    assert classify_newsweb_message(
+        _message(680445, "Otello Corporation announces first half results")
+    )[:2] == ("RESULTS", False)
+
+
+def test_otello_report_queue_excludes_bemobi_cvm_and_misclassified_news() -> None:
+    repository = SqliteD1Repository()
+    try:
+        async def seed() -> list[dict]:
+            otec_id = await repository.instrument_id("OTEC")
+            bemobi_id = await repository.instrument_id("BMOB3")
+            entries = [
+                ("NEWSWEB", "newsweb-message:680445", "REGULATORY_NEWS",
+                 "Otello Corporation announces first half results",
+                 "2026-08-21T08:00:00Z", otec_id),
+                ("CVM", "cvm-release-3q26", "CVM_IPE_METADATA",
+                 "Release 3T26 / 3Q26", "2026-11-12T00:00:00Z", bemobi_id),
+                ("NEWSWEB", "newsweb-message:686525", "REGULATORY_NEWS",
+                 "Bemobi 3Q 26 Reporting", "2026-11-13T22:28:03Z", otec_id),
+            ]
+            for src, ext, kind, title, published, issuer_id in entries:
+                doc_id = await repository.create_source_document(
+                    source_code=src, external_id=ext, document_type=kind,
+                    title=title, url="https://newsweb.oslobors.no/message/680445",
+                    published_at=published,
+                )
+                await repository.run(
+                    """INSERT INTO company_news(
+                        issuer_instrument_id, source_document_id, headline,
+                        published_at, category, nav_impact, processing_status
+                    ) VALUES (?, ?, ?, ?, 'RESULTS', 'NONE', 'PARSED')""",
+                    (issuer_id, doc_id, title, published),
+                )
+            return await _pending_report_news(repository, "2026-11-15")
+
+        candidates = asyncio.run(seed())
+        assert len(candidates) == 1
+        assert candidates[0]["headline"] == "Otello Corporation announces first half results"
+    finally:
+        repository.connection.close()
+

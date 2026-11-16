@@ -238,3 +238,60 @@ def test_named_earnings_category_recovers_release_when_general_feed_omits_it():
     ))
     assert warning is None
     assert any(item["headline"] == "Earnings Release 3Q26" for item in news)
+
+
+def test_bemobi_official_short_portuguese_release_title_is_recognized():
+    release = row()
+    release.update(
+        id="earnings-3q26",
+        internal_name="release-de-resultados",
+        file_title="Release 3T26 / 3Q26",
+        file_name_original="Release 3T26 / 3Q26",
+        file_published_date="2026-11-12T00:00:00Z",
+    )
+    assert ir.parse_ir_filings(
+        payload([release]), target_date="2026-11-13"
+    ) == []
+    result = ir.parse_ir_filings(
+        payload([release]), target_date="2026-11-13", include_reports=True
+    )
+    assert len(result) == 1
+    assert result[0]["document_kind"] == "EARNINGS_RELEASE"
+
+
+def test_previous_release_is_retained_but_empty_live_feed_stays_degraded():
+    repository = Repository()
+    release = row()
+    release.update(
+        id="earnings-2q26", internal_name="release-de-resultados",
+        file_title="Earnings Release 2Q26",
+    )
+    repository.value = json.dumps({
+        "checked_date": "2026-11-14",
+        "rows": ir.parse_ir_filings(
+            payload([release]), target_date="2026-11-14", include_reports=True,
+        ),
+    })
+
+    class Response:
+        ok = True
+        async def text(self):
+            return json.dumps(payload([row()]))
+
+    async def fetch(url, **kwargs):
+        return Response()
+
+    result = asyncio.run(ir.refresh_ir_news(
+        repository, target_date="2026-11-15", fetcher=fetch,
+    ))
+    assert result["status"] == "ok"
+    assert result["report_feed_status"] == "empty"
+    assert result["report_feed_probes"] == [
+        {"year": 2026, "scope": "all", "release_count": 0},
+        {"year": 2026, "scope": "earnings", "release_count": 0},
+    ]
+    assert any(
+        doc["id"] == "earnings-2q26"
+        for doc in json.loads(repository.value)["rows"]
+    )
+

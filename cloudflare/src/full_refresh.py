@@ -279,6 +279,15 @@ def _source_group_detail(
                 details.append(str(ir_news["error"])[:500])
             for error in (ir_news.get("report_feed_errors") or [])[:2]:
                 details.append(str(error)[:300])
+            probes = (ir_news.get("report_feed_probes") or [])[:4]
+            if probes:
+                details.append(
+                    "kontrollert rapportfeed: " + ", ".join(
+                        f"{item.get('year')}:{item.get('scope')}="
+                        f"{item.get('release_count')} utgivelser"
+                        for item in probes if isinstance(item, dict)
+                    )
+                )
             details.append("siste gyldige dokumenter beholdes")
             return "; ".join(details)[:1000]
         return "Bemobi weboppdatering er delvis ufullstendig; siste gyldige fakta beholdes."
@@ -312,10 +321,16 @@ def _source_group_detail(
 
     reports = source_results.get("otello_reports") or {}
     if source_code == "NEWSWEB" and int(reports.get("review_required") or 0) > 0:
+        details = [
+            f"{item.get('message_id') or 'unknown'}:{item.get('reason') or 'review'}"
+            for item in (reports.get("review_messages") or [])[:5]
+            if isinstance(item, dict)
+        ]
+        suffix = f"; message IDs/reasons: {', '.join(details)}" if details else ""
         return (
             f"{reports.get('review_required')} report message(s) require review; "
-            "existing production anchors were retained"
-        )
+            f"existing production anchors were retained{suffix}"
+        )[:1000]
 
     messages: list[str] = []
     for step_name, health in components.items():

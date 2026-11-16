@@ -463,8 +463,14 @@ async def _pending_report_news(repository, target_date: str) -> list[dict[str, A
                cn.processing_status, cn.source_document_id,
                sd.external_id, sd.metadata_json, sd.url
         FROM company_news cn
+        JOIN instruments i ON i.id=cn.issuer_instrument_id
         JOIN source_documents sd ON sd.id=cn.source_document_id
-        WHERE cn.category='RESULTS' AND cn.processing_status='PARSED'
+        JOIN sources s ON s.id=sd.source_id
+        WHERE i.symbol='OTEC' AND s.code='NEWSWEB'
+          AND sd.document_type='REGULATORY_NEWS'
+          AND sd.external_id LIKE 'newsweb-message:%'
+          AND LOWER(TRIM(cn.headline)) NOT LIKE 'bemobi %'
+          AND cn.category='RESULTS' AND cn.processing_status='PARSED'
           AND substr(COALESCE(cn.published_at,''),1,10) >= ?
           AND substr(COALESCE(cn.published_at,''),1,10) <= ?
         ORDER BY cn.published_at, cn.id
@@ -1327,5 +1333,17 @@ async def process_pending_otello_reports(
         "applied": applied,
         "ignored": ignored,
         "review_required": review_required,
+        # Small public-ID-only diagnostics; never copy PDFs or financial facts
+        # into runtime status merely to explain a blocked report.
+        "review_messages": [
+            {
+                "message_id": item.get("message_id"),
+                "company_news_id": item.get("company_news_id"),
+                "reason": item.get("reason") or (
+                    "attachment_not_validated" if item.get("attempts") else "requires_review"
+                ),
+            }
+            for item in processed if item.get("status") == "review_required"
+        ][:8],
         "results": processed,
     }
