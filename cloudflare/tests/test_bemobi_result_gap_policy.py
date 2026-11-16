@@ -205,3 +205,43 @@ def test_newer_unparseable_release_takes_precedence_over_optional_feed_detail() 
     )
     assert "bad Q3 PDF" in detail
     assert "Bemobi resultatrapport" in detail
+
+
+def test_newsweb_review_health_includes_only_public_message_ids_and_reasons():
+    from full_refresh import _source_group_detail
+
+    result = _source_group_detail(
+        "NEWSWEB",
+        {"otello_reports": {
+            "status": "review_required", "review_required": 2,
+            "review_messages": [
+                {"message_id": 686525, "reason": "attachment_not_validated"},
+                {"message_id": 680445, "reason": "invalid_pdf"},
+            ],
+        }},
+        {"otello_reports": "DOWN"},
+    )
+    assert result is not None
+    assert "686525:attachment_not_validated" in result
+    assert "680445:invalid_pdf" in result
+
+
+def test_bemobi_empty_feed_source_status_shows_probe_counts():
+    detail = _source_group_detail(
+        "BEMOBI_IR",
+        {"bemobi_web": {
+            "status": "partial",
+            "ir_news": {
+                "status": "ok", "report_feed_status": "empty",
+                "report_feed_probes": [
+                    {"year": 2026, "scope": "all", "release_count": 0},
+                    {"year": 2026, "scope": "earnings", "release_count": 0},
+                ],
+            },
+        }},
+        {"bemobi_web": "DEGRADED"},
+    )
+    assert detail is not None
+    assert "2026:all=0 utgivelser" in detail
+    assert "2026:earnings=0 utgivelser" in detail
+

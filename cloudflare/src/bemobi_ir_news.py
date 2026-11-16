@@ -17,7 +17,9 @@ CATEGORIES = ("comunicados", "aviso-acionistas", "fatos-relevantes-e-comunicados
 # Discover official results without guessing MZiQ internal category slugs.
 REPORT_TITLES = (
     ("EARNINGS_PRESENTATION", re.compile(r"\b(?:earnings presentation|apresentacao de resultados)\b")),
-    ("EARNINGS_RELEASE", re.compile(r"\b(?:earnings release|release de resultados|press release de resultados|relatorio de resultados|relatorio trimestral de resultados)\b")),
+    # CVM/IR sometimes publishes the release under the short official title
+    # "Release 3T26 / 3Q26" rather than "Earnings Release".
+    ("EARNINGS_RELEASE", re.compile(r"\b(?:earnings release|release de resultados|press release de resultados|relatorio de resultados|relatorio trimestral de resultados|release\s+[1-4][tq]\s*\d{2,4})\b")),
     ("FINANCIAL_STATEMENTS", re.compile(
         r"\b(?:itr\s*[1-4][qt]\s*\d{2}|dfp\b|quarterly information|"
         r"standardized financial statements|consolidated financial statements|"
@@ -121,6 +123,8 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         year = date.fromisoformat(target_date).year
         years = (year, year - 1) if target_date[5:7] == "01" else (year,)
         report_feed_errors = []
+        report_feed_probes = []
+        live_release_count = 0
         for selected in years:
             # Baseline notices are mandatory and independently validated.
             for item in await read_feed(selected, list(CATEGORIES), include_reports=False):
@@ -131,7 +135,17 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
             failures = []
             for categories in ([], ["release-de-resultados"]):
                 try:
-                    for item in await read_feed(selected, categories, include_reports=True):
+                    items = await read_feed(selected, categories, include_reports=True)
+                    found_releases = sum(
+                        item["document_kind"] == "EARNINGS_RELEASE" for item in items
+                    )
+                    report_feed_probes.append({
+                        "year": selected,
+                        "scope": "all" if not categories else "earnings",
+                        "release_count": found_releases,
+                    })
+                    live_release_count += found_releases
+                    for item in items:
                         if item["document_kind"] != "NOTICE":
                             rows[item["id"]] = item
                             if item["document_kind"] == "EARNINGS_RELEASE":
@@ -167,11 +181,9 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         final_rows = sorted(
             rows.values(), key=lambda item: (item["date"], item["id"]), reverse=True
         )
-        report_count = sum(
-            item.get("document_kind") == "EARNINGS_RELEASE" for item in final_rows
-        )
+        # Last-good documents must not make an empty *live* feed look healthy.
         report_feed_status = (
-            "partial" if report_feed_errors else "ok" if report_count else "empty"
+            "partial" if report_feed_errors else "ok" if live_release_count else "empty"
         )
         snapshot = dict(
             checked_date=target_date, rows=final_rows, source_url=SOURCE_URL,
@@ -187,6 +199,7 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
             status="ok", documents=len(final_rows), checked_date=target_date,
             report_feed_status=report_feed_status,
             report_feed_errors=report_feed_errors[:2],
+            report_feed_probes=report_feed_probes[:4],
         )
     except Exception as exc:
         return dict(
