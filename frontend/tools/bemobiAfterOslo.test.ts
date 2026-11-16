@@ -150,6 +150,17 @@ test("Bemobi and FX reuse the same percentage, price and chart layout", () => {
   assert.match(overviewCss, /\.bemobiAfterOsloChartPlaceholder \{ height:72px; \}/);
 });
 
+test("Oslo opening deadline is displayed once, on BRL/NOK rather than Bemobi", () => {
+  const component = requireFixture("BemobiAfterOsloCard.tsx");
+  const bemobiCard = component.indexOf('aria-label="Bemobi siden Oslo Børs stengte"');
+  const fxCard = component.indexOf('aria-label="BRL/NOK over perioden da Oslo Børs var stengt"');
+  const deadline = component.indexOf("Måles til Oslo-åpning:");
+  assert.ok(bemobiCard >= 0 && fxCard > bemobiCard && deadline > fxCard);
+  assert.equal(component.split("Måles til Oslo-åpning:").length - 1, 1);
+  assert.match(component.slice(fxCard), /!waiting && visibleData\?\.next_oslo_open_at/);
+  assert.match(component.slice(fxCard), /formatDateTime\(visibleData\.next_oslo_open_at\)/);
+});
+
 test("Wide screens show three compact cards and smaller screens stack them", () => {
   const css = requireFixture("bemobi-after-oslo.css");
   assert.match(css, /@media\(min-width:1280px\)/);

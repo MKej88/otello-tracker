@@ -128,7 +128,6 @@ export default function BemobiAfterOsloCard() {
           chartLabel={change == null ? "Ingen Bemobi-kursutvikling tilgjengelig" : "Bemobis lagrede kursutvikling siden Oslo-slutt: " + formatNumber(change, 2) + " prosent."}
           sourceNote={<>
             {latest && <small>Siste kurstid: {formatDateTime(latest.observed_at)} · {latest.source === "YAHOO_FINANCE" ? "Yahoo Finance" : latest.source}{latest.delay_minutes === 15 ? " · 15 min forsinket" : ""}</small>}
-            {!waiting && visibleData?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">Måles til Oslo-åpning: {formatDateTime(visibleData.next_oslo_open_at)}</small>}
           </>}
         />
         <details className="bemobiAfterOsloDetails">
@@ -191,11 +190,14 @@ export default function BemobiAfterOsloCard() {
           latestValue={fxLatest != null ? formatNumber(fxLatest, 4) + " NOK" : "—"}
           chart={fxChart}
           chartLabel={fx ? "BRL/NOK i måleperioden: " + formatNumber(fx.change_pct!, 2) + " prosent endring." : "Ingen valutakursutvikling tilgjengelig"}
-          sourceNote={fx
-            ? <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}.</small>
-            : <small>{fxStatusLabel(rawFx, displayRefreshFailed)}. {fxLatest != null && rawFx?.latest_at
-              ? `Siste dokumenterte kurs: ${formatDateTime(rawFx.latest_at)}. `
-              : ""}Ingen prosentvis valutaeffekt beregnes uten gyldig referanse.</small>}
+          sourceNote={<>
+            {fx
+              ? <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}.</small>
+              : <small>{fxStatusLabel(rawFx, displayRefreshFailed)}. {fxLatest != null && rawFx?.latest_at
+                ? `Siste dokumenterte kurs: ${formatDateTime(rawFx.latest_at)}. `
+                : ""}Ingen prosentvis valutaeffekt beregnes uten gyldig referanse.</small>}
+            {!waiting && visibleData?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">Måles til Oslo-åpning: {formatDateTime(visibleData.next_oslo_open_at)}</small>}
+          </>}
         />
         <details className="bemobiAfterOsloDetails">
           <summary>Vis kursgrunnlag</summary>
