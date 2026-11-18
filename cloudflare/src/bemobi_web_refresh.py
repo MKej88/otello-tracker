@@ -414,6 +414,57 @@ def _extract_percentage_after_label(text: str, labels: tuple[str, ...]) -> float
     return None
 
 
+def _extract_reported_cash_mbrl(text: str, *, period: str) -> float | None:
+    """Extract only issuer-reported quarter-end cash, never an adjacent year.
+
+    Avoid generic metric extraction: in "cash position ... 2025" it silently
+    interprets a year as R$ millions (a live 3Q26 failure). Prefer an explicit
+    monetary amount connected to cash and the current reporting period.
+    """
+    labels = (
+        r"cash (?:position|balance|and equivalents)",
+        r"(?:ending|closing) cash",
+        r"posi[cç][aã]o de caixa",
+        r"saldo de caixa",
+        r"caixa e equivalentes",
+    )
+    amount = r"R\$\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:million|millions|milh[oõ]es|milh[aã]o|mi\b)"
+    period_pattern = re.escape(period).replace("Q", "[QT]")
+    for label in labels:
+        for found in re.finditer(label, text, re.IGNORECASE):
+            # A report may also compare previous quarters; the amount must
+            # explicitly be connected to the current quarter when possible.
+            nearby = text[found.start():found.start() + 270]
+            for money in re.finditer(amount, nearby, re.IGNORECASE):
+                snippet = nearby[money.start():money.end() + 90]
+                before = nearby[:money.start()]
+                if (re.search(period_pattern, snippet, re.IGNORECASE)
+                    or re.search(r"\b(?:ending|closing|end-of-period|end of quarter)\b", before, re.IGNORECASE)
+                    or re.search(r"\b(?:totaled|totalizou|encerrou|fechou)\b", before, re.IGNORECASE)):
+                    try:
+                        value = _number(money.group(1))
+                    except ValueError:
+                        continue
+                    if 10 <= value <= 1500:
+                        return value
+
+    # Older Brazilian releases sometimes have compact tabular rows such as
+    # "Posição de Caixa 328,0" with an R$ millions header elsewhere. Accept
+    # only a one-/two-decimal value immediately following the cash label.
+    for label in labels:
+        for found in re.finditer(label, text, re.IGNORECASE):
+            following = text[found.end():found.end() + 35]
+            row = re.match(r"\s*:?\s*(?:R\$\s*)?(\d{2,3}[.,]\d{1,2})\b", following)
+            if row:
+                try:
+                    value = _number(row.group(1))
+                except ValueError:
+                    continue
+                if 10 <= value <= 1500:
+                    return value
+    return None
+
+
 def _valuation_anchor_from_result(
     result: dict[str, Any],
     *,
@@ -475,7 +526,7 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     if margin is not None and not (0 < margin < 100):
         margin = None
     cash_conversion = _extract_metric(normalized, (r"Cash Conversion", r"Convers[aã]o de Caixa"), percent=True)
-    cash = _extract_metric(normalized, (r"Posi[cç][aã]o de Caixa", r"Caixa e Equivalentes", r"Cash Position"))
+    cash = _extract_reported_cash_mbrl(normalized, period=period)
     revenue_yoy = _extract_yoy_percentage(normalized, revenue_labels)
     ebitda_yoy = _extract_yoy_percentage(normalized, ebitda_labels)
     net_income_yoy = _extract_yoy_percentage(normalized, net_income_labels)
@@ -512,6 +563,7 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
         "adjusted_ebitda_margin_pct": None if margin is None else round(margin, 4),
         "cash_conversion_pct": None if cash_conversion is None else round(cash_conversion, 4),
         "cash_mbrl": None if cash is None else round(cash, 4),
+        "cash_quality": "OFFICIAL_REPORTED" if cash is not None else "UNVERIFIED",
         "payments_yoy_pct": None if payments_yoy is None else round(payments_yoy, 4),
         "saas_yoy_pct": None if saas_yoy is None else round(saas_yoy, 4),
         "ttm_ebit_mbrl": None if ttm_ebit is None else round(ttm_ebit, 4),
