@@ -22,9 +22,15 @@ export type FxMovement = {
   theoretical_otec_price_nok?: number | null;
 };
 
+export type AfterOsloDiagnostics = Partial<Record<
+  "bemobi_reference" | "bemobi_quote" | "fx_reference" | "fx_quote",
+  { status?: string; reason?: string; error_type?: string }
+>>;
+
 export type BemobiAfterOslo = {
   ready: boolean;
   status: string;
+  refresh_diagnostics?: AfterOsloDiagnostics;
   oslo_close_at?: string;
   next_oslo_open_at?: string;
   measurement_end_at?: string;
@@ -66,8 +72,17 @@ export function displayedChange(data: BemobiAfterOslo | null, refreshFailed = fa
     && Number.isFinite(data.change_pct) ? data.change_pct! : null;
 }
 
-export function statusLabel(status?: string, refreshFailed = false): string {
+export function statusLabel(status?: string, refreshFailed = false, diagnostics?: AfterOsloDiagnostics): string {
   if (refreshFailed) return "Kunne ikke oppdatere kursdata";
+  if (status === "missing_reference" && diagnostics?.bemobi_reference?.status === "error") {
+    return "Bemobi-referanse mangler – innhenting feilet";
+  }
+  if (status === "missing_reference" && diagnostics?.bemobi_reference?.status === "missing") {
+    return "Bemobi-referanse mangler – automatisk gjenoppretting mislyktes";
+  }
+  if (status === "waiting_quote" && diagnostics?.bemobi_quote?.status === "error") {
+    return "Ny Bemobi-kurs kunne ikke hentes fra B3/Yahoo";
+  }
   switch (status) {
     case "waiting_oslo_close": return "Venter på dagens Oslo-stenging";
     case "waiting_reference": return "Venter på forsinket kurs ved close på Oslo Børs";
@@ -132,8 +147,11 @@ export function displayedFxEffect(data: BemobiAfterOslo | null, refreshFailed = 
     ? fx : null;
 }
 
-export function fxStatusLabel(fx?: FxMovement, refreshFailed = false): string {
+export function fxStatusLabel(fx?: FxMovement, refreshFailed = false, diagnostics?: AfterOsloDiagnostics): string {
   if (refreshFailed) return "Kunne ikke oppdatere valutadata";
+  if (!fx?.ready && diagnostics?.fx_quote?.reason === "provider_unavailable_or_invalid") {
+    return "Valutakilden kunne ikke oppdateres etter Oslo-stenging";
+  }
   if (fx?.ready) return "Endring i BRL/NOK";
   switch (fx?.reason) {
     case "waiting_oslo_close": return "Venter på dagens Oslo-stenging";
