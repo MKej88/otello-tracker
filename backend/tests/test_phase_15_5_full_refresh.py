@@ -488,6 +488,8 @@ def test_wrangler_config_keeps_fast_cron_and_adds_durable_full_refresh() -> None
         "35 3 * * *",
         "37-43 14,15 * * 1-5",
         "17-23 11,12 * * 1-5",
+        "47,55 14,15 * * 1-5",
+        "27,35 11,12 * * 1-5",
     ]
     assert "python_workers" in config["compatibility_flags"]
     assert "python_workflows" in config["compatibility_flags"]
