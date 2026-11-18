@@ -201,3 +201,19 @@ test("FX failure details are specific and never fabricate a percent change", () 
   assert.match(component, /fxLatest != null/);
   assert.match(component, /Årsakskode:/);
 });
+
+
+test("After-close failures distinguish missing anchor, unavailable Bemobi and FX source", () => {
+  assert.match(statusLabel("missing_reference", false, {
+    bemobi_reference: { status: "missing", reason: "historical_reference_unavailable" },
+  }), /gjenoppretting/);
+  assert.match(statusLabel("missing_reference", false, {
+    bemobi_reference: { status: "error", error_type: "RuntimeError" },
+  }), /innhenting feilet/);
+  assert.match(statusLabel("waiting_quote", false, {
+    bemobi_quote: { status: "error", error_type: "RuntimeError" },
+  }), /B3\/Yahoo/);
+  assert.match(fxStatusLabel({ ready: false, reason: "missing_fx_after_oslo_close" }, false, {
+    fx_quote: { status: "skipped", reason: "provider_unavailable_or_invalid" },
+  }), /Valutakilden/);
+});
