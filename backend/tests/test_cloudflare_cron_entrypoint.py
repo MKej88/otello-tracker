@@ -66,6 +66,11 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
         events.append("reference")
         return {"status": "ok"}
 
+    async def postclose(*args, **kwargs):
+        events.append("postclose")
+        return {"status": "SUCCESS"}
+
+
     nightly_mock = AsyncMock(side_effect=nightly)
     bindings = types.SimpleNamespace(
         DB=object(), FULL_REFRESH=object(), SOURCE_ARCHIVE=object()
@@ -76,7 +81,11 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
             REFERENCE_CRONS=("37-43 14,15 * * 1-5", "17-23 11,12 * * 1-5"),
             run_reference_capture=AsyncMock(side_effect=reference),
         ),
-        "scheduled": types.SimpleNamespace(run_scheduled=AsyncMock(side_effect=fast)),
+        "scheduled": types.SimpleNamespace(
+            run_scheduled=AsyncMock(side_effect=fast),
+            run_after_oslo_close_refresh=AsyncMock(side_effect=postclose),
+            AFTER_OSLO_CLOSE_CRONS=("47,55 14,15 * * 1-5", "47,55 11,12 * * 1-5"),
+        ),
         "nightly_trigger": types.SimpleNamespace(
             FULL_REFRESH_CRON="35 3 * * *",
             FAST_REFRESH_CRON="*/30 * * * *",
@@ -120,4 +129,11 @@ def test_reference_cron_runs_only_bounded_capture() -> None:
     result, events, nightly, _ = _run_handler("37-43 14,15 * * 1-5", fallback_env=True)
     assert result["status"] == "ok"
     assert events == ["reference"]
+    nightly.assert_not_awaited()
+
+
+def test_post_close_cron_runs_independent_refresh_without_nightly() -> None:
+    result, events, nightly, _ = _run_handler("47,55 14,15 * * 1-5")
+    assert result["status"] == "SUCCESS"
+    assert events == ["postclose"]
     nightly.assert_not_awaited()
