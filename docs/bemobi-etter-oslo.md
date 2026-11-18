@@ -4,8 +4,20 @@ Oversikten viser kursendringen i BMOB3 i BRL fra siste close på Oslo Børs til 
 tidsstemplede Bemobi-kurs. Ved siden av vises teoretisk OTEC-effekt fra Bemobi-bevegelsen alene. Valutabevegelser inngår ikke, og effekten er ingen prognose for OTEC-kursen.
 
 Cloudflare-endepunkt: `/api/market/bemobi-after-oslo`. Kortet hentes separat fra
-førstesidens bootstrap og oppdateres hvert andre minutt. Eksisterende kursinnhenting
-fortsetter hvert 30. minutt; referansejobben henter bare referansen.
+førstesidens bootstrap og oppdateres hvert andre minutt. Eksisterende kursinnhenting fortsetter hvert 30. minutt. For å unngå et
+tomt kort mellom referansefangsten og neste halvtimeskjøring, kjøres en separat
+lettvektsoppdatering kl. **16:47 og 16:55 norsk tid** (13:27/13:35 på halv
+handelsdag). Den forsøker først å gjenopprette eventuelle manglende, validerte
+Bemobi- og valutareferanser, deretter hentes nyere BMOB3- og BRL/NOK-observasjoner.
+Bare de vanlige kildene og eksisterende kvalitetskrav benyttes; ingen senere kurs
+får brukes som kunstig sluttauksjonsreferanse.
+
+Kjøringen er uavhengig av NAV-skriverlåsen, lagrer en begrenset diagnostisk
+status per Oslo-dato og loggføres i job_runs som
+`cloudflare_after_oslo_close_refresh`. Ved feil kan kortene vise forskjell på
+manglende Bemobi-referanse, uteblitt nyere BMOB3-kurs og utilgjengelig valutakilde.
+En GitHub Actions-kontroll sjekker produksjonens API etter stenging, inklusive
+sommertid, halv handelsdag og Oslo-helligdager.
 
 ## Referanse
 

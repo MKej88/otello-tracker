@@ -829,3 +829,51 @@ def test_bemobi_effect_hides_at_oslo_open_and_resets_after_next_close():
     assert new_close["status"] == "waiting_reference"
     assert new_close["measurement_complete"] is False
 
+
+
+def test_missing_reference_exposes_only_same_session_recovery_diagnostics():
+    repo = Repository()
+    close = "2026-10-05T14:25:00Z"
+    diagnostics = {
+        "oslo_close_at": close,
+        "steps": {
+            "bemobi_reference": {
+                "status": "missing",
+                "reason": "historical_reference_unavailable",
+                "raw_response": "never display",
+            },
+        },
+    }
+    repo.db.execute(
+        "INSERT INTO runtime_state VALUES(?,?,?)",
+        ("bemobi_oslo_post_close_status_v1:2026-10-05",
+         json.dumps(diagnostics), "2026-10-05T14:47:00Z"),
+    )
+    result = asyncio.run(feature.bemobi_after_oslo(
+        repo, now=dt("2026-10-05T14:50:00Z"),
+    ))
+    assert result["status"] == "missing_reference"
+    assert result["refresh_diagnostics"]["bemobi_reference"] == {
+        "status": "missing", "reason": "historical_reference_unavailable",
+    }
+    assert "never display" not in json.dumps(result)
+
+
+def test_missing_new_bemobi_quote_exposes_provider_outage_without_old_prices():
+    repo = Repository()
+    repo.anchor()
+    repo.db.execute(
+        "INSERT INTO runtime_state VALUES(?,?,?)",
+        ("bemobi_oslo_post_close_status_v1:2026-10-05",
+         json.dumps({"oslo_close_at": "2026-10-05T14:25:00Z",
+                     "steps": {"bemobi_quote": {
+                         "status": "error", "error_type": "RuntimeError",
+                     }}}), "2026-10-05T14:47:00Z"),
+    )
+    result = asyncio.run(feature.bemobi_after_oslo(
+        repo, now=dt("2026-10-05T14:50:00Z"),
+    ))
+    assert not result["ready"]
+    assert result["status"] == "waiting_quote"
+    assert result["refresh_diagnostics"]["bemobi_quote"]["status"] == "error"
+    assert "change_pct" not in result

@@ -1,0 +1,52 @@
+name: Verify Oslo close market cards
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/verify-after-oslo-close.yml
+      - tools/verify_after_oslo_close.py
+      - tools/tests/test_verify_after_oslo_close.py
+      - cloudflare/src/bemobi_after_oslo.py
+      - cloudflare/src/scheduled.py
+      - cloudflare/tests/test_after_oslo_close_refresh.py
+  schedule:
+    # 17:15 Oslo time, summer and winter UTC alternatives.
+    - cron: "15 15,16 * * 1-5"
+    # 13:55 Oslo time on Wednesday before Easter (early Oslo close).
+    - cron: "55 11,12 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install Cloudflare test dependencies
+        run: python -m pip install -e cloudflare
+      - name: Run offline post-close regressions
+        run: |
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p test_after_oslo_close_refresh.py
+          PYTHONPATH=cloudflare/src:tools python -m unittest discover -s tools/tests -p test_verify_after_oslo_close.py
+
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify public after-close API and report missing inputs
+        env:
+          PYTHONPATH: cloudflare/src
+        run: python tools/verify_after_oslo_close.py

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -60,6 +61,9 @@ except ImportError:
     from performance_repository import PerformanceD1WriteRepository
 
 FAST_REFRESH_CRON = "*/30 * * * *"
+# Short independent refresh after the 15-minute delayed Oslo-close reference.
+# Both UTC hours cover summer/winter time; the local calendar filters the other hour.
+AFTER_OSLO_CLOSE_CRONS = ("47,55 14,15 * * 1-5", "27,35 11,12 * * 1-5")
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
 PHASE = "16.2"
@@ -706,6 +710,93 @@ async def run_fast_refresh(
             "total_ms": round((perf_counter() - run_started) * 1000, 2),
         },
     }
+
+
+
+async def run_after_oslo_close_refresh(
+    database: Any,
+    *,
+    now: datetime,
+    exr_enabled: bool = False,
+    exr_license_approved: bool = False,
+    exr_api_key: str | None = None,
+) -> dict[str, Any]:
+    """Refresh post-close market observations without waiting for the half-hour job.
+
+    Only real close-adjacent quotes can serve as frozen reference values.
+    Provider failures remain visible in job metadata and the public read model.
+    """
+    from bemobi_after_oslo import bemobi_after_oslo, iso, latest_oslo_close
+    from repository import D1WriteRepository
+
+    current = now.astimezone(UTC)
+    close = latest_oslo_close(current)
+    offset = current - close
+    if (
+        close.astimezone(OSLO_TZ).date() != current.astimezone(OSLO_TZ).date()
+        or not timedelta(minutes=19) <= offset <= timedelta(minutes=35)
+    ):
+        return {"status": "SKIPPED", "reason": "outside_post_close_window"}
+
+    repository = D1WriteRepository(database)
+    steps: dict[str, dict[str, Any]] = {}
+
+    async def attempt(name: str, action) -> None:
+        try:
+            value = await action()
+            steps[name] = value if isinstance(value, dict) else {"status": "error", "reason": "invalid_step_result"}
+        except Exception as exc:
+            # Do not expose raw provider responses, request URLs or credentials.
+            steps[name] = {"status": "error", "error_type": type(exc).__name__}
+
+    # Recover the frozen near-close anchors before collecting later observations.
+    await attempt("bemobi_reference", lambda: recover_reference(repository, now=current))
+    await attempt("fx_reference", lambda: recover_fx_close_reference(repository, now=current))
+    await attempt("bemobi_quote", lambda: refresh_bmob3_intraday_price(repository=repository, now=current))
+    await attempt("fx_quote", lambda: refresh_exchangerate_dev_brl_nok(
+        repository, now=current, api_key=exr_api_key,
+        enabled=exr_enabled, license_approved=exr_license_approved,
+    ))
+    await attempt("card", lambda: bemobi_after_oslo(repository, now=current))
+    card = steps["card"]
+    expected_fx = exr_enabled and exr_license_approved
+    ready = card.get("status") == "ready" and (
+        not expected_fx or card.get("fx_movement", {}).get("ready") is True
+    )
+    # Store a strictly allowlisted status snapshot; never persist provider payloads.
+    diagnosis = {
+        "oslo_close_at": iso(close),
+        "checked_at": iso(current),
+        "card_status": card.get("status", "error") if card.get("status") in {
+            "ready", "waiting_reference", "missing_reference", "waiting_quote",
+        } else "error",
+        "fx_ready": card.get("fx_movement", {}).get("ready") is True,
+        "steps": {
+            name: {key: value[key] for key in ("status", "reason", "error_type")
+                   if isinstance(value.get(key), str)}
+            for name, value in steps.items() if name != "card"
+        },
+    }
+    await repository.run(
+        """INSERT INTO runtime_state(key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+        ("bemobi_oslo_post_close_status_v1:" + close.astimezone(OSLO_TZ).date().isoformat(),
+         json.dumps(diagnosis, sort_keys=True), iso(current)),
+    )
+    job_id = await repository.start_job(
+        job_name="cloudflare_after_oslo_close_refresh",
+        started_at=iso(current),
+        metadata={"post_close": True},
+    )
+    await repository.finish_job(
+        job_id,
+        finished_at=iso(datetime.now(UTC)),
+        status="SUCCESS" if ready else "PARTIAL",
+        records_written=int(steps["bemobi_quote"].get("status") == "ok")
+        + int(steps["fx_quote"].get("status") == "ok"),
+        metadata=diagnosis,
+    )
+    return {"status": "SUCCESS" if ready else "PARTIAL", **diagnosis}
 
 
 async def run_scheduled(
