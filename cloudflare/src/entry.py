@@ -178,7 +178,7 @@ class Default(WorkerEntrypoint):
         )
 
     async def scheduled(self, controller, env, ctx):
-        from scheduled import run_scheduled
+        from scheduled import run_scheduled, run_after_oslo_close_refresh, AFTER_OSLO_CLOSE_CRONS
         from nightly_trigger import FULL_REFRESH_CRON, FAST_REFRESH_CRON, ensure_nightly_refresh
         from repository import D1Repository
 
@@ -205,6 +205,14 @@ class Default(WorkerEntrypoint):
                 except Exception:
                     # FX capture cannot disrupt the existing Bemobi reference.
                     pass
+        if cron in AFTER_OSLO_CLOSE_CRONS:
+            return await run_after_oslo_close_refresh(
+                bindings.DB,
+                now=now,
+                exr_enabled=str(getattr(bindings, "EXR_MARKET_FX_ENABLED", "false")).lower() == "true",
+                exr_license_approved=str(getattr(bindings, "EXR_DATA_LICENSE_APPROVED", "false")).lower() == "true",
+                exr_api_key=getattr(bindings, "EXCHANGERATE_DEV_API_KEY", None),
+            )
         if cron == FULL_REFRESH_CRON:
             return await ensure_nightly_refresh(
                 D1Repository(bindings.DB), bindings.FULL_REFRESH, now=now
