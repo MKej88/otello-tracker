@@ -409,6 +409,13 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
 
     market_dates = summary.get("market_timestamps") or {}
     curated_result = public_fact(latest_result_fact) or {}
+    # Fail closed for the previous parser bug, which stored the year 2025 as
+    # R$2,025m cash. The source-backed refresh repairs the stored result;
+    # until then, all cash-derived dashboard amounts must remain unavailable.
+    cash = _number(curated_result.get("cash_mbrl"))
+    if cash is not None and not 10 <= cash <= 1500:
+        curated_result["cash_mbrl"] = None
+        curated_result["cash_quality"] = "REJECTED_IMPLAUSIBLE_CASH"
     result_url = str(
         (result_source or {}).get("url") or latest_result_fact.get("_source_url") or ""
     )
