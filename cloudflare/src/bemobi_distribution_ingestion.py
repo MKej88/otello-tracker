@@ -33,7 +33,11 @@ _MAX_NOTICES = 12
 
 def _normalise(text: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"\s+", " ", ascii_text).lower().strip()
+    normalized = re.sub(r"\s+", " ", ascii_text).lower().strip()
+    # pypdf sometimes splits thousands groups/decimal digits in shareholder
+    # notices ("13. 200.000,00" and "0, 15822091"). Keep punctuation, but
+    # remove whitespace only where both neighboring characters are digits.
+    return re.sub(r"(?<=\d)([.,])\s+(?=\d)", r"\1", normalized)
 
 
 def _money(text: str, pattern: str, label: str) -> Decimal:
@@ -105,7 +109,7 @@ def parse_official_distribution(text: str, *, published_date: str) -> dict[str, 
     )
     ex_date = _date_after(
         body,
-        r"ex-(?:juros sobre (?:o )?capital proprio|jcp|dividendos?)"
+        r"ex\s*-\s*(?:juros sobre (?:o )?capital proprio|jcp|dividendos?)"
         r".{0,110}?\ba partir de\s+",
         "ex_date",
     )
