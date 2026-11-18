@@ -114,6 +114,23 @@ def notice(identifier, url, day, title="Dividendos/Juros sobre Capital Próprio"
     }
 
 
+def test_real_q2_pdf_number_spacing_and_ex_hyphen_are_parsed():
+    # Representative fragments from Bemobi's actual 11 Aug 2026 PDF:
+    # https://api.mziq.com/mzfilemanager/v2/d/deed72f2-beae-4c6f-b423-db57178bae31/4761cf80-96fc-b59c-9720-17addd9e1dc9?origin=2
+    text = Q2_NOTICE.replace(
+        "R$ 13.200.000,00", "R$ 13. 200.000,00"
+    ).replace(
+        "R$ 0,15822091", "R$ 0, 15822091"
+    ).replace("ex-juros", "ex -juros")
+    result = ingestion.parse_official_distribution(
+        text, published_date="2026-08-11",
+    )
+    assert result["ex_date"] == "2026-08-17"
+    assert result["payment_date"] == "2026-08-28"
+    assert result["net_total_amount"] == "13200000.00"
+    assert result["net_amount_per_share"] == "0.15822091"
+
+
 def test_q3_notice_has_source_validated_entitlement_and_net_amount():
     result = ingestion.parse_official_distribution(
         Q3_NOTICE, published_date="2026-11-12",
