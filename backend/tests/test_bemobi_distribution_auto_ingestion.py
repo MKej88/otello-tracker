@@ -187,7 +187,6 @@ def test_new_official_q3_is_booked_once_and_old_q2_not_double_booked(monkeypatch
     assert repo.writes == 1
     assert len(repo.documents) == 1
     assert repo.documents[0]["source_code"] == "BEMOBI_IR"
-    assert repo.documents[0]["validation"] if False else True
     assert repo.documents[0]["metadata"]["validation"] == "OFFICIAL_NOTICE_STRICT"
     assert len(repo.actions) == 2
     assert repo.actions[1]["ex_date"] == "2026-11-18"
