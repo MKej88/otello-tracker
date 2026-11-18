@@ -26,6 +26,7 @@ def stub_daily_q3_watch(monkeypatch):
     monkeypatch.setattr(runtime, "sync_q3_previews", skipped)
     # Result releases are now checked daily, including XP preview nights.
     monkeypatch.setattr(runtime, "sync_latest_result_release", skipped)
+    monkeypatch.setattr(runtime, "refresh_official_distributions", skipped)
 
 
 async def _no_distribution_cash(*args, **kwargs):
