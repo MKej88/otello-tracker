@@ -3,6 +3,7 @@ import { fetchPreloadedJson } from "./navigationDataPreload";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { kpiResultPeriod, resolveAdjustedEbitdaMargin } from "./bemobiKpiMetrics";
 import "./bemobi-page.css";
 
 type ValuationScenario = {
@@ -249,19 +250,8 @@ export default function BemobiPageBase() {
 
   const market = data.market;
   const result = data.latest_result;
-  const resultPeriod = result?.period?.trim() || "Periode ukjent";
-  const reportedMargin = result?.adjusted_ebitda_margin_pct;
-  const calculatedMargin = result?.adjusted_net_revenue_mbrl != null
-    && result.adjusted_net_revenue_mbrl > 0
-    && result.adjusted_ebitda_mbrl != null
-    && result.adjusted_ebitda_mbrl >= 0
-    ? result.adjusted_ebitda_mbrl / result.adjusted_net_revenue_mbrl * 100
-    : null;
-  const ebitdaMargin = reportedMargin != null && Number.isFinite(reportedMargin)
-    ? reportedMargin
-    : calculatedMargin;
-  const marginIsCalculated = ebitdaMargin != null
-    && (reportedMargin == null || !Number.isFinite(reportedMargin));
+  const resultPeriod = kpiResultPeriod(result);
+  const { value: ebitdaMargin, basis: marginBasis } = resolveAdjustedEbitdaMargin(result);
   const valuation = data.valuation;
   const nextReport = data.next_report;
   const quarters = valuation?.source_quarters ?? [];
@@ -364,11 +354,11 @@ export default function BemobiPageBase() {
             <span className="bemobiCleanKpiQuarter numeric">{resultPeriod}</span>
           </div>
           <strong className="numeric">{value(ebitdaMargin, 1)} %</strong>
-          <small>{ebitdaMargin == null
-            ? "Ikke tilgjengelig"
-            : marginIsCalculated
-              ? "Beregnet fra EBITDA / omsetning"
-              : "Rapportert margin"}</small>
+          <small>{marginBasis === "calculated"
+            ? "Beregnet fra EBITDA / omsetning"
+            : marginBasis === "reported"
+              ? "Rapportert margin"
+              : "Ikke tilgjengelig"}</small>
         </article>
         <article className="card cardPrimary bemobiCleanKpi">
           <div className="bemobiCleanKpiHeading">
