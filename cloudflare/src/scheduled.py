@@ -63,7 +63,7 @@ except ImportError:
 FAST_REFRESH_CRON = "*/30 * * * *"
 # Short independent refresh after the 15-minute delayed Oslo-close reference.
 # Both UTC hours cover summer/winter time; the local calendar filters the other hour.
-AFTER_OSLO_CLOSE_CRONS = ("47,55 14,15 * * 1-5", "47,55 11,12 * * 1-5")
+AFTER_OSLO_CLOSE_CRONS = ("47,55 14,15 * * 1-5", "27,35 11,12 * * 1-5")
 JOB_NAME = "cloudflare_fast_refresh"
 OSLO_TZ = ZoneInfo("Europe/Oslo")
 PHASE = "16.2"
