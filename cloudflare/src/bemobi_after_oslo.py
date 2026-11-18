@@ -418,6 +418,50 @@ async def otec_effect(
     }
 
 
+async def post_close_refresh_diagnostics(repository, close: datetime) -> dict[str, Any]:
+    """Read the bounded post-close job result for this Oslo session only."""
+    day = close.astimezone(OSLO_TZ).date().isoformat()
+    row = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=?",
+        ("bemobi_oslo_post_close_status_v1:" + day,),
+    )
+    if row is None:
+        return {}
+    try:
+        info = json.loads(row["value"])
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(info, dict) or info.get("oslo_close_at") != iso(close):
+        return {}
+    steps = info.get("steps")
+    if not isinstance(steps, dict):
+        return {}
+    # Public API never exposes raw provider responses or opaque error strings.
+    names = ("bemobi_reference", "fx_reference", "bemobi_quote", "fx_quote")
+    allowed = {
+        "status": {"ok", "skipped", "missing", "error"},
+        "reason": {
+            "reference_already_captured", "no_valid_stored_reference",
+            "historical_reference_unavailable", "no_valid_historical_reference",
+            "not_b3_trading_day", "already_captured", "awaiting_reference_window",
+            "invalid_stored_reference", "missing_sanity_reference",
+            "deviation_from_official_rate", "feature_disabled",
+            "license_not_approved", "observation_not_newer",
+            "weekend", "before_b3_quote_window", "eod_window_has_priority",
+            "provider_unavailable_or_invalid",
+        },
+    }
+    return {
+        name: {key: value[key] for key in ("status", "reason", "error_type")
+               if isinstance(value.get(key), str)
+               and (key == "error_type" and value[key].isidentifier()
+                    and len(value[key]) <= 60
+                    or key in allowed and value[key] in allowed[key])}
+        for name in names
+        if isinstance((value := steps.get(name)), dict)
+    }
+
+
 async def bemobi_after_oslo(
     repository, *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -459,6 +503,7 @@ async def bemobi_after_oslo(
         if reference is None:
             if current <= close + REFERENCE_DELAY + REFERENCE_TOLERANCE:
                 result["status"] = "waiting_reference"
+            result["refresh_diagnostics"] = await post_close_refresh_diagnostics(repository, close)
             return result
     else:
         try:
@@ -515,6 +560,7 @@ async def bemobi_after_oslo(
     ]
     if not valid:
         result["status"] = "waiting_quote"
+        result["refresh_diagnostics"] = await post_close_refresh_diagnostics(repository, close)
         return result
     latest = valid[0]
     latest_time = timestamp(latest["observed_at"])
@@ -555,6 +601,8 @@ async def bemobi_after_oslo(
         repository, close, latest_price - reference_price,
         latest_bemobi_price=latest_price, current=current,
     )
+    if not result["fx_movement"].get("ready"):
+        result["refresh_diagnostics"] = await post_close_refresh_diagnostics(repository, close)
     return result
 
 
