@@ -84,7 +84,7 @@ def _run_handler(cron: str, *, fallback_env: bool = False):
         "scheduled": types.SimpleNamespace(
             run_scheduled=AsyncMock(side_effect=fast),
             run_after_oslo_close_refresh=AsyncMock(side_effect=postclose),
-            AFTER_OSLO_CLOSE_CRONS=("47,55 14,15 * * 1-5", "47,55 11,12 * * 1-5"),
+            AFTER_OSLO_CLOSE_CRONS=("47,55 14,15 * * 1-5", "27,35 11,12 * * 1-5"),
         ),
         "nightly_trigger": types.SimpleNamespace(
             FULL_REFRESH_CRON="35 3 * * *",
