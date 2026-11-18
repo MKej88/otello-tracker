@@ -37,6 +37,7 @@ type BemobiDashboard = {
     period_end?: string | null;
     cash_mbrl?: number | null;
     cash_quality?: string | null;
+    source_url?: string | null;
     adjusted_net_income_mbrl?: number | null;
     ebitda_less_capex_mbrl?: number | null;
     cash_conversion_pct?: number | null;
@@ -453,6 +454,14 @@ export default function CashPage() {
         </ResourceNotice>
       )}
 
+      {metrics.bemobiCashMbrl == null && (
+        <ResourceNotice kind="error">
+          Bemobis rapporterte kontantbeholdning for {bemobi.latest_result?.period ?? "siste kvartal"}
+          er ikke kildeverifisert. Indirekte cash, look-through-andel og renteanslag
+          er derfor skjult for å unngå misvisende tall. Otellos direkte kontanter påvirkes ikke.
+        </ResourceNotice>
+      )}
+
       <section className="cashKpiGrid">
         <article className="card cardPrimary cashKpi">
           <span className="label">OTEC direkte cash</span>
@@ -487,10 +496,12 @@ export default function CashPage() {
             </div>
             <span className="pill">LOOK-THROUGH</span>
           </div>
-          <div className="cashSplitBar" aria-label="Fordeling direkte og indirekte cash">
-            <span className="cashSplitDirect" style={{ width: `${directShare ?? 0}%` }} />
-            <span className="cashSplitIndirect" style={{ width: `${indirectShare ?? 0}%` }} />
-          </div>
+          {metrics.combinedM != null && (
+            <div className="cashSplitBar" aria-label="Fordeling direkte og indirekte cash">
+              <span className="cashSplitDirect" style={{ width: `${directShare ?? 0}%` }} />
+              <span className="cashSplitIndirect" style={{ width: `${indirectShare ?? 0}%` }} />
+            </div>
+          )}
           <div className="cashLegendRows">
             <div>
               <span><i className="cashLegendSwatch direct" />Otello disponerer direkte</span>
@@ -505,6 +516,7 @@ export default function CashPage() {
           </div>
           <p className="cashNote">
             Bemobi-andelen er økonomisk look-through-verdi, ikke kontanter Otello kan disponere før Bemobi faktisk distribuerer kapitalen.
+            Den inngår også i markedsverdien av Bemobi-aksjene og må ikke legges til NAV på nytt.
           </p>
         </article>
 
