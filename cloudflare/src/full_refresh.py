@@ -247,6 +247,7 @@ def _source_group_detail(
             return "; ".join(detail_parts)[:1000]
         for key, label in (
             ("result_release", "Bemobi resultatrapport"),
+            ("distribution_ingestion", "Bemobi-utbytte fra selskapsmeldinger"),
             ("distribution_cash", "Bekreftede Bemobi-utdelinger"),
         ):
             item = bemobi.get(key) or {}
@@ -266,6 +267,11 @@ def _source_group_detail(
                     detail_parts.append(str(item["error"])[:500])
                 if item.get("errors"):
                     detail_parts.append("; ".join(str(e) for e in item["errors"][:3])[:500])
+                if item.get("review"):
+                    detail_parts.append("; ".join(
+                        f"{row.get('date')}: {row.get('reason')}"
+                        for row in item["review"][:3]
+                    )[:500])
                 return "; ".join(detail_parts)[:1000]
         ir_news = bemobi.get("ir_news") if isinstance(bemobi.get("ir_news"), dict) else {}
         if ir_news and (
