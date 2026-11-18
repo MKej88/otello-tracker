@@ -119,7 +119,7 @@ export default function BemobiAfterOsloCard() {
           title="Bemobi siden Oslo Børs stengte"
           change={change}
           tone={tone}
-          status={statusLabel(visibleData?.status, displayRefreshFailed)}
+          status={statusLabel(visibleData?.status, displayRefreshFailed, visibleData?.refresh_diagnostics)}
           referenceLabel="Ved Oslo-slutt"
           referenceValue={reference ? "R$ " + formatNumber(reference.price, 2) : "—"}
           latestLabel="Siste kurs"
@@ -163,7 +163,7 @@ export default function BemobiAfterOsloCard() {
         {theoreticalPrice != null && <small>Kun Bemobi, med valutakurs holdt fast: {formatNumber(theoreticalPrice, 2)} kr.</small>}
         <div className="bemobiAfterOsloStatus" role="status">
           {effect ? fxEffect ? "Beregnet fra Bemobi og BRL/NOK etter Oslo-slutt" : "Beregnet Bemobi-effekt; valutareferanse mangler"
-            : change == null ? statusLabel(visibleData?.status, displayRefreshFailed)
+            : change == null ? statusLabel(visibleData?.status, displayRefreshFailed, visibleData?.refresh_diagnostics)
             : `Mangler ${visibleData?.otec_effect?.missing?.map(key => missingLabels[key] ?? key).join(", ") || "beregningsgrunnlag"}`}
         </div>
         <small>Teoretisk estimat for Bemobi-investeringen fra Oslo-slutt til neste åpning; ikke en kursprognose.</small>
@@ -183,7 +183,7 @@ export default function BemobiAfterOsloCard() {
           title="BRL/NOK siden Oslo Børs stengte"
           change={fx?.change_pct ?? null}
           tone={fxTone}
-          status={fxStatusLabel(rawFx, displayRefreshFailed)}
+          status={fxStatusLabel(rawFx, displayRefreshFailed, visibleData?.refresh_diagnostics)}
           referenceLabel="Ved Oslo-slutt"
           referenceValue={fxReference != null ? formatNumber(fxReference, 4) + " NOK" : "—"}
           latestLabel="Siste kurs"
@@ -193,7 +193,7 @@ export default function BemobiAfterOsloCard() {
           sourceNote={<>
             {fx
               ? <small>Kursgrunnlag: {formatDateTime(fx.reference_at)} → {formatDateTime(fx.latest_at)}.</small>
-              : <small>{fxStatusLabel(rawFx, displayRefreshFailed)}. {fxLatest != null && rawFx?.latest_at
+              : <small>{fxStatusLabel(rawFx, displayRefreshFailed, visibleData?.refresh_diagnostics)}. {fxLatest != null && rawFx?.latest_at
                 ? `Siste dokumenterte kurs: ${formatDateTime(rawFx.latest_at)}. `
                 : ""}Ingen prosentvis valutaeffekt beregnes uten gyldig referanse.</small>}
             {!waiting && visibleData?.next_oslo_open_at && <small className="bemobiAfterOsloPeriod">Måles til Oslo-åpning: {formatDateTime(visibleData.next_oslo_open_at)}</small>}
