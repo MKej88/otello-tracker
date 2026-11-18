@@ -66,6 +66,7 @@ def _simulate_refresh(monkeypatch, reason: str, has_last_good: bool):
 
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "result_release")
     monkeypatch.setattr(runtime, "sync_bemobi_ir", ir)
+    monkeypatch.setattr(runtime, "refresh_official_distributions", distribution)
     monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", distribution)
     monkeypatch.setattr(runtime, "sync_latest_result_release", release)
     monkeypatch.setattr(runtime, "sync_q3_previews", q3)
