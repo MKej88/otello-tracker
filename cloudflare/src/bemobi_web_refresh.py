@@ -1116,10 +1116,10 @@ async def _backfill_existing_result_margin(
     existing: dict[str, Any],
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Repair a missing margin from the *same official document*.
+    """Self-heal missing margin and invalid cash from the SAME issuer PDF.
 
-    Preserve previously ingested financial amounts and source provenance. This
-    runs only while the latest stored RESULT is missing its reported margin.
+    Never overwrite already-verified cash or numerical result amounts. This
+    also fixes stored 3Q26 cash=2025 (a year parsed as R$ millions).
     """
     original_payload = existing.get("payload_json")
     if not isinstance(original_payload, str):
@@ -1130,7 +1130,14 @@ async def _backfill_existing_result_margin(
             return None
     except (ValueError, TypeError):
         return None
-    if saved.get("adjusted_ebitda_margin_pct") is not None:
+
+    old_cash = saved.get("cash_mbrl")
+    missing_margin = saved.get("adjusted_ebitda_margin_pct") is None
+    suspicious_cash = (
+        isinstance(old_cash, (float, int))
+        and (not 10 <= old_cash <= 1500)
+    )
+    if not (missing_margin or suspicious_cash):
         return None
 
     try:
@@ -1143,22 +1150,30 @@ async def _backfill_existing_result_margin(
         )
         if parsed["period"] != saved.get("period"):
             raise ValueError("Kvartalet i kilde og lagrede resultatdata er ulikt")
-        # Reject a revised/incorrect document instead of silently mixing
-        # figures from different releases. 0.5m allows normal rounding.
+
+        # Reject a revised/incorrect document rather than silently mixing
+        # numbers from different releases. Allows issuer rounding only.
         for metric in ("adjusted_net_revenue_mbrl", "adjusted_ebitda_mbrl"):
             stored = _number(str(saved[metric]))
             fresh = _number(str(parsed[metric]))
             if stored <= 0 or abs(stored - fresh) > max(0.5, stored * 0.01):
                 raise ValueError(f"Resultatbeløp stemmer ikke for {metric}")
-        reported_margin = parsed.get("adjusted_ebitda_margin_pct")
-        if reported_margin is None:
+
+        changed = []
+        if missing_margin and parsed.get("adjusted_ebitda_margin_pct") is not None:
+            saved["adjusted_ebitda_margin_pct"] = parsed["adjusted_ebitda_margin_pct"]
+            changed.append("margin")
+        if suspicious_cash and parsed.get("cash_mbrl") is not None:
+            saved["cash_mbrl"] = parsed["cash_mbrl"]
+            saved["cash_quality"] = "OFFICIAL_REPORTED"
+            changed.append("cash")
+        if not changed:
             return {
                 "status": "skipped",
-                "reason": "official_result_margin_not_found",
+                "reason": "official_result_financial_fields_not_found",
                 "rows_written": 0,
             }
 
-        saved["adjusted_ebitda_margin_pct"] = reported_margin
         await repository.run(
             """
             UPDATE bemobi_investor_facts
@@ -1173,21 +1188,28 @@ async def _backfill_existing_result_margin(
         )
         return {
             "status": "ok",
-            "reason": "official_result_margin_backfilled",
+            "reason": (
+                "official_result_margin_backfilled"
+                if changed == ["margin"] else
+                "official_result_cash_backfilled"
+                if changed == ["cash"] else
+                "official_result_financial_fields_backfilled"
+            ),
             "period": parsed["period"],
             "rows_written": 0,
             "rows_updated": 1,
-            "adjusted_ebitda_margin_pct": reported_margin,
+            "fields_updated": changed,
+            "adjusted_ebitda_margin_pct": saved.get("adjusted_ebitda_margin_pct"),
+            "cash_mbrl": saved.get("cash_mbrl"),
         }
     except Exception as exc:
-        # An unavailable/revised source must not corrupt last-good results.
+        # A missing or revised source must not corrupt the last good facts.
         return {
             "status": "skipped",
             "reason": "official_result_margin_backfill_unavailable",
             "error": f"{type(exc).__name__}: {str(exc)[:180]}",
             "rows_written": 0,
         }
-
 
 async def sync_latest_result_release(
     repository,
