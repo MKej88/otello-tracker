@@ -249,6 +249,19 @@ export default function BemobiPageBase() {
 
   const market = data.market;
   const result = data.latest_result;
+  const resultPeriod = result?.period?.trim() || "Periode ukjent";
+  const reportedMargin = result?.adjusted_ebitda_margin_pct;
+  const calculatedMargin = result?.adjusted_net_revenue_mbrl != null
+    && result.adjusted_net_revenue_mbrl > 0
+    && result.adjusted_ebitda_mbrl != null
+    && result.adjusted_ebitda_mbrl >= 0
+    ? result.adjusted_ebitda_mbrl / result.adjusted_net_revenue_mbrl * 100
+    : null;
+  const ebitdaMargin = reportedMargin != null && Number.isFinite(reportedMargin)
+    ? reportedMargin
+    : calculatedMargin;
+  const marginIsCalculated = ebitdaMargin != null
+    && (reportedMargin == null || !Number.isFinite(reportedMargin));
   const valuation = data.valuation;
   const nextReport = data.next_report;
   const quarters = valuation?.source_quarters ?? [];
@@ -330,22 +343,38 @@ export default function BemobiPageBase() {
 
       <section className="bemobiCleanKpiGrid">
         <article className="card cardPrimary bemobiCleanKpi">
-          <span className="label">Omsetning</span>
+          <div className="bemobiCleanKpiHeading">
+            <span className="label">Omsetning</span>
+            <span className="bemobiCleanKpiQuarter numeric">{resultPeriod}</span>
+          </div>
           <strong className="numeric">R$ {value(result?.adjusted_net_revenue_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_net_revenue_yoy_pct)}`}>{signedPct(result?.adjusted_net_revenue_yoy_pct)} år/år</small>
         </article>
         <article className="card cardPrimary bemobiCleanKpi">
-          <span className="label">Justert EBITDA</span>
+          <div className="bemobiCleanKpiHeading">
+            <span className="label">Justert EBITDA</span>
+            <span className="bemobiCleanKpiQuarter numeric">{resultPeriod}</span>
+          </div>
           <strong className="numeric">R$ {value(result?.adjusted_ebitda_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_ebitda_yoy_pct)}`}>{signedPct(result?.adjusted_ebitda_yoy_pct)} år/år</small>
         </article>
         <article className="card cardPrimary bemobiCleanKpi">
-          <span className="label">EBITDA-margin</span>
-          <strong className="numeric">{value(result?.adjusted_ebitda_margin_pct, 1)} %</strong>
-          <small className="numeric">{result?.period ?? "Siste kvartal"}</small>
+          <div className="bemobiCleanKpiHeading">
+            <span className="label">EBITDA-margin</span>
+            <span className="bemobiCleanKpiQuarter numeric">{resultPeriod}</span>
+          </div>
+          <strong className="numeric">{value(ebitdaMargin, 1)} %</strong>
+          <small>{ebitdaMargin == null
+            ? "Ikke tilgjengelig"
+            : marginIsCalculated
+              ? "Beregnet fra EBITDA / omsetning"
+              : "Rapportert margin"}</small>
         </article>
         <article className="card cardPrimary bemobiCleanKpi">
-          <span className="label">Justert resultat</span>
+          <div className="bemobiCleanKpiHeading">
+            <span className="label">Justert resultat</span>
+            <span className="bemobiCleanKpiQuarter numeric">{resultPeriod}</span>
+          </div>
           <strong className="numeric">R$ {value(result?.adjusted_net_income_mbrl, 1)}m</strong>
           <small className={`numeric ${metricTone(result?.adjusted_net_income_yoy_pct)}`}>{signedPct(result?.adjusted_net_income_yoy_pct)} år/år</small>
         </article>
