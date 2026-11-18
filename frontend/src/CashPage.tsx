@@ -4,6 +4,7 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { currentPeriodNetCash, reportedQ3Jcp, verifiedReportedCash } from "./bemobiCashQuality";
 import "./cash-page.css";
 
 type Summary = {
@@ -28,15 +29,26 @@ type BemobiDashboard = {
   };
   valuation?: {
     net_cash_mbrl?: number | null;
+    ev_anchor_period?: string | null;
+    source_quarters?: Array<{ period?: string | null; reported_net_debt_mbrl?: number | null }>;
   };
   latest_result?: {
     period?: string | null;
     period_end?: string | null;
     cash_mbrl?: number | null;
+    cash_quality?: string | null;
+    source_url?: string | null;
     adjusted_net_income_mbrl?: number | null;
     ebitda_less_capex_mbrl?: number | null;
     cash_conversion_pct?: number | null;
   };
+  latest_distribution?: {
+    type?: string | null;
+    announcement_date?: string | null;
+    ex_date?: string | null;
+    gross_total_mbrl?: number | null;
+    source_url?: string | null;
+  } | null;
   distribution_estimate?: {
     ready?: boolean;
     period?: string | null;
@@ -96,7 +108,6 @@ const INTEREST_SENSITIVITY_RATE_PCT = 14.25;
 const JCP_WITHHOLDING_RATE_PCT = 15;
 const JCP_1Q26_ACTUAL_MBRL = 16.0;
 const JCP_2Q26_ACTUAL_MBRL = 16.0;
-const JCP_3Q26_ESTIMATE_MBRL = 16.19;
 const JCP_4Q26_ESTIMATE_MBRL = 16.0;
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -231,7 +242,7 @@ export default function CashPage() {
     const directCashM = cashBridge?.estimated_cash_mnok ?? null;
     const ownershipPct = bemobi?.otello?.ownership_pct ?? null;
     const ownership = ownershipPct == null ? null : ownershipPct / 100;
-    const bemobiCashMbrl = bemobi?.latest_result?.cash_mbrl ?? null;
+    const bemobiCashMbrl = verifiedReportedCash(bemobi?.latest_result);
     const brlNok = bemobi?.market?.brl_nok ?? null;
     const bemobiLookthroughMbrl =
       bemobiCashMbrl == null || ownership == null ? null : bemobiCashMbrl * ownership;
@@ -359,6 +370,7 @@ export default function CashPage() {
     ? metrics.directCashM / metrics.combinedM * 100
     : null;
   const indirectShare = directShare == null ? null : 100 - directShare;
+  const netCash = currentPeriodNetCash(bemobi.latest_result, bemobi.valuation);
   const interestProxyMbrl =
     metrics.bemobiCashMbrl == null
       ? null
@@ -386,8 +398,8 @@ export default function CashPage() {
   const distributionSharePct = distribution?.otello_distribution_share_pct ?? metrics.ownershipPct;
   const distributionBrlNok = distribution?.brl_nok ?? metrics.brlNok;
 
-  const jcpEstimate = (bemobiGrossMbrl: number) => {
-    const grossOtecMbrl = distributionSharePct == null
+  const jcpEstimate = (bemobiGrossMbrl: number | null) => {
+    const grossOtecMbrl = distributionSharePct == null || bemobiGrossMbrl == null
       ? null
       : bemobiGrossMbrl * distributionSharePct / 100;
     const netOtecMbrl = grossOtecMbrl == null
@@ -399,18 +411,19 @@ export default function CashPage() {
     return { netOtecMnok };
   };
 
-  const jcp3Q = jcpEstimate(JCP_3Q26_ESTIMATE_MBRL);
+  const jcp3QGrossMbrl = reportedQ3Jcp(bemobi.latest_distribution);
+  const jcp3Q = jcpEstimate(jcp3QGrossMbrl);
   const jcp4Q = jcpEstimate(JCP_4Q26_ESTIMATE_MBRL);
-  const jcp2H26GrossMbrl = JCP_3Q26_ESTIMATE_MBRL + JCP_4Q26_ESTIMATE_MBRL;
+  const jcp2H26GrossMbrl = jcp3QGrossMbrl == null
+    ? null : jcp3QGrossMbrl + JCP_4Q26_ESTIMATE_MBRL;
   const jcp2H26NetOtecMnok =
     jcp3Q.netOtecMnok == null || jcp4Q.netOtecMnok == null
       ? null
       : jcp3Q.netOtecMnok + jcp4Q.netOtecMnok;
-  const jcpFullYearGrossMbrl =
-    JCP_1Q26_ACTUAL_MBRL +
-    JCP_2Q26_ACTUAL_MBRL +
-    JCP_3Q26_ESTIMATE_MBRL +
-    JCP_4Q26_ESTIMATE_MBRL;
+  const jcpFullYearGrossMbrl = jcp3QGrossMbrl == null
+    ? null
+    : JCP_1Q26_ACTUAL_MBRL + JCP_2Q26_ACTUAL_MBRL
+      + jcp3QGrossMbrl + JCP_4Q26_ESTIMATE_MBRL;
 
   return (
     <div className="investorPage cashPage">
@@ -438,6 +451,14 @@ export default function CashPage() {
       {partialFailed && (
         <ResourceNotice>
           Tilbakekjøpsdata er midlertidig utilgjengelige. Cash- og Bemobi-tall vises fortsatt.
+        </ResourceNotice>
+      )}
+
+      {metrics.bemobiCashMbrl == null && (
+        <ResourceNotice kind="error">
+          Bemobis rapporterte kontantbeholdning for {bemobi.latest_result?.period ?? "siste kvartal"}
+          er ikke kildeverifisert. Indirekte cash, look-through-andel og renteanslag
+          er derfor skjult for å unngå misvisende tall. Otellos direkte kontanter påvirkes ikke.
         </ResourceNotice>
       )}
 
@@ -475,10 +496,12 @@ export default function CashPage() {
             </div>
             <span className="pill">LOOK-THROUGH</span>
           </div>
-          <div className="cashSplitBar" aria-label="Fordeling direkte og indirekte cash">
-            <span className="cashSplitDirect" style={{ width: `${directShare ?? 0}%` }} />
-            <span className="cashSplitIndirect" style={{ width: `${indirectShare ?? 0}%` }} />
-          </div>
+          {metrics.combinedM != null && (
+            <div className="cashSplitBar" aria-label="Fordeling direkte og indirekte cash">
+              <span className="cashSplitDirect" style={{ width: `${directShare ?? 0}%` }} />
+              <span className="cashSplitIndirect" style={{ width: `${indirectShare ?? 0}%` }} />
+            </div>
+          )}
           <div className="cashLegendRows">
             <div>
               <span><i className="cashLegendSwatch direct" />Otello disponerer direkte</span>
@@ -493,6 +516,7 @@ export default function CashPage() {
           </div>
           <p className="cashNote">
             Bemobi-andelen er økonomisk look-through-verdi, ikke kontanter Otello kan disponere før Bemobi faktisk distribuerer kapitalen.
+            Den inngår også i markedsverdien av Bemobi-aksjene og må ikke legges til NAV på nytt.
           </p>
         </article>
 
@@ -556,8 +580,12 @@ export default function CashPage() {
             </div>
             <div>
               <span>Netto cash</span>
-              <strong className="numeric">R$ {formatNumber(bemobi.valuation?.net_cash_mbrl, 1)}m</strong>
-              <small>verdsettelsesanker</small>
+              <strong className="numeric">R$ {formatNumber(netCash.value, 1)}m</strong>
+              <small>{netCash.basis === "reported_quarter"
+                    ? `regnskapstall · ${bemobi.latest_result?.period ?? "ukjent kvartal"}`
+                    : netCash.basis === "current_anchor"
+                      ? `samme kvartal · ${bemobi.latest_result?.period}`
+                      : "ikke verifisert for rapportert kvartal"}</small>
             </div>
             <div>
               <span>EBITDA − capex</span>
@@ -642,7 +670,7 @@ export default function CashPage() {
           <div className="cardHeader">
             <div>
               <span className="label">KVARTALSVIS JCP</span>
-              <h2 className="numeric">Faktisk 1H26 og estimat for 2H26</h2>
+              <h2 className="numeric">Annonsert 1H26 · {jcp3QGrossMbrl == null ? "Q3 avventer" : "annonsert Q3"} · estimert Q4</h2>
             </div>
             <span className="pill numeric">15 % KILDESKATT</span>
           </div>
@@ -659,9 +687,15 @@ export default function CashPage() {
               <small>annonsert</small>
             </div>
             <div>
-              <span className="numeric">3Q26E</span>
-              <strong className="numeric">R$ {formatNumber(JCP_3Q26_ESTIMATE_MBRL, 1)}m</strong>
-              <small>tracker-estimat · middels sikkerhet</small>
+              <span className="numeric">3Q26{jcp3QGrossMbrl == null ? " – datakontroll" : ""}</span>
+              <strong className="numeric">R$ {formatNumber(jcp3QGrossMbrl, 1)}m</strong>
+              <small>{jcp3QGrossMbrl == null
+                ? "avventer registrert selskapsmelding"
+                : "annonsert · offisiell melding"}
+                {jcp3QGrossMbrl != null && bemobi.latest_distribution?.source_url && (
+                  <> · <a href={bemobi.latest_distribution.source_url} target="_blank" rel="noreferrer">kilde</a></>
+                )}
+              </small>
             </div>
             <div>
               <span className="numeric">4Q26E</span>
@@ -672,12 +706,12 @@ export default function CashPage() {
 
           <div className="cashInterestStrip">
             <div>
-              <span className="numeric">Estimert JCP 3Q + 4Q</span>
+              <span className="numeric">JCP 3Q annonsert + 4Q estimert</span>
               <strong className="numeric">R$ {formatNumber(jcp2H26GrossMbrl, 1)}m</strong>
               <small>Bemobi brutto</small>
             </div>
             <div>
-              <span className="numeric">Estimert netto til Otello 3Q + 4Q</span>
+              <span className="numeric">Beregnet netto til Otello 3Q + 4Q</span>
               <strong className="numeric">{moneyM(jcp2H26NetOtecMnok)}</strong>
               <small className="numeric">etter 15 % kildeskatt · dagens BRL/NOK</small>
             </div>
@@ -685,7 +719,7 @@ export default function CashPage() {
 
           <div className="placeholderRows">
             <div>
-              <span className="numeric">3Q26E netto til Otello</span>
+              <span className="numeric">3Q26 annonsert · netto til Otello</span>
               <strong className="numeric">{moneyM(jcp3Q.netOtecMnok)}</strong>
             </div>
             <div>
@@ -693,7 +727,7 @@ export default function CashPage() {
               <strong className="numeric">{moneyM(jcp4Q.netOtecMnok)}</strong>
             </div>
             <div>
-              <span className="numeric">Helårs JCP 2026E</span>
+              <span className="numeric">JCP 2026 · annonsert + 4Q-estimat</span>
               <strong className="numeric">R$ {formatNumber(jcpFullYearGrossMbrl, 1)}m</strong>
             </div>
             <div>
@@ -703,7 +737,10 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            1Q26 og 2Q26 er annonserte JCP-beløp på R$16m per kvartal. 3Q26-estimatet er R$16,19m basert på den tidligere TJLP-modellen (9,14 %, om lag 92 dager og en implisitt JCP-base rundt R$703m). 4Q26 er satt til om lag R$16m med lavere sikkerhet. JCP behandles som timing/form på deler av Bemobis samlede 100 % payout og dobbelttelles derfor ikke mot utbyttemodellen over.
+            1Q26 og 2Q26 er annonserte JCP-beløp. {jcp3QGrossMbrl == null
+              ? "Q3 er offentliggjort, men ikke verifisert i trackerens selskapsmeldingsdata. Verdien utelates fra summer til innhentingen er bekreftet."
+              : "Q3 er hentet fra verifisert selskapsmelding; beløpet inngår som annonsert, ikke som TJLP-estimat."}
+            {" "}Q4 er fortsatt et usikkert scenario på om lag R$16m, ikke en annonsert utdeling. JCP er en mulig utbetalingsform for samme samlede payout og skal ikke legges til utbyttemodellen en gang til.
           </p>
         </article>
 

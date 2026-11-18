@@ -125,13 +125,14 @@ def test_issuer_release_ingests_q3_even_when_cvm_has_no_new_document(monkeypatch
 
 
 class ExistingQ3MarginRepository(IssuerRepository):
-    def __init__(self, *, revenue=245.0, margin=None):
+    def __init__(self, *, revenue=245.0, margin=None, cash=None):
         super().__init__()
         self.saved = json.dumps({
             "period": "3Q26",
             "adjusted_net_revenue_mbrl": revenue,
             "adjusted_ebitda_mbrl": 87.0,
             "adjusted_ebitda_margin_pct": margin,
+            "cash_mbrl": cash,
             "adjusted_net_income_mbrl": 51.0,
         })
 
@@ -196,6 +197,50 @@ def test_existing_q3_margin_is_never_replaced_when_already_reported(monkeypatch)
     ))
     assert result["status"] == "skipped"
     assert result["reason"] == "latest_result_already_ingested"
+    assert repo.writes == []
+
+
+def test_existing_q3_bad_cash_is_repaired_from_same_official_document(monkeypatch):
+    repo = ExistingQ3MarginRepository(margin=35.4, cash=2025.0)
+
+    async def fetch_pdf(url, *, fetcher=None):
+        assert url == RELEASE_URL
+        return b"%PDF-1.4", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT + (
+        " Even so, our cash position remains solid "
+        "(R$319 million at the end of 3Q26)."
+    ))
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-18",
+    ))
+    assert result["reason"] == "official_result_cash_backfilled"
+    assert result["status"] == "ok"
+    assert result["fields_updated"] == ["cash"]
+    writes = [(sql, params) for sql, params in repo.writes
+              if "UPDATE bemobi_investor_facts" in sql]
+    assert len(writes) == 1
+    updated = json.loads(writes[0][1][0])
+    assert updated["cash_mbrl"] == 319.0
+    assert updated["cash_quality"] == "OFFICIAL_REPORTED"
+    assert updated["adjusted_ebitda_mbrl"] == 87.0
+    assert updated["adjusted_ebitda_margin_pct"] == 35.4
+    assert updated["period"] == "3Q26"
+
+
+def test_existing_q3_bad_cash_not_replaced_with_missing_cash(monkeypatch):
+    repo = ExistingQ3MarginRepository(margin=35.4, cash=2025.0)
+
+    async def fetch_pdf(url, *, fetcher=None):
+        return b"%PDF-1.4", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-18",
+    ))
+    assert result["status"] == "skipped"
     assert repo.writes == []
 
 
