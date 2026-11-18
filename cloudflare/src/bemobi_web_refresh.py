@@ -1057,6 +1057,86 @@ async def _official_ir_result_candidates(repository, *, target_date: str) -> lis
     return candidates
 
 
+async def _backfill_existing_result_margin(
+    repository,
+    *,
+    candidate: dict[str, Any],
+    existing: dict[str, Any],
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Repair a missing margin from the *same official document*.
+
+    Preserve previously ingested financial amounts and source provenance. This
+    runs only while the latest stored RESULT is missing its reported margin.
+    """
+    original_payload = existing.get("payload_json")
+    if not isinstance(original_payload, str):
+        return None
+    try:
+        saved = json.loads(original_payload)
+        if not isinstance(saved, dict):
+            return None
+    except (ValueError, TypeError):
+        return None
+    if saved.get("adjusted_ebitda_margin_pct") is not None:
+        return None
+
+    try:
+        raw, _, _ = await _fetch_result_payload(
+            str(candidate["url"]), fetcher=fetcher,
+        )
+        published_date = str(candidate.get("published_at") or "")[:10]
+        parsed = parse_bemobi_result_text(
+            _pdf_text(raw), published_date=published_date,
+        )
+        if parsed["period"] != saved.get("period"):
+            raise ValueError("Kvartalet i kilde og lagrede resultatdata er ulikt")
+        # Reject a revised/incorrect document instead of silently mixing
+        # figures from different releases. 0.5m allows normal rounding.
+        for metric in ("adjusted_net_revenue_mbrl", "adjusted_ebitda_mbrl"):
+            stored = _number(str(saved[metric]))
+            fresh = _number(str(parsed[metric]))
+            if stored <= 0 or abs(stored - fresh) > max(0.5, stored * 0.01):
+                raise ValueError(f"Resultatbeløp stemmer ikke for {metric}")
+        reported_margin = parsed.get("adjusted_ebitda_margin_pct")
+        if reported_margin is None:
+            return {
+                "status": "skipped",
+                "reason": "official_result_margin_not_found",
+                "rows_written": 0,
+            }
+
+        saved["adjusted_ebitda_margin_pct"] = reported_margin
+        await repository.run(
+            """
+            UPDATE bemobi_investor_facts
+            SET payload_json=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id=? AND payload_json=?
+            """,
+            (
+                json.dumps(saved, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                existing["id"],
+                original_payload,
+            ),
+        )
+        return {
+            "status": "ok",
+            "reason": "official_result_margin_backfilled",
+            "period": parsed["period"],
+            "rows_written": 0,
+            "rows_updated": 1,
+            "adjusted_ebitda_margin_pct": reported_margin,
+        }
+    except Exception as exc:
+        # An unavailable/revised source must not corrupt last-good results.
+        return {
+            "status": "skipped",
+            "reason": "official_result_margin_backfill_unavailable",
+            "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+            "rows_written": 0,
+        }
+
+
 async def sync_latest_result_release(
     repository,
     *,
@@ -1098,7 +1178,7 @@ async def sync_latest_result_release(
     errors: list[str] = []
     for candidate in candidates:
         already = await repository.first(
-            "SELECT id FROM bemobi_investor_facts WHERE fact_type='RESULT' AND source_document_id=? LIMIT 1",
+            "SELECT id, payload_json FROM bemobi_investor_facts WHERE fact_type='RESULT' AND source_document_id=? LIMIT 1",
             (candidate["id"],),
         )
         if already is not None:
@@ -1110,6 +1190,11 @@ async def sync_latest_result_release(
                     "older_result_already_ingested": True,
                     "rows_written": 0,
                 }
+            repaired = await _backfill_existing_result_margin(
+                repository, candidate=candidate, existing=already, fetcher=fetcher,
+            )
+            if repaired is not None:
+                return repaired
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
             raw, resolved_url, resolved_from_html = await _fetch_result_payload(
