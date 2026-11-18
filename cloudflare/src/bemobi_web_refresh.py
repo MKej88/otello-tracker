@@ -459,7 +459,21 @@ def parse_bemobi_result_text(text: str, *, published_date: str) -> dict[str, Any
     if not (50 < revenue < 2_000 and 0 < ebitda < revenue and -500 < net_income < 1_000 and 0 <= cash_generation <= ebitda * 1.5):
         raise ValueError("Bemobi-resultatet har nøkkeltall utenfor kontrollgrenser")
 
-    margin = _extract_metric(normalized, (r"Margem EBITDA Ajustad[oa]", r"Adjusted EBITDA Margin"), percent=True)
+    margin = _extract_metric(
+        normalized,
+        (
+            r"Margem(?: de)? EBITDA Ajustad[oa]",
+            r"Adjusted EBITDA Margin",
+            r"EBITDA Margin",
+            # Q3 2026 uses prose such as "... margin expansion to 35.4%".
+            # Anchor the sentence to adjusted EBITDA so the preceding growth
+            # percentage (38%) is not misread as the margin.
+            r"(?:Adjusted EBITDA|EBITDA Ajustad[oa]).{0,180}?\bmargin expansion to",
+        ),
+        percent=True,
+    )
+    if margin is not None and not (0 < margin < 100):
+        margin = None
     cash_conversion = _extract_metric(normalized, (r"Cash Conversion", r"Convers[aã]o de Caixa"), percent=True)
     cash = _extract_metric(normalized, (r"Posi[cç][aã]o de Caixa", r"Caixa e Equivalentes", r"Cash Position"))
     revenue_yoy = _extract_yoy_percentage(normalized, revenue_labels)
