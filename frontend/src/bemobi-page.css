@@ -75,6 +75,21 @@
   min-height: 112px;
 }
 
+.bemobiCleanKpiHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bemobiCleanKpiQuarter {
+  flex-shrink: 0;
+  color: var(--ot-text-muted);
+  font-size: var(--ot-type-meta);
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
 .bemobiCleanKpi > strong {
   display: block;
   margin-top: 12px;

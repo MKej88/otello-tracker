@@ -75,6 +75,24 @@ def test_q3_prose_parser_reads_amounts_not_growth_percentages():
     assert report["adjusted_ebitda_mbrl"] == 86.8
     assert report["adjusted_net_income_mbrl"] == 51.0
     assert report["ebitda_less_capex_mbrl"] == 70.0
+    assert report["adjusted_ebitda_margin_pct"] == 35.4
+
+
+def test_q3_narrative_margin_follows_growth_without_confusing_the_two_percentages():
+    text = Q3_TEXT.replace(
+        "Adjusted EBITDA grew 38% YoY to R$86.8 million.",
+        "Adjusted EBITDA recorded growth of 38% YoY, to R$86.8 million, "
+        "with a 2.0 p.p. margin expansion to 35.4%.",
+    ).replace("Adjusted EBITDA Margin 35.4%", "")
+    result = web.parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["adjusted_ebitda_mbrl"] == 86.8
+    assert result["adjusted_ebitda_margin_pct"] == 35.4
+
+
+def test_q3_without_any_margin_does_not_invent_reported_margin():
+    text = Q3_TEXT.replace("Adjusted EBITDA Margin 35.4%", "")
+    result = web.parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["adjusted_ebitda_margin_pct"] is None
 
 
 def test_issuer_release_ingests_q3_even_when_cvm_has_no_new_document(monkeypatch):
@@ -104,6 +122,81 @@ def test_issuer_release_ingests_q3_even_when_cvm_has_no_new_document(monkeypatch
     assert len(news) == 1
     assert news[0]["category"] == "RESULTS"
     assert news[0]["url"] == RELEASE_URL
+
+
+class ExistingQ3MarginRepository(IssuerRepository):
+    def __init__(self, *, revenue=245.0, margin=None):
+        super().__init__()
+        self.saved = json.dumps({
+            "period": "3Q26",
+            "adjusted_net_revenue_mbrl": revenue,
+            "adjusted_ebitda_mbrl": 87.0,
+            "adjusted_ebitda_margin_pct": margin,
+            "adjusted_net_income_mbrl": 51.0,
+        })
+
+    async def first(self, sql, parameters=()):
+        if "FROM bemobi_investor_facts" in sql and "fact_type='RESULT'" in sql:
+            return {"id": 11, "payload_json": self.saved}
+        return await super().first(sql, parameters)
+
+
+def test_existing_q3_result_repairs_reported_margin_without_overwriting_amounts(monkeypatch):
+    repo = ExistingQ3MarginRepository()
+
+    async def fetch_pdf(url, *, fetcher=None):
+        assert url == RELEASE_URL
+        return b"%PDF-1.4 test", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _raw: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-18",
+    ))
+    assert result["status"] == "ok"
+    assert result["reason"] == "official_result_margin_backfilled"
+    assert result["rows_updated"] == 1
+    updates = [(sql, params) for sql, params in repo.writes
+               if "UPDATE bemobi_investor_facts" in sql]
+    assert len(updates) == 1
+    saved = json.loads(updates[0][1][0])
+    assert saved["period"] == "3Q26"
+    assert saved["adjusted_ebitda_margin_pct"] == 35.4
+    assert saved["adjusted_net_revenue_mbrl"] == 245.0
+    assert saved["adjusted_ebitda_mbrl"] == 87.0
+    assert updates[0][1][1] == 11
+    assert updates[0][1][2] == repo.saved
+
+
+def test_existing_q3_margin_backfill_rejects_mismatched_official_amounts(monkeypatch):
+    repo = ExistingQ3MarginRepository(revenue=200.0)
+
+    async def fetch_pdf(url, *, fetcher=None):
+        return b"%PDF-1.4 test", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _raw: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-18",
+    ))
+    assert result["status"] == "skipped"
+    assert result["reason"] == "official_result_margin_backfill_unavailable"
+    assert repo.writes == []
+
+
+def test_existing_q3_margin_is_never_replaced_when_already_reported(monkeypatch):
+    repo = ExistingQ3MarginRepository(margin=35.4)
+
+    async def should_not_refetch(*args, **kwargs):
+        raise AssertionError("Do not refetch known reported margin")
+
+    monkeypatch.setattr(web, "_fetch_result_payload", should_not_refetch)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-18",
+    ))
+    assert result["status"] == "skipped"
+    assert result["reason"] == "latest_result_already_ingested"
+    assert repo.writes == []
 
 
 def test_snapshot_rejects_unverified_or_future_issuer_release():
