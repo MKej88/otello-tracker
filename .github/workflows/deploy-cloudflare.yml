@@ -231,6 +231,37 @@ jobs:
         working-directory: cloudflare
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc
 
+      - name: Verify Bemobi 3Q26 cash in remote D1 after migration
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --config wrangler.production.jsonc \
+            --command "SELECT fact_key, json_extract(payload_json, '$.period') AS period, json_extract(payload_json, '$.cash_mbrl') AS cash_mbrl FROM bemobi_investor_facts WHERE fact_type='RESULT' AND fact_key='3Q26' LIMIT 1" \
+            --json > /tmp/bemobi-3q26-cash-readback.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = json.loads(Path('/tmp/bemobi-3q26-cash-readback.json').read_text())
+          items = raw if isinstance(raw, list) else [raw]
+          rows = [
+              item for batch in items if isinstance(batch, dict)
+              for item in batch.get('results', [])
+          ]
+          if len(rows) != 1 or rows[0].get('period') != '3Q26':
+              raise SystemExit('No unambiguous 3Q26 RESULT fact found in remote D1.')
+          try:
+              cash = float(rows[0]['cash_mbrl'])
+          except (KeyError, TypeError, ValueError):
+              raise SystemExit('3Q26 cash is missing or not numeric after migrations.')
+          if not 318.0 <= cash <= 320.0:
+              raise SystemExit(
+                  f'3Q26 cash still invalid after migrations: R$ {cash}m, expected ~R$319m.'
+              )
+          print(f'Remote D1 readback confirmed Bemobi 3Q26 cash: R$ {cash:.1f}m.')
+          PY
+
       - name: Deploy Python Worker and Workflows
         id: deploy
         working-directory: cloudflare
