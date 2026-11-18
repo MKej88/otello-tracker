@@ -75,6 +75,24 @@ def test_q3_prose_parser_reads_amounts_not_growth_percentages():
     assert report["adjusted_ebitda_mbrl"] == 86.8
     assert report["adjusted_net_income_mbrl"] == 51.0
     assert report["ebitda_less_capex_mbrl"] == 70.0
+    assert report["adjusted_ebitda_margin_pct"] == 35.4
+
+
+def test_q3_narrative_margin_follows_growth_without_confusing_the_two_percentages():
+    text = Q3_TEXT.replace(
+        "Adjusted EBITDA grew 38% YoY to R$86.8 million.",
+        "Adjusted EBITDA recorded growth of 38% YoY, to R$86.8 million, "
+        "with a 2.0 p.p. margin expansion to 35.4%.",
+    ).replace("Adjusted EBITDA Margin 35.4%", "")
+    result = web.parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["adjusted_ebitda_mbrl"] == 86.8
+    assert result["adjusted_ebitda_margin_pct"] == 35.4
+
+
+def test_q3_without_any_margin_does_not_invent_reported_margin():
+    text = Q3_TEXT.replace("Adjusted EBITDA Margin 35.4%", "")
+    result = web.parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["adjusted_ebitda_margin_pct"] is None
 
 
 def test_issuer_release_ingests_q3_even_when_cvm_has_no_new_document(monkeypatch):
