@@ -257,6 +257,57 @@ def test_result_parser_extracts_required_official_quarter_metrics() -> None:
     assert result["cash_mbrl"] == 328.0
 
 
+def test_q3_cash_reads_reported_319_not_2025_year() -> None:
+    # Real 3Q26 release: FY2025 is mentioned immediately before reported cash.
+    text = """
+    BEMOBI MOBILE TECH S.A. Earnings Release 3Q26
+    Net Revenue grew 31% YoY to R$245.3 million.
+    Adjusted EBITDA grew 38% YoY to R$86.8 million.
+    Adjusted Net Income grew 20% YoY to R$51.0 million.
+    Adjusted EBITDA - Capex reached R$69.9 million.
+    Adjusted net income expanded in 2025. Even so, our cash position
+    remains solid (R$319 million at the end of 3Q26).
+    """
+    result = parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["period"] == "3Q26"
+    assert result["cash_mbrl"] == 319.0
+    assert result["cash_quality"] == "OFFICIAL_REPORTED"
+
+
+def test_q3_ending_cash_narrative_and_bad_year_fails_closed() -> None:
+    base = """
+    BEMOBI MOBILE TECH S.A. Earnings Release 3Q26
+    Net Revenue R$245.3 million
+    Adjusted EBITDA R$86.8 million
+    Adjusted Net Income R$51.0 million
+    Adjusted EBITDA - Capex R$69.9 million
+    """
+    valid = parse_bemobi_result_text(
+        base + "Ending cash position totaled R$319 million, slightly below June.",
+        published_date="2026-11-12",
+    )
+    assert valid["cash_mbrl"] == 319.0
+    bad = parse_bemobi_result_text(
+        base + "Cash Position 2025. Financial investments 319.",
+        published_date="2026-11-12",
+    )
+    assert bad["cash_mbrl"] is None
+    assert bad["cash_quality"] == "UNVERIFIED"
+
+
+def test_q3_previous_quarter_cash_not_accepted_as_current() -> None:
+    text = """
+    BEMOBI MOBILE TECH S.A. Earnings Release 3Q26
+    Net Revenue R$245.3 million
+    Adjusted EBITDA R$86.8 million
+    Adjusted Net Income R$51.0 million
+    Adjusted EBITDA - Capex R$69.9 million
+    Cash position was R$328 million at the end of 2Q26.
+    """
+    result = parse_bemobi_result_text(text, published_date="2026-11-12")
+    assert result["cash_mbrl"] is None
+
+
 def test_result_parser_refuses_document_without_bemobi_signature() -> None:
     try:
         parse_bemobi_result_text(
