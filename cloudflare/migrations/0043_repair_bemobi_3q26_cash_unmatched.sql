@@ -21,13 +21,8 @@ SET payload_json = json_set(
     ),
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE fact_type = 'RESULT'
-  AND (
-    fact_key = '3Q26'
-    OR (
-      as_of_date = '2026-09-30'
-      AND json_extract(payload_json, '$.period') = '3Q26'
-    )
-  )
+  -- The report's own period is authoritative for this one-off correction.
+  -- Neither fact_key nor as_of_date is guaranteed to be populated consistently.
   AND json_extract(payload_json, '$.period') = '3Q26'
   AND (
     json_extract(payload_json, '$.cash_mbrl') IS NULL
