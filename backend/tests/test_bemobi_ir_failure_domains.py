@@ -135,6 +135,7 @@ def test_runtime_reports_analyst_failure_without_degrading_bemobi_source(monkeyp
     monkeypatch.setattr(runtime, "sync_latest_result_release", no_xp)
     monkeypatch.setattr(runtime, "sync_xp_preview", no_xp)
     monkeypatch.setattr(runtime, "sync_q3_previews", no_xp)
+    monkeypatch.setattr(runtime, "refresh_official_distributions", no_distribution_cash)
     monkeypatch.setattr(runtime, "sync_confirmed_bemobi_distribution_cash", no_distribution_cash)
     monkeypatch.setattr(runtime, "refresh_agenda", ok_agenda)
     monkeypatch.setattr(runtime, "_secondary_refresh_slot", lambda _day: "xp_preview")

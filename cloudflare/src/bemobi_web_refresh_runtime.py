@@ -12,6 +12,7 @@ from datetime import date
 from typing import Any, Awaitable, Callable
 
 from bemobi_cvm_post_result import refresh_cvm_financials_after_new_result
+from bemobi_distribution_ingestion import refresh_official_distributions
 from bemobi_distribution_sync import sync_confirmed_bemobi_distribution_cash
 from bemobi_ir_refresh import sync_bemobi_ir
 from bemobi_agenda import refresh_agenda
@@ -207,6 +208,20 @@ async def refresh_bemobi_web(
             "rows_written": 0,
         }
 
+    # The nightly official IR feed was refreshed by the caller. Convert fully
+    # validated shareholder notices into actions before cash and NAV updates.
+    try:
+        distribution_ingestion = await refresh_official_distributions(
+            repository, target_date=target_date, fetcher=fetcher,
+        )
+    except Exception as exc:
+        distribution_ingestion = {
+            "status": "error",
+            "reason": "official_distribution_ingestion_failed",
+            "error": str(exc)[:500],
+            "rows_written": 0,
+        }
+
     try:
         distribution_cash = await sync_confirmed_bemobi_distribution_cash(
             repository,
@@ -357,7 +372,10 @@ async def refresh_bemobi_web(
             item for item in secondary_warnings
             if item["source"] != "result_release"
         ]
-    distribution_degraded = distribution_cash.get("status") not in {"ok", "skipped"}
+    distribution_degraded = (
+        distribution_cash.get("status") not in {"ok", "skipped"}
+        or distribution_ingestion.get("status") not in {"ok", "skipped"}
+    )
     non_blocking_degraded = (
         ir_failed and not result_release_degraded and not distribution_degraded
     )
@@ -365,6 +383,7 @@ async def refresh_bemobi_web(
         sum(int(item.get("rows_written") or 0) for item in (ir, result, xp, btg))
         + event_rows
         + int(post_result_cvm.get("rows_written") or 0)
+        + int(distribution_ingestion.get("rows_written") or 0)
         + int(distribution_cash.get("rows_written") or 0)
         + int(distribution_cash.get("rows_updated") or 0)
         + int(agenda.get("rows_written") or 0)
@@ -376,6 +395,7 @@ async def refresh_bemobi_web(
         "rows_written": rows_written,
         "ir": ir,
         "agenda": agenda,
+        "distribution_ingestion": distribution_ingestion,
         "distribution_cash": distribution_cash,
         "result_release": result,
         "post_result_cvm_financials": post_result_cvm,
