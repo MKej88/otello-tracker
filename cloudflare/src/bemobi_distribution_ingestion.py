@@ -139,15 +139,7 @@ def parse_official_distribution(text: str, *, published_date: str) -> dict[str, 
         net_total = _money(
             body, r"valor liquido de r\$\s*" + _BRL, "net_total",
         )
-        net_share = _money(
-            body,
-            r"valor liquido de r\$\s*" + _BRL
-            + r".{0,230}?\bcorrespondente a r\$\s*" + _BRL
-            + r"\s+por acao",
-            "net_per_share",
-        )
-        # The second capture is the per-share amount; the first is net total.
-        # _money always extracts group one, so locate this one explicitly.
+        # Two amounts occur in this phrase: net total followed by net/share.
         net_match = re.search(
             r"valor liquido de r\$\s*" + _BRL
             + r".{0,230}?\bcorrespondente a r\$\s*" + _BRL + r"\s+por acao",
@@ -321,7 +313,7 @@ async def refresh_official_distributions(
                     net_amount_per_share, gross_total_amount, net_total_amount,
                     withholding_rate, tax_treatment
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BRL', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(external_action_id) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """,
                 (issuer_id, parsed["action_type"],
                  parsed["announcement_date"], parsed["ex_date"],
