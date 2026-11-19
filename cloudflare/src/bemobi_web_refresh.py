@@ -28,6 +28,38 @@ MARKETSCREENER_FINANCES_URL = (
 )
 XP_BMOB3_REPORTS_URL = "https://conteudos.xpi.com.br/acoes/bmob3/relatorios/"
 
+# CVM RAD/ENET is an independent official source for Bemobi's earnings release.
+# This 3Q26 filing is linked from BMOB3's public CVM disclosures (12 Nov 2026).
+# Never substitute this document for another quarter, presentations or notices.
+CVM_3Q26_RELEASE_URL = (
+    "https://www.rad.cvm.gov.br/ENETCONSULTA/frmDownloadDocumento.aspx"
+    "?CodigoInstituicao=1&Tela=99&descTipo=IPE"
+    "&numProtocolo=1588745&numSequencia=1113451&numVersao=1"
+)
+
+
+def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
+    """Only the source-verified 3Q26 issuer release can use this CVM filing."""
+    if candidate.get("source_code") != "BEMOBI_IR":
+        return None
+    original_url = str(candidate.get("url") or "")
+    parsed = urlparse(original_url)
+    if parsed.scheme != "https" or parsed.hostname not in {
+        "api.mziq.com", "filemanager-cdn.mziq.com"
+    } or BEMOBI_IR_COMPANY_ID not in parsed.path:
+        return None
+    title = str(candidate.get("title") or "")
+    date_value = str(candidate.get("published_at") or "")[:10]
+    if (
+        not re.search(r"(?:release|relatorio de resultados|earnings)", title, re.IGNORECASE)
+        or not re.search(r"\b(?:3Q26|3T26)\b", title, re.IGNORECASE)
+        or date_value != "2026-11-12"
+    ):
+        return None
+    return CVM_3Q26_RELEASE_URL
+
+
+
 MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_RESULT_BYTES = 12 * 1024 * 1024
 MAX_RESULT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
@@ -1325,13 +1357,29 @@ async def sync_latest_result_release(
                 return repaired
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
-            raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                str(candidate["url"]),
-                fetcher=fetcher,
-            )
-            text = _pdf_text(raw)
             published_date = str(candidate.get("published_at") or target_date)[:10]
+            try:
+                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                    str(candidate["url"]), fetcher=fetcher,
+                )
+            except RuntimeError as exc:
+                # If both official MZiQ routes fail with TLS 526, try the
+                # independently filed CVM copy of this exact Q3 report.
+                fallback_url = _official_cvm_q3_release_fallback(candidate)
+                if fallback_url is None or "526" not in str(exc):
+                    raise
+                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                    fallback_url, fetcher=fetcher,
+                )
+            text = _pdf_text(raw)
             result = parse_bemobi_result_text(text, published_date=published_date)
+            # An alternate transport must never silently substitute another
+            # period (particularly previous-year comparative/slide decks).
+            expected_3q26 = resolved_url == CVM_3Q26_RELEASE_URL
+            if expected_3q26 and result["period"] != "3Q26":
+                raise ValueError(
+                    f"Offisiell CVM-reserve inneholdt {result['period']}, forventet 3Q26"
+                )
         except Exception as exc:
             errors.append(f"{candidate.get('title')}: {exc}")
             continue
@@ -1352,13 +1400,16 @@ async def sync_latest_result_release(
                 kind="bemobi-result-release", logical_date=published_date,
                 filename=f"bemobi-{period.lower()}-{digest[:12]}.{extension}",
             )
-        if not resolved_from_html:
+        if not resolved_from_html and resolved_url == str(candidate["url"]):
             await repository.run(
                 "UPDATE source_documents SET content_sha256=COALESCE(content_sha256, ?) WHERE id=?",
                 (digest, candidate["id"]),
             )
         source_url = resolved_url
-        source_name = str(candidate.get("source_code") or "CVM")
+        source_name = (
+            "CVM" if urlparse(resolved_url).hostname == "www.rad.cvm.gov.br"
+            else str(candidate.get("source_code") or "CVM")
+        )
         await _upsert_fact(
             repository, fact_type="RESULT", fact_key=period, as_of_date=result["period_end"],
             published_date=published_date, payload=result, source_name=source_name,
