@@ -37,18 +37,6 @@ for attempt in $(seq 1 "$max_attempts"); do
     exit 0
   fi
 
-  # GHSA-fc5q-39xc-vjpf has no published patch as of 2026-11-18.
-  # Accept only this one audited dev-only transitive vulnerability, with an
-  # explicit expiry. Other high/critical findings still fail the job.
-  report="$(timeout --signal=TERM "${attempt_timeout_seconds}s" npm audit --json --audit-level=high 2>/dev/null)"
-  report_status=$?
-  if [ "$report_status" -eq 1 ] &&
-     printf '%s' "$report" | node tools/check-picomatch-exception.mjs &&
-     timeout --signal=TERM "${attempt_timeout_seconds}s" npm audit --omit=dev --audit-level=high; then
-    echo "::warning::Midlertidig dev-only unntak for ikke-patchet GHSA-fc5q-39xc-vjpf (picomatch). Utløper 16.12.2026."
-    exit 0
-  fi
-
   echo "::error::npm audit rapporterte en reell dependency-feil/sårbarhet eller en ikke-transient feil."
   exit "$status"
 done
