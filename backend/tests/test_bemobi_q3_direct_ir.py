@@ -78,6 +78,79 @@ def test_q3_prose_parser_reads_amounts_not_growth_percentages():
     assert report["adjusted_ebitda_margin_pct"] == 35.4
 
 
+def test_q3_http526_falls_back_to_official_cvm_pdf(monkeypatch):
+    repo = IssuerRepository()
+    requests = []
+
+    async def fetch_pdf(url, *, fetcher=None):
+        requests.append(url)
+        if url == RELEASE_URL:
+            raise RuntimeError("Bemobi IR HTTP 526; official MZiQ alternative unavailable")
+        assert url == web.CVM_3Q26_RELEASE_URL
+        return b"%PDF-1.4 official CVM", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT)
+
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-13",
+    ))
+    assert result["status"] == "ok"
+    assert result["period"] == "3Q26"
+    assert result["resolved_url"] == web.CVM_3Q26_RELEASE_URL
+    assert requests == [RELEASE_URL, web.CVM_3Q26_RELEASE_URL]
+    assert repo.documents[-1]["source_code"] == "CVM"
+    assert repo.documents[-1]["metadata"]["resolution"] == "OFFICIAL_CVM_3Q26_FALLBACK"
+    fact_writes = [
+        params for sql, params in repo.writes
+        if "INSERT INTO bemobi_investor_facts" in sql and params[0] == "RESULT"
+    ]
+    assert fact_writes
+    assert "CVM" in [str(value) for value in fact_writes[0]]
+    assert web.CVM_3Q26_RELEASE_URL in [
+        str(value) for value in fact_writes[0]
+    ]
+
+
+def test_wrong_quarter_in_official_cvm_fallback_is_rejected(monkeypatch):
+    repo = IssuerRepository()
+
+    async def fetch_pdf(url, *, fetcher=None):
+        if url == RELEASE_URL:
+            raise RuntimeError("Bemobi IR HTTP 526")
+        assert url == web.CVM_3Q26_RELEASE_URL
+        return b"%PDF-1.4 official CVM", url, False
+
+    monkeypatch.setattr(web, "_fetch_result_payload", fetch_pdf)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT.replace("3Q26", "2Q26"))
+
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-13",
+    ))
+    assert result["status"] == "not_available"
+    assert result["rows_written"] == 0
+    assert any("forventet 3Q26" in str(error) for error in result["errors"])
+    assert repo.writes == []
+
+
+def test_cvm_fallback_is_disabled_for_unmatched_title_date_and_nonofficial_url():
+    candidate = {
+        "source_code": "BEMOBI_IR",
+        "url": RELEASE_URL,
+        "title": "Release 3T26 / 3Q26",
+        "published_at": "2026-11-12T00:00:00Z",
+    }
+    assert web._official_cvm_q3_release_fallback(candidate) == web.CVM_3Q26_RELEASE_URL
+    for invalid in (
+        {**candidate, "title": "Earnings Presentation 3Q26"},
+        {**candidate, "title": "Release 2T26 / 2Q26"},
+        {**candidate, "published_at": "2026-11-11T00:00:00Z"},
+        {**candidate, "source_code": "UNVERIFIED"},
+        {**candidate, "url": "https://evil.example/release.pdf"},
+    ):
+        assert web._official_cvm_q3_release_fallback(invalid) is None
+
+
 def test_q3_narrative_margin_follows_growth_without_confusing_the_two_percentages():
     text = Q3_TEXT.replace(
         "Adjusted EBITDA grew 38% YoY to R$86.8 million.",
