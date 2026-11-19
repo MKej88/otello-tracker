@@ -51,7 +51,11 @@ def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
     title = str(candidate.get("title") or "")
     date_value = str(candidate.get("published_at") or "")[:10]
     if (
-        not re.search(r"(?:release|relatorio de resultados|earnings)", title, re.IGNORECASE)
+        not re.search(
+            r"\b(?:earnings release|release(?: de resultados)?|relatorio de resultados)\b",
+            title, re.IGNORECASE,
+        )
+        or re.search(r"\b(?:presentation|apresentacao|slides)\b", title, re.IGNORECASE)
         or not re.search(r"\b(?:3Q26|3T26)\b", title, re.IGNORECASE)
         or date_value != "2026-11-12"
     ):
