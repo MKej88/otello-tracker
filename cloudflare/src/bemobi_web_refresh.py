@@ -28,6 +28,42 @@ MARKETSCREENER_FINANCES_URL = (
 )
 XP_BMOB3_REPORTS_URL = "https://conteudos.xpi.com.br/acoes/bmob3/relatorios/"
 
+# CVM RAD/ENET is an independent official source for Bemobi's earnings release.
+# This 3Q26 filing is linked from BMOB3's public CVM disclosures (12 Nov 2026).
+# Never substitute this document for another quarter, presentations or notices.
+CVM_3Q26_RELEASE_URL = (
+    "https://www.rad.cvm.gov.br/ENETCONSULTA/frmDownloadDocumento.aspx"
+    "?CodigoInstituicao=1&Tela=99&descTipo=IPE"
+    "&numProtocolo=1588745&numSequencia=1113451&numVersao=1"
+)
+
+
+def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
+    """Only the source-verified 3Q26 issuer release can use this CVM filing."""
+    if candidate.get("source_code") != "BEMOBI_IR":
+        return None
+    original_url = str(candidate.get("url") or "")
+    parsed = urlparse(original_url)
+    if parsed.scheme != "https" or parsed.hostname not in {
+        "api.mziq.com", "filemanager-cdn.mziq.com"
+    } or BEMOBI_IR_COMPANY_ID not in parsed.path:
+        return None
+    title = str(candidate.get("title") or "")
+    date_value = str(candidate.get("published_at") or "")[:10]
+    if (
+        not re.search(
+            r"\b(?:earnings release|release(?: de resultados)?|relatorio de resultados)\b",
+            title, re.IGNORECASE,
+        )
+        or re.search(r"\b(?:presentation|apresentacao|slides)\b", title, re.IGNORECASE)
+        or not re.search(r"\b(?:3Q26|3T26)\b", title, re.IGNORECASE)
+        or date_value != "2026-11-12"
+    ):
+        return None
+    return CVM_3Q26_RELEASE_URL
+
+
+
 MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_RESULT_BYTES = 12 * 1024 * 1024
 MAX_RESULT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
@@ -645,6 +681,39 @@ def _result_link_candidate(url: str, label: str) -> bool:
     return parsed.path.lower().endswith(".pdf") or "pdf" in haystack or "download" in haystack
 
 
+def _official_mziq_document_fallbacks(url: str) -> list[str]:
+    """Alternative HTTPS routes to the *same* document in Bemobi's MZiQ.
+
+    The file UUID, not the discovery/meta UUID, identifies the bytes. Never
+    invent an alternate document or follow untrusted cross-domain redirects.
+    This is transport failover only; source and PDF checks still apply.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return []
+    company = re.escape(BEMOBI_IR_COMPANY_ID)
+    file_id = r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    if parsed.hostname == "filemanager-cdn.mziq.com":
+        match = re.fullmatch(rf"/published/{company}/{file_id}", parsed.path, re.IGNORECASE)
+        if match:
+            return [
+                f"https://api.mziq.com/mzfilemanager/v2/d/"
+                f"{BEMOBI_IR_COMPANY_ID}/{match.group(1)}?origin=2"
+            ]
+    elif parsed.hostname == "api.mziq.com":
+        match = re.fullmatch(
+            rf"/mzfilemanager/v2/d/{company}/{file_id}",
+            parsed.path,
+            re.IGNORECASE,
+        )
+        if match:
+            return [
+                f"https://filemanager-cdn.mziq.com/published/"
+                f"{BEMOBI_IR_COMPANY_ID}/{match.group(1)}"
+            ]
+    return []
+
+
 async def _fetch_result_payload(
     url: str,
     *,
@@ -653,13 +722,34 @@ async def _fetch_result_payload(
     """Fetch a result PDF/ZIP, allowing exactly one controlled HTML -> document hop."""
     if not _result_url_allowed(url):
         raise ValueError("Resultat-URL er utenfor tillatte Bemobi/CVM-domener")
-    raw = await _fetch_bytes(
-        url,
-        label="Bemobi result release",
-        max_bytes=MAX_RESULT_BYTES,
-        fetcher=fetcher,
-        accept="application/pdf,application/zip,application/octet-stream,text/html,*/*;q=0.8",
-    )
+    accept = "application/pdf,application/zip,application/octet-stream,text/html,*/*;q=0.8"
+    try:
+        raw = await _fetch_bytes(
+            url, label="Bemobi result release",
+            max_bytes=MAX_RESULT_BYTES, fetcher=fetcher, accept=accept,
+        )
+    except RuntimeError as exc:
+        if "HTTP 526" not in str(exc):
+            raise
+        errors = [f"{url}: {exc}"]
+        for alternative in _official_mziq_document_fallbacks(url):
+            if not _result_url_allowed(alternative):
+                continue
+            try:
+                raw = await _fetch_bytes(
+                    alternative, label="Bemobi result release official MZiQ fallback",
+                    max_bytes=MAX_RESULT_BYTES, fetcher=fetcher, accept=accept,
+                )
+            except Exception as alternative_exc:
+                errors.append(f"{alternative}: {alternative_exc}")
+                continue
+            if _looks_like_pdf_or_zip(raw):
+                return raw, alternative, False
+            errors.append(f"{alternative}: unverified PDF/ZIP bytes")
+        raise RuntimeError(
+            "Bemobi IR HTTP 526; official document fallback unavailable: "
+            + "; ".join(errors[:3])
+        ) from exc
     if _looks_like_pdf_or_zip(raw):
         return raw, url, False
 
@@ -1019,8 +1109,13 @@ async def _store_resolved_result_document(
     if resolved_url == str(candidate["url"]):
         return None
     digest = hashlib.sha256(payload).hexdigest()
+    host = urlparse(resolved_url).hostname
+    is_cvm_fallback = host == "www.rad.cvm.gov.br"
     return await repository.create_source_document(
-        source_code=str(candidate.get("source_code") or "CVM"),
+        source_code=(
+            "CVM" if is_cvm_fallback
+            else str(candidate.get("source_code") or "CVM")
+        ),
         external_id=f"result-resolved:{candidate['id']}:{digest[:20]}",
         document_type="RESULT_RELEASE_PDF",
         title=f"{candidate.get('title') or 'Bemobi result'} – resolved document",
@@ -1030,7 +1125,12 @@ async def _store_resolved_result_document(
         metadata={
             "workflow": "cloudflare_full_refresh",
             "parent_source_document_id": int(candidate["id"]),
-            "resolution": "ONE_HOP_HTML_TO_PDF",
+            "resolution": (
+                "OFFICIAL_CVM_3Q26_FALLBACK" if is_cvm_fallback
+                else "OFFICIAL_MZIQ_SAME_FILE" if host in {
+                    "api.mziq.com", "filemanager-cdn.mziq.com"
+                } else "ONE_HOP_HTML_TO_PDF"
+            ),
         },
     )
 
@@ -1271,13 +1371,29 @@ async def sync_latest_result_release(
                 return repaired
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
-            raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                str(candidate["url"]),
-                fetcher=fetcher,
-            )
-            text = _pdf_text(raw)
             published_date = str(candidate.get("published_at") or target_date)[:10]
+            try:
+                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                    str(candidate["url"]), fetcher=fetcher,
+                )
+            except RuntimeError as exc:
+                # If both official MZiQ routes fail with TLS 526, try the
+                # independently filed CVM copy of this exact Q3 report.
+                fallback_url = _official_cvm_q3_release_fallback(candidate)
+                if fallback_url is None or "526" not in str(exc):
+                    raise
+                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                    fallback_url, fetcher=fetcher,
+                )
+            text = _pdf_text(raw)
             result = parse_bemobi_result_text(text, published_date=published_date)
+            # An alternate transport must never silently substitute another
+            # period (particularly previous-year comparative/slide decks).
+            expected_3q26 = resolved_url == CVM_3Q26_RELEASE_URL
+            if expected_3q26 and result["period"] != "3Q26":
+                raise ValueError(
+                    f"Offisiell CVM-reserve inneholdt {result['period']}, forventet 3Q26"
+                )
         except Exception as exc:
             errors.append(f"{candidate.get('title')}: {exc}")
             continue
@@ -1298,13 +1414,16 @@ async def sync_latest_result_release(
                 kind="bemobi-result-release", logical_date=published_date,
                 filename=f"bemobi-{period.lower()}-{digest[:12]}.{extension}",
             )
-        if not resolved_from_html:
+        if not resolved_from_html and resolved_url == str(candidate["url"]):
             await repository.run(
                 "UPDATE source_documents SET content_sha256=COALESCE(content_sha256, ?) WHERE id=?",
                 (digest, candidate["id"]),
             )
         source_url = resolved_url
-        source_name = str(candidate.get("source_code") or "CVM")
+        source_name = (
+            "CVM" if urlparse(resolved_url).hostname == "www.rad.cvm.gov.br"
+            else str(candidate.get("source_code") or "CVM")
+        )
         await _upsert_fact(
             repository, fact_type="RESULT", fact_key=period, as_of_date=result["period_end"],
             published_date=published_date, payload=result, source_name=source_name,
