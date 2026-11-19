@@ -369,6 +369,100 @@ def test_result_fetch_rejects_unapproved_host_before_network_call() -> None:
     assert calls == 0
 
 
+def test_mziq_cdn_http526_uses_same_document_on_official_api():
+    company = web_refresh.BEMOBI_IR_COMPANY_ID
+    file_uuid = "4761cf80-96fc-b59c-9720-17addd9e1dc9"
+    cdn = f"https://filemanager-cdn.mziq.com/published/{company}/{file_uuid}"
+    api = f"https://api.mziq.com/mzfilemanager/v2/d/{company}/{file_uuid}?origin=2"
+    calls = []
+
+    async def fetcher(url, **kwargs):
+        calls.append(url)
+        if url == cdn:
+            response = _Response(b"")
+            response.status = 526
+            response.ok = False
+            return response
+        assert url == api
+        return _Response(b"%PDF-1.4 official Bemobi test")
+
+    data, resolved, followed = asyncio.run(
+        _fetch_result_payload(cdn, fetcher=fetcher),
+    )
+    assert data.startswith(b"%PDF")
+    assert resolved == api
+    assert followed is False
+    assert calls == [cdn, api]
+
+
+def test_mziq_api_http526_can_fail_over_to_official_cdn():
+    company = web_refresh.BEMOBI_IR_COMPANY_ID
+    doc = "4761cf80-96fc-b59c-9720-17addd9e1dc9"
+    api = f"https://api.mziq.com/mzfilemanager/v2/d/{company}/{doc}?origin=2"
+    cdn = f"https://filemanager-cdn.mziq.com/published/{company}/{doc}"
+    requests = []
+
+    async def fetcher(url, **kwargs):
+        requests.append(url)
+        response = _Response(b"%PDF-1.4 checked" if url == cdn else b"")
+        if url == api:
+            response.status = 526
+            response.ok = False
+        return response
+
+    _, resolved, _ = asyncio.run(_fetch_result_payload(api, fetcher=fetcher))
+    assert resolved == cdn
+    assert requests == [api, cdn]
+
+
+def test_http526_never_guesses_official_url_from_non_uuid_or_other_company():
+    official_company = web_refresh.BEMOBI_IR_COMPANY_ID
+    urls = [
+        f"https://filemanager-cdn.mziq.com/published/{official_company}/not-a-uuid",
+        "https://filemanager-cdn.mziq.com/published/another-company/4761cf80-96fc-b59c-9720-17addd9e1dc9",
+        "https://api.mziq.com/mzfilemanager/v2/d/invalid/4761cf80-96fc-b59c-9720-17addd9e1dc9",
+    ]
+
+    for url in urls:
+        calls = []
+
+        async def fetcher(address, **kwargs):
+            calls.append(address)
+            r = _Response(b"")
+            r.status = 526
+            r.ok = False
+            return r
+
+        try:
+            asyncio.run(_fetch_result_payload(url, fetcher=fetcher))
+        except RuntimeError as exc:
+            assert "526" in str(exc)
+        else:
+            raise AssertionError("526 without verified MZiQ file UUID must fail closed")
+        assert calls == [url]
+
+
+def test_http500_does_not_trigger_mziq_fallback():
+    company = web_refresh.BEMOBI_IR_COMPANY_ID
+    cdn = f"https://filemanager-cdn.mziq.com/published/{company}/4761cf80-96fc-b59c-9720-17addd9e1dc9"
+    calls = []
+
+    async def fetcher(url, **kwargs):
+        calls.append(url)
+        r = _Response(b"")
+        r.status = 500
+        r.ok = False
+        return r
+
+    try:
+        asyncio.run(_fetch_result_payload(cdn, fetcher=fetcher))
+    except RuntimeError as exc:
+        assert "HTTP 500" in str(exc)
+    else:
+        raise AssertionError("Non-TLS failures should preserve prior handling")
+    assert calls == [cdn]
+
+
 def test_result_zip_rejects_large_uncompressed_pdf(monkeypatch) -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
