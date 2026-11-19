@@ -645,6 +645,39 @@ def _result_link_candidate(url: str, label: str) -> bool:
     return parsed.path.lower().endswith(".pdf") or "pdf" in haystack or "download" in haystack
 
 
+def _official_mziq_document_fallbacks(url: str) -> list[str]:
+    """Alternative HTTPS routes to the *same* document in Bemobi's MZiQ.
+
+    The file UUID, not the discovery/meta UUID, identifies the bytes. Never
+    invent an alternate document or follow untrusted cross-domain redirects.
+    This is transport failover only; source and PDF checks still apply.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return []
+    company = re.escape(BEMOBI_IR_COMPANY_ID)
+    file_id = r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    if parsed.hostname == "filemanager-cdn.mziq.com":
+        match = re.fullmatch(rf"/published/{company}/{file_id}", parsed.path, re.IGNORECASE)
+        if match:
+            return [
+                f"https://api.mziq.com/mzfilemanager/v2/d/"
+                f"{BEMOBI_IR_COMPANY_ID}/{match.group(1)}?origin=2"
+            ]
+    elif parsed.hostname == "api.mziq.com":
+        match = re.fullmatch(
+            rf"/mzfilemanager/v2/d/{company}/{file_id}",
+            parsed.path,
+            re.IGNORECASE,
+        )
+        if match:
+            return [
+                f"https://filemanager-cdn.mziq.com/published/"
+                f"{BEMOBI_IR_COMPANY_ID}/{match.group(1)}"
+            ]
+    return []
+
+
 async def _fetch_result_payload(
     url: str,
     *,
@@ -653,13 +686,34 @@ async def _fetch_result_payload(
     """Fetch a result PDF/ZIP, allowing exactly one controlled HTML -> document hop."""
     if not _result_url_allowed(url):
         raise ValueError("Resultat-URL er utenfor tillatte Bemobi/CVM-domener")
-    raw = await _fetch_bytes(
-        url,
-        label="Bemobi result release",
-        max_bytes=MAX_RESULT_BYTES,
-        fetcher=fetcher,
-        accept="application/pdf,application/zip,application/octet-stream,text/html,*/*;q=0.8",
-    )
+    accept = "application/pdf,application/zip,application/octet-stream,text/html,*/*;q=0.8"
+    try:
+        raw = await _fetch_bytes(
+            url, label="Bemobi result release",
+            max_bytes=MAX_RESULT_BYTES, fetcher=fetcher, accept=accept,
+        )
+    except RuntimeError as exc:
+        if "HTTP 526" not in str(exc):
+            raise
+        errors = [f"{url}: {exc}"]
+        for alternative in _official_mziq_document_fallbacks(url):
+            if not _result_url_allowed(alternative):
+                continue
+            try:
+                raw = await _fetch_bytes(
+                    alternative, label="Bemobi result release official MZiQ fallback",
+                    max_bytes=MAX_RESULT_BYTES, fetcher=fetcher, accept=accept,
+                )
+            except Exception as alternative_exc:
+                errors.append(f"{alternative}: {alternative_exc}")
+                continue
+            if _looks_like_pdf_or_zip(raw):
+                return raw, alternative, False
+            errors.append(f"{alternative}: unverified PDF/ZIP bytes")
+        raise RuntimeError(
+            "Bemobi IR HTTP 526; official document fallback unavailable: "
+            + "; ".join(errors[:3])
+        ) from exc
     if _looks_like_pdf_or_zip(raw):
         return raw, url, False
 
