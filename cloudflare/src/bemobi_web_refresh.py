@@ -1105,8 +1105,13 @@ async def _store_resolved_result_document(
     if resolved_url == str(candidate["url"]):
         return None
     digest = hashlib.sha256(payload).hexdigest()
+    host = urlparse(resolved_url).hostname
+    is_cvm_fallback = host == "www.rad.cvm.gov.br"
     return await repository.create_source_document(
-        source_code=str(candidate.get("source_code") or "CVM"),
+        source_code=(
+            "CVM" if is_cvm_fallback
+            else str(candidate.get("source_code") or "CVM")
+        ),
         external_id=f"result-resolved:{candidate['id']}:{digest[:20]}",
         document_type="RESULT_RELEASE_PDF",
         title=f"{candidate.get('title') or 'Bemobi result'} – resolved document",
@@ -1116,7 +1121,12 @@ async def _store_resolved_result_document(
         metadata={
             "workflow": "cloudflare_full_refresh",
             "parent_source_document_id": int(candidate["id"]),
-            "resolution": "ONE_HOP_HTML_TO_PDF",
+            "resolution": (
+                "OFFICIAL_CVM_3Q26_FALLBACK" if is_cvm_fallback
+                else "OFFICIAL_MZIQ_SAME_FILE" if host in {
+                    "api.mziq.com", "filemanager-cdn.mziq.com"
+                } else "ONE_HOP_HTML_TO_PDF"
+            ),
         },
     )
 
