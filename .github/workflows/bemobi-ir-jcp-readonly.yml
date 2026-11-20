@@ -264,7 +264,8 @@ jobs:
               try:
                   with urllib.request.urlopen(req, timeout=15) as response:
                       # A bounded stream, never output PDF content or secrets.
-                      body = response.read(12 * 1024 * 1024 + 1)
+                      max_bytes = 28 * 1024 * 1024 if name == "CVM_3Q26_RELEASE" else 12 * 1024 * 1024
+                      body = response.read(max_bytes + 1)
                       if (name == "CVM_3Q26_JCP" and body.startswith(b"%PDF")
                               and len(body) <= 2 * 1024 * 1024):
                           with open("q3-jcp-official.pdf", "wb") as handle:
@@ -276,8 +277,9 @@ jobs:
                       print("PDF", name, "status=", response.status,
                             "valid_pdf=", body.startswith(b"%PDF"),
                             "size=", len(body),
+                            "reported_length=", response.headers.get("Content-Length"),
                             "sha256=", hashlib.sha256(body).hexdigest()
-                            if body.startswith(b"%PDF") and len(body) <= 12 * 1024 * 1024
+                            if body.startswith(b"%PDF") and len(body) <= max_bytes
                             else "-")
               except urllib.error.HTTPError as exc:
                   print("PDF", name, "http_status=", exc.code)
