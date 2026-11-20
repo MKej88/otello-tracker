@@ -239,6 +239,16 @@ jobs:
                   and "deed72f2-beae-4c6f-b423-db57178bae31" in url):
                   urls.append((f"MZIQ_DOC_{document['id']}", url))
 
+          for saved in rows["ir_feed"]:
+              try:
+                  ir = json.loads(saved.get("value") or "{}")
+              except (ValueError, TypeError):
+                  ir = {}
+              for doc in ir.get("rows") or []:
+                  if (isinstance(doc, dict) and doc.get("date") == "2026-11-12"
+                      and doc.get("document_kind") == "NOTICE"):
+                      urls.append(("MZIQ_Q3_JCP", str(doc.get("url") or "")))
+
           seen = set()
           for name, url in urls:
               if url in seen:
@@ -253,6 +263,14 @@ jobs:
                   with urllib.request.urlopen(req, timeout=15) as response:
                       # A bounded stream, never output PDF content or secrets.
                       body = response.read(12 * 1024 * 1024 + 1)
+                      if (name == "CVM_3Q26_JCP" and body.startswith(b"%PDF")
+                              and len(body) <= 2 * 1024 * 1024):
+                          with open("q3-jcp-official.pdf", "wb") as handle:
+                              handle.write(body)
+                      if (name == "MZIQ_Q3_JCP" and body.startswith(b"%PDF")
+                              and len(body) <= 2 * 1024 * 1024):
+                          with open("q3-jcp-ir.pdf", "wb") as handle:
+                              handle.write(body)
                       print("PDF", name, "status=", response.status,
                             "valid_pdf=", body.startswith(b"%PDF"),
                             "size=", len(body),
@@ -281,26 +299,11 @@ jobs:
           python3 -m pip install --quiet pypdf==7.1.0
           PYTHONPATH=cloudflare/src python3 - <<'PY'
           import hashlib
-          import urllib.request
+          from pathlib import Path
           from bemobi_web_refresh import _pdf_text
           from bemobi_distribution_ingestion import parse_official_distribution
 
-          url = ("https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx"
-                 "?CodigoInstituicao=1&Tela=ext&descTipo=IPE"
-                 "&numProtocolo=1588756&numSequencia=1113462&numVersao=1")
-          expected_sha = "11e9b67b4711459c1f0f32636170ca24bc4b2478a748c3a83b7e4b6a654b5bbf"
-          req = urllib.request.Request(url, headers={"Accept": "application/pdf"})
-          import time
-          for attempt in range(1, 5):
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      payload = response.read(2 * 1024 * 1024 + 1)
-                  break
-              except (OSError, TimeoutError, urllib.error.URLError) as exc:
-                  print("OFFICIAL_JCP retry", attempt, type(exc).__name__)
-                  if attempt == 4:
-                      raise
-                  time.sleep(attempt)
+          payload = Path("q3-jcp-official.pdf").read_bytes()
           sha = hashlib.sha256(payload).hexdigest()
           assert len(payload) <= 2 * 1024 * 1024 and payload.startswith(b"%PDF")
           assert sha == expected_sha, "Official CVM file bytes changed; stop for review"
