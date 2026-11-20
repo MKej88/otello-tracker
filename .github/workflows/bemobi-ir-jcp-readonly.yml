@@ -113,6 +113,10 @@ jobs:
                          OR lower(sd.title) LIKE '%acionistas%')
                   ORDER BY sd.id DESC LIMIT 25
               """,
+              "ir_feed": """
+                  SELECT value FROM runtime_state
+                  WHERE key='bemobi_official_news_v1' LIMIT 1
+              """,
               "q3_results": """
                   SELECT fact_key, source_document_id, payload_json
                   FROM bemobi_investor_facts
@@ -151,6 +155,11 @@ jobs:
               if isinstance(metadata, dict):
                   print("FULL metadata keys=", sorted(metadata.keys()))
                   for key, val in metadata.items():
+                      if key == "sources" and isinstance(val, dict):
+                          print("FULL sources keys=", sorted(val.keys()))
+                          for subkey, part in val.items():
+                              if isinstance(part, dict) and ("bemobi" in subkey.lower() or "web" in subkey.lower()):
+                                  print("FULL sources", subkey, "=", json.dumps(part, ensure_ascii=False)[:2200])
                       if isinstance(val, dict):
                           for sub in ("distribution_ingestion", "result_release"):
                               if sub in val:
@@ -180,6 +189,20 @@ jobs:
               print("RECEIVABLE", daily.get("estimate_date"),
                     daily.get("associated_receivable_nok"),
                     "jcp_components=", json.dumps(q3, ensure_ascii=False)[:1400])
+
+          for saved in rows["ir_feed"]:
+              try:
+                  ir = json.loads(saved.get("value") or "{}")
+              except (ValueError, TypeError):
+                  ir = {}
+              if isinstance(ir, dict):
+                  print("IR_FEED checked_date=", ir.get("checked_date"),
+                        "total=", len(ir.get("rows") or []))
+                  for doc in ir.get("rows") or []:
+                      if isinstance(doc, dict) and str(doc.get("date") or "") >= "2026-11-12":
+                          print("IR_FEED_DOC", doc.get("date"),
+                                doc.get("document_kind"), str(doc.get("title") or "")[:90],
+                                urllib.parse.urlsplit(str(doc.get("url") or "")).hostname)
 
           for document in rows["relevant_documents"]:
               print("DOCUMENT", document.get("id"), document.get("source_code"),
@@ -267,8 +290,17 @@ jobs:
                  "&numProtocolo=1588756&numSequencia=1113462&numVersao=1")
           expected_sha = "11e9b67b4711459c1f0f32636170ca24bc4b2478a748c3a83b7e4b6a654b5bbf"
           req = urllib.request.Request(url, headers={"Accept": "application/pdf"})
-          with urllib.request.urlopen(req, timeout=30) as response:
-              payload = response.read(2 * 1024 * 1024 + 1)
+          import time
+          for attempt in range(1, 5):
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      payload = response.read(2 * 1024 * 1024 + 1)
+                  break
+              except (OSError, TimeoutError, urllib.error.URLError) as exc:
+                  print("OFFICIAL_JCP retry", attempt, type(exc).__name__)
+                  if attempt == 4:
+                      raise
+                  time.sleep(attempt)
           sha = hashlib.sha256(payload).hexdigest()
           assert len(payload) <= 2 * 1024 * 1024 and payload.startswith(b"%PDF")
           assert sha == expected_sha, "Official CVM file bytes changed; stop for review"
