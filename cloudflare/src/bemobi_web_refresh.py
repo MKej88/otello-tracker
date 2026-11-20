@@ -65,7 +65,9 @@ def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
 
 
 MAX_HTML_BYTES = 3 * 1024 * 1024
-MAX_RESULT_BYTES = 12 * 1024 * 1024
+# Verified CVM 3Q26 release is 18,291,776 bytes (sha256 c65b40a6...);
+# align network cap with existing validated decompressed PDF limit.
+MAX_RESULT_BYTES = 24 * 1024 * 1024
 MAX_RESULT_UNCOMPRESSED_BYTES = 24 * 1024 * 1024
 MAX_RESULT_PAGES = 120
 MAX_RESULT_TEXT_CHARS = 2_000_000
