@@ -247,3 +247,72 @@ def test_wrong_issuer_url_is_not_requested(monkeypatch):
     assert result["status"] == "ok"
     assert result["notices_checked"] == 0
     assert repo.writes == 0
+
+# Representative English clauses and broken extraction from the actual
+# 12 Nov 2026 official MZiQ Q3 shareholder notice. No guessed dates/amounts.
+ENGLISH_Q3_NOTICE = """
+BEMOBI MOBILE TECH S.A.
+Corporate Taxpayer ID (CNPJ/MF) No. 09.042.817/0001-05
+Publicly-Held Company
+Ticker: BMOB3
+NOTICE TO SHAREHOLDERS
+Interest on Equity
+Bemobi Mobile Tech S.A. hereby informs its shareholders that it resolved
+on the distribution and payment of interest on equity ("IoE 3Q26"):
+(a) The total distribution amount will be R$ 16,000,000.00,
+corresponding to a gross value of R$ 0.19178292 per share,
+and to a net value of R$ 13,200,000.00, corresponding to
+R$ 0.15822 091 per share.
+(b) Entitled to receive the interest on equity will be the Company's
+shareholders at the close of the trading session on November 17 , 2026.
+(c) The shares will be traded ex - interest on equity as from
+November 18 , 2026 (inclusive).
+(e) The payment of interest on equity to shareholders will take place
+on November 30 , 2026.
+(f) The total amount of interest on equity will be subject to withholding
+income tax at the rate of 17.5 %, except for shareholders who are exempt.
+"""
+
+
+def test_q3_official_english_notice_is_validated_not_silently_ignored():
+    parsed = ingestion.parse_official_distribution(
+        ENGLISH_Q3_NOTICE, published_date="2026-11-12",
+    )
+    assert parsed["action_type"] == "JCP"
+    assert parsed["record_date"] == "2026-11-17"
+    assert parsed["ex_date"] == "2026-11-18"
+    assert parsed["payment_date"] == "2026-11-30"
+    assert parsed["gross_total_amount"] == "16000000.00"
+    assert parsed["gross_amount_per_share"] == "0.19178292"
+    assert parsed["net_total_amount"] == "13200000.00"
+    assert parsed["net_amount_per_share"] == "0.15822091"
+    assert parsed["withholding_rate"] == "0.175"
+
+
+def test_q3_portuguese_cvm_pdf_split_groups_and_tax_are_not_lost():
+    notice_text = (
+        Q3_NOTICE.replace("13.200.000,00", "13. 2 00.000,00")
+        .replace("0,15822091", "0, 158 22091")
+        .replace("17,5%", "1 7, 5%")
+    )
+    parsed = ingestion.parse_official_distribution(
+        notice_text, published_date="2026-11-12",
+    )
+    assert parsed["net_total_amount"] == "13200000.00"
+    assert parsed["net_amount_per_share"] == "0.15822091"
+    assert parsed["withholding_rate"] == "0.175"
+
+
+@pytest.mark.parametrize("replacement,reason", [
+    (("BMOB3", "OTHER"), "issuer_not_verified"),
+    (("0.15822 091", "0.18822 091"), "net_per_share_mismatch"),
+    (("November 18 , 2026", "November 10 , 2026"), "inconsistent_distribution_dates"),
+    (("17.5 %", "15.0 %"), "net_total_mismatch"),
+    (("November 30 , 2026", "date pending"), "missing_payment_date"),
+])
+def test_english_notice_rejects_unsafe_or_incomplete_data(replacement, reason):
+    with pytest.raises(ValueError, match=reason):
+        ingestion.parse_official_distribution(
+            ENGLISH_Q3_NOTICE.replace(*replacement),
+            published_date="2026-11-12",
+        )
