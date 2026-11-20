@@ -322,7 +322,7 @@ jobs:
                   parsed = parse_official_distribution(text, published_date="2026-11-12")
               except ValueError as exc:
                   print("OFFICIAL_JCP", source, "parser_error=", str(exc))
-                  print("OFFICIAL_JCP", source, "extract_start=", " ".join(text.split())[:1100])
+                  print("OFFICIAL_JCP", source, "extract_start=", " ".join(text.split())[:3400])
                   continue
               print("OFFICIAL_JCP", source, "parsed=", parsed)
               assert parsed["action_type"] == "JCP"
