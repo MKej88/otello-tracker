@@ -562,3 +562,12 @@ def test_result_parser_accepts_official_ebitda_capex_label_and_unicode_minus() -
     result = parse_bemobi_result_text(text, published_date="2026-08-11")
     assert result["period"] == "2Q26"
     assert result["ebitda_less_capex_mbrl"] == 64.8
+
+
+def test_verified_cvm_3q26_earnings_pdf_fits_network_and_parse_size_guards():
+    # Independent runner read on 20 Nov 2026: 18,291,776 bytes,
+    # sha256 c65b40a695030bc8ba35b68970fcbe6a1d05828ed5ff5a7bfe327714f94cb661.
+    from bemobi_web_refresh import MAX_RESULT_BYTES, MAX_RESULT_UNCOMPRESSED_BYTES
+
+    assert 18_291_776 <= MAX_RESULT_BYTES
+    assert MAX_RESULT_BYTES <= MAX_RESULT_UNCOMPRESSED_BYTES
