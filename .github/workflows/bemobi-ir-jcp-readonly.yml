@@ -8,6 +8,8 @@ on:
       - main
     paths:
       - .github/workflows/bemobi-ir-jcp-readonly.yml
+      - cloudflare/src/bemobi_distribution_ingestion.py
+      - backend/tests/test_bemobi_distribution_auto_ingestion.py
 
 permissions:
   contents: read
@@ -296,7 +298,7 @@ jobs:
       - name: Validate Q3 JCP from official CVM PDF with production parser
         shell: bash
         run: |
-          python3 -m pip install --quiet pypdf==7.1.0
+          python3 -m pip install --quiet pypdf==7.1.0 pytest==8.4.2
           PYTHONPATH=cloudflare/src python3 - <<'PY'
           import hashlib
           from pathlib import Path
@@ -333,3 +335,7 @@ jobs:
               matches += 1
           assert matches, "The strict production parser cannot yet parse original official Q3 JCP PDFs"
           PY
+      - name: Regression tests for automatic Bemobi distribution ingestion
+        shell: bash
+        run: |
+          PYTHONPATH=cloudflare/src python3 -m pytest -q backend/tests/test_bemobi_distribution_auto_ingestion.py
