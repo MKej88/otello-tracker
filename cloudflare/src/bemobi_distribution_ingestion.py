@@ -34,9 +34,16 @@ _MAX_NOTICES = 12
 def _normalise(text: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     normalized = re.sub(r"\s+", " ", ascii_text).lower().strip()
-    # pypdf sometimes splits thousands groups/decimal digits in shareholder
-    # notices ("13. 200.000,00" and "0, 15822091"). Keep punctuation, but
-    # remove whitespace only where both neighboring characters are digits.
+    # pypdf can split digits inside official amounts (e.g. "13. 2 00.000,00",
+    # "0, 158 22091", or "0.15822 091"). Join only currency amount digits,
+    # never unrelated dates, share counts, or sentences.
+    normalized = re.sub(
+        r"r\$\s*(\d[\d.,\s]*\d)",
+        lambda match: "r$ " + re.sub(r"\s+", "", match.group(1)),
+        normalized,
+    )
+    # A broken withholding percentage can be extracted as "1 7, 5%".
+    normalized = re.sub(r"(?<=\d)\s+(?=\d\s*[,%.])", "", normalized)
     return re.sub(r"(?<=\d)([.,])\s+(?=\d)", r"\1", normalized)
 
 
@@ -67,58 +74,126 @@ def _date_after(text: str, pattern: str, label: str) -> str:
         raise ValueError(f"invalid_{label}") from exc
 
 
+_EN_BRL = r"(\d[\d,]*\.\d{1,11})"
+_EN_DATE = (
+    r"(?P<month>january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\s+"
+    r"(?P<day>\d{1,2})\s*,?\s*(?P<year>20\d{2})"
+)
+_EN_MONTHS = {
+    name: index for index, name in enumerate(
+        ("january", "february", "march", "april", "may", "june",
+         "july", "august", "september", "october", "november", "december"),
+        start=1,
+    )
+}
+
+
+def _money_en(text: str, pattern: str, label: str) -> Decimal:
+    match = re.search(pattern, text)
+    if match is None:
+        raise ValueError(f"missing_{label}")
+    value = Decimal(match.group(1).replace(",", ""))
+    if value <= 0:
+        raise ValueError(f"invalid_{label}")
+    return value
+
+
+def _date_after_en(text: str, pattern: str, label: str) -> str:
+    match = re.search(pattern + _EN_DATE, text)
+    if match is None:
+        raise ValueError(f"missing_{label}")
+    try:
+        return date(
+            int(match.group("year")),
+            _EN_MONTHS[match.group("month")],
+            int(match.group("day")),
+        ).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"invalid_{label}") from exc
+
+
 def _nearly_equal(first: Decimal, second: Decimal, tolerance: Decimal) -> bool:
     return abs(first - second) <= tolerance
 
 
 def parse_official_distribution(text: str, *, published_date: str) -> dict[str, str]:
-    """Read one Portuguese Bemobi notice; reject mixed or ambiguous decisions.
+    """Strictly parse one verified Portuguese or English Bemobi JCP notice.
 
-    All numbers and dates must be explicitly present in the issuer's notice.
-    We do not infer a record date, payment date, withholding or share count.
+    Accept alternative issuer languages, not missing dates/amounts or inferred
+    values. Every financial amount, entitlement date and tax rate must appear
+    in the original PDF and must reconcile arithmetically.
     """
     body = _normalise(text)
     heading = body[:800]
     if "bemobi mobile tech" not in heading or "bmob3" not in heading:
         raise ValueError("issuer_not_verified")
-    if "aviso aos acionistas" not in heading:
-        raise ValueError("not_shareholder_notice")
-    if "juros sobre capital proprio" in heading:
-        action_type = "JCP"
-        if re.search(r"(?:dividendos e jcp|dividendos e juros sobre capital)", heading):
-            raise ValueError("mixed_distribution_requires_review")
-    elif "dividendos" in heading:
-        action_type = "DIVIDEND"
-    else:
-        raise ValueError("not_distribution")
 
-    gross_total = _money(
-        body, r"valor total da distribuicao (?:sera|e) de r\$\s*" + _BRL,
-        "gross_total",
-    )
-    gross_share = _money(
-        body, r"valor bruto de r\$\s*" + _BRL + r"\s+por acao",
-        "gross_per_share",
-    )
+    english = "notice to shareholders" in heading
+    if english:
+        if "interest on equity" not in heading:
+            raise ValueError("not_distribution")
+        if re.search(r"dividends\s+and\s+(?:interest on equity|ioe)", heading):
+            raise ValueError("mixed_distribution_requires_review")
+        action_type = "JCP"
+        gross_total = _money_en(
+            body, r"total distribution amount will be r\$\s*" + _EN_BRL,
+            "gross_total",
+        )
+        gross_share = _money_en(
+            body, r"gross value of r\$\s*" + _EN_BRL + r"\s+per share",
+            "gross_per_share",
+        )
+        record_date = _date_after_en(
+            body, r"shareholders at the close of the trading session on\s+",
+            "record_date",
+        )
+        ex_date = _date_after_en(
+            body, r"traded\s+ex\s*-\s*interest on equity\s+as from\s+",
+            "ex_date",
+        )
+        payment_date = _date_after_en(
+            body, r"payment of interest on equity to shareholders will take place on\s+",
+            "payment_date",
+        )
+    else:
+        if "aviso aos acionistas" not in heading:
+            raise ValueError("not_shareholder_notice")
+        if "juros sobre capital proprio" in heading:
+            action_type = "JCP"
+            if re.search(r"(?:dividendos e jcp|dividendos e juros sobre capital)", heading):
+                raise ValueError("mixed_distribution_requires_review")
+        elif "dividendos" in heading:
+            action_type = "DIVIDEND"
+        else:
+            raise ValueError("not_distribution")
+        gross_total = _money(
+            body, r"valor total da distribuicao (?:sera|e) de r\$\s*" + _BRL,
+            "gross_total",
+        )
+        gross_share = _money(
+            body, r"valor bruto de r\$\s*" + _BRL + r"\s+por acao",
+            "gross_per_share",
+        )
+        record_date = _date_after(
+            body, r"(?:fechamento|encerramento) do pregao (?:de|do dia)\s+",
+            "record_date",
+        )
+        ex_date = _date_after(
+            body,
+            r"ex\s*-\s*(?:juros sobre (?:o )?capital proprio|jcp|dividendos?)"
+            r".{0,110}?\ba partir de\s+",
+            "ex_date",
+        )
+        payment_date = _date_after(
+            body,
+            r"\bpagamento\b.{0,130}?\b(?:ocorrera|sera realizado|sera efetuado)"
+            r"\s+em\s+",
+            "payment_date",
+        )
+
     if gross_share > 100 or gross_total > 10_000_000_000:
         raise ValueError("implausible_distribution")
-
-    record_date = _date_after(
-        body, r"(?:fechamento|encerramento) do pregao (?:de|do dia)\s+",
-        "record_date",
-    )
-    ex_date = _date_after(
-        body,
-        r"ex\s*-\s*(?:juros sobre (?:o )?capital proprio|jcp|dividendos?)"
-        r".{0,110}?\ba partir de\s+",
-        "ex_date",
-    )
-    payment_date = _date_after(
-        body,
-        r"\bpagamento\b.{0,130}?\b(?:ocorrera|sera realizado|sera efetuado)"
-        r"\s+em\s+",
-        "payment_date",
-    )
     announcement = date.fromisoformat(published_date)
     record = date.fromisoformat(record_date)
     ex = date.fromisoformat(ex_date)
@@ -140,24 +215,45 @@ def parse_official_distribution(text: str, *, published_date: str) -> dict[str, 
         "tax_treatment": "UNSPECIFIED",
     }
     if action_type == "JCP":
-        net_total = _money(
-            body, r"valor liquido de r\$\s*" + _BRL, "net_total",
-        )
-        # Two amounts occur in this phrase: net total followed by net/share.
-        net_match = re.search(
-            r"valor liquido de r\$\s*" + _BRL
-            + r".{0,230}?\bcorrespondente a r\$\s*" + _BRL + r"\s+por acao",
-            body,
-        )
-        if net_match is None:
-            raise ValueError("missing_net_per_share")
-        net_share = Decimal(net_match.group(2).replace(".", "").replace(",", "."))
-        rate = _money(body, r"\baliquota de\s*" + _BRL + r"\s*%", "withholding") / 100
+        if english:
+            net_total = _money_en(
+                body, r"net value of r\$\s*" + _EN_BRL,
+                "net_total",
+            )
+            net_match = re.search(
+                r"net value of r\$\s*" + _EN_BRL
+                + r".{0,230}?corresponding to r\$\s*"
+                + _EN_BRL + r"\s+per share",
+                body,
+            )
+            if net_match is None:
+                raise ValueError("missing_net_per_share")
+            net_share = Decimal(net_match.group(2).replace(",", ""))
+            rate = _money_en(
+                body,
+                r"withholding income tax at the rate of\s*"
+                r"(\d+(?:\.\d+)?)\s*%",
+                "withholding",
+            ) / 100
+        else:
+            net_total = _money(
+                body, r"valor liquido de r\$\s*" + _BRL, "net_total",
+            )
+            net_match = re.search(
+                r"valor liquido de r\$\s*" + _BRL
+                + r".{0,230}?\bcorrespondente a r\$\s*"
+                + _BRL + r"\s+por acao",
+                body,
+            )
+            if net_match is None:
+                raise ValueError("missing_net_per_share")
+            net_share = Decimal(net_match.group(2).replace(".", "").replace(",", "."))
+            rate = _money(
+                body, r"\baliquota de\s*" + _BRL + r"\s*%", "withholding",
+            ) / 100
         if not (Decimal("0") < rate < Decimal("1")):
             raise ValueError("invalid_withholding")
-        if not _nearly_equal(
-            net_total, gross_total * (1 - rate), Decimal("1.00")
-        ):
+        if not _nearly_equal(net_total, gross_total * (1 - rate), Decimal("1.00")):
             raise ValueError("net_total_mismatch")
         if not _nearly_equal(
             net_share, gross_share * (1 - rate), Decimal("0.0000001")
@@ -180,9 +276,7 @@ def parse_official_distribution(text: str, *, published_date: str) -> dict[str, 
         result["net_amount_per_share"] = str(gross_share)
         result["net_total_amount"] = str(gross_total)
         result["tax_treatment"] = "PUBLISHED_NET"
-
     return result
-
 
 def _valid_notice(row: dict, *, target_date: str) -> bool:
     if row.get("document_kind") != "NOTICE":
