@@ -1,0 +1,236 @@
+name: Bemobi IR og JCP - lesediagnose
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/fix-bemobi-526-jcp
+      - main
+    paths:
+      - .github/workflows/bemobi-ir-jcp-readonly.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bemobi-ir-jcp-readonly
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+    steps:
+      - name: Read-only D1 and official transport diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import ssl
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.getenv("CF_API_TOKEN")
+          account = os.getenv("CF_ACCOUNT")
+          database_name = os.getenv("CF_DATABASE_NAME", "otello-nav")
+          if not token or not account:
+              raise SystemExit("Cloudflare read-only secrets are unavailable")
+          base = f"https://api.cloudflare.com/client/v4/accounts/{account}"
+          headers = {
+              "Authorization": "Bearer " + token,
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+          }
+
+          def cf(path, body=None):
+              req = urllib.request.Request(
+                  base + path,
+                  headers=headers,
+                  method="POST" if body is not None else "GET",
+                  data=None if body is None else json.dumps(body).encode(),
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  payload = json.load(response)
+              if payload.get("success") is not True:
+                  raise ValueError("Cloudflare API returned unsuccessful result")
+              return payload.get("result")
+
+          lookup = urllib.parse.urlencode({"name": database_name, "per_page": "10"})
+          databases = cf("/d1/database?" + lookup)
+          selected = [d for d in databases if d.get("name") == database_name]
+          if len(selected) != 1:
+              raise SystemExit("Expected exactly one named production D1 database")
+          db_id = selected[0]["uuid"]
+
+          queries = {
+              "latest_full_refresh": """
+                  SELECT id, started_at, finished_at, status, metadata_json
+                  FROM job_runs WHERE job_name='cloudflare_full_refresh'
+                  ORDER BY id DESC LIMIT 1
+              """,
+              "q3_jcp_actions": """
+                  SELECT ca.id, ca.action_type, ca.announcement_date,
+                         ca.record_date, ca.ex_date, ca.payment_date,
+                         ca.amount_per_share, ca.gross_total_amount,
+                         ca.net_amount_per_share, ca.net_total_amount,
+                         ca.withholding_rate, ca.external_action_id,
+                         sd.url AS source_url, sd.content_sha256
+                  FROM corporate_actions ca
+                  JOIN instruments i ON i.id=ca.issuer_instrument_id
+                  LEFT JOIN source_documents sd ON sd.id=ca.source_document_id
+                  WHERE i.symbol='BMOB3' AND ca.action_type='JCP'
+                    AND ca.ex_date BETWEEN '2026-11-17' AND '2026-11-20'
+                  ORDER BY ca.id DESC LIMIT 8
+              """,
+              "jcp_receivable_daily": """
+                  SELECT as_of_date, associated_receivable_nok,
+                         receivable_components_json
+                  FROM other_net_assets_daily
+                  WHERE as_of_date BETWEEN '2026-11-17' AND '2026-11-20'
+                  ORDER BY as_of_date DESC LIMIT 8
+              """,
+              "relevant_documents": """
+                  SELECT sd.id, sd.title, sd.url, sd.published_at,
+                         sd.content_sha256, s.code AS source_code
+                  FROM source_documents sd
+                  JOIN sources s ON s.id=sd.source_id
+                  WHERE sd.published_at >= '2026-11-12'
+                    AND (lower(sd.title) LIKE '%3t26%'
+                         OR lower(sd.title) LIKE '%3q26%'
+                         OR lower(sd.title) LIKE '%dividend%'
+                         OR lower(sd.title) LIKE '%juros%'
+                         OR lower(sd.title) LIKE '%acionistas%')
+                  ORDER BY sd.id DESC LIMIT 25
+              """,
+              "q3_results": """
+                  SELECT fact_key, source_document_id, payload_json
+                  FROM bemobi_investor_facts
+                  WHERE fact_type='RESULT'
+                  ORDER BY id DESC LIMIT 3
+              """,
+          }
+          names = list(queries)
+          output = cf("/d1/database/" + db_id + "/query",
+                      {"batch": [{"sql": queries[name]} for name in names]})
+          if len(output) != len(names):
+              raise SystemExit("D1 returned an unexpected diagnostic query count")
+          rows = {}
+          for name, item in zip(names, output):
+              if item.get("success") is False:
+                  rows[name] = []
+                  print(f"QUERY {name}: ERROR (schema/query mismatch)")
+              else:
+                  rows[name] = item.get("results") or []
+                  print(f"QUERY {name}: {len(rows[name])} rows")
+
+          for full in rows["latest_full_refresh"]:
+              print("FULL status=", full.get("status"),
+                    "started=", full.get("started_at"),
+                    "finished=", full.get("finished_at"))
+              try:
+                  metadata = json.loads(full.get("metadata_json") or "{}")
+              except (TypeError, ValueError):
+                  metadata = {}
+              if isinstance(metadata, dict):
+                  for key in ("distribution_ingestion", "latest_result_release"):
+                      part = metadata.get(key)
+                      print("FULL", key, "=", json.dumps(part, ensure_ascii=False)[:2000])
+
+          for action in rows["q3_jcp_actions"]:
+              safe = {key: action.get(key) for key in (
+                  "id", "action_type", "announcement_date", "record_date",
+                  "ex_date", "payment_date", "amount_per_share",
+                  "gross_total_amount", "net_amount_per_share",
+                  "net_total_amount", "withholding_rate",
+                  "external_action_id", "content_sha256"
+              )}
+              print("JCP_ACTION", json.dumps(safe, ensure_ascii=False))
+
+          for daily in rows["jcp_receivable_daily"]:
+              raw = daily.get("receivable_components_json") or "[]"
+              try:
+                  comps = json.loads(raw)
+              except (TypeError, ValueError):
+                  comps = []
+              q3 = [
+                  x for x in comps if isinstance(x, dict)
+                  and (x.get("ex_date") == "2026-11-18"
+                       or x.get("action_type") == "JCP")
+              ] if isinstance(comps, list) else []
+              print("RECEIVABLE", daily.get("as_of_date"),
+                    daily.get("associated_receivable_nok"),
+                    "jcp_components=", json.dumps(q3, ensure_ascii=False)[:1400])
+
+          for fact in rows["q3_results"]:
+              try:
+                  payload = json.loads(fact.get("payload_json") or "{}")
+              except (ValueError, TypeError):
+                  payload = {}
+              values = {
+                  key: payload.get(key) for key in (
+                      "period", "cash_mbrl", "adjusted_net_revenue_mbrl",
+                      "adjusted_ebitda_mbrl", "adjusted_ebitda_margin_pct"
+                  )
+              }
+              print("RESULT", fact.get("fact_key"), values)
+
+          # The official PDF endpoints have had HTTP 526 from Cloudflare Workers.
+          # A separate GitHub runner differentiates source outage from Worker TLS.
+          urls = [
+              ("CVM_3Q26_RELEASE",
+               "https://www.rad.cvm.gov.br/ENETCONSULTA/frmDownloadDocumento.aspx?CodigoInstituicao=1&Tela=99&descTipo=IPE&numProtocolo=1588745&numSequencia=1113451&numVersao=1"),
+              ("CVM_3Q26_JCP",
+               "https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?CodigoInstituicao=1&Tela=ext&descTipo=IPE&numProtocolo=1588756&numSequencia=1113462&numVersao=1"),
+          ]
+          for document in rows["relevant_documents"]:
+              url = str(document.get("url") or "")
+              host = urllib.parse.urlsplit(url).hostname
+              if (url.startswith("https://") and
+                  host in {"api.mziq.com", "filemanager-cdn.mziq.com"}
+                  and "deed72f2-beae-4c6f-b423-db57178bae31" in url):
+                  urls.append((f"MZIQ_DOC_{document['id']}", url))
+
+          seen = set()
+          for name, url in urls:
+              if url in seen:
+                  continue
+              seen.add(url)
+              if len(seen) > 9:
+                  break
+              req = urllib.request.Request(
+                  url, headers={"User-Agent": "OtelloTracker/1.0", "Accept": "application/pdf,*/*"}
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as response:
+                      # A bounded stream, never output PDF content or secrets.
+                      body = response.read(12 * 1024 * 1024 + 1)
+                      print("PDF", name, "status=", response.status,
+                            "valid_pdf=", body.startswith(b"%PDF"),
+                            "size=", len(body),
+                            "sha256=", hashlib.sha256(body).hexdigest()
+                            if body.startswith(b"%PDF") and len(body) <= 12 * 1024 * 1024
+                            else "-")
+              except urllib.error.HTTPError as exc:
+                  print("PDF", name, "http_status=", exc.code)
+              except urllib.error.URLError as exc:
+                  print("PDF", name, "transport_error=", type(exc.reason).__name__)
+              except (TimeoutError, OSError, ssl.SSLError) as exc:
+                  print("PDF", name, "transport_error=", type(exc).__name__)
+
+          summary = os.getenv("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("## Bemobi IR / JCP – lesediagnose\n\n")
+                  handle.write(f"- Nattkjøring: {rows['latest_full_refresh'][0].get('status') if rows['latest_full_refresh'] else 'ikke funnet'}\n")
+                  handle.write(f"- Q3 JCP-rader i D1: {len(rows['q3_jcp_actions'])}\n")
+                  handle.write(f"- D1 fordringsdager: {len(rows['jcp_receivable_daily'])}\n")
+                  handle.write("- Se steglogg for transportstatus (kun offisielle domener) og kontrollerte beløp.\n")
+          PY
