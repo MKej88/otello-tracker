@@ -303,22 +303,33 @@ jobs:
           from bemobi_web_refresh import _pdf_text
           from bemobi_distribution_ingestion import parse_official_distribution
 
-          payload = Path("q3-jcp-official.pdf").read_bytes()
-          sha = hashlib.sha256(payload).hexdigest()
-          assert len(payload) <= 2 * 1024 * 1024 and payload.startswith(b"%PDF")
-          assert sha == expected_sha, "Official CVM file bytes changed; stop for review"
-          text = _pdf_text(payload)
-          print("OFFICIAL_JCP sha256=", sha, "text_length=", len(text))
-          try:
-              parsed = parse_official_distribution(text, published_date="2026-11-12")
-          except ValueError as exc:
-              print("OFFICIAL_JCP parser_error=", str(exc))
-              print("OFFICIAL_JCP extract_start=", " ".join(text.split())[:1100])
-              raise
-          print("OFFICIAL_JCP parsed=", parsed)
-          assert parsed["action_type"] == "JCP"
-          assert parsed["ex_date"] == "2026-11-18"
-          assert parsed["payment_date"] == "2026-11-30"
-          assert parsed["gross_amount_per_share"] == "0.19178292"
-          assert parsed["net_amount_per_share"] == "0.15822091"
+          samples = [
+              ("CVM", "q3-jcp-official.pdf", "11e9b67b4711459c1f0f32636170ca24bc4b2478a748c3a83b7e4b6a654b5bbf"),
+              ("MZIQ", "q3-jcp-ir.pdf", "ae8144a7eaf40ded49dff88f78379afbcc4456d4a18b0a099f23f0ec54523870"),
+          ]
+          matches = 0
+          for source, filename, expected_sha in samples:
+              if not Path(filename).exists():
+                  print("OFFICIAL_JCP", source, "download_missing")
+                  continue
+              payload = Path(filename).read_bytes()
+              sha = hashlib.sha256(payload).hexdigest()
+              assert len(payload) <= 2 * 1024 * 1024 and payload.startswith(b"%PDF")
+              assert sha == expected_sha, "Official CVM/MZiQ file changed; stop for review"
+              text = _pdf_text(payload)
+              print("OFFICIAL_JCP", source, "sha256=", sha, "text_length=", len(text))
+              try:
+                  parsed = parse_official_distribution(text, published_date="2026-11-12")
+              except ValueError as exc:
+                  print("OFFICIAL_JCP", source, "parser_error=", str(exc))
+                  print("OFFICIAL_JCP", source, "extract_start=", " ".join(text.split())[:1100])
+                  continue
+              print("OFFICIAL_JCP", source, "parsed=", parsed)
+              assert parsed["action_type"] == "JCP"
+              assert parsed["ex_date"] == "2026-11-18"
+              assert parsed["payment_date"] == "2026-11-30"
+              assert parsed["gross_amount_per_share"] == "0.19178292"
+              assert parsed["net_amount_per_share"] == "0.15822091"
+              matches += 1
+          assert matches, "The strict production parser cannot yet parse original official Q3 JCP PDFs"
           PY
