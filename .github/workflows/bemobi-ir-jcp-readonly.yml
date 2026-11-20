@@ -25,6 +25,9 @@ jobs:
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Read-only D1 and official transport diagnostics
         shell: bash
         run: |
@@ -91,11 +94,11 @@ jobs:
                   ORDER BY ca.id DESC LIMIT 8
               """,
               "jcp_receivable_daily": """
-                  SELECT as_of_date, associated_receivable_nok,
+                  SELECT estimate_date, associated_receivable_nok,
                          receivable_components_json
-                  FROM other_net_assets_daily
-                  WHERE as_of_date BETWEEN '2026-11-17' AND '2026-11-20'
-                  ORDER BY as_of_date DESC LIMIT 8
+                  FROM other_net_assets_daily_estimates
+                  WHERE estimate_date BETWEEN '2026-11-17' AND '2026-11-20'
+                  ORDER BY estimate_date DESC LIMIT 8
               """,
               "relevant_documents": """
                   SELECT sd.id, sd.title, sd.url, sd.published_at,
@@ -146,9 +149,12 @@ jobs:
               except (TypeError, ValueError):
                   metadata = {}
               if isinstance(metadata, dict):
-                  for key in ("distribution_ingestion", "latest_result_release"):
-                      part = metadata.get(key)
-                      print("FULL", key, "=", json.dumps(part, ensure_ascii=False)[:2000])
+                  print("FULL metadata keys=", sorted(metadata.keys()))
+                  for key, val in metadata.items():
+                      if isinstance(val, dict):
+                          for sub in ("distribution_ingestion", "result_release"):
+                              if sub in val:
+                                  print("FULL", key, sub, "=", json.dumps(val[sub], ensure_ascii=False)[:2000])
 
           for action in rows["q3_jcp_actions"]:
               safe = {key: action.get(key) for key in (
@@ -171,9 +177,15 @@ jobs:
                   and (x.get("ex_date") == "2026-11-18"
                        or x.get("action_type") == "JCP")
               ] if isinstance(comps, list) else []
-              print("RECEIVABLE", daily.get("as_of_date"),
+              print("RECEIVABLE", daily.get("estimate_date"),
                     daily.get("associated_receivable_nok"),
                     "jcp_components=", json.dumps(q3, ensure_ascii=False)[:1400])
+
+          for document in rows["relevant_documents"]:
+              print("DOCUMENT", document.get("id"), document.get("source_code"),
+                    str(document.get("title") or "")[:110],
+                    urllib.parse.urlsplit(str(document.get("url") or "")).hostname,
+                    document.get("published_at"))
 
           for fact in rows["q3_results"]:
               try:
@@ -239,4 +251,39 @@ jobs:
                   handle.write(f"- Q3 JCP-rader i D1: {len(rows['q3_jcp_actions'])}\n")
                   handle.write(f"- D1 fordringsdager: {len(rows['jcp_receivable_daily'])}\n")
                   handle.write("- Se steglogg for transportstatus (kun offisielle domener) og kontrollerte beløp.\n")
+          PY
+      - name: Validate Q3 JCP from official CVM PDF with production parser
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pypdf==7.1.0
+          PYTHONPATH=cloudflare/src python3 - <<'PY'
+          import hashlib
+          import urllib.request
+          from bemobi_web_refresh import _pdf_text
+          from bemobi_distribution_ingestion import parse_official_distribution
+
+          url = ("https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx"
+                 "?CodigoInstituicao=1&Tela=ext&descTipo=IPE"
+                 "&numProtocolo=1588756&numSequencia=1113462&numVersao=1")
+          expected_sha = "11e9b67b4711459c1f0f32636170ca24bc4b2478a748c3a83b7e4b6a654b5bbf"
+          req = urllib.request.Request(url, headers={"Accept": "application/pdf"})
+          with urllib.request.urlopen(req, timeout=30) as response:
+              payload = response.read(2 * 1024 * 1024 + 1)
+          sha = hashlib.sha256(payload).hexdigest()
+          assert len(payload) <= 2 * 1024 * 1024 and payload.startswith(b"%PDF")
+          assert sha == expected_sha, "Official CVM file bytes changed; stop for review"
+          text = _pdf_text(payload)
+          print("OFFICIAL_JCP sha256=", sha, "text_length=", len(text))
+          try:
+              parsed = parse_official_distribution(text, published_date="2026-11-12")
+          except ValueError as exc:
+              print("OFFICIAL_JCP parser_error=", str(exc))
+              print("OFFICIAL_JCP extract_start=", " ".join(text.split())[:1100])
+              raise
+          print("OFFICIAL_JCP parsed=", parsed)
+          assert parsed["action_type"] == "JCP"
+          assert parsed["ex_date"] == "2026-11-18"
+          assert parsed["payment_date"] == "2026-11-30"
+          assert parsed["gross_amount_per_share"] == "0.19178292"
+          assert parsed["net_amount_per_share"] == "0.15822091"
           PY
