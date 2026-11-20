@@ -316,3 +316,36 @@ def test_english_notice_rejects_unsafe_or_incomplete_data(replacement, reason):
             ENGLISH_Q3_NOTICE.replace(*replacement),
             published_date="2026-11-12",
         )
+
+
+def test_live_style_english_q3_feed_ingests_once(monkeypatch):
+    repo = MemoryRepository([
+        notice(
+            "official-q3-ioe",
+            Q3_URL,
+            "2026-11-12",
+            title="Notice to Shareholders - Interest on Equity",
+        )
+    ])
+
+    async def official_pdf(url, *, fetcher=None):
+        assert url == Q3_URL
+        return b"%PDF-1.4 verified official issuer", url, False
+
+    monkeypatch.setattr(ingestion, "_fetch_result_payload", official_pdf)
+    monkeypatch.setattr(ingestion, "_pdf_text", lambda raw: ENGLISH_Q3_NOTICE)
+
+    first = asyncio.run(
+        ingestion.refresh_official_distributions(repo, target_date="2026-11-19")
+    )
+    second = asyncio.run(
+        ingestion.refresh_official_distributions(repo, target_date="2026-11-19")
+    )
+    assert first["status"] == "ok"
+    assert first["rows_written"] == 1
+    assert first["review_required"] == 0
+    assert second["status"] == "ok"
+    assert second["rows_written"] == 0
+    assert second["unchanged"] == 1
+    assert repo.writes == 1
+    assert repo.actions[0]["ex_date"] == "2026-11-18"
