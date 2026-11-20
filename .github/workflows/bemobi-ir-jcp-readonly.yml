@@ -118,18 +118,24 @@ jobs:
               """,
           }
           names = list(queries)
-          output = cf("/d1/database/" + db_id + "/query",
-                      {"batch": [{"sql": queries[name]} for name in names]})
-          if len(output) != len(names):
-              raise SystemExit("D1 returned an unexpected diagnostic query count")
+          # Query independently: a schema mismatch in one optional check must
+          # not prevent other diagnostics or the official HTTPS transport probe.
           rows = {}
-          for name, item in zip(names, output):
-              if item.get("success") is False:
-                  rows[name] = []
-                  print(f"QUERY {name}: ERROR (schema/query mismatch)")
-              else:
+          for name in names:
+              try:
+                  output = cf("/d1/database/" + db_id + "/query",
+                              {"batch": [{"sql": queries[name]}]})
+                  item = output[0]
+                  if item.get("success") is False:
+                      raise ValueError("Cloudflare SQL query failed")
                   rows[name] = item.get("results") or []
                   print(f"QUERY {name}: {len(rows[name])} rows")
+              except urllib.error.HTTPError as exc:
+                  rows[name] = []
+                  print(f"QUERY {name}: HTTP {exc.code}")
+              except (ValueError, KeyError, IndexError, TypeError) as exc:
+                  rows[name] = []
+                  print(f"QUERY {name}: {type(exc).__name__}")
 
           for full in rows["latest_full_refresh"]:
               print("FULL status=", full.get("status"),
