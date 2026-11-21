@@ -9,7 +9,9 @@ on:
     paths:
       - .github/workflows/bemobi-ir-jcp-readonly.yml
       - cloudflare/src/bemobi_distribution_ingestion.py
+      - cloudflare/src/bemobi_verified_mirror.py
       - backend/tests/test_bemobi_distribution_auto_ingestion.py
+      - backend/tests/test_bemobi_verified_mirror.py
 
 permissions:
   contents: read
@@ -102,8 +104,8 @@ jobs:
                   SELECT estimate_date, associated_receivable_nok,
                          receivable_components_json
                   FROM other_net_assets_daily_estimates
-                  WHERE estimate_date BETWEEN '2026-11-17' AND '2026-11-20'
-                  ORDER BY estimate_date DESC LIMIT 8
+                  WHERE estimate_date BETWEEN '2026-11-17' AND '2026-12-01'
+                  ORDER BY estimate_date DESC LIMIT 20
               """,
               "relevant_documents": """
                   SELECT sd.id, sd.title, sd.url, sd.published_at,
@@ -343,4 +345,4 @@ jobs:
       - name: Regression tests for automatic Bemobi distribution ingestion
         shell: bash
         run: |
-          PYTHONPATH=cloudflare/src python3 -m pytest -q backend/tests/test_bemobi_distribution_auto_ingestion.py
+          PYTHONPATH=cloudflare/src python3 -m pytest -q backend/tests/test_bemobi_distribution_auto_ingestion.py backend/tests/test_bemobi_verified_mirror.py
