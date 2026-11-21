@@ -571,3 +571,89 @@ def test_verified_cvm_3q26_earnings_pdf_fits_network_and_parse_size_guards():
 
     assert 18_291_776 <= MAX_RESULT_BYTES
     assert MAX_RESULT_BYTES <= MAX_RESULT_UNCOMPRESSED_BYTES
+
+
+
+def test_verified_r2_release_used_only_after_dual_http526(monkeypatch) -> None:
+    """Full result ingestion retains official CVM provenance and validated period."""
+    import json
+
+    company = web_refresh.BEMOBI_IR_COMPANY_ID
+    original = (
+        f"https://filemanager-cdn.mziq.com/published/{company}/"
+        "edc3de06-99b5-4b4e-ab7a-b0929b62cdf5"
+    )
+    class Repo:
+        def __init__(self):
+            self.docs = []
+            self.facts = []
+
+        async def first(self, sql, parameters=()):
+            if "FROM runtime_state" in sql:
+                return {"value": json.dumps({
+                    "checked_date": "2026-11-21",
+                    "rows": [{
+                        "id": "result-3q26",
+                        "url": original,
+                        "title": "Earnings Release 3Q26",
+                        "date": "2026-11-12",
+                        "document_kind": "EARNINGS_RELEASE",
+                    }],
+                })}
+            return None
+
+        async def all(self, sql, parameters=()):
+            assert "FROM company_news" in sql
+            return []
+
+        async def create_source_document(self, **kwargs):
+            self.docs.append(kwargs)
+            return len(self.docs)
+
+    class Bucket:
+        async def put(self, key, value):
+            assert key and value.startswith(b"%PDF")
+
+    bucket = Bucket()
+    attempts = []
+    async def always_526(url, **kwargs):
+        attempts.append(url)
+        raise RuntimeError("Bemobi result release feilet med HTTP 526")
+
+    async def r2_copy(found_bucket, kind):
+        assert found_bucket is bucket and kind == "result"
+        return b"%PDF-1.6 verified official CVM result", web_refresh.Q3_RELEASE_URL
+
+    def parsed_result(text, *, published_date):
+        assert published_date == "2026-11-12"
+        return {
+            "period": "3Q26", "period_end": "2026-09-30",
+            "adjusted_net_revenue_mbrl": 245.0,
+            "adjusted_ebitda_mbrl": 87.0,
+            "adjusted_net_income_mbrl": 40.0,
+            "ebitda_less_capex_mbrl": 80.0,
+            "cash_mbrl": 319.0,
+        }
+
+    repo = Repo()
+    async def capture_fact(repository, **kwargs):
+        assert repository is repo
+        repo.facts.append(kwargs)
+
+    monkeypatch.setattr(web_refresh, "_fetch_result_payload", always_526)
+    monkeypatch.setattr(web_refresh, "read_verified_q3_document", r2_copy)
+    monkeypatch.setattr(web_refresh, "_pdf_text", lambda raw: raw.decode("latin-1"))
+    monkeypatch.setattr(web_refresh, "parse_bemobi_result_text", parsed_result)
+    monkeypatch.setattr(web_refresh, "_upsert_fact", capture_fact)
+    monkeypatch.setattr(web_refresh, "_valuation_anchor_from_result", lambda *args, **kwargs: None)
+    result = asyncio.run(web_refresh.sync_latest_result_release(
+        repo, target_date="2026-11-21", archive_bucket=bucket,
+    ))
+    assert result["status"] == "ok"
+    assert result["period"] == "3Q26"
+    assert attempts == [original, web_refresh.Q3_RELEASE_URL]
+    assert repo.docs[1]["source_code"] == "CVM"
+    assert repo.docs[1]["url"] == web_refresh.Q3_RELEASE_URL
+    official_result = next(x for x in repo.facts if x["fact_type"] == "RESULT")
+    assert official_result["source_name"] == "CVM"
+    assert official_result["source_url"] == web_refresh.Q3_RELEASE_URL

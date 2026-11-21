@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from bemobi_ir_news import COMPANY_ID, STATE_KEY
 from bemobi_web_refresh import _fetch_result_payload, _pdf_text
+from bemobi_verified_mirror import Q3_JCP_URL, read_verified_q3_document
 
 _MONTHS = {
     "janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4,
@@ -303,7 +304,7 @@ def _valid_notice(row: dict, *, target_date: str) -> bool:
 
 
 async def refresh_official_distributions(
-    repository, *, target_date: str, fetcher=None
+    repository, *, target_date: str, fetcher=None, archive_bucket=None
 ) -> dict:
     """Upsert new, verified corporate actions before NAV and cash refresh."""
     state = await repository.first(
@@ -344,14 +345,38 @@ async def refresh_official_distributions(
         external_id = f"bemobi-ir-distribution:{row['id']}"
         try:
             original_url = str(row["url"])
-            payload, resolved_url, _ = await _fetch_result_payload(
-                original_url, fetcher=fetcher,
-            )
+            try:
+                payload, resolved_url, _ = await _fetch_result_payload(
+                    original_url, fetcher=fetcher,
+                )
+            except RuntimeError as exc:
+                # Only the specific 12 Nov Q3 JCP notice may use the official
+                # SHA-256-pinned CVM copy when MZiQ fails with TLS 526.
+                q3_notice_title = _normalise(
+                    str(row.get("title") or "") + " "
+                    + str(row.get("original_title") or "")
+                )
+                if (
+                    "526" not in str(exc)
+                    or str(row["date"]) != "2026-11-12"
+                    or not any(term in q3_notice_title for term in (
+                        "interest on equity", "juros sobre capital", "jcp 3t26",
+                        "jcp 3q26",
+                    ))
+                ):
+                    raise
+                payload, resolved_url = await read_verified_q3_document(
+                    archive_bucket, "jcp",
+                )
             resolved = urlsplit(resolved_url)
+            is_official_cvm_q3 = resolved_url == Q3_JCP_URL
             if (
-                resolved.hostname not in {"api.mziq.com", "filemanager-cdn.mziq.com"}
-                or f"/{COMPANY_ID}/" not in resolved.path
-                or not payload.startswith(b"%PDF")
+                not payload.startswith(b"%PDF")
+                or not (
+                    (resolved.hostname in {"api.mziq.com", "filemanager-cdn.mziq.com"}
+                     and f"/{COMPANY_ID}/" in resolved.path)
+                    or is_official_cvm_q3
+                )
             ):
                 raise ValueError("unverified_issuer_pdf")
             parsed = parse_official_distribution(
@@ -387,7 +412,7 @@ async def refresh_official_distributions(
                 continue
 
             doc_id = await repository.create_source_document(
-                source_code="BEMOBI_IR",
+                source_code="CVM" if is_official_cvm_q3 else "BEMOBI_IR",
                 external_id=f"bemobi-ir-distribution-document:{row['id']}",
                 document_type="SHAREHOLDER_DISTRIBUTION_NOTICE",
                 title=str(row["title"]),
@@ -397,7 +422,10 @@ async def refresh_official_distributions(
                 metadata={
                     "mziq_document_id": str(row["id"]),
                     "original_url": original_url,
-                    "validation": "OFFICIAL_NOTICE_STRICT",
+                    "validation": (
+                        "OFFICIAL_CVM_Q3_R2_SHA256" if is_official_cvm_q3
+                        else "OFFICIAL_NOTICE_STRICT"
+                    ),
                 },
             )
             issuer_id = await repository.instrument_id("BMOB3")

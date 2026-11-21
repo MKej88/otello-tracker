@@ -1,0 +1,73 @@
+name: Mirror verified Bemobi Q3 official PDFs to private R2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bemobi-verified-r2-mirror.yml
+      - tools/mirror_bemobi_q3_documents.py
+      - cloudflare/src/bemobi_verified_mirror.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bemobi-q3-verified-r2-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Verify required R2 permissions and bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          [[ "$CLOUDFLARE_R2_BUCKET_NAME" =~ ^[a-zA-Z0-9_-]{1,63}$ ]]
+      - name: Install locked PDF validation dependencies
+        run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Download and validate immutable original CVM PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/mirror_bemobi_q3_documents.py \
+            --output-dir "$RUNNER_TEMP/bemobi-verified"
+      - name: Install pinned Wrangler CLI
+        shell: bash
+        run: npm ci --prefix cloudflare --no-audit --no-fund
+      - name: Upload only SHA-verified original PDF bytes to private R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRANGLER="$GITHUB_WORKSPACE/cloudflare/node_modules/.bin/wrangler"
+          python3 - <<'PY' > "$RUNNER_TEMP/validated-r2-keys.txt"
+          import sys
+          sys.path.insert(0, "cloudflare/src")
+          from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS
+          for kind in ("result", "jcp"):
+              print(kind + " " + PINNED_Q3_DOCUMENTS[kind]["key"])
+          PY
+          while read -r kind key; do
+            "$WRANGLER" r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" \
+              --file="$RUNNER_TEMP/bemobi-verified/$kind.pdf" \
+              --content-type=application/pdf --remote
+          done < "$RUNNER_TEMP/validated-r2-keys.txt"
+          echo "Only pinned SHA-256 verified original CVM files mirrored."
