@@ -349,3 +349,63 @@ def test_live_style_english_q3_feed_ingests_once(monkeypatch):
     assert second["unchanged"] == 1
     assert repo.writes == 1
     assert repo.actions[0]["ex_date"] == "2026-11-18"
+
+
+def test_q3_cvm_r2_fallback_ingests_one_verified_action(monkeypatch):
+    """A Cloudflare 526 must not suppress Q3 JCP when pinned CVM bytes exist."""
+    repo = MemoryRepository([
+        notice(
+            "official-q3-ioe", Q3_URL, "2026-11-12",
+            title="Notice to Shareholders - Interest on Equity",
+        ),
+    ])
+    bucket = object()
+
+    async def tls_526(url, **kwargs):
+        assert url == Q3_URL
+        raise RuntimeError("Bemobi IR HTTP 526")
+
+    async def pinned_copy(found_bucket, kind):
+        assert found_bucket is bucket
+        assert kind == "jcp"
+        return b"%PDF-1.4 verified CVM bytes", ingestion.Q3_JCP_URL
+
+    monkeypatch.setattr(ingestion, "_fetch_result_payload", tls_526)
+    monkeypatch.setattr(ingestion, "read_verified_q3_document", pinned_copy)
+    monkeypatch.setattr(ingestion, "_pdf_text", lambda raw: ENGLISH_Q3_NOTICE)
+
+    first = asyncio.run(ingestion.refresh_official_distributions(
+        repo, target_date="2026-11-20", archive_bucket=bucket,
+    ))
+    second = asyncio.run(ingestion.refresh_official_distributions(
+        repo, target_date="2026-11-20", archive_bucket=bucket,
+    ))
+    assert first["status"] == "ok" and first["rows_written"] == 1
+    assert second["rows_written"] == 0 and second["unchanged"] == 1
+    assert repo.writes == 1
+    assert repo.documents[0]["source_code"] == "CVM"
+    assert repo.documents[0]["url"] == ingestion.Q3_JCP_URL
+    assert repo.documents[0]["metadata"]["validation"] == "OFFICIAL_CVM_Q3_R2_SHA256"
+
+
+def test_other_notices_must_not_substitute_pinned_q3_cvm_document(monkeypatch):
+    repo = MemoryRepository([
+        notice(
+            "other-notice", Q3_URL, "2026-11-13",
+            title="Notice to Shareholders - Interest on Equity",
+        ),
+    ])
+
+    async def tls_526(url, **kwargs):
+        raise RuntimeError("Bemobi IR HTTP 526")
+
+    async def forbidden_copy(*args, **kwargs):
+        raise AssertionError("Other filings must not use the Q3 mirror")
+
+    monkeypatch.setattr(ingestion, "_fetch_result_payload", tls_526)
+    monkeypatch.setattr(ingestion, "read_verified_q3_document", forbidden_copy)
+    result = asyncio.run(ingestion.refresh_official_distributions(
+        repo, target_date="2026-11-20", archive_bucket=object(),
+    ))
+    assert result["rows_written"] == 0
+    assert result["review_required"] == 1
