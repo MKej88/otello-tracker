@@ -213,6 +213,7 @@ async def refresh_bemobi_web(
     try:
         distribution_ingestion = await refresh_official_distributions(
             repository, target_date=target_date, fetcher=fetcher,
+            archive_bucket=archive_bucket,
         )
     except Exception as exc:
         distribution_ingestion = {
