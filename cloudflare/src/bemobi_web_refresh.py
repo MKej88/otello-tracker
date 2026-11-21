@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlparse
 
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
+from bemobi_verified_mirror import Q3_RELEASE_URL, read_verified_q3_document
 
 try:
     from .bounded_response import read_response_bytes
@@ -1384,9 +1385,21 @@ async def sync_latest_result_release(
                 fallback_url = _official_cvm_q3_release_fallback(candidate)
                 if fallback_url is None or "526" not in str(exc):
                     raise
-                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                    fallback_url, fetcher=fetcher,
-                )
+                try:
+                    raw, resolved_url, resolved_from_html = await _fetch_result_payload(
+                        fallback_url, fetcher=fetcher,
+                    )
+                except RuntimeError as cvm_exc:
+                    # Cloudflare's TLS 526 is specific to its network path.
+                    # A GitHub runner preloads this exact official CVM PDF into
+                    # private R2 after verifying the immutable SHA-256. R2
+                    # cannot override a changed source document or period.
+                    if "526" not in str(cvm_exc) or fallback_url != Q3_RELEASE_URL:
+                        raise
+                    raw, resolved_url = await read_verified_q3_document(
+                        archive_bucket, "result",
+                    )
+                    resolved_from_html = False
             text = _pdf_text(raw)
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
