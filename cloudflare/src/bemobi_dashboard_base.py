@@ -141,6 +141,11 @@ def _valuation_payload(
     reported_values = [
         _number(item.get("reported_net_income_parent_mbrl")) for item in ttm_quarters
     ]
+    missing_reported_periods = [
+        str(item.get("period") or "ukjent")
+        for item, value in zip(ttm_quarters, reported_values)
+        if value is None
+    ]
     reported_ttm = (
         sum(float(value) for value in reported_values if value is not None)
         if all(value is not None for value in reported_values)
@@ -222,6 +227,7 @@ def _valuation_payload(
         "adjusted_net_income_ttm_mbrl": ttm_net_income,
         "reported_net_income_ttm_mbrl": reported_ttm,
         "reported_net_income_ttm_complete": reported_ttm is not None,
+        "reported_net_income_missing_periods": missing_reported_periods,
         "reported_net_income_source": "CVM" if reported_ttm is not None else None,
         "reported_net_income_source_url": (
             ttm_quarters[-1].get("reported_net_income_parent_source_url")
@@ -257,15 +263,31 @@ def _distribution_estimate_payload(
     ownership_pct: float | None,
     brl_nok: float | None,
     outstanding_otello: int,
+    latest_result_period: str | None = None,
 ) -> dict[str, Any]:
     reported_ttm = _number(valuation.get("reported_net_income_ttm_mbrl"))
     period = str(valuation.get("period") or "TTM")
     ttm_end_period = str(valuation.get("ttm_end_period") or "")
+    latest_index = _quarter_index(latest_result_period)
+    end_index = _quarter_index(ttm_end_period)
+    if latest_index is not None and (end_index is None or end_index < latest_index):
+        return {
+            "ready": False,
+            "reason": "reported_ttm_not_current",
+            "period": period,
+            "ttm_end_period": ttm_end_period or None,
+            "latest_result_period": latest_result_period,
+            "missing_periods": [latest_result_period],
+            "payout_policy_pct": BEMOBI_PAYOUT_POLICY_PCT,
+            "policy_year": BEMOBI_PAYOUT_POLICY_YEAR,
+        }
     if reported_ttm is None:
         return {
             "ready": False,
             "reason": "reported_ttm_not_ready",
             "period": period,
+            "ttm_end_period": ttm_end_period or None,
+            "missing_periods": valuation.get("reported_net_income_missing_periods") or [],
             "payout_policy_pct": BEMOBI_PAYOUT_POLICY_PCT,
             "policy_year": BEMOBI_PAYOUT_POLICY_YEAR,
         }
@@ -371,7 +393,16 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
         latest_bemobi_fact(repository, "VALUATION_ANCHOR"),
         latest_bemobi_fact(repository, "NEXT_QUARTER"),
     )
-    ttm_quarters = all_ttm_quarters[-4:]
+    # A newly filed CVM quarter can contain statutory numbers before the
+    # separate Bemobi adjusted release has been parsed. Do not let that partial
+    # quarter crash the existing TTM valuation; retain it for cash diagnostics.
+    ttm_quarters = [
+        q for q in all_ttm_quarters
+        if all(_number(q.get(key)) is not None for key in (
+            "adjusted_net_income_mbrl", "adjusted_ebitda_mbrl",
+            "adjusted_cash_generation_mbrl",
+        ))
+    ][-4:]
 
     if (
         latest_result_fact is None
@@ -438,6 +469,10 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
     }
     distribution = _distribution_payload(distribution_row, shares)
     valuation = _valuation_payload(bmob3_price, ownership_fact, ttm_quarters, ev_anchor)
+    # Statutory debt/cash may already have arrived for a newer partial quarter.
+    valuation["reported_balance_quarters"] = [
+        public_fact(item) for item in all_ttm_quarters[-4:]
+    ]
     distribution_estimate = _distribution_estimate_payload(
         valuation=valuation,
         latest_distribution=distribution,
@@ -445,6 +480,7 @@ async def bemobi_dashboard(repository) -> dict[str, Any]:
         ownership_pct=ownership_pct,
         brl_nok=brl_nok,
         outstanding_otello=outstanding_otello,
+        latest_result_period=curated_result.get("period"),
     )
 
     sources = [
