@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from bisect import bisect_right
 from datetime import date, timedelta
 from decimal import Decimal
+from time import perf_counter
 from typing import Any
 
 try:
@@ -176,7 +178,10 @@ def _range_stats(series: list[dict[str, Any]], *, start_date: str) -> dict[str, 
     }
 
 
-async def fx_dashboard(repository) -> dict[str, Any]:
+async def fx_dashboard(
+    repository, *, diagnostics: dict[str, float] | None = None
+) -> dict[str, Any]:
+    lookup_started = perf_counter()
     latest = await repository.first(
         """
         SELECT MAX(substr(fr.observed_at, 1, 10)) AS max_date
@@ -188,23 +193,34 @@ async def fx_dashboard(repository) -> dict[str, Any]:
           AND CAST(fr.rate AS REAL) > 0
         """
     )
+    if diagnostics is not None:
+        diagnostics["lookup_ms"] = (perf_counter() - lookup_started) * 1000
     if latest is None or latest.get("max_date") is None:
         return {"ready": False, "reason": "missing_brl_nok_history", "series": []}
 
     end_date = str(latest["max_date"])
     start_date = (date.fromisoformat(end_date) - timedelta(days=HISTORY_DAYS)).isoformat()
-    brl_series = await _preferred_series(
-        repository,
-        base_currency="BRL",
-        start_date=start_date,
-        end_date=end_date,
+    # Independent BRL, USD and indicative-quote reads can overlap: avoid
+    # three sequential D1 round trips without changing rate selection.
+    async def timed_series(currency: str):
+        started = perf_counter()
+        rows = await _preferred_series(
+            repository, base_currency=currency,
+            start_date=start_date, end_date=end_date,
+        )
+        return rows, (perf_counter() - started) * 1000
+
+    async def timed_spot():
+        started = perf_counter()
+        spot = await latest_indicative_brl_nok(repository)
+        return spot, (perf_counter() - started) * 1000
+
+    (brl_series, brl_ms), (usd_series, usd_ms), (indicative, spot_ms) = await asyncio.gather(
+        timed_series("BRL"), timed_series("USD"), timed_spot()
     )
-    usd_series = await _preferred_series(
-        repository,
-        base_currency="USD",
-        start_date=start_date,
-        end_date=end_date,
-    )
+    if diagnostics is not None:
+        diagnostics.update(brl_ms=brl_ms, usd_ms=usd_ms, spot_ms=spot_ms)
+    compute_started = perf_counter()
 
     current_brl = _on_or_before(brl_series, end_date)
     current_usd = _on_or_before(
@@ -237,7 +253,6 @@ async def fx_dashboard(repository) -> dict[str, Any]:
             }
         )
 
-    indicative = await latest_indicative_brl_nok(repository)
     current_brl_rate = Decimal(str(indicative["rate"])) if indicative is not None else Decimal(str(current_brl["rate"]))
     current_usd_rate = Decimal(str(current_usd["rate"])) if current_usd is not None else None
     periods = {
@@ -250,6 +265,9 @@ async def fx_dashboard(repository) -> dict[str, Any]:
         for period in ("d1", "m1", "ytd", "y1", "y3", "y5")
     }
     one_year_start = (date.fromisoformat(end_date) - timedelta(days=365)).isoformat()
+
+    if diagnostics is not None:
+        diagnostics["compute_ms"] = (perf_counter() - compute_started) * 1000
 
     return {
         "ready": True,
