@@ -89,3 +89,21 @@ export function parseNavHistoryServerTiming(header) {
   }
   return Object.keys(result).length ? result : null;
 }
+
+/** Allow-listed FX phase timings. The parallel phases must not be summed. */
+export function parseFxServerTiming(header) {
+  if (!header) return null;
+  const names = {
+    handler: "handlerMs", import: "importMs", lookup: "lookupMs",
+    brl: "brlSeriesMs", usd: "usdSeriesMs", spot: "spotMs",
+    compute: "computeMs", d1: "d1TotalMs",
+  };
+  const result = {};
+  for (const part of header.split(",")) {
+    const match = /^\s*fx_(handler|import|lookup|brl|usd|spot|compute|d1);dur=(\d+(?:\.\d{1,3})?)\s*$/.exec(part);
+    if (match) result[names[match[1]]] = Number(match[2]);
+    const reads = /^\s*fx_reads;desc="(\d{1,5})"\s*$/.exec(part);
+    if (reads) result.d1Reads = Number(reads[1]);
+  }
+  return Object.keys(result).length ? result : null;
+}
