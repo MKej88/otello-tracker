@@ -86,6 +86,7 @@ jobs:
           python3 -m py_compile cloudflare/src/app.py cloudflare/src/entry.py cloudflare/src/worker_timing.py cloudflare/src/brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_brazil_snapshot.py
           python3 -m unittest discover -s cloudflare/tests -p test_materialized_discount_history_timing.py
+          python3 -m unittest discover -s cloudflare/tests -p test_fx_dashboard_performance.py
 
       # PRs only test the scripts locally; rapid pushes otherwise hit
       # Cloudflare rate limits and generate false production alerts.
@@ -111,5 +112,44 @@ jobs:
         with:
           name: otello-production-performance
           path: performance-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Requires a trusted runner physically located in Europe. This optional job
+  # is disabled by default and never mixes with US trend artifacts.
+  synthetic-eu:
+    name: Optional European synthetic check
+    if: ${{ github.event_name == 'schedule' && vars.OTELLO_EU_RUNNER_ENABLED == 'true' }}
+    runs-on: [self-hosted, linux, x64, otello-eu]
+    timeout-minutes: 9
+    env:
+      OTELLO_SITE_URL: https://otellotracker.com
+      OTELLO_PROBE_REGION: eu-self-hosted
+      PERF_REPORT_PATH: performance-report-eu.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Check Chrome availability
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chrome_bin="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          if [ -z "$chrome_bin" ]; then
+            echo "::error::Chrome/Chromium required on EU runner"
+            exit 1
+          fi
+          echo "CHROME_BIN=$chrome_bin" >> "$GITHUB_ENV"
+      - name: Measure from optional EU runner
+        run: node frontend/tools/production-performance.mjs
+      - name: Archive EU measurements separately
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: otello-production-performance-eu
+          path: performance-report-eu.json
           if-no-files-found: warn
           retention-days: 30

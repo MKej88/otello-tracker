@@ -12,7 +12,7 @@ import { median, classifiedApiSamples } from "./performance-trend-core.mjs";
 import { cloudflareColo, watchUndiciRequest } from "./api-network-phases.mjs";
 import { slowTraceCandidates } from "./trace-candidates.mjs";
 import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
-import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming, parseFxServerTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
   fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
@@ -21,6 +21,7 @@ import {
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
 const chromeBin = process.env.CHROME_BIN || "google-chrome";
 const reportPath = process.env.PERF_REPORT_PATH || "performance-report.json";
+const probeRegion = process.env.OTELLO_PROBE_REGION || "github-hosted";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** All 12 investor views, with a DOM marker that is only present when
@@ -121,6 +122,8 @@ async function probeApi(path) {
           originTiming: [
             "/api/bemobi/dashboard", "/api/bemobi/consensus", "/api/buybacks/dashboard",
           ].includes(path) ? parseOtelloOriginTiming(response.headers.get("server-timing")) : null,
+          fxTiming: path === "/api/fx/dashboard"
+            ? parseFxServerTiming(response.headers.get("server-timing")) : null,
         };
       } finally {
         transport?.close();
@@ -162,6 +165,8 @@ async function probeApi(path) {
       ? { navHistoryTiming: samples.map((sample) => sample.navHistoryTiming) } : {}),
     ...(samples.some((sample) => sample.originTiming != null)
       ? { originTiming: samples.map((sample) => sample.originTiming) } : {}),
+    ...(path === "/api/fx/dashboard"
+      ? { fxTiming: samples.map((sample) => sample.fxTiming) } : {}),
     rateLimitedAttempts,
     timeoutRetries,
   };
@@ -389,6 +394,7 @@ function extractBrowserMetrics(transitionStartMs = 0) {
     apiResources,
     scriptResources,
     longTaskCount: longTasks.length,
+    longTaskMaxMs: Math.round(Math.max(0, ...longTasks)),
     longTaskTotalMs: Math.round(longTasks.reduce((sum, value) => sum + value, 0)),
     observerCaptured: Number.isFinite(markerAt) && markerAt >= transitionStartMs,
     // Read lag does not count towards first-content time when observer captured it.
@@ -585,6 +591,7 @@ async function main() {
   const result = {
     checkedAt: new Date().toISOString(),
     site: base.origin,
+    probeRegion,
     browser: [],
     navigation: [],
     api: [],
@@ -729,12 +736,13 @@ async function main() {
   }
   const brazil = result.api.find((item) => item.endpoint === "/api/brazil/dashboard");
   const health = result.api.find((item) => item.endpoint === "/api/health");
+  const fx = result.api.find((item) => item.endpoint === "/api/fx/dashboard");
   const navHistory = result.api.find((item) =>
     new URL(item.endpoint, base).pathname === "/api/dashboard/discount-history");
   const lines = [
     "## OtelloTracker – produksjonsytelse",
     "",
-    "Målt " + result.checkedAt + " fra GitHub-runner med fersk Chrome-profil per direkte åpning.",
+    "Målt " + result.checkedAt + " fra " + probeRegion + " med fersk Chrome-profil per direkte åpning.",
     "",
     "### Første synlige hoveddata",
     "",
@@ -746,7 +754,8 @@ async function main() {
       (b.domToDataMs == null ? "–" : b.domToDataMs + " ms") +
       " | " + resourceLabel(b.scriptResources?.[0]) +
       " | " + resourceLabel(b.apiResources?.[0]) +
-      " | " + (b.longTaskTotalMs ?? "–") + " ms |"
+      " | " + (b.longTaskTotalMs ?? "–") + " ms" +
+      (b.longTaskCount ? " (" + b.longTaskCount + " oppgaver; maks " + b.longTaskMaxMs + " ms)" : "") + " |"
     ),
     "",
     "### Intern navigering (samme nettleserøkt)",
@@ -826,7 +835,7 @@ async function main() {
     "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ...result.api.map((a) => {
       const transport = a.transport?.[0];
-      const handler = a.originTiming?.[0]?.handlerMs ?? a.serverTiming?.[0]?.handlerMs ?? null;
+      const handler = a.originTiming?.[0]?.handlerMs ?? a.serverTiming?.[0]?.handlerMs ?? a.fxTiming?.[0]?.handlerMs ?? null;
       const afterSend = transport?.sendToHeadersMs ?? null;
       const residue = Number.isFinite(afterSend) && Number.isFinite(handler)
         ? Math.max(0, Math.round(afterSend - handler)) : null;
@@ -871,6 +880,26 @@ async function main() {
     "ASGI-adapter inkluderer FastAPI, og FastAPI-middleware omfatter også ventetid i endepunkter. Disse tallene kan ikke summeres som uavhengige faser.",
     "D1-målingene gjelder kun Nyheter og Datakvalitet. D1-lesetid summerer databaseoppslag i én forespørsel og kan overstige veggklokketiden ved parallellitet; den er ikke en egen oppstartsfase.",
     "Cloudflare-cache HIT kan videreføre måleheadere fra en tidligere MISS; tabellen viser kun første prøve.",
+    "",
+    "### Valuta – interne faser og D1 ved cache MISS",
+    "",
+    ...(fx?.fxTiming?.map((timing, index) => {
+      const cache = fx.cfCacheStatus[index];
+      if (!timing) return "- Prøve " + (index + 1) + ": ingen FX Server-Timing (eldre deploy eller cache).";
+      const ms = (value) => Number.isFinite(value) ? value + " ms" : "–";
+      return "- Prøve " + (index + 1) + " (CF " + cache +
+        ", ekstern " + fx.sampleTotalMs[index] + " ms): handler " +
+        ms(timing.handlerMs) + "; siste dato " + ms(timing.lookupMs) +
+        "; BRL-historikk " + ms(timing.brlSeriesMs) +
+        "; USD-historikk " + ms(timing.usdSeriesMs) +
+        "; markedskurs " + ms(timing.spotMs) +
+        "; beregning " + ms(timing.computeMs) +
+        "; summerte D1-lesinger " + ms(timing.d1TotalMs) +
+        "; antall D1-oppslag " + (timing.d1Reads ?? "–") +
+        (cache === "HIT" ? " [timing fra forrige cachefylling]" : "") + ".";
+    }) || ["Ingen FX-prøver registrert."]),
+    "BRL, USD og markedskurs hentes parallelt. Fasene overlapper og skal ikke summeres.",
+    "D1-tiden er summen av databaseoppslag, ikke eksklusiv veggklokketid.",
     "",
     "### Historisk NAV-rabatt – forhåndsberegning og D1",
     "",
