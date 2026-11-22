@@ -52,8 +52,11 @@ jobs:
           if not token or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", account):
               raise SystemExit("Missing or invalid production Cloudflare credentials")
           is_push = os.environ["GITHUB_EVENT_NAME"] == "push"
-          requested = "2026-11-21" if is_push else os.getenv("INPUT_TARGET_DATE", "").strip()
           yesterday = datetime.now(ZoneInfo("Europe/Oslo")).date() - timedelta(days=1)
+          requested = (
+              yesterday.isoformat()
+              if is_push else os.getenv("INPUT_TARGET_DATE", "").strip()
+          )
           if not requested:
               requested = yesterday.isoformat()
           if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", requested):
@@ -142,6 +145,69 @@ jobs:
                               "status", "result_release", "distribution_ingestion"
                           )}, default=str)[:3000], flush=True)
                       break
+          # Diagnose the *actual* CVM accounts that the cash and payout cards
+          # depend on; a SUCCESS job can still carry non-critical CVM omissions.
+          cvm = (metadata.get("sources") or {}).get("cvm") or {}
+          financials = cvm.get("financials") or {}
+          print("D1 CVM financial refresh:", json.dumps(
+              {k: financials.get(k) for k in (
+                  "status", "reason", "archives", "rows_written",
+                  "fact_status", "errors", "unavailable"
+              )}, ensure_ascii=False, default=str)[:5000], flush=True)
+
+          quarter_sql = """
+              SELECT fact_key, as_of_date,
+                json_extract(payload_json, '$.reported_net_income_parent_mbrl')
+                  AS parent_net_income_mbrl,
+                json_extract(payload_json, '$.reported_cash_mbrl') AS cash_mbrl,
+                json_extract(payload_json, '$.reported_financial_investments_mbrl')
+                  AS investments_mbrl,
+                json_extract(payload_json, '$.reported_borrowings_mbrl')
+                  AS borrowings_mbrl,
+                json_extract(payload_json, '$.reported_net_debt_mbrl')
+                  AS net_debt_mbrl,
+                json_extract(payload_json, '$.reported_net_debt_method')
+                  AS net_debt_method
+              FROM bemobi_investor_facts
+              WHERE fact_type='TTM_QUARTER'
+                AND fact_key IN ('4Q25','1Q26','2Q26','3Q26')
+              ORDER BY as_of_date ASC
+          """
+          qr = api("/d1/database/" + db_id + "/query", {"sql": quarter_sql})
+          quarter_rows = (qr[0].get("results") or []) if qr else []
+          indexed = {r["fact_key"]: r for r in quarter_rows}
+          for row in quarter_rows:
+              print("CVM TTM", json.dumps(row, ensure_ascii=False), flush=True)
+          required = ("4Q25", "1Q26", "2Q26", "3Q26")
+          missing = [
+              key for key in required
+              if key not in indexed or indexed[key].get("parent_net_income_mbrl") is None
+          ]
+          q3 = indexed.get("3Q26") or {}
+          q3_balance_complete = all(q3.get(k) is not None for k in (
+              "cash_mbrl", "investments_mbrl",
+              "borrowings_mbrl", "net_debt_mbrl",
+          ))
+          if q3_balance_complete:
+              liquidity = float(q3["cash_mbrl"]) + float(q3["investments_mbrl"])
+              debt = float(q3["borrowings_mbrl"])
+              net = -float(q3["net_debt_mbrl"])
+              q3_balance_complete = (
+                  abs(liquidity - 319.271) <= 0.01
+                  and abs(debt - 41.449) <= 0.01
+                  and abs(net - (liquidity - debt)) <= 0.01
+                  and q3.get("net_debt_method") ==
+                      "CVM_BORROWINGS_MINUS_CASH_AND_INVESTMENTS"
+              )
+          print("Q3 source completeness", json.dumps({
+              "missing_ttm_net_income_quarters": missing,
+              "q3_liquidity_and_debt_reconciled": q3_balance_complete,
+          }), flush=True)
           if job["status"] != "SUCCESS":
               raise SystemExit("D1 full refresh has status " + str(job["status"]))
+          if missing or not q3_balance_complete:
+              raise SystemExit(
+                  "CVM Q3 accounts are not fully source-verified in production D1."
+              )
+          PY
           PY
