@@ -20,9 +20,11 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/full_refresh_diagnostic.py
       - cloudflare/src/production_diagnostic_policy.py
       - cloudflare/src/fast_refresh_diagnostic.py
       - cloudflare/tests/test_fast_refresh_diagnostic.py
+      - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
@@ -34,9 +36,11 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/full_refresh_diagnostic.py
       - cloudflare/src/production_diagnostic_policy.py
       - cloudflare/src/fast_refresh_diagnostic.py
       - cloudflare/tests/test_fast_refresh_diagnostic.py
+      - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
