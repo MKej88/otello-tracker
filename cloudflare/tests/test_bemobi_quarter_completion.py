@@ -5,7 +5,10 @@ import asyncio
 import json
 import sqlite3
 
-from src.bemobi_cvm_financials import _merge_quarter_fact
+from src.bemobi_cvm_financials import (
+    _merge_quarter_fact, _refresh_due, _REPAIR_VERSION_KEY, _REPAIR_VERSION,
+    _set_runtime_value,
+)
 from src.bemobi_dashboard_base import _distribution_estimate_payload, _valuation_payload
 from src.bemobi_web_refresh import _upsert_fact
 
@@ -15,6 +18,11 @@ class Repository:
         self.db = sqlite3.connect(":memory:")
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
+            CREATE TABLE runtime_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
             CREATE TABLE bemobi_investor_facts (
                 id INTEGER PRIMARY KEY,
                 fact_type TEXT NOT NULL,
@@ -35,6 +43,9 @@ class Repository:
     async def first(self, sql, params=()):
         row = self.db.execute(sql, params).fetchone()
         return dict(row) if row is not None else None
+
+    async def all(self, sql, params=()):
+        return [dict(row) for row in self.db.execute(sql, params).fetchall()]
 
     async def run(self, sql, params=()):
         value = self.db.execute(sql, params)
@@ -158,3 +169,16 @@ def test_older_ttm_cannot_be_misrepresented_as_current_q3_distribution():
     assert result["ready"] is False
     assert result["reason"] == "reported_ttm_not_current"
     assert result["missing_periods"] == ["3Q26"]
+
+def test_one_time_backfill_bypasses_old_retry_throttle_and_then_recovers_throttle():
+    async def scenario():
+        repo = Repository()
+        await _set_runtime_value(repo, "bemobi_cvm_financials_last_attempt", "2026-11-21")
+        due, reason = await _refresh_due(repo, target_date="2026-11-21")
+        assert (due, reason) == (True, "quarter_backfill_upgrade")
+        await _set_runtime_value(repo, _REPAIR_VERSION_KEY, _REPAIR_VERSION)
+        due, reason = await _refresh_due(repo, target_date="2026-11-21")
+        assert (due, reason) == (False, "retry_interval_not_due")
+        due, reason = await _refresh_due(repo, target_date="2026-11-23")
+        assert (due, reason) == (True, "reported_quarters_missing")
+    asyncio.run(scenario())
