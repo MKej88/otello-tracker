@@ -50,11 +50,14 @@ CACHE_POLICIES = {
     "/api/market/bemobi-after-oslo": ("public, max-age=15", "public, max-age=15"),
 }
 
-# Aggregate per-request D1 timings only for the two slow production endpoints.
-# Counts and durations are diagnostic metadata, never SQL text or results.
+# Aggregate D1 timings for selected production bottlenecks.
+# This exposes only durations and query counts, never SQL text or financial data.
 D1_TIMING_ROUTES = frozenset({
     "/api/news-events",
     "/api/dashboard/runtime-status",
+    "/api/fx/dashboard",
+    "/api/dashboard/discount-history",
+    "/api/buybacks/dashboard",
 })
 
 app = FastAPI(
@@ -240,10 +243,28 @@ async def get_fx_backtest(request: Request) -> dict:
 
 
 @app.get("/api/fx/dashboard")
-async def get_fx_dashboard(request: Request) -> dict:
+async def get_fx_dashboard(request: Request, response: Response) -> dict:
+    started = perf_counter()
+    importing = perf_counter()
     from fx_dashboard import fx_dashboard
-
-    return await fx_dashboard(_repository(request))
+    import_ms = (perf_counter() - importing) * 1000
+    repository = _repository(request)
+    diagnostics: dict[str, float] = {}
+    payload = await fx_dashboard(repository, diagnostics=diagnostics)
+    metrics = repository.performance_metrics()
+    # BRL, USD and spot phases are parallel. Do not add them as exclusive time.
+    response.headers["Server-Timing"] = ", ".join((
+        f"fx_handler;dur={(perf_counter() - started) * 1000:.2f}",
+        f"fx_import;dur={import_ms:.2f}",
+        f"fx_lookup;dur={diagnostics.get('lookup_ms', 0):.2f}",
+        f"fx_brl;dur={diagnostics.get('brl_ms', 0):.2f}",
+        f"fx_usd;dur={diagnostics.get('usd_ms', 0):.2f}",
+        f"fx_spot;dur={diagnostics.get('spot_ms', 0):.2f}",
+        f"fx_compute;dur={diagnostics.get('compute_ms', 0):.2f}",
+        f"fx_d1;dur={metrics['d1_read_ms']:.2f}",
+        f'fx_reads;desc="{min(metrics["d1_reads"], 99999)}"',
+    ))
+    return payload
 
 
 @app.get("/api/dashboard/history")
