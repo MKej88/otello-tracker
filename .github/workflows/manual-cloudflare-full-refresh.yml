@@ -1,0 +1,147 @@
+name: Manual Cloudflare full refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "D1 target date (YYYY-MM-DD); leave blank for yesterday in Oslo"
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/manual-cloudflare-full-refresh.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-one-time-full-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_DATABASE: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      INPUT_TARGET_DATE: ${{ inputs.target_date || '' }}
+    steps:
+      - name: Create a locked Cloudflare full-refresh Workflow instance and verify D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from datetime import date, datetime, timedelta
+          import json
+          import os
+          import re
+          import sys
+          import time
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+          from zoneinfo import ZoneInfo
+
+          token = os.environ.get("CF_TOKEN", "").strip()
+          account = os.environ.get("CF_ACCOUNT", "").strip()
+          db_id = os.environ.get("CF_DATABASE", "").strip()
+          if not token or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", account):
+              raise SystemExit("Missing or invalid production Cloudflare credentials")
+          is_push = os.environ["GITHUB_EVENT_NAME"] == "push"
+          requested = "2026-11-21" if is_push else os.getenv("INPUT_TARGET_DATE", "").strip()
+          yesterday = datetime.now(ZoneInfo("Europe/Oslo")).date() - timedelta(days=1)
+          if not requested:
+              requested = yesterday.isoformat()
+          if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", requested):
+              raise SystemExit("Target date must be YYYY-MM-DD")
+          target = date.fromisoformat(requested)
+          if target > yesterday or (yesterday - target).days > 10:
+              raise SystemExit("Only recent, completed Oslo calendar dates can be refreshed")
+
+          def api(path, payload=None):
+              url = "https://api.cloudflare.com/client/v4/accounts/" + account + path
+              data = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
+              req = Request(
+                  url, data=data,
+                  headers={"Authorization": "Bearer " + token,
+                           "Accept": "application/json",
+                           "Content-Type": "application/json"},
+                  method="POST" if payload is not None else "GET",
+              )
+              try:
+                  with urlopen(req, timeout=60) as resp:
+                      body = json.load(resp)
+              except HTTPError as exc:
+                  raise RuntimeError("Cloudflare request returned HTTP " + str(exc.code)) from exc
+              if body.get("success") is not True:
+                  safe = [str(x.get("code", "?")) for x in body.get("errors", [])]
+                  raise RuntimeError("Cloudflare API did not succeed, error codes: " + ",".join(safe))
+              return body.get("result")
+
+          name = "otello-full-refresh"
+          instance = (
+              "manual-" + requested + "-" +
+              os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
+          )
+          params = json.dumps(
+              {"target_date": requested, "trigger": "github_actions_manual_repair"},
+              separators=(",", ":"),
+          )
+          created = api(
+              "/workflows/" + name + "/instances",
+              {"instance_id": instance, "params": params},
+          )
+          print("Started Cloudflare full refresh:", instance,
+                "status:", created.get("status"), flush=True)
+          status = None
+          for attempt in range(50):
+              time.sleep(9)
+              detail = api("/workflows/" + name + "/instances/" + quote(instance))
+              status = detail.get("status")
+              print("Cloudflare Workflow check", attempt + 1, "status", status, flush=True)
+              if status in ("complete", "errored", "terminated"):
+                  break
+          if status != "complete":
+              raise SystemExit("Cloudflare Workflow did not complete successfully; instance=" + instance)
+
+          # The remote Workflow can complete while the D1 job is PARTIAL.
+          # Report the actual database status instead of presenting a false success.
+          if not db_id:
+              dbs = api("/d1/database?per_page=100")
+              hits = [d for d in dbs if d.get("name") == "otello-nav"]
+              if len(hits) != 1:
+                  raise SystemExit("Unable to identify exactly one production D1 database")
+              db_id = hits[0]["uuid"]
+          if not re.fullmatch(r"[0-9a-f-]{36}", db_id, re.I):
+              raise SystemExit("Invalid D1 database identifier")
+          sql = (
+              "SELECT id, status, started_at, finished_at, metadata_json "
+              "FROM job_runs WHERE job_name='cloudflare_full_refresh' "
+              "AND json_valid(metadata_json) "
+              "AND json_extract(metadata_json,'$.target_date')='" + requested + "' "
+              "ORDER BY id DESC LIMIT 1"
+          )
+          result = api("/d1/database/" + db_id + "/query", {"sql": sql})
+          if not result or not result[0].get("results"):
+              raise SystemExit("Workflow finished but no matching D1 full refresh row exists")
+          job = result[0]["results"][0]
+          print("D1 full refresh", "id", job["id"], "status", job["status"],
+                "target_date", requested, flush=True)
+          metadata = json.loads(job.get("metadata_json") or "{}")
+          for key in ("source_results", "sources"):
+              sources = metadata.get(key) or {}
+              if isinstance(sources, dict):
+                  bemobi = sources.get("bemobi_web") or sources.get("BEMOBI_IR")
+                  if isinstance(bemobi, dict):
+                      print("D1 Bemobi web:", json.dumps(
+                          {k: bemobi.get(k) for k in (
+                              "status", "result_release", "distribution_ingestion"
+                          )}, default=str)[:3000], flush=True)
+                      break
+          if job["status"] != "SUCCESS":
+              raise SystemExit("D1 full refresh has status " + str(job["status"]))
+          PY
