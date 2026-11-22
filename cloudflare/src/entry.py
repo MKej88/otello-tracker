@@ -253,6 +253,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             backfill_bmob3_volume_history,
             refresh_bmob3_close,
         )
+        from bemobi_receivable_history_repair import repair_late_bemobi_receivable_history
         from bemobi_web_refresh_runtime import refresh_bemobi_web
         from bemobi_document_translation import (
             DEFAULT_WORKERS_AI_MODEL,
@@ -664,6 +665,26 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             except Exception as exc:
                 nav_result = error_result(exc)
             await renew_lock("after NAV")
+
+            @step.do(
+                "repair late Bemobi receivable history",
+                config={"retries": {"limit": 2, "delay": "15 seconds"}, "timeout": "5 minutes"},
+            )
+            async def receivable_history_step():
+                repository = PerformanceD1WriteRepository(self.env.DB)
+                result = await repair_late_bemobi_receivable_history(
+                    repository, target_date=target_date,
+                )
+                return {**result, "repository": repository.performance_metrics()}
+
+            try:
+                late_receivables = await receivable_history_step()
+            except Exception as exc:
+                late_receivables = error_result(exc)
+            nav_result["receivable_history_repair"] = late_receivables
+            if late_receivables.get("status") != "ok" and nav_result.get("status") == "ok":
+                nav_result["status"] = "partial"
+            await renew_lock("after historical receivables")
 
             @step.do(
                 "D1 data health preflight",

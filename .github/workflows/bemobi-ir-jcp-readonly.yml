@@ -120,6 +120,19 @@ jobs:
                          OR lower(sd.title) LIKE '%acionistas%')
                   ORDER BY sd.id DESC LIMIT 25
               """,
+              "historical_jcp_nav": """
+                  SELECT o.estimate_date, o.associated_receivable_nok,
+                         (SELECT nav_total_nok FROM nav_snapshots n
+                          WHERE substr(n.as_of_at,1,10)=o.estimate_date
+                            AND n.nav_scope='FULL'
+                          ORDER BY n.id DESC LIMIT 1) AS full_nav_total_nok,
+                         (SELECT nav_total_mnok FROM estimated_nav_history_points e
+                          WHERE e.date=o.estimate_date AND e.quality='VALID'
+                          ORDER BY e.calculated_at DESC LIMIT 1) AS estimated_nav_mnok
+                  FROM other_net_assets_daily_estimates o
+                  WHERE o.estimate_date BETWEEN '2026-11-17' AND '2026-11-21'
+                  ORDER BY o.estimate_date
+              """,
               "ir_feed": """
                   SELECT value FROM runtime_state
                   WHERE key='bemobi_official_news_v1' LIMIT 1
@@ -196,6 +209,12 @@ jobs:
               print("RECEIVABLE", daily.get("estimate_date"),
                     daily.get("associated_receivable_nok"),
                     "jcp_components=", json.dumps(q3, ensure_ascii=False)[:1400])
+
+          for historical in rows["historical_jcp_nav"]:
+              print("HISTORICAL_NAV", historical.get("estimate_date"),
+                    "receivable_nok=", historical.get("associated_receivable_nok"),
+                    "full_nav_total_nok=", historical.get("full_nav_total_nok"),
+                    "estimated_nav_mnok=", historical.get("estimated_nav_mnok"))
 
           for saved in rows["ir_feed"]:
               try:
