@@ -20,9 +20,11 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/full_refresh_diagnostic.py
       - cloudflare/src/production_diagnostic_policy.py
       - cloudflare/src/fast_refresh_diagnostic.py
       - cloudflare/tests/test_fast_refresh_diagnostic.py
+      - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
@@ -34,9 +36,11 @@ on:
     paths:
       - .github/workflows/cloudflare-workflow-diagnostics.yml
       - cloudflare/src/production_monitor.py
+      - cloudflare/src/full_refresh_diagnostic.py
       - cloudflare/src/production_diagnostic_policy.py
       - cloudflare/src/fast_refresh_diagnostic.py
       - cloudflare/tests/test_fast_refresh_diagnostic.py
+      - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/tests/test_production_diagnostic_policy.py
@@ -77,6 +81,7 @@ jobs:
           PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_select_production_diagnostic.py'
           python3 -m unittest discover -s cloudflare/tests -p 'test_production_incident_notification.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
+          PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_full_refresh_diagnostic.py'
 
   diagnose:
     # Live production reads only after the nightly deadline, or on manual request.
@@ -85,6 +90,8 @@ jobs:
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    outputs:
+      incident_deferred: ${{ steps.d1_report.outputs.d1_deferred }}
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
@@ -463,6 +470,7 @@ jobs:
           )
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
           from fast_refresh_diagnostic import assess_fast_refresh_window
+          from full_refresh_diagnostic import manual_refresh_grace
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -543,7 +551,15 @@ jobs:
           fx_rows = result[4].get("results") or []
           nav_rows = result[5].get("results") or []
 
-          full = full_rows[0] if full_rows else None
+          now = datetime.now(UTC)
+          latest_full = full_rows[0] if full_rows else None
+          manual_window = manual_refresh_grace(
+              full_rows, now=now,
+              expected_target=expected_nightly_date(now).isoformat(),
+          )
+          # Only a verified short-running manual attempt can use its previous
+          # successful snapshot. All market, NAV and source checks still run.
+          full = manual_window["previous"] or latest_full
           fast = fast_rows[0] if fast_rows else None
           full_target = safe_json((full or {}).get("metadata_json")).get("target_date")
 
@@ -564,7 +580,6 @@ jobs:
               else None
           )
 
-          now = datetime.now(UTC)
           fast_report = assess_fast_refresh_window(fast_rows, now=now, max_age=FAST_MAX_AGE)
           expected_fx = expected_fx_date(now)
           fx_current = bool(latest_common_fx and latest_common_fx >= expected_fx)
@@ -623,6 +638,7 @@ jobs:
               secondary_bemobi_warning=allow_secondary_warning,
               core_nav_status=str(nav.get("status") or "MISSING").upper(),
               core_nav_components=components,
+              manual_full_refresh_pending=manual_window["under_grace"],
           )
           core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
@@ -668,7 +684,9 @@ jobs:
                   if d1_warning else
                   "- Klassifisering: ingen tillatt nedgradering av kritiske avvik."
               ),
-              f"- Siste fulloppdatering: **{cell(full_status, 40)}** – `{cell((full or {}).get('finished_at') or (full or {}).get('started_at'), 80)}`",
+              f"- Siste registrerte fulloppdatering: **{cell((latest_full or {}).get('status'), 40)}** – `{cell((latest_full or {}).get('finished_at') or (latest_full or {}).get('started_at'), 80)}`",
+              f"- Siste verifiserte kontrollgrunnlag: **{cell(full_status, 40)}** – `{cell((full or {}).get('finished_at') or (full or {}).get('started_at'), 80)}`",
+              f"- Manuell oppdatering i toleranseperiode: **{'JA' if manual_window['under_grace'] else 'NEI'}** – grunn `{cell(manual_window['reason'], 50)}`, alder `{cell(manual_window['age_minutes'], 20)} min` (maks. 15 min)",
               f"- Fulljobb mål-dato: `{cell(full_target, 20)}`",
               f"- Fulljobb alder: `{cell(full_age_minutes, 20)} min` – {'FOR GAMMEL' if full_stale else 'OK'}",
               f"- Siste 30-minuttersjobb: **{cell(fast_status, 40)}** – `{cell((fast or {}).get('finished_at') or (fast or {}).get('started_at'), 80)}`",
@@ -738,6 +756,10 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"d1_unhealthy={'true' if d1_unhealthy else 'false'}\n")
               handle.write(f"d1_warning={'true' if d1_warning else 'false'}\n")
+              # While a valid manual job is pending, a non-failing diagnosis
+              # must not close an existing incident as if final success were
+              # confirmed. Other critical failures still fail and notify.
+              handle.write(f"d1_deferred={'true' if manual_window['under_grace'] else 'false'}\n")
           if d1_unhealthy:
               print("::warning::D1-diagnostikken fant et kritisk produksjonsavvik.")
           elif d1_warning:
@@ -853,7 +875,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       INCIDENT_KIND: ${{ github.event.schedule == '30 4 * * *' && 'nightly' || 'fast' }}
-      INCIDENT_RESULT: ${{ github.event.schedule == '30 4 * * *' && needs.diagnose.result || needs['fast-freshness'].result }}
+      INCIDENT_RESULT: ${{ github.event.schedule == '30 4 * * *' && (needs.diagnose.result == 'success' && needs.diagnose.outputs.incident_deferred == 'true' && 'deferred' || needs.diagnose.result) || needs['fast-freshness'].result }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Open or close dedicated incident issue

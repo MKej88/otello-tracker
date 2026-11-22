@@ -772,6 +772,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     self.env.DB,
                     job_id=job_id,
                     target_date=target_date,
+                    trigger=trigger,
                     source_results=source_results,
                     nav_result=nav_result,
                     preflight_result=preflight_result,

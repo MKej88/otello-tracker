@@ -509,6 +509,7 @@ async def finish_full_refresh(
     *,
     job_id: int,
     target_date: str,
+    trigger: str | None = None,
     source_results: dict[str, dict[str, Any]],
     nav_result: dict[str, Any],
     preflight_result: dict[str, Any],
@@ -626,6 +627,9 @@ async def finish_full_refresh(
     metadata = {
         "phase": PHASE,
         "target_date": target_date,
+        # Finalization previously dropped the original trigger from start_job,
+        # making later manual/scheduled runs impossible to distinguish.
+        **({"trigger": trigger} if trigger is not None else {}),
         "sources": compact_sources,
         "source_health": grouped_health,
         "critical_errors": critical_errors,

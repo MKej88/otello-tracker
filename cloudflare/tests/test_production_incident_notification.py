@@ -64,7 +64,13 @@ class NotificationTests(unittest.TestCase):
         }
         with patch.dict(os.environ, env), patch("urllib.request.urlopen", side_effect=urlopen):
             with redirect_stdout(StringIO()):
-                exec(compile(incident_script(), str(WORKFLOW), "exec"), {"__name__": "__main__"})
+                try:
+                    exec(compile(incident_script(), str(WORKFLOW), "exec"), {"__name__": "__main__"})
+                except SystemExit as exc:
+                    # The real notifier deliberately returns exit 0 when an
+                    # in-progress manual refresh defers incident transitions.
+                    if exc.code not in (None, 0):
+                        raise
         return calls
 
     def test_opens_only_one_red_incident_without_sensitive_log_content(self):
@@ -95,6 +101,15 @@ class NotificationTests(unittest.TestCase):
     def test_success_without_incident_is_noop(self):
         calls = self.exercise("success")
         self.assertEqual([c[0] for c in calls], ["GET"])
+
+    def test_bounded_manual_refresh_does_not_close_existing_incident(self):
+        existing = {
+            "number": 869, "state": "open",
+            "body": "<!-- otello-production-incident:nightly -->",
+        }
+        # 'deferred' is emitted only for a non-failing scheduled diagnostic
+        # while a strictly validated manual full refresh is still RUNNING.
+        self.assertEqual(self.exercise("deferred", found=existing), [])
 
 
 if __name__ == "__main__":
