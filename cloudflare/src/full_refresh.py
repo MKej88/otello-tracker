@@ -138,9 +138,16 @@ def merge_bemobi_ir_news_health(
         return merged
 
     release = merged.get("result_release") or {}
-    if release.get("status") == "ok" and release.get("period"):
-        # Preserve a DEGRADED source warning, while allowing a successful
-        # full refresh when the new official results were verified.
+    existing_q3_sha_verified = (
+        report_feed_status == "empty"
+        and release.get("status") == "skipped"
+        and release.get("reason") == "latest_result_already_ingested"
+        and release.get("verified_existing_official_q3") is True
+    )
+    if (release.get("status") == "ok" and release.get("period")) or existing_q3_sha_verified:
+        # Preserve the DEGRADED discovery warning. It is non-blocking ONLY
+        # when a current official release has been parsed, or the precise
+        # CVM Q3 source document was already SHA-256 verified in D1.
         merged["status"] = "partial"
         merged["non_blocking_degraded"] = True
         merged["best_effort_status"] = "degraded"
@@ -149,7 +156,11 @@ def merge_bemobi_ir_news_health(
             {
                 "source": "bemobi_report_feed",
                 "status": "not_available",
-                "reason": "report_feed_unavailable_but_official_result_verified",
+                "reason": (
+                    "report_feed_empty_but_pinned_cvm_q3_verified"
+                    if existing_q3_sha_verified
+                    else "report_feed_unavailable_but_official_result_verified"
+                ),
                 "feed_status": report_feed_status,
                 "errors": (ir_news.get("report_feed_errors") or [])[:2],
             },
