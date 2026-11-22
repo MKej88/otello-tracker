@@ -246,3 +246,37 @@ def test_bemobi_empty_feed_source_status_shows_probe_counts():
     assert "2026:all=0 utgivelser" in detail
     assert "2026:earnings=0 utgivelser" in detail
 
+
+
+
+def test_empty_report_index_nonblocking_only_with_pinned_cvm_q3_provenance() -> None:
+    release = {
+        "status": "skipped",
+        "reason": "latest_result_already_ingested",
+        "verified_existing_official_q3": True,
+    }
+    merged = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": release, "best_effort_warnings": []},
+        {"status": "ok", "report_feed_status": "empty", "report_feed_errors": []},
+    )
+    assert merged["status"] == "partial"
+    assert merged["non_blocking_degraded"] is True
+    assert merged["report_feed_warning_non_blocking"] is True
+    assert merged["best_effort_warnings"][0]["reason"] == (
+        "report_feed_empty_but_pinned_cvm_q3_verified"
+    )
+    assert not _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": merged})
+
+    # The same stored report cannot suppress an actual issuer feed failure
+    # or a newly unparseable result. Retain the alert in both cases.
+    for ir in (
+        {"status": "ok", "report_feed_status": "partial", "report_feed_errors": ["HTTP 503"]},
+        {"status": "not_available", "report_feed_status": "empty", "error": "HTTP 429"},
+    ):
+        degraded = merge_bemobi_ir_news_health(
+            {"status": "ok", "result_release": release},
+            ir,
+        )
+        assert degraded["status"] == "partial"
+        assert degraded.get("non_blocking_degraded") is not True
+        assert _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": degraded})
