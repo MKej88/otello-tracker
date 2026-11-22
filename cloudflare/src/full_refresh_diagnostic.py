@@ -7,7 +7,7 @@ are never bypassed.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from nightly_trigger import nightly_due_at
 
@@ -59,6 +59,35 @@ def refresh_kind(job: dict) -> str:
     if -NIGHTLY_EARLY_TOLERANCE <= delta <= NIGHTLY_WINDOW:
         return "legacy_nightly_window"
     return "legacy_outside_window"
+
+
+def plausible_legacy_recovery(job: dict, *, now: datetime, target_date: str) -> bool:
+    """Off-schedule historical successes are not automatically harmless.
+
+    When the trigger was dropped by older finish_job versions, only a run
+    *after* the expected nightly due for its target date, but outside the
+    scheduled window, may represent a manual recovery. Unknown/future/early
+    runs never qualify. Independent duplicates are assessed by the caller.
+    """
+    if refresh_kind(job) != "legacy_outside_window" or job.get("status") != "SUCCESS":
+        return False
+    try:
+        target = date.fromisoformat(target_date)
+    except (TypeError, ValueError):
+        return False
+    if _metadata(job).get("target_date") != target.isoformat():
+        return False
+    started = _time(job.get("started_at"))
+    finished = _time(job.get("finished_at"))
+    if started is None or finished is None:
+        return False
+    due = datetime.combine(target + timedelta(days=1), time(3, 35), tzinfo=UTC)
+    current = now.astimezone(UTC)
+    return (
+        due + NIGHTLY_WINDOW < started <= due + timedelta(hours=24)
+        and started <= finished <= current
+    )
+
 
 
 def manual_refresh_grace(
