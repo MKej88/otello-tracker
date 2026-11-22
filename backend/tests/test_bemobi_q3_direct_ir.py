@@ -366,3 +366,125 @@ def test_newer_cvm_report_is_not_masked_by_older_ir_release(monkeypatch):
     ))
     assert result["period"] == "3Q26"
     assert observed[0] == "https://www.rad.cvm.gov.br/release-3q26.pdf"
+
+
+
+CVM_Q3_SOURCE_URL = (
+    "https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx"
+    "?Tela=ext&descTipo=IPE&CodigoInstituicao=1"
+    "&numProtocolo=1588745&numSequencia=1113451&numVersao=1"
+)
+
+
+def test_exact_cvm_q3_filing_can_use_verified_r2_but_presentations_cannot():
+    eligible = {
+        "source_code": "CVM",
+        "url": CVM_Q3_SOURCE_URL,
+        "title": "Dados Econômico-Financeiros — Release 3T26 / 3Q26",
+        "published_at": "2026-11-12T00:00:00Z",
+    }
+    assert web._official_cvm_q3_release_fallback(eligible) == web.CVM_3Q26_RELEASE_URL
+    invalid = (
+        {**eligible, "url": CVM_Q3_SOURCE_URL.replace("1588745", "1589034")},
+        {**eligible, "url": CVM_Q3_SOURCE_URL.replace("rad.cvm.gov.br", "evil.example")},
+        {**eligible, "url": CVM_Q3_SOURCE_URL.replace("1113451", "1113740")},
+        {**eligible, "title": "Comunicado ao Mercado — Apresentação de resultados 3T26 | 3Q26"},
+        {**eligible, "published_at": "2026-11-13T00:00:00Z"},
+    )
+    for candidate in invalid:
+        assert web._official_cvm_q3_release_fallback(candidate) is None
+    assert not web._is_official_earnings_release_candidate(invalid[3])
+
+
+class CvmQ3Repository(IssuerRepository):
+    async def first(self, sql, parameters=()):
+        if "FROM runtime_state" in sql:
+            return None
+        return await super().first(sql, parameters)
+
+    async def all(self, sql, parameters=()):
+        assert "FROM company_news" in sql
+        return [
+            {
+                "id": 101, "source_code": "CVM",
+                "title": "Comunicado ao Mercado — Apresentação de resultados 3T26 | 3Q26",
+                "url": CVM_Q3_SOURCE_URL.replace("1588745", "1589034"),
+                "published_at": "2026-11-13T00:00:00Z",
+            },
+            {
+                "id": 102, "source_code": "CVM",
+                "title": "Dados Econômico-Financeiros — Release 3T26 / 3Q26",
+                "url": CVM_Q3_SOURCE_URL,
+                "published_at": "2026-11-12T00:00:00Z",
+            },
+        ]
+
+
+def test_production_cvm_526_uses_exact_verified_r2_and_excludes_presentation(monkeypatch):
+    repo = CvmQ3Repository()
+
+    class ArchiveBucket:
+        async def put(self, key, payload):
+            assert key and payload.startswith(b"%PDF")
+
+    bucket = ArchiveBucket()
+    requests = []
+
+    async def tls_526(url, *, fetcher=None):
+        requests.append(url)
+        raise RuntimeError("Bemobi result release feilet med HTTP 526")
+
+    async def verified_r2(found_bucket, kind):
+        assert found_bucket is bucket and kind == "result"
+        return b"%PDF-1.6 verified official Q3", web.CVM_3Q26_RELEASE_URL
+
+    monkeypatch.setattr(web, "_fetch_result_payload", tls_526)
+    monkeypatch.setattr(web, "read_verified_q3_document", verified_r2)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-21", archive_bucket=bucket,
+    ))
+    assert result["status"] == "ok"
+    assert result["period"] == "3Q26"
+    assert result["resolved_url"] == web.CVM_3Q26_RELEASE_URL
+    assert requests == [CVM_Q3_SOURCE_URL, web.CVM_3Q26_RELEASE_URL]
+    assert repo.documents[0]["source_code"] == "CVM"
+    assert repo.documents[0]["url"] == web.CVM_3Q26_RELEASE_URL
+    assert any("INSERT INTO bemobi_investor_facts" in sql for sql, _ in repo.writes)
+
+
+class ExistingCvmQ3MarginRepository(ExistingQ3MarginRepository):
+    async def first(self, sql, parameters=()):
+        if "FROM runtime_state" in sql:
+            return None
+        return await super().first(sql, parameters)
+
+    async def all(self, sql, parameters=()):
+        return await CvmQ3Repository.all(self, sql, parameters)
+
+
+def test_existing_cvm_q3_margin_repairs_via_verified_r2_after_http526(monkeypatch):
+    repo = ExistingCvmQ3MarginRepository(cash=319.0)
+    bucket = object()
+
+    async def tls_526(url, *, fetcher=None):
+        raise RuntimeError("HTTP 526")
+
+    async def verified_r2(found_bucket, kind):
+        assert found_bucket is bucket and kind == "result"
+        return b"%PDF-1.6 verified official Q3", web.CVM_3Q26_RELEASE_URL
+
+    monkeypatch.setattr(web, "_fetch_result_payload", tls_526)
+    monkeypatch.setattr(web, "read_verified_q3_document", verified_r2)
+    monkeypatch.setattr(web, "_pdf_text", lambda _: Q3_TEXT)
+    result = asyncio.run(web.sync_latest_result_release(
+        repo, target_date="2026-11-21", archive_bucket=bucket,
+    ))
+    assert result["status"] == "ok"
+    assert result["reason"] == "official_result_margin_backfilled"
+    updates = [(sql, p) for sql, p in repo.writes if "UPDATE bemobi_investor_facts" in sql]
+    assert len(updates) == 1
+    saved = json.loads(updates[0][1][0])
+    assert saved["adjusted_ebitda_margin_pct"] == 35.4
+    assert saved["cash_mbrl"] == 319.0
+    assert saved["adjusted_net_revenue_mbrl"] == 245.0

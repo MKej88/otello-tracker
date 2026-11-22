@@ -4,11 +4,12 @@ import hashlib
 import io
 import json
 import re
+import unicodedata
 import zipfile
 from datetime import date, timedelta
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
 from bemobi_verified_mirror import Q3_RELEASE_URL, read_verified_q3_document
@@ -40,16 +41,15 @@ CVM_3Q26_RELEASE_URL = (
 
 
 def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
-    """Only the source-verified 3Q26 issuer release can use this CVM filing."""
-    if candidate.get("source_code") != "BEMOBI_IR":
-        return None
-    original_url = str(candidate.get("url") or "")
-    parsed = urlparse(original_url)
-    if parsed.scheme != "https" or parsed.hostname not in {
-        "api.mziq.com", "filemanager-cdn.mziq.com"
-    } or BEMOBI_IR_COMPANY_ID not in parsed.path:
-        return None
-    title = str(candidate.get("title") or "")
+    """Use only the exact source-verified 12 Nov 2026 Q3 release.
+
+    Both MZiQ and CVM list this release. The CVM original has a different
+    query string/order from its independently verified ENETCONSULTA copy.
+    Match its unique CVM filing numbers, not just a results category.
+    """
+    title = unicodedata.normalize(
+        "NFKD", str(candidate.get("title") or "")
+    ).encode("ascii", "ignore").decode()
     date_value = str(candidate.get("published_at") or "")[:10]
     if (
         not re.search(
@@ -61,8 +61,44 @@ def _official_cvm_q3_release_fallback(candidate: dict[str, Any]) -> str | None:
         or date_value != "2026-11-12"
     ):
         return None
-    return CVM_3Q26_RELEASE_URL
 
+    original_url = str(candidate.get("url") or "")
+    parsed = urlparse(original_url)
+    if parsed.scheme != "https":
+        return None
+    source = str(candidate.get("source_code") or "")
+    if source == "BEMOBI_IR":
+        if (
+            parsed.hostname in {"api.mziq.com", "filemanager-cdn.mziq.com"}
+            and BEMOBI_IR_COMPANY_ID in parsed.path
+        ):
+            return CVM_3Q26_RELEASE_URL
+        return None
+    if source == "CVM":
+        if parsed.hostname != "www.rad.cvm.gov.br" or parsed.path not in {
+            "/ENET/frmDownloadDocumento.aspx",
+            "/ENETCONSULTA/frmDownloadDocumento.aspx",
+        }:
+            return None
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        expected = {
+            "CodigoInstituicao": "1",
+            "descTipo": "IPE",
+            "numProtocolo": "1588745",
+            "numSequencia": "1113451",
+            "numVersao": "1",
+        }
+        if all(query.get(key) == [value] for key, value in expected.items()):
+            return CVM_3Q26_RELEASE_URL
+    return None
+
+
+def _is_official_earnings_release_candidate(candidate: dict[str, Any]) -> bool:
+    """CVM's RESULTS category also includes slide presentations, not earnings."""
+    title = unicodedata.normalize(
+        "NFKD", str(candidate.get("title") or "")
+    ).encode("ascii", "ignore").decode().lower()
+    return not re.search(r"\b(?:apresentacao|presentation|slides)\b", title)
 
 
 MAX_HTML_BYTES = 3 * 1024 * 1024
@@ -785,6 +821,35 @@ async def _fetch_result_payload(
     raise ValueError(f"HTML-resultatsiden inneholdt ingen tillatt PDF/ZIP-lenke{suffix}")
 
 
+async def _fetch_official_result_candidate(
+    candidate: dict[str, Any],
+    *,
+    archive_bucket=None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[bytes, str, bool]:
+    """Try original, exact official CVM copy, then verified private R2 bytes.
+
+    In particular, CVM RESULTS documents are not interchangeable: a Q3
+    presentation must never resolve to the Q3 earnings release.
+    """
+    original = str(candidate["url"])
+    try:
+        return await _fetch_result_payload(original, fetcher=fetcher)
+    except RuntimeError as exc:
+        fallback = _official_cvm_q3_release_fallback(candidate)
+        if fallback is None or "526" not in str(exc):
+            raise
+        try:
+            return await _fetch_result_payload(fallback, fetcher=fetcher)
+        except RuntimeError as cvm_exc:
+            if "526" not in str(cvm_exc) or fallback != Q3_RELEASE_URL:
+                raise
+            raw, resolved_url = await read_verified_q3_document(
+                archive_bucket, "result",
+            )
+            return raw, resolved_url, False
+
+
 async def _store_web_document(
     repository,
     archive_bucket,
@@ -1218,6 +1283,7 @@ async def _backfill_existing_result_margin(
     candidate: dict[str, Any],
     existing: dict[str, Any],
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    archive_bucket=None,
 ) -> dict[str, Any] | None:
     """Self-heal missing margin and invalid cash from the SAME issuer PDF.
 
@@ -1244,8 +1310,8 @@ async def _backfill_existing_result_margin(
         return None
 
     try:
-        raw, _, _ = await _fetch_result_payload(
-            str(candidate["url"]), fetcher=fetcher,
+        raw, _, _ = await _fetch_official_result_candidate(
+            candidate, fetcher=fetcher, archive_bucket=archive_bucket,
         )
         published_date = str(candidate.get("published_at") or "")[:10]
         parsed = parse_bemobi_result_text(
@@ -1340,7 +1406,9 @@ async def sync_latest_result_release(
     seen_ids = {int(row["id"]) for row in ir_candidates}
     candidates = sorted(
         ir_candidates + [
-            row for row in cvm_candidates if int(row["id"]) not in seen_ids
+            row for row in cvm_candidates
+            if int(row["id"]) not in seen_ids
+            and _is_official_earnings_release_candidate(row)
         ],
         key=lambda row: (
             str(row.get("published_at") or "")[:10],
@@ -1369,37 +1437,16 @@ async def sync_latest_result_release(
                 }
             repaired = await _backfill_existing_result_margin(
                 repository, candidate=candidate, existing=already, fetcher=fetcher,
+                archive_bucket=archive_bucket,
             )
             if repaired is not None:
                 return repaired
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
             published_date = str(candidate.get("published_at") or target_date)[:10]
-            try:
-                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                    str(candidate["url"]), fetcher=fetcher,
-                )
-            except RuntimeError as exc:
-                # If both official MZiQ routes fail with TLS 526, try the
-                # independently filed CVM copy of this exact Q3 report.
-                fallback_url = _official_cvm_q3_release_fallback(candidate)
-                if fallback_url is None or "526" not in str(exc):
-                    raise
-                try:
-                    raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                        fallback_url, fetcher=fetcher,
-                    )
-                except RuntimeError as cvm_exc:
-                    # Cloudflare's TLS 526 is specific to its network path.
-                    # A GitHub runner preloads this exact official CVM PDF into
-                    # private R2 after verifying the immutable SHA-256. R2
-                    # cannot override a changed source document or period.
-                    if "526" not in str(cvm_exc) or fallback_url != Q3_RELEASE_URL:
-                        raise
-                    raw, resolved_url = await read_verified_q3_document(
-                        archive_bucket, "result",
-                    )
-                    resolved_from_html = False
+            raw, resolved_url, resolved_from_html = await _fetch_official_result_candidate(
+                candidate, fetcher=fetcher, archive_bucket=archive_bucket,
+            )
             text = _pdf_text(raw)
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
