@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from b3_calendar import is_b3_trading_day
 from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
-from full_refresh_diagnostic import refresh_kind
+from full_refresh_diagnostic import plausible_legacy_recovery, refresh_kind
 from nightly_trigger import nightly_due_at
 from oslo_calendar import is_oslo_bors_trading_day
 
@@ -111,6 +111,18 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
     legacy_off_window = [
         r for r in successful if refresh_kind(r) == 'legacy_outside_window'
     ]
+    # Legacy results outside the schedule may be recoveries, but only if
+    # they all started after the nightly due, no actual scheduled SUCCESS was
+    # recorded, and all timestamps/target dates reconcile. Otherwise count
+    # them conservatively as candidate duplicates.
+    legacy_recovery_allowed = bool(
+        legacy_off_window and not scheduled_successful
+        and all(plausible_legacy_recovery(
+            row, now=now, target_date=target.isoformat()
+        ) for row in legacy_off_window)
+    )
+    if not legacy_recovery_allowed:
+        scheduled_successful.extend(legacy_off_window)
     closed_runs = CLOSED_DUPLICATE_RUNS.get(target.isoformat())
     observed_runs = frozenset((r.get('started_at'), r.get('finished_at')) for r in successful)
     closed_incident = bool(
@@ -128,11 +140,11 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
             f'vellykkede fulloppdateringer, {len(target_jobs)} forsøk totalt',
             'maksimalt 1 planlagt nattkjøring; manuelle oppdateringer er separate',
         )
-    if legacy_off_window:
+    if legacy_recovery_allowed:
         add(
             'Eldre fulloppdateringer uten dokumentert trigger', True,
-            f'{len(legacy_off_window)} vellykkede utenfor nattvinduet',
-            'trigger bør bevares ved ferdigstillelse',
+            f'{len(legacy_off_window)} plausibel(e) manuell(e) gjenoppretting(er)',
+            'kilde- og NAV-kontroller kreves fortsatt; nye triggere loggføres',
             state='ADVARSEL',
         )
 
