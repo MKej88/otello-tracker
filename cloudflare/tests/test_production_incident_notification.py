@@ -96,6 +96,15 @@ class NotificationTests(unittest.TestCase):
         calls = self.exercise("success")
         self.assertEqual([c[0] for c in calls], ["GET"])
 
+    def test_bounded_manual_refresh_does_not_close_existing_incident(self):
+        existing = {
+            "number": 869, "state": "open",
+            "body": "<!-- otello-production-incident:nightly -->",
+        }
+        # 'deferred' is emitted only for a non-failing scheduled diagnostic
+        # while a strictly validated manual full refresh is still RUNNING.
+        self.assertEqual(self.exercise("deferred", found=existing), [])
+
 
 if __name__ == "__main__":
     unittest.main()
