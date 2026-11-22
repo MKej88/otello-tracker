@@ -30,6 +30,9 @@ NORMAL_REFRESH_DAYS = 7
 MISSING_QUARTER_RETRY_DAYS = 2
 _LAST_ATTEMPT_KEY = "bemobi_cvm_financials_last_attempt"
 _LAST_SUCCESS_KEY = "bemobi_cvm_financials_last_success"
+# One controlled catch-up after quarter-upsert and liquidity-calculation upgrades.
+_REPAIR_VERSION_KEY = "bemobi_cvm_financials_backfill_version"
+_REPAIR_VERSION = "2026-11-22-quarter-upsert-liquid-assets-v1"
 _COMMON_REQUIRED_COLUMNS = {
     "CD_CVM",
     "VERSAO",
@@ -70,6 +73,10 @@ BPA_METRICS: dict[str, dict[str, str]] = {
         "account": "1.01.01",
         "label": "Caixa e Equivalentes de Caixa",
     },
+    "reported_financial_investments_mbrl": {
+        "account": "1.01.02",
+        "label": "Aplicações Financeiras",
+    },
 }
 BPP_METRICS: dict[str, dict[str, str]] = {
     "reported_borrowings_current_mbrl": {
@@ -90,7 +97,12 @@ CAPEX_ACTION_TOKENS = ("aquisicao", "adicao", "adicoes")
 CAPEX_ASSET_TOKENS = ("imobilizado", "intangivel")
 
 # Capex is a reconciliation metric, not a hard blocker for the core accounting refresh.
-_REQUIRED_QUARTER_FIELDS = tuple([*DRE_METRICS, *DFC_METRICS, *BPA_METRICS, *BPP_METRICS])
+# Financial investments are optional for older historical filings; a missing
+# investment line must not cause an endless retry. It is still independently
+# required before classifying a newer cash position as fully source-verified.
+_REQUIRED_QUARTER_FIELDS = tuple([
+    *DRE_METRICS, *DFC_METRICS, "reported_cash_mbrl", *BPP_METRICS
+])
 
 
 @dataclass(frozen=True)
@@ -699,8 +711,17 @@ def derive_standardized_balance_quarters(
             borrowings = float(current) + float(noncurrent)
             payload["reported_borrowings_mbrl"] = round(borrowings, 6)
             if cash is not None:
-                payload["reported_net_debt_mbrl"] = round(borrowings - float(cash), 6)
-                payload["reported_net_debt_method"] = "CVM_BORROWINGS_MINUS_CASH"
+                investments = payload.get("reported_financial_investments_mbrl")
+                liquidity = float(cash) + (
+                    float(investments) if investments is not None else 0.0
+                )
+                payload["reported_liquid_assets_mbrl"] = round(liquidity, 6)
+                payload["reported_net_debt_mbrl"] = round(borrowings - liquidity, 6)
+                payload["reported_net_debt_method"] = (
+                    "CVM_BORROWINGS_MINUS_CASH_AND_INVESTMENTS"
+                    if investments is not None
+                    else "CVM_BORROWINGS_MINUS_CASH"
+                )
     return result
 
 
@@ -779,6 +800,11 @@ async def _latest_quarters_missing_reported(repository) -> bool:
 async def _refresh_due(repository, *, target_date: str) -> tuple[bool, str]:
     today = date.fromisoformat(target_date)
     missing = await _latest_quarters_missing_reported(repository)
+    if missing and await _runtime_value(repository, _REPAIR_VERSION_KEY) != _REPAIR_VERSION:
+        # The prior 2-day retry throttle may hide a newly fixed upsert bug.
+        # Force exactly one controlled catch-up on the first full refresh after
+        # this code is deployed. Keep subsequent retries throttled as before.
+        return True, "quarter_backfill_upgrade"
     last_key = _LAST_ATTEMPT_KEY if missing else _LAST_SUCCESS_KEY
     last = await _runtime_value(repository, last_key)
     if not last:
@@ -1027,6 +1053,8 @@ async def refresh_bemobi_reported_net_income(
         return {"status": "skipped", "reason": reason, "rows_written": 0, "errors": []}
 
     await _set_runtime_value(repository, _LAST_ATTEMPT_KEY, target_date)
+    if reason == "quarter_backfill_upgrade":
+        await _set_runtime_value(repository, _REPAIR_VERSION_KEY, _REPAIR_VERSION)
     current_year = date.fromisoformat(target_date).year
     previous_year = current_year - 1
     years: list[int] = [current_year]
