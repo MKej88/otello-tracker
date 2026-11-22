@@ -7,10 +7,6 @@ on:
         description: "D1 target date (YYYY-MM-DD); leave blank for yesterday in Oslo"
         required: false
         type: string
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/manual-cloudflare-full-refresh.yml
 
 permissions:
   contents: read
@@ -51,12 +47,8 @@ jobs:
           db_id = os.environ.get("CF_DATABASE", "").strip()
           if not token or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", account):
               raise SystemExit("Missing or invalid production Cloudflare credentials")
-          is_push = os.environ["GITHUB_EVENT_NAME"] == "push"
           yesterday = datetime.now(ZoneInfo("Europe/Oslo")).date() - timedelta(days=1)
-          requested = (
-              yesterday.isoformat()
-              if is_push else os.getenv("INPUT_TARGET_DATE", "").strip()
-          )
+          requested = os.getenv("INPUT_TARGET_DATE", "").strip()
           if not requested:
               requested = yesterday.isoformat()
           if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", requested):
@@ -209,5 +201,4 @@ jobs:
               raise SystemExit(
                   "CVM Q3 accounts are not fully source-verified in production D1."
               )
-          PY
           PY
