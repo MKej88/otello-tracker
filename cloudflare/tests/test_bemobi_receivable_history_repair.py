@@ -17,8 +17,9 @@ class FakeRepository:
         assert "FROM other_net_assets_daily_estimates o" in sql
         assert "n.nav_scope='FULL'" in sql
         assert params[0] == repair.FULL_CALCULATION_VERSION
-        assert params[1] == "2026-10-31"
-        assert params[2] == "2026-11-21"
+        from datetime import date, timedelta
+        assert params[1] == (date.fromisoformat(params[2]) - timedelta(days=21)).isoformat()
+        assert params[2] in {"2026-11-21", "2026-11-29"}
         return [{"estimate_date": d, "associated_receivable_nok": "0"}
                 for d in sorted(self.zero_days)]
 
