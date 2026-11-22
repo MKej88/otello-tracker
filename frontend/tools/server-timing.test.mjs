@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming } from "./server-timing.mjs";
+import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming, parseFxServerTiming } from "./server-timing.mjs";
 
 test("reads only allow-listed server metrics", () => {
   const output = parseBrazilServerTiming(
@@ -72,4 +72,21 @@ test("NAV history diagnostics parse only fixed reasons, cache states and aggrega
   assert.equal(parseNavHistoryServerTiming('navhist_d1;dur=-1'), null);
   assert.equal(parseNavHistoryServerTiming('navhist_d1;dur=NaN'), null);
   assert.equal(parseNavHistoryServerTiming(null), null);
+});
+
+test("FX parser stores only allow-listed aggregate phase timings", () => {
+  const header = 'fx_handler;dur=760.23, fx_import;dur=0.01, fx_lookup;dur=70.20, ' +
+    'fx_brl;dur=120.10, fx_usd;dur=130.40, fx_spot;dur=14.10, ' +
+    'fx_compute;dur=8.50, fx_d1;dur=265.30, fx_reads;desc="4", ' +
+    'secret;desc="private account information"';
+  const parsed = parseFxServerTiming(header);
+  assert.deepEqual(parsed, {
+    handlerMs: 760.23, importMs: 0.01, lookupMs: 70.2,
+    brlSeriesMs: 120.1, usdSeriesMs: 130.4, spotMs: 14.1,
+    computeMs: 8.5, d1TotalMs: 265.3, d1Reads: 4,
+  });
+  assert.equal(parseFxServerTiming('secret;desc="private"'), null);
+  assert.equal(parseFxServerTiming('fx_brl;dur=-1, fx_reads;desc="-2"'), null);
+  assert.equal(parseFxServerTiming(null), null);
+  assert.doesNotMatch(JSON.stringify(parsed), /secret|private/);
 });
