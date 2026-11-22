@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from full_refresh_diagnostic import (
-    MANUAL_GRACE, manual_refresh_grace, refresh_kind,
+    MANUAL_GRACE, manual_refresh_grace, plausible_legacy_recovery, refresh_kind,
 )
 from production_diagnostic_policy import diagnostic_severity
 from production_monitor import assess_production, expected_nightly_date
@@ -127,6 +127,12 @@ class ScheduledVsManualTests(unittest.TestCase):
         self.assertEqual(refresh_kind(scheduled), "scheduled")
         self.assertEqual(refresh_kind(manual), "manual")
         self.assertEqual(refresh_kind(old_manual), "legacy_outside_window")
+        self.assertTrue(plausible_legacy_recovery(
+            old_manual, now=NOW, target_date=TARGET
+        ))
+        self.assertFalse(plausible_legacy_recovery(
+            old_manual, now=NOW, target_date="2026-11-22"
+        ))
 
     def test_two_actual_scheduled_nightlies_still_count_as_duplicate(self):
         t = TARGET
