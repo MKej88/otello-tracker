@@ -821,6 +821,35 @@ async def _fetch_result_payload(
     raise ValueError(f"HTML-resultatsiden inneholdt ingen tillatt PDF/ZIP-lenke{suffix}")
 
 
+async def _fetch_official_result_candidate(
+    candidate: dict[str, Any],
+    *,
+    archive_bucket=None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[bytes, str, bool]:
+    """Try original, exact official CVM copy, then verified private R2 bytes.
+
+    In particular, CVM RESULTS documents are not interchangeable: a Q3
+    presentation must never resolve to the Q3 earnings release.
+    """
+    original = str(candidate["url"])
+    try:
+        return await _fetch_result_payload(original, fetcher=fetcher)
+    except RuntimeError as exc:
+        fallback = _official_cvm_q3_release_fallback(candidate)
+        if fallback is None or "526" not in str(exc):
+            raise
+        try:
+            return await _fetch_result_payload(fallback, fetcher=fetcher)
+        except RuntimeError as cvm_exc:
+            if "526" not in str(cvm_exc):
+                raise
+            raw, resolved_url = await read_verified_q3_document(
+                archive_bucket, "result",
+            )
+            return raw, resolved_url, False
+
+
 async def _store_web_document(
     repository,
     archive_bucket,
@@ -1254,6 +1283,7 @@ async def _backfill_existing_result_margin(
     candidate: dict[str, Any],
     existing: dict[str, Any],
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    archive_bucket=None,
 ) -> dict[str, Any] | None:
     """Self-heal missing margin and invalid cash from the SAME issuer PDF.
 
@@ -1280,8 +1310,8 @@ async def _backfill_existing_result_margin(
         return None
 
     try:
-        raw, _, _ = await _fetch_result_payload(
-            str(candidate["url"]), fetcher=fetcher,
+        raw, _, _ = await _fetch_official_result_candidate(
+            candidate, fetcher=fetcher, archive_bucket=archive_bucket,
         )
         published_date = str(candidate.get("published_at") or "")[:10]
         parsed = parse_bemobi_result_text(
@@ -1376,7 +1406,9 @@ async def sync_latest_result_release(
     seen_ids = {int(row["id"]) for row in ir_candidates}
     candidates = sorted(
         ir_candidates + [
-            row for row in cvm_candidates if int(row["id"]) not in seen_ids
+            row for row in cvm_candidates
+            if int(row["id"]) not in seen_ids
+            and _is_official_earnings_release_candidate(row)
         ],
         key=lambda row: (
             str(row.get("published_at") or "")[:10],
@@ -1405,37 +1437,16 @@ async def sync_latest_result_release(
                 }
             repaired = await _backfill_existing_result_margin(
                 repository, candidate=candidate, existing=already, fetcher=fetcher,
+                archive_bucket=archive_bucket,
             )
             if repaired is not None:
                 return repaired
             return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
         try:
             published_date = str(candidate.get("published_at") or target_date)[:10]
-            try:
-                raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                    str(candidate["url"]), fetcher=fetcher,
-                )
-            except RuntimeError as exc:
-                # If both official MZiQ routes fail with TLS 526, try the
-                # independently filed CVM copy of this exact Q3 report.
-                fallback_url = _official_cvm_q3_release_fallback(candidate)
-                if fallback_url is None or "526" not in str(exc):
-                    raise
-                try:
-                    raw, resolved_url, resolved_from_html = await _fetch_result_payload(
-                        fallback_url, fetcher=fetcher,
-                    )
-                except RuntimeError as cvm_exc:
-                    # Cloudflare's TLS 526 is specific to its network path.
-                    # A GitHub runner preloads this exact official CVM PDF into
-                    # private R2 after verifying the immutable SHA-256. R2
-                    # cannot override a changed source document or period.
-                    if "526" not in str(cvm_exc) or fallback_url != Q3_RELEASE_URL:
-                        raise
-                    raw, resolved_url = await read_verified_q3_document(
-                        archive_bucket, "result",
-                    )
-                    resolved_from_html = False
+            raw, resolved_url, resolved_from_html = await _fetch_official_result_candidate(
+                candidate, fetcher=fetcher, archive_bucket=archive_bucket,
+            )
             text = _pdf_text(raw)
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
