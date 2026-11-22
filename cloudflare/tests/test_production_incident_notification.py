@@ -64,7 +64,13 @@ class NotificationTests(unittest.TestCase):
         }
         with patch.dict(os.environ, env), patch("urllib.request.urlopen", side_effect=urlopen):
             with redirect_stdout(StringIO()):
-                exec(compile(incident_script(), str(WORKFLOW), "exec"), {"__name__": "__main__"})
+                try:
+                    exec(compile(incident_script(), str(WORKFLOW), "exec"), {"__name__": "__main__"})
+                except SystemExit as exc:
+                    # The real notifier deliberately returns exit 0 when an
+                    # in-progress manual refresh defers incident transitions.
+                    if exc.code not in (None, 0):
+                        raise
         return calls
 
     def test_opens_only_one_red_incident_without_sensitive_log_content(self):
