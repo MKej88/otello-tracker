@@ -102,6 +102,12 @@ class ManualGraceTests(unittest.TestCase):
             secondary_bemobi_warning=False, manual_full_refresh_pending=True,
         )
         self.assertEqual(diagnostic_severity(**base), "ADVARSEL")
+        # A stale or unverified Bemobi IR feed is still critical unless the
+        # existing strict last-good/source policy explicitly validates it.
+        self.assertEqual(
+            diagnostic_severity(**{**base, "monitoring_unhealthy": True}),
+            "AVVIK",
+        )
         for patch in [
             {"monitoring_unhealthy": True},
             {"nav_audit_unhealthy": True},
