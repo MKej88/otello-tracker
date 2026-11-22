@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
-from bemobi_verified_mirror import read_verified_q3_document
+from bemobi_verified_mirror import Q3_RELEASE_URL, read_verified_q3_document
 
 try:
     from .bounded_response import read_response_bytes
@@ -842,7 +842,7 @@ async def _fetch_official_result_candidate(
         try:
             return await _fetch_result_payload(fallback, fetcher=fetcher)
         except RuntimeError as cvm_exc:
-            if "526" not in str(cvm_exc):
+            if "526" not in str(cvm_exc) or fallback != Q3_RELEASE_URL:
                 raise
             raw, resolved_url = await read_verified_q3_document(
                 archive_bucket, "result",
