@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from b3_calendar import is_b3_trading_day
 from cvm_freshness import CVM_IPE_MAX_AGE_DAYS
+from full_refresh_diagnostic import refresh_kind
 from nightly_trigger import nightly_due_at
 from oslo_calendar import is_oslo_bors_trading_day
 
@@ -99,15 +100,41 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
     add('Nattkjøring ferdig', bool(successful),
         f'{len(successful)} vellykkede, {len(target_jobs)} forsøk', f'datadato {target}',
         state='ADVARSEL' if secondary_partial else None)
-    # Count actual database jobs, not harmless SKIPPED Workflow instances.
+    # Count scheduled jobs separately from explicitly manual recoveries.
+    # Completed legacy records may lack trigger metadata. When timestamps
+    # exist, only starts near 03:35 UTC count as historical nightly runs;
+    # warn about ambiguous older successful records outside that window.
+    scheduled_successful = [
+        r for r in successful
+        if refresh_kind(r) in {'scheduled', 'legacy_nightly_window', 'unknown'}
+    ]
+    legacy_off_window = [
+        r for r in successful if refresh_kind(r) == 'legacy_outside_window'
+    ]
     closed_runs = CLOSED_DUPLICATE_RUNS.get(target.isoformat())
     observed_runs = frozenset((r.get('started_at'), r.get('finished_at')) for r in successful)
-    closed_incident = bool(closed_runs and len(target_jobs) == len(closed_runs) and len(successful) == len(closed_runs) and observed_runs == closed_runs)
+    closed_incident = bool(
+        closed_runs and len(target_jobs) == len(closed_runs)
+        and len(successful) == len(closed_runs) and observed_runs == closed_runs
+    )
     if closed_incident:
-        add('Ingen dobbel nattkjøring', True, '2 kjøringer fra avsluttet hendelse; rettet i PR 784',
+        add('Ingen dobbel nattkjøring', True,
+            '2 kjøringer fra avsluttet hendelse; rettet i PR 784',
             'nye dobbeltkjøringer varsles fortsatt', state='HISTORISK')
     else:
-        add('Ingen dobbel nattkjøring', len(successful) <= 1, f'{len(successful)} vellykkede, {len(target_jobs)} forsøk totalt', 'maksimalt 1 vellykket; manuelle omkjøringer må vurderes')
+        add(
+            'Ingen dobbel nattkjøring', len(scheduled_successful) <= 1,
+            f'{len(scheduled_successful)} nattkjøringer, {len(successful)} '
+            f'vellykkede fulloppdateringer, {len(target_jobs)} forsøk totalt',
+            'maksimalt 1 planlagt nattkjøring; manuelle oppdateringer er separate',
+        )
+    if legacy_off_window:
+        add(
+            'Eldre fulloppdateringer uten dokumentert trigger', True,
+            f'{len(legacy_off_window)} vellykkede utenfor nattvinduet',
+            'trigger bør bevares ved ferdigstillelse',
+            state='ADVARSEL',
+        )
 
     by_source = {r.get('code'): r for r in sources}
     for code in REQUIRED_SOURCES:
