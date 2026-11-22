@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
-from bemobi_verified_mirror import Q3_RELEASE_URL, read_verified_q3_document
+from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, Q3_RELEASE_URL, read_verified_q3_document
 
 try:
     from .bounded_response import read_response_bytes
@@ -1277,6 +1277,40 @@ async def _official_ir_result_candidates(repository, *, target_date: str) -> lis
     return candidates
 
 
+async def _verified_existing_cvm_q3_result(repository, candidate: dict, existing: dict) -> bool:
+    """Trust a cached Q3 RESULT only if its exact official CVM source is SHA-pinned.
+
+    The separate MZiQ *result discovery feed* can be empty even after the
+    newest quarterly earnings release has been successfully ingested via CVM.
+    Never treat an arbitrary cached fact or older quarter as current proof.
+    """
+    if (
+        candidate.get("source_code") != "CVM"
+        or _official_cvm_q3_release_fallback(candidate) != Q3_RELEASE_URL
+    ):
+        return False
+    try:
+        payload = json.loads(str(existing.get("payload_json") or "{}"))
+        if payload.get("period") != "3Q26":
+            return False
+        result_doc_id = int(candidate["id"])
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False
+    verified = await repository.first(
+        """
+        SELECT id FROM source_documents
+        WHERE document_type='RESULT_RELEASE_PDF'
+          AND content_sha256=?
+          AND json_valid(metadata_json)
+          AND CAST(json_extract(metadata_json, '$.parent_source_document_id') AS INTEGER)=?
+          AND json_extract(metadata_json, '$.resolution')='OFFICIAL_CVM_3Q26_FALLBACK'
+        LIMIT 1
+        """,
+        (PINNED_Q3_DOCUMENTS["result"]["sha256"], result_doc_id),
+    )
+    return verified is not None
+
+
 async def _backfill_existing_result_margin(
     repository,
     *,
@@ -1441,7 +1475,15 @@ async def sync_latest_result_release(
             )
             if repaired is not None:
                 return repaired
-            return {"status": "skipped", "reason": "latest_result_already_ingested", "rows_written": 0}
+            verified_current = await _verified_existing_cvm_q3_result(
+                repository, candidate, already,
+            )
+            return {
+                "status": "skipped",
+                "reason": "latest_result_already_ingested",
+                "rows_written": 0,
+                "verified_existing_official_q3": verified_current,
+            }
         try:
             published_date = str(candidate.get("published_at") or target_date)[:10]
             raw, resolved_url, resolved_from_html = await _fetch_official_result_candidate(

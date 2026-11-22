@@ -488,3 +488,32 @@ def test_existing_cvm_q3_margin_repairs_via_verified_r2_after_http526(monkeypatc
     assert saved["adjusted_ebitda_margin_pct"] == 35.4
     assert saved["cash_mbrl"] == 319.0
     assert saved["adjusted_net_revenue_mbrl"] == 245.0
+
+
+
+def test_existing_cvm_q3_only_claims_pinned_sha_provenance_with_resolved_doc():
+    class ProvenanceRepository(ExistingCvmQ3MarginRepository):
+        def __init__(self, *, resolved=True):
+            super().__init__(cash=319.0, margin=35.4)
+            self.resolved = resolved
+
+        async def first(self, sql, parameters=()):
+            if "FROM source_documents" in sql:
+                assert parameters == (
+                    web.PINNED_Q3_DOCUMENTS["result"]["sha256"], 102,
+                )
+                return {"id": 8059} if self.resolved else None
+            return await super().first(sql, parameters)
+
+    good = asyncio.run(web.sync_latest_result_release(
+        ProvenanceRepository(), target_date="2026-11-21",
+    ))
+    assert good["status"] == "skipped"
+    assert good["reason"] == "latest_result_already_ingested"
+    assert good["verified_existing_official_q3"] is True
+
+    missing = asyncio.run(web.sync_latest_result_release(
+        ProvenanceRepository(resolved=False), target_date="2026-11-21",
+    ))
+    assert missing["status"] == "skipped"
+    assert missing["verified_existing_official_q3"] is False
