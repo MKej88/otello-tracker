@@ -911,7 +911,13 @@ async def _upsert_fact(
         ON CONFLICT(fact_type, fact_key) DO UPDATE SET
             as_of_date=excluded.as_of_date,
             published_date=excluded.published_date,
-            payload_json=excluded.payload_json,
+            -- Keep CVM statutory accounts when a Bemobi results-release fact
+            -- fills in adjusted KPIs. Other fact types retain replacement semantics.
+            payload_json=CASE
+                WHEN excluded.fact_type='TTM_QUARTER'
+                THEN json_patch(bemobi_investor_facts.payload_json, excluded.payload_json)
+                ELSE excluded.payload_json
+            END,
             source_name=excluded.source_name,
             source_url=excluded.source_url,
             quality=excluded.quality,
