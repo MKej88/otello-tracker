@@ -422,7 +422,12 @@ class CvmQ3Repository(IssuerRepository):
 
 def test_production_cvm_526_uses_exact_verified_r2_and_excludes_presentation(monkeypatch):
     repo = CvmQ3Repository()
-    bucket = object()
+
+    class ArchiveBucket:
+        async def put(self, key, payload):
+            assert key and payload.startswith(b"%PDF")
+
+    bucket = ArchiveBucket()
     requests = []
 
     async def tls_526(url, *, fetcher=None):
