@@ -825,7 +825,45 @@ async def _merge_quarter_fact(repository, quarter: dict[str, Any]) -> str:
         (key,),
     )
     if row is None:
-        return "fact_missing"
+        # CVM often publishes an ITR before the adjusted earnings release has
+        # been parsed. Keep its source-backed statutory figures as a partial
+        # TTM quarter, without inventing adjusted EBITDA, earnings or cash flow.
+        if (
+            len(key) != 4 or key[0] not in "1234" or key[1] != "Q"
+            or not key[2:].isdigit()
+        ):
+            raise ValueError("Invalid CVM quarter key")
+        year = 2000 + int(key[2:])
+        month = int(key[0]) * 3
+        first_next_month = (
+            date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        )
+        period_end = (first_next_month - timedelta(days=1)).isoformat()
+        source_url = (
+            quarter.get("reported_net_income_parent_source_url")
+            or quarter.get("reported_cash_source_url")
+            or (CVM_DFP_URL if month == 12 else CVM_ITR_URL).format(year=year)
+        )
+        await repository.run(
+            """
+            INSERT INTO bemobi_investor_facts(
+                fact_type, fact_key, as_of_date, published_date, payload_json,
+                source_name, source_url, quality, notes
+            ) VALUES ('TTM_QUARTER', ?, ?, NULL, ?, 'CVM', ?, ?, ?)
+            ON CONFLICT(fact_type, fact_key) DO UPDATE SET
+                payload_json=json_patch(
+                    bemobi_investor_facts.payload_json, excluded.payload_json
+                ),
+                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            """,
+            (
+                key, period_end,
+                json.dumps(quarter, ensure_ascii=False, sort_keys=True),
+                source_url, "CVM_OFFICIAL_FINANCIALS_PARTIAL",
+                "Strukturerte CVM-regnskapstall. Justerte KPI-er må verifiseres separat.",
+            ),
+        )
+        return "inserted"
     payload = json.loads(str(row.get("payload_json") or "{}"))
     changed = any(payload.get(field) != value for field, value in quarter.items() if field != "period")
     if not changed:
@@ -1054,7 +1092,9 @@ async def refresh_bemobi_reported_net_income(
         except Exception as exc:
             errors.append({"period": period, "error": str(exc)[:1000]})
 
-    rows_written = sum(1 for status in statuses.values() if status == "updated")
+    rows_written = sum(
+        1 for status in statuses.values() if status in {"updated", "inserted"}
+    )
     if not errors:
         await _set_runtime_value(repository, _LAST_SUCCESS_KEY, target_date)
     status = "error" if errors and not derived else ("partial" if errors else "ok")

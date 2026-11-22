@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentPeriodNetCash, reportedQ3Jcp, verifiedReportedCash } from "../src/bemobiCashQuality.ts";
+import { currentPeriodNetCash, netCashUnavailableReason, reportedQ3Jcp, verifiedReportedCash } from "../src/bemobiCashQuality.ts";
 
 test("3Q26 bad 2025-as-cash is suppressed across derived figures", () => {
   assert.equal(verifiedReportedCash({ period: "3Q26", cash_mbrl: 2025 }), null);
@@ -50,4 +50,34 @@ test("3Q26 JCP uses only confirmed company action, never old 16.19 tracker estim
   assert.equal(reportedQ3Jcp({ ...confirmed, ex_date: "2026-08-17" }), null);
   assert.equal(reportedQ3Jcp({ ...confirmed, gross_total_mbrl: null }), null);
   assert.equal(reportedQ3Jcp(undefined), null);
+});
+
+test("CVM-only current quarter is used for net cash, without older EV anchor", () => {
+  const report = { period: "3Q26", cash_mbrl: 319 };
+  const valuation = {
+    ev_anchor_period: "2Q26", net_cash_mbrl: 287.2,
+    source_quarters: [{ period: "2Q26", reported_net_debt_mbrl: -287.2 }],
+    reported_balance_quarters: [
+      { period: "2Q26", reported_net_debt_mbrl: -287.2 },
+      { period: "3Q26", reported_net_debt_mbrl: -275 },
+    ],
+  };
+  assert.deepEqual(currentPeriodNetCash(report, valuation), {
+    value: 275, basis: "reported_quarter",
+  });
+  assert.equal(netCashUnavailableReason(report, valuation), null);
+});
+
+test("unverified current-quarter debt has an explicit period-specific explanation", () => {
+  const report = { period: "3Q26", cash_mbrl: 319 };
+  const valuation = {
+    ev_anchor_period: "2Q26", net_cash_mbrl: 287.2,
+    reported_balance_quarters: [{ period: "3Q26", reported_net_debt_mbrl: null }],
+  };
+  const explanation = netCashUnavailableReason(report, valuation);
+  assert.match(explanation ?? "", /3Q26/);
+  assert.match(explanation ?? "", /2Q26/);
+  assert.deepEqual(currentPeriodNetCash(report, valuation), {
+    value: null, basis: "unavailable",
+  });
 });

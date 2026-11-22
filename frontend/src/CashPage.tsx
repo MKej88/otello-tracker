@@ -4,7 +4,7 @@ import LoadingPlaceholder from "./LoadingPlaceholder";
 import ResourceNotice from "./ResourceNotice";
 import { formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
-import { currentPeriodNetCash, reportedQ3Jcp, verifiedReportedCash } from "./bemobiCashQuality";
+import { currentPeriodNetCash, netCashUnavailableReason, reportedQ3Jcp, verifiedReportedCash } from "./bemobiCashQuality";
 import "./cash-page.css";
 
 type Summary = {
@@ -31,6 +31,7 @@ type BemobiDashboard = {
     net_cash_mbrl?: number | null;
     ev_anchor_period?: string | null;
     source_quarters?: Array<{ period?: string | null; reported_net_debt_mbrl?: number | null }>;
+    reported_balance_quarters?: Array<{ period?: string | null; reported_net_debt_mbrl?: number | null }>;
   };
   latest_result?: {
     period?: string | null;
@@ -51,6 +52,9 @@ type BemobiDashboard = {
   } | null;
   distribution_estimate?: {
     ready?: boolean;
+    reason?: string | null;
+    missing_periods?: string[] | null;
+    latest_result_period?: string | null;
     period?: string | null;
     ttm_end_period?: string | null;
     reported_net_income_ttm_mbrl?: number | null;
@@ -585,7 +589,7 @@ export default function CashPage() {
                     ? `regnskapstall · ${bemobi.latest_result?.period ?? "ukjent kvartal"}`
                     : netCash.basis === "current_anchor"
                       ? `samme kvartal · ${bemobi.latest_result?.period}`
-                      : "ikke verifisert for rapportert kvartal"}</small>
+                      : netCashUnavailableReason(bemobi.latest_result, bemobi.valuation)}</small>
             </div>
             <div>
               <span>EBITDA − capex</span>
@@ -640,6 +644,16 @@ export default function CashPage() {
               <strong className="numeric">{pct(distribution?.ordinary_dividend_withholding_rate_pct ?? 10, 0)}</strong>
             </div>
           </div>
+
+          {distribution?.ready === false && (
+            <p className="cashNote" role="status">
+              {distribution.reason === "reported_ttm_not_current"
+                ? `Utbyttemodellen avventer oppdatert CVM-nettoresultat for ${distribution.latest_result_period ?? "siste rapporterte kvartal"}. Tidligere TTM brukes ikke.`
+                : distribution.missing_periods?.length
+                  ? `Mangler rapportert CVM-nettoresultat for ${distribution.missing_periods.join(", ")}. Verdiene vises når fire sammenhengende kvartaler er verifisert.`
+                  : "Utbyttemodellen avventer fire sammenhengende kvartaler med kildeverifisert rapportert nettoresultat."}
+            </p>
+          )}
 
           <div className="cashDistributionHeadline">
             <span>Netto cash til Otello – utbytteforutsetning</span>

@@ -8,6 +8,10 @@ export type ReportedBemobiCash = {
 export type BemobiValuationNetCash = {
   net_cash_mbrl?: number | null;
   ev_anchor_period?: string | null;
+  reported_balance_quarters?: Array<{
+    period?: string | null;
+    reported_net_debt_mbrl?: number | null;
+  }>;
   source_quarters?: Array<{
     period?: string | null;
     reported_net_debt_mbrl?: number | null;
@@ -40,7 +44,9 @@ export function currentPeriodNetCash(
   const cash = verifiedReportedCash(result);
   if (!period || cash == null) return { value: null, basis: "unavailable" };
 
-  const currentReportedQuarter = valuation?.source_quarters?.find((item) => item.period === period);
+  const currentReportedQuarter = (
+    valuation?.reported_balance_quarters ?? valuation?.source_quarters
+  )?.find((item) => item.period === period);
   const reportedDebt = currentReportedQuarter?.reported_net_debt_mbrl;
   if (reportedDebt != null && Number.isFinite(reportedDebt)) {
     const net = -reportedDebt;
@@ -53,6 +59,29 @@ export function currentPeriodNetCash(
     && anchorNet >= 0 && anchorNet <= cash
   ) return { value: anchorNet, basis: "current_anchor" };
   return { value: null, basis: "unavailable" };
+}
+
+/** Explain missing values without silently reusing an older balance-sheet anchor. */
+export function netCashUnavailableReason(
+  result: ReportedBemobiCash | null | undefined,
+  valuation: BemobiValuationNetCash | null | undefined,
+): string | null {
+  if (currentPeriodNetCash(result, valuation).value != null) return null;
+  const period = result?.period?.trim();
+  if (!period || !/^[1-4]Q\d{2}$/.test(period)) return "Mangler oppgitt rapporteringskvartal.";
+  if (verifiedReportedCash(result) == null) {
+    return `Kontantbeholdningen for ${period} er ikke kildeverifisert.`;
+  }
+  const reported = (
+    valuation?.reported_balance_quarters ?? valuation?.source_quarters
+  )?.find((item) => item.period === period);
+  if (reported?.reported_net_debt_mbrl != null) {
+    return `Rapportert netto gjeld for ${period} må avstemmes mot kontantbeholdningen.`;
+  }
+  const older = valuation?.ev_anchor_period && valuation.ev_anchor_period !== period
+    ? ` Eldre anker fra ${valuation.ev_anchor_period} brukes ikke.`
+    : "";
+  return `Mangler verifiserte CVM-gjeldsposter for ${period}.${older}`;
 }
 
 export function reportedQ3Jcp(distribution: BemobiDistribution | null | undefined): number | null {
