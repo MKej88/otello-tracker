@@ -303,3 +303,40 @@ def test_cvm_balance_builds_cash_borrowings_and_net_debt() -> None:
     assert q2["reported_borrowings_mbrl"] == 65.0
     assert q2["reported_net_debt_mbrl"] == -115.0
     assert q2["reported_net_debt_method"] == "CVM_BORROWINGS_MINUS_CASH"
+
+
+def test_3q26_liquidity_includes_financial_investments_before_net_debt() -> None:
+    """CVM consolidated lines reconcile to issuer 3Q26 R$319m cash position."""
+    report = _archive(
+        year=2026, document_type="itr",
+        files={
+            "BPA": [
+                _row(year=2026, period_end="2026-09-30", account="1.01.01",
+                     value="287345", statement="BPA"),
+                _row(year=2026, period_end="2026-09-30", account="1.01.02",
+                     value="31926", statement="BPA", label="Aplicações Financeiras"),
+            ],
+            "BPP": [
+                _row(year=2026, period_end="2026-09-30", account="2.01.04",
+                     value="940", statement="BPP"),
+                _row(year=2026, period_end="2026-09-30", account="2.02.01",
+                     value="40509", statement="BPP"),
+            ],
+        },
+    )
+    def read(statement, accounts):
+        return parse_statement_accounts_archive(
+            report, year=2026, document_type="itr", statement=statement,
+            account_codes=accounts,
+        )
+    quarter = derive_standardized_balance_quarters(
+        year=2026,
+        itr_bpa=read("BPA", {"1.01.01", "1.01.02"}),
+        itr_bpp=read("BPP", {"2.01.04", "2.02.01"}),
+    )["3Q26"]
+    assert quarter["reported_cash_mbrl"] == 287.345
+    assert quarter["reported_financial_investments_mbrl"] == 31.926
+    assert quarter["reported_liquid_assets_mbrl"] == 319.271
+    assert quarter["reported_borrowings_mbrl"] == 41.449
+    assert quarter["reported_net_debt_mbrl"] == -277.822
+    assert quarter["reported_net_debt_method"] == "CVM_BORROWINGS_MINUS_CASH_AND_INVESTMENTS"
