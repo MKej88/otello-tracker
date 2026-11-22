@@ -124,6 +124,7 @@ def diagnostic_severity(
     core_nav_status: str,
     core_nav_components: dict | None = None,
     fast_severity: str | None = None,
+    manual_full_refresh_pending: bool = False,
 ) -> str:
     """OK / ADVARSEL / AVVIK; expected NAV modeling is not an incident."""
     nav_quality = core_nav_quality(core_nav_status, core_nav_components)
@@ -146,7 +147,8 @@ def diagnostic_severity(
         return "AVVIK"
     if full_status == "SUCCESS":
         return ("ADVARSEL" if secondary_bemobi_warning
-                or nav_quality == "ADVARSEL" or fast_severity == "WARNING" else "OK")
+                or nav_quality == "ADVARSEL" or fast_severity == "WARNING"
+                or manual_full_refresh_pending else "OK")
     if full_status == "PARTIAL" and secondary_bemobi_warning:
         return "ADVARSEL"
     return "AVVIK"
