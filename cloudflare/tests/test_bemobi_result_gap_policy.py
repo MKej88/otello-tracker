@@ -235,16 +235,28 @@ def test_bemobi_empty_feed_source_status_shows_probe_counts():
             "ir_news": {
                 "status": "ok", "report_feed_status": "empty",
                 "report_feed_probes": [
-                    {"year": 2026, "scope": "all", "release_count": 0},
-                    {"year": 2026, "scope": "earnings", "release_count": 0},
+                    {
+                        "year": 2026, "language": "en_US", "scope": "all",
+                        "release_count": 0, "raw_count": 5, "published_count": 4,
+                        "report_title_count": 0, "report_title_in_notices": 0,
+                        "categories_seen": ["comunicados"],
+                    },
+                    {
+                        "year": 2026, "language": "pt_BR", "scope": "earnings",
+                        "release_count": 0, "raw_count": 0, "published_count": 0,
+                        "report_title_count": 0, "report_title_in_notices": 0,
+                        "categories_seen": [],
+                    },
                 ],
             },
         }},
         {"bemobi_web": "DEGRADED"},
     )
     assert detail is not None
-    assert "2026:all=0 utgivelser" in detail
-    assert "2026:earnings=0 utgivelser" in detail
+    assert "2026:en_US:all=0 utgivelser" in detail
+    assert "api=5, publisert=4, rapporttitler=0" in detail
+    assert "2026:pt_BR:earnings=0 utgivelser" in detail
+    assert "api=0, publisert=0, rapporttitler=0" in detail
 
 
 

@@ -101,11 +101,14 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         from workers import fetch
         fetcher = fetch
 
-    async def read_feed(year: int, categories: list[str], *, include_reports: bool):
+    async def read_feed(
+        year: int, categories: list[str], *, include_reports: bool,
+        language: str = "en_US",
+    ):
         response = await fetcher(
             FEED_URL, method="POST",
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            body=json.dumps(dict(year=year, categories=categories, language="en_US", published=True)),
+            body=json.dumps(dict(year=year, categories=categories, language=language, published=True)),
         )
         if not bool(getattr(response, "ok", False)):
             raise RuntimeError(
@@ -114,9 +117,32 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         raw = await read_response_text(
             response, max_bytes=3 * 1024 * 1024, label="Bemobi IR dokumentfeed"
         )
-        return parse_ir_filings(
-            json.loads(raw), target_date=target_date, include_reports=include_reports
+        payload = json.loads(raw)
+        # Reuse the strict issuer, publication-date and official URL validation.
+        items = parse_ir_filings(
+            payload, target_date=target_date, include_reports=include_reports
         )
+        raw_rows = payload["data"]["document_metas"]
+        published_rows = [
+            item for item in raw_rows
+            if isinstance(item, dict) and item.get("is_published") is True
+        ]
+        report_titles = [item for item in published_rows if _report_kind(item)]
+        # Only bounded, public metadata goes into source_health, never document
+        # bodies or arbitrary user-controlled titles/URLs.
+        probe = {
+            "raw_count": len(raw_rows),
+            "published_count": len(published_rows),
+            "report_title_count": len(report_titles),
+            "report_title_in_notices": sum(
+                item.get("internal_name") in CATEGORIES for item in report_titles
+            ),
+            "categories_seen": sorted({
+                str(item.get("internal_name") or "")[:50]
+                for item in published_rows
+            })[:6],
+        }
+        return items, probe
 
     try:
         rows = {}
@@ -127,22 +153,38 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         live_release_count = 0
         for selected in years:
             # Baseline notices are mandatory and independently validated.
-            for item in await read_feed(selected, list(CATEGORIES), include_reports=False):
+            notices, _ = await read_feed(
+                selected, list(CATEGORIES), include_reports=False
+            )
+            for item in notices:
                 rows[item["id"]] = item
-            # The all-categories response may omit result releases. Also query
-            # the issuer's named Release de Resultados category explicitly.
+            # Query the issuer's general and named report categories first in
+            # English. MZiQ can serve Portuguese-only issuer documents, so try
+            # the same official endpoint in pt_BR only when English found no
+            # release. A last-good snapshot cannot turn an empty live feed OK.
             report_discovered = False
             failures = []
-            for categories in ([], ["release-de-resultados"]):
+            for language, categories in (
+                ("en_US", []),
+                ("en_US", ["release-de-resultados"]),
+                ("pt_BR", []),
+                ("pt_BR", ["release-de-resultados"]),
+            ):
+                if language == "pt_BR" and report_discovered:
+                    break
                 try:
-                    items = await read_feed(selected, categories, include_reports=True)
+                    items, probe = await read_feed(
+                        selected, categories, include_reports=True, language=language,
+                    )
                     found_releases = sum(
                         item["document_kind"] == "EARNINGS_RELEASE" for item in items
                     )
                     report_feed_probes.append({
                         "year": selected,
+                        "language": language,
                         "scope": "all" if not categories else "earnings",
                         "release_count": found_releases,
+                        **probe,
                     })
                     live_release_count += found_releases
                     for item in items:
@@ -152,7 +194,7 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
                                 report_discovered = True
                 except Exception as exc:
                     failures.append(
-                        f"{selected} ({','.join(categories) or 'all'}): "
+                        f"{selected} {language} ({','.join(categories) or 'all'}): "
                         f"{type(exc).__name__}: {str(exc)[:160]}"
                     )
             if failures and not report_discovered:

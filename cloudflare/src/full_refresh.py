@@ -300,8 +300,13 @@ def _source_group_detail(
             if probes:
                 details.append(
                     "kontrollert rapportfeed: " + ", ".join(
-                        f"{item.get('year')}:{item.get('scope')}="
-                        f"{item.get('release_count')} utgivelser"
+                        f"{item.get('year')}:{item.get('language', 'en_US')}:"
+                        f"{item.get('scope')}={item.get('release_count')} utgivelser "
+                        f"(api={item.get('raw_count', '?')}, "
+                        f"publisert={item.get('published_count', '?')}, "
+                        f"rapporttitler={item.get('report_title_count', '?')}, "
+                        f"rapporttitler-i-meldinger={item.get('report_title_in_notices', '?')}, "
+                        f"kategorier={','.join(item.get('categories_seen') or [])})"
                         for item in probes if isinstance(item, dict)
                     )
                 )
