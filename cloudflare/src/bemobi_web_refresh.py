@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bemobi_cvm_rad import discover_live_releases, filing_identity
+from bemobi_cvm_mirror import discover_mirrored_releases, read_mirrored_pdf
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
 from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, Q3_RELEASE_URL, read_verified_q3_document
 
@@ -834,6 +835,13 @@ async def _fetch_official_result_candidate(
     presentation must never resolve to the Q3 earnings release.
     """
     original = str(candidate["url"])
+    if candidate.get("mirror_artifact"):
+        try:
+            raw = await read_mirrored_pdf(archive_bucket, candidate["mirror_artifact"], original)
+            return raw, original, False
+        except (ValueError, RuntimeError, KeyError, TypeError):
+            # Preserve the existing official transport and pinned Q3 fallback.
+            pass
     try:
         return await _fetch_result_payload(original, fetcher=fetcher)
     except RuntimeError as exc:
@@ -1431,7 +1439,16 @@ async def sync_latest_result_release(
 ) -> dict[str, Any]:
     live_rows, coverage = ([], {"status": "not_checked"})
     if live_cvm:
-        live_rows, coverage = await discover_live_releases(target_date=target_date, fetcher=fetcher)
+        mirror_status = None
+        if archive_bucket is not None:
+            live_rows, mirror_status = await discover_mirrored_releases(
+                archive_bucket, target_date=target_date,
+            )
+            coverage = mirror_status
+        if not live_rows:
+            live_rows, coverage = await discover_live_releases(target_date=target_date, fetcher=fetcher)
+            if mirror_status is not None:
+                coverage = {**coverage, "mirror_attempt": mirror_status}
     result = await _sync_latest_result_release(
         repository, target_date=target_date, archive_bucket=archive_bucket,
         fetcher=fetcher, live_rows=live_rows,
@@ -1503,7 +1520,8 @@ async def _sync_latest_result_release(
             existing = {"id": doc_id, "source_code": "CVM"}
         live_candidates.append({**existing, "url": row["url"], "title": row["title"],
             "published_at": row["delivery"] + "T00:00:00Z",
-            "expected_period": row["expected_period"], "live_cvm": True})
+            "expected_period": row["expected_period"], "live_cvm": True,
+            **({"mirror_artifact": row["mirror_artifact"]} if row.get("mirror_artifact") else {})})
     # Newest date first. For equal dates prefer the validated live CVM listing,
     # then issuer IR, then delayed CVM archive. Preserve fallback on source errors.
     seen_ids = {int(row["id"]) for row in live_candidates + ir_candidates}
