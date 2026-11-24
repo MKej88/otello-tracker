@@ -1571,8 +1571,11 @@ async def _sync_latest_result_release(
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
             # period (particularly previous-year comparative/slide decks).
-            if live_rows and result["period"] != live_rows[0]["expected_period"]:
-                raise ValueError("Latest live CVM reporting period has not been verified")
+            if live_rows:
+                latest_live = live_rows[0]["expected_period"]
+                period_key = lambda value: (int(value[2:]), int(value[0]))
+                if period_key(result["period"]) < period_key(latest_live):
+                    raise ValueError("Latest live CVM reporting period has not been verified")
             expected_period = candidate.get("expected_period")
             if expected_period and result["period"] != expected_period:
                 raise ValueError("CVM filing title and parsed reporting period differ")
