@@ -1573,8 +1573,9 @@ async def _sync_latest_result_release(
             # period (particularly previous-year comparative/slide decks).
             if live_rows:
                 latest_live = live_rows[0]["expected_period"]
-                period_key = lambda value: (int(value[2:]), int(value[0]))
-                if period_key(result["period"]) < period_key(latest_live):
+                actual_period = (int(result["period"][2:]), int(result["period"][0]))
+                latest_period = (int(latest_live[2:]), int(latest_live[0]))
+                if actual_period < latest_period:
                     raise ValueError("Latest live CVM reporting period has not been verified")
             expected_period = candidate.get("expected_period")
             if expected_period and result["period"] != expected_period:
