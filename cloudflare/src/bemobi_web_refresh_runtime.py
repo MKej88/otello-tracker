@@ -273,6 +273,7 @@ async def refresh_bemobi_web(
         target_date=target_date,
         archive_bucket=archive_bucket,
         fetcher=fetcher,
+        live_cvm=True,
     )
     event_rows = await _ensure_consensus_event(
         repository, result_refresh=result, target_date=target_date,
