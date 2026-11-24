@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
+from bemobi_cvm_rad import discover_live_releases, filing_identity
 from bemobi_ir_news import COMPANY_ID as BEMOBI_IR_COMPANY_ID, STATE_KEY as BEMOBI_IR_STATE_KEY
 from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, Q3_RELEASE_URL, read_verified_q3_document
 
@@ -1426,6 +1427,27 @@ async def sync_latest_result_release(
     target_date: str,
     archive_bucket=None,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    live_cvm: bool = False,
+) -> dict[str, Any]:
+    live_rows, coverage = ([], {"status": "not_checked"})
+    if live_cvm:
+        live_rows, coverage = await discover_live_releases(target_date=target_date, fetcher=fetcher)
+    result = await _sync_latest_result_release(
+        repository, target_date=target_date, archive_bucket=archive_bucket,
+        fetcher=fetcher, live_rows=live_rows,
+    )
+    if live_cvm:
+        result = {**result, "cvm_live_discovery": coverage}
+    return result
+
+
+async def _sync_latest_result_release(
+    repository,
+    *,
+    target_date: str,
+    archive_bucket=None,
+    fetcher: Callable[..., Awaitable[Any]] | None = None,
+    live_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     ir_candidates = await _official_ir_result_candidates(repository, target_date=target_date)
     cvm_candidates = await repository.all(
@@ -1440,18 +1462,51 @@ async def sync_latest_result_release(
         LIMIT 6
         """
     )
-    # Always try the newest publication first. IR wins over CVM only for
-    # the same publication date: an older stored IR release must never mask a
-    # newly filed CVM result when the issuer feed itself is delayed.
-    seen_ids = {int(row["id"]) for row in ir_candidates}
+    # Match exact regulator identity before creating metadata; reuse the existing
+    # document ID so already-ingested facts do not get rewritten each night.
+    by_identity = {
+        filing_identity(row.get("url")): row for row in cvm_candidates
+        if row.get("source_code") == "CVM" and filing_identity(row.get("url"))
+    }
+    live_candidates = []
+    for row in live_rows or []:
+        identity = filing_identity(row["url"])
+        if not identity:
+            continue
+        existing = by_identity.get(identity)
+        if existing is None:
+            existing = await repository.first(
+                """SELECT sd.id, sd.title, sd.url, sd.published_at, s.code AS source_code
+                   FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+                   WHERE s.code='CVM' AND sd.url=?
+                   ORDER BY sd.id LIMIT 1""", (row["url"],),
+            )
+        if existing is None:
+            doc_id = await repository.create_source_document(
+                source_code="CVM",
+                external_id="cvm-rad-release:" + ":".join(identity),
+                document_type="RESULT_RELEASE_PDF", title=row["title"],
+                url=row["url"], published_at=row["delivery"] + "T00:00:00Z",
+                metadata={"discovered_via": "CVM_RAD", "cvm_code": "25500",
+                          "protocol": row["protocol"], "version": row["version"],
+                          "expected_period": row["expected_period"]},
+            )
+            existing = {"id": doc_id, "source_code": "CVM"}
+        live_candidates.append({**existing, "url": row["url"], "title": row["title"],
+            "published_at": row["delivery"] + "T00:00:00Z",
+            "expected_period": row["expected_period"], "live_cvm": True})
+    # Newest date first. For equal dates prefer the validated live CVM listing,
+    # then issuer IR, then delayed CVM archive. Preserve fallback on source errors.
+    seen_ids = {int(row["id"]) for row in live_candidates + ir_candidates}
     candidates = sorted(
-        ir_candidates + [
+        live_candidates + ir_candidates + [
             row for row in cvm_candidates
             if int(row["id"]) not in seen_ids
             and _is_official_earnings_release_candidate(row)
         ],
         key=lambda row: (
             str(row.get("published_at") or "")[:10],
+            bool(row.get("live_cvm")),
             row.get("source_code") == "BEMOBI_IR",
             str(row.get("published_at") or ""),
         ),
@@ -1499,6 +1554,9 @@ async def sync_latest_result_release(
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
             # period (particularly previous-year comparative/slide decks).
+            expected_period = candidate.get("expected_period")
+            if expected_period and result["period"] != expected_period:
+                raise ValueError("CVM filing title and parsed reporting period differ")
             expected_3q26 = resolved_url == CVM_3Q26_RELEASE_URL
             if expected_3q26 and result["period"] != "3Q26":
                 raise ValueError(
