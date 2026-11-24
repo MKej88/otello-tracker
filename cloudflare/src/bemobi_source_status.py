@@ -295,6 +295,9 @@ async def bemobi_source_status(repository) -> dict[str, Any]:
             ),
             "uses_last_good": uses_last_good and fact is not None,
             "detail": detail,
+            **({"report_coverage": result.get("report_coverage"),
+                "cvm_live_discovery": result.get("cvm_live_discovery")}
+               if source.key == "result_release" and "cvm_live_discovery" in result else {}),
         })
 
     critical = next(item for item in items if item["key"] == "ir")

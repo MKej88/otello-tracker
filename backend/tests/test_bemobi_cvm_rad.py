@@ -1,5 +1,8 @@
 """Offline coverage of public RAD parsing and fail-closed source discovery."""
 import asyncio
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "cloudflare" / "src"))
 from datetime import date
 from bemobi_cvm_rad import parse_rows, release_candidates, discover_live_releases, filing_identity
 
@@ -39,3 +42,45 @@ def test_public_endpoint_failure_is_explicit():
     assert rows == []
     assert status["status"] == "not_available"
     assert "503" in status["error"]
+
+def test_verified_live_period_reuses_stored_fact(monkeypatch):
+    import json
+    import bemobi_web_refresh as web
+    rows = release_candidates(parse_rows(payload(line("Release 3T26")),
+        date(2026,11,12), date(2026,11,13)))
+    async def discover(**kwargs):
+        return rows, {"status": "ok", "latest_period": "3Q26"}
+    monkeypatch.setattr(web, "discover_live_releases", discover)
+    class Repo:
+        async def first(self, sql, parameters=()):
+            if "FROM runtime_state" in sql:
+                return None
+            if "FROM source_documents sd" in sql:
+                return {"id": 42, "source_code": "CVM"}
+            if "fact_type='RESULT'" in sql:
+                assert parameters == (42,)
+                return {"id": 9, "payload_json": json.dumps({"period": "3Q26",
+                    "cash_mbrl": 319, "adjusted_ebitda_margin_pct": 35.4})}
+            raise AssertionError(sql)
+        async def all(self, sql, parameters=()):
+            return []
+    result = asyncio.run(web.sync_latest_result_release(Repo(),
+        target_date="2026-11-24", live_cvm=True))
+    assert result["status"] == "skipped"
+    assert result["report_coverage"] == "verified"
+    assert result["cvm_live_discovery"]["latest_period"] == "3Q26"
+
+def test_live_discovery_failure_preserves_existing_ingestion(monkeypatch):
+    import bemobi_web_refresh as web
+    async def discover(**kwargs):
+        return [], {"status": "not_available", "error": "HTTP 526"}
+    async def fallback(repository, **kwargs):
+        assert kwargs["live_rows"] == []
+        return {"status": "ok", "period": "3Q26", "rows_written": 3}
+    monkeypatch.setattr(web, "discover_live_releases", discover)
+    monkeypatch.setattr(web, "_sync_latest_result_release", fallback)
+    result = asyncio.run(web.sync_latest_result_release(object(),
+        target_date="2026-11-24", live_cvm=True))
+    assert result["status"] == "ok"
+    assert result["report_coverage"] == "unconfirmed"
+    assert result["cvm_live_discovery"]["status"] == "not_available"

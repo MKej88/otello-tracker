@@ -1437,7 +1437,14 @@ async def sync_latest_result_release(
         fetcher=fetcher, live_rows=live_rows,
     )
     if live_cvm:
-        result = {**result, "cvm_live_discovery": coverage}
+        # Discovery alone is not evidence of current verified report coverage.
+        verified = (
+            coverage.get("status") == "ok"
+            and result.get("status") in {"ok", "skipped"}
+            and result.get("period") == coverage.get("latest_period")
+        )
+        result = {**result, "cvm_live_discovery": coverage,
+                  "report_coverage": "verified" if verified else "unconfirmed"}
     return result
 
 
@@ -1473,14 +1480,16 @@ async def _sync_latest_result_release(
         identity = filing_identity(row["url"])
         if not identity:
             continue
-        existing = by_identity.get(identity)
-        if existing is None:
-            existing = await repository.first(
+        existing = await repository.first(
                 """SELECT sd.id, sd.title, sd.url, sd.published_at, s.code AS source_code
                    FROM source_documents sd JOIN sources s ON s.id=sd.source_id
                    WHERE s.code='CVM' AND sd.url=?
-                   ORDER BY sd.id LIMIT 1""", (row["url"],),
+                   ORDER BY EXISTS(SELECT 1 FROM bemobi_investor_facts f
+                     WHERE f.source_document_id=sd.id AND f.fact_type='RESULT') DESC,
+                     sd.id LIMIT 1""", (row["url"],),
             )
+        if existing is None:
+            existing = by_identity.get(identity)
         if existing is None:
             doc_id = await repository.create_source_document(
                 source_code="CVM",
@@ -1536,6 +1545,13 @@ async def _sync_latest_result_release(
             )
             if repaired is not None:
                 return repaired
+            period = None
+            try:
+                period = json.loads(str(already.get("payload_json") or "{}")).get("period")
+            except (ValueError, TypeError, AttributeError):
+                pass
+            if candidate.get("expected_period") and period != candidate["expected_period"]:
+                return {"status": "not_available", "reason": "stored_cvm_period_mismatch", "rows_written": 0}
             verified_current = await _verified_existing_cvm_q3_result(
                 repository, candidate, already,
             )
@@ -1544,6 +1560,7 @@ async def _sync_latest_result_release(
                 "reason": "latest_result_already_ingested",
                 "rows_written": 0,
                 "verified_existing_official_q3": verified_current,
+                **({"period": period} if candidate.get("live_cvm") and period else {}),
             }
         try:
             published_date = str(candidate.get("published_at") or target_date)[:10]
@@ -1554,6 +1571,8 @@ async def _sync_latest_result_release(
             result = parse_bemobi_result_text(text, published_date=published_date)
             # An alternate transport must never silently substitute another
             # period (particularly previous-year comparative/slide decks).
+            if live_rows and result["period"] != live_rows[0]["expected_period"]:
+                raise ValueError("Latest live CVM reporting period has not been verified")
             expected_period = candidate.get("expected_period")
             if expected_period and result["period"] != expected_period:
                 raise ValueError("CVM filing title and parsed reporting period differ")
@@ -1703,7 +1722,7 @@ async def _sync_latest_result_release(
             "resolved_source_document_id": resolved_document_id,
         }
 
-    return {"status": "not_available", "reason": "result_documents_not_parseable", "errors": errors[:6], "rows_written": 0}
+    return {"status": "not_available", "reason": ("live_cvm_result_not_parseable" if live_rows else "result_documents_not_parseable"), "errors": errors[:6], "rows_written": 0}
 
 
 async def sync_xp_preview(
