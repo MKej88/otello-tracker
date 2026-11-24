@@ -4,6 +4,8 @@ import hashlib
 import http.cookiejar
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,8 +17,71 @@ from bemobi_web_refresh import _pdf_text, parse_bemobi_result_text
 from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS
 from probe_bemobi_cvm_rad import read
 
+def download_pdf(opener, url, *, reader=None, sleeper=None):
+    """Retry only transient transport/invalid responses; never relax TLS or access controls."""
+    reader = reader or read
+    sleeper = sleeper or time.sleep
+    for attempt in range(3):
+        try:
+            raw = reader(opener, url, limit=MAX_PDF)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (500, 502, 503, 504):
+                raise
+            error = f"HTTP {exc.code}"
+        except (TimeoutError, ConnectionError, urllib.error.URLError) as exc:
+            # A certificate failure is not a transient network error.
+            import ssl
+            if isinstance(getattr(exc, "reason", exc), ssl.SSLCertVerificationError):
+                raise
+            error = type(exc).__name__
+        else:
+            if raw.startswith(b"%PDF"):
+                return raw
+            response = raw[:8192].lower()
+            if any(marker in response for marker in (b"captcha", b"access denied", b"forbidden")):
+                raise ValueError("CVM access challenge; manual review required")
+            error = "CVM response not a PDF"
+        print("CVM PDF attempt", attempt + 1, "failed:", error, flush=True)
+        if attempt < 2:
+            sleeper((2, 5)[attempt])
+    raise ValueError("CVM PDF unavailable after three attempts: " + error)
+
+def check_pinned(identity, digest):
+    if identity == ("1588745", "1113451", "1") and digest != PINNED_Q3_DOCUMENTS["result"]["sha256"]:
+        raise ValueError("Previously verified Q3 original differs; manual review required")
+
+def read_local(path, maximum):
+    with path.open("rb") as handle:
+        raw = handle.read(maximum + 1)
+    if not raw or len(raw) > maximum:
+        raise ValueError("Invalid local bundle file size")
+    return raw
+
+def verify_bundle(out):
+    """Recheck exactly the locally downloaded files; no external requests."""
+    index = json.loads(read_local(out / "latest.json", MAX_INDEX))
+    row = validate_index(index, target_date=datetime.now(UTC).date().isoformat())
+    artifact = row["mirror_artifact"]
+    raw = read_local(out / "release.pdf", MAX_PDF)
+    digest = hashlib.sha256(raw).hexdigest()
+    identity = filing_identity(row["url"])
+    check_pinned(identity, digest)
+    if (not raw.startswith(b"%PDF") or digest != artifact["sha256"]
+        or len(raw) != artifact["bytes"]
+        or read_local(out / "key.txt", 512).decode("utf-8") != artifact["key"]):
+        raise ValueError("Local bundle SHA-256, size or key mismatch")
+    parsed = parse_bemobi_result_text(_pdf_text(raw), published_date=row["delivery"])
+    if parsed["period"] != artifact["period"]:
+        raise ValueError("Local bundle PDF period mismatch")
+    print("Verified same local bundle", parsed["period"], digest, flush=True)
+
 def main():
     out = Path(sys.argv[1])
+    if sys.argv[2:] == ["--verify-only"]:
+        verify_bundle(out)
+        return
+    if sys.argv[2:]:
+        raise SystemExit("Unexpected arguments")
     out.mkdir(parents=True, exist_ok=True)
     observed = datetime.now(UTC)
     end = observed.date()
@@ -33,16 +98,13 @@ def main():
     if not releases:
         raise SystemExit("No current earnings release; preserve previous R2 index")
     latest = releases[0]
-    raw = read(opener, latest["url"], limit=MAX_PDF)
-    if not raw.startswith(b"%PDF"):
-        raise SystemExit("CVM response not a PDF")
+    raw = download_pdf(opener, latest["url"])
     parsed = parse_bemobi_result_text(_pdf_text(raw), published_date=latest["delivery"])
     if parsed["period"] != latest["expected_period"]:
         raise SystemExit("CVM title and PDF quarter mismatch")
     digest = hashlib.sha256(raw).hexdigest()
     identity = filing_identity(latest["url"])
-    if identity == ("1588745", "1113451", "1") and digest != PINNED_Q3_DOCUMENTS["result"]["sha256"]:
-        raise SystemExit("Previously verified Q3 original differs; manual review required")
+    check_pinned(identity, digest)
     artifact = dict(url=latest["url"], period=parsed["period"], sha256=digest,
                     bytes=len(raw), key=pdf_key(identity, digest))
     index = dict(schema=1, cvm_code="25500", observed_at=observed.isoformat(),
