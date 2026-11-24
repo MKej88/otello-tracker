@@ -110,9 +110,51 @@ def main():
     if not raw.startswith(b"%PDF"):
         raise SystemExit("Discovered release did not return PDF")
     print("Q3 release PDF bytes", len(raw), "SHA256", digest, "version", latest["version"])
-    if latest["version"] != "1" or digest != "c65b40a695030bc8ba35b68970fcbe6a1d05828ed5ff5a7bfe327714f94cb661":
-        raise SystemExit("Release differs from verified Q3 original; review required")
-    print("PASS: independently discovered and downloaded verified official Q3 release")
+    if latest["version"] != "1":
+        raise SystemExit("A revised release requires independent review")
+
+    # The public listing's ENET/ext download and ENETCONSULTA/99 can
+    # wrap the same filing in different PDF metadata. Preserve the original
+    # pinned digest; never auto-approve new binary content for the R2 mirror.
+    from bemobi_web_refresh import _pdf_text, parse_bemobi_result_text
+    from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS
+
+    pinned = PINNED_Q3_DOCUMENTS["result"]
+    params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(latest["url"]).query))
+    params["Tela"] = "99"
+    canonical_url = (
+        "https://www.rad.cvm.gov.br/ENETCONSULTA/frmDownloadDocumento.aspx?"
+        + urllib.parse.urlencode(params)
+    )
+    canonical = read(opener, canonical_url, limit=PDF_LIMIT)
+    canonical_digest = hashlib.sha256(canonical).hexdigest()
+    print("Canonical route bytes", len(canonical), "SHA256", canonical_digest)
+    if not canonical.startswith(b"%PDF"):
+        raise SystemExit("Canonical route did not return PDF")
+    if pinned["sha256"] not in {digest, canonical_digest}:
+        print("WARNING: neither route matches the archived binary; independent archive comparison required")
+    text_a = _pdf_text(raw)
+    text_b = _pdf_text(canonical)
+    text_digest_a = hashlib.sha256(" ".join(text_a.split()).encode()).hexdigest()
+    text_digest_b = hashlib.sha256(" ".join(text_b.split()).encode()).hexdigest()
+    print("Normalized full-text SHA256", text_digest_a, text_digest_b)
+    if text_digest_a != text_digest_b:
+        raise SystemExit("Official PDF routes differ in extracted report text; review required")
+    parsed_a = parse_bemobi_result_text(text_a, published_date=latest["delivery"])
+    parsed_b = parse_bemobi_result_text(text_b, published_date=latest["delivery"])
+    expected = dict(period="3Q26", cash_mbrl=319.0,
+                    adjusted_net_revenue_mbrl=245.0, adjusted_ebitda_mbrl=87.0,
+                    adjusted_ebitda_margin_pct=35.4)
+    for key, value in expected.items():
+        print("KPI", key, parsed_a.get(key), parsed_b.get(key))
+        if parsed_a.get(key) != value or parsed_b.get(key) != value:
+            raise SystemExit("Official report KPI differs from verified result: " + key)
+    if parsed_a != parsed_b:
+        raise SystemExit("Parsed results differ between official routes")
+    if pinned["sha256"] not in {digest, canonical_digest}:
+        raise SystemExit("Live discovery and text/KPIs passed; archived binary comparison still required")
+    print("PASS: independent discovery, pinned official copy, full-text equality and verified KPIs")
+
 
 if __name__ == "__main__":
     main()
