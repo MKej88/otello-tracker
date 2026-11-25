@@ -102,6 +102,11 @@ def build_status_email(
             and warning.get("name") == "dashboard_quality"
             and warning.get("status") == "WARN"
             and isinstance(details, dict)
+            and result.get("status") == "SUCCESS"
+            and preflight.get("ready") is True
+            and not preflight.get("blockers")
+            and not result.get("critical_errors")
+            and (details.get("market_timestamps") or {}).get("status") not in {"STALE", "UNKNOWN"}
             and _expected_between_reports(details)
             and not _dashboard_quality_reasons(details)
         ):
