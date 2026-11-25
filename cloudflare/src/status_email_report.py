@@ -127,10 +127,20 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
             if isinstance(item, dict) and item.get("name") == "dashboard_quality":
                 details = item.get("details") or {}
                 quality = safe_detail(details.get("data_status") or "ukjent")
+                evidence = ", ".join(
+                    f"{key}={safe_detail(details[key])}"
+                    for key in (
+                        "as_of_date", "model_scope", "cash_quality",
+                        "cash_calibration_quality", "share_count_quality",
+                        "ona_quality", "receivable_quality", "option_quality",
+                    )
+                    if details.get(key)
+                )
                 incident(
                     "preflight",
                     f"{label}: NAV-datakvalitet {quality} (dashboard_quality). "
-                    "Årsaken må bekreftes i produksjonsdiagnosen; "
+                    + (f"{evidence}. " if evidence else "")
+                    + "Årsaken må bekreftes i produksjonsdiagnosen; "
                     "statusen alene påviser ikke feil i NAV-beregningen.",
                 )
             else:

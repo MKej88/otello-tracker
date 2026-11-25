@@ -427,3 +427,71 @@ def test_model_warning_filter_does_not_remove_blockers() -> None:
     assert "FEILET" in message["subject"]
     assert "Blokkeringer: 1" in message["text"]
     assert "dashboard_quality" in message["text"]
+
+
+@pytest.mark.parametrize(
+    "market_status,ready,critical,job_status,expected_info",
+    [
+        ("MIXED", True, [], "SUCCESS", True),
+        ("STALE", True, [], "SUCCESS", False),
+        ("UNKNOWN", True, [], "SUCCESS", False),
+        ("MIXED", False, [], "SUCCESS", False),
+        ("MIXED", True, ["NAV failure"], "SUCCESS", False),
+        ("MIXED", True, [], "PARTIAL", False),
+    ],
+)
+def test_structured_nav_quality_respects_operational_health(
+    market_status, ready, critical, job_status, expected_info
+) -> None:
+    result = {
+        "status": job_status,
+        "target_date": "2026-11-24",
+        "critical_errors": critical,
+        "preflight": {
+            "ready": ready,
+            "blockers": [],
+            "warnings": [
+                {
+                    "name": "dashboard_quality",
+                    "status": "WARN",
+                    "details": {
+                        "data_status": "DEGRADED",
+                        "cash_quality": "FORECAST_PARTIAL",
+                        "market_timestamps": {"status": market_status},
+                        "quality_notes": "FULL NAV methodology only",
+                    },
+                }
+            ],
+        },
+    }
+    original = json.dumps(result, sort_keys=True)
+    message = build_status_email(result)
+    assert ("Modellinformasjon" in message["text"]) == expected_info
+    assert ("dashboard_quality" in message["text"]) != expected_info
+    assert json.dumps(result, sort_keys=True) == original
+
+
+def test_nav_warning_contains_structured_quality_evidence() -> None:
+    message = build_status_email(
+        {
+            "status": "SUCCESS",
+            "preflight": {
+                "ready": True,
+                "blockers": [],
+                "warnings": [
+                    {
+                        "name": "dashboard_quality",
+                        "status": "WARN",
+                        "details": {
+                            "data_status": "DEGRADED",
+                            "cash_quality": "FORECAST_PARTIAL",
+                            "cash_calibration_quality": "HIGH_RESIDUAL",
+                        },
+                    }
+                ],
+            },
+        }
+    )
+    assert "cash_calibration_quality=HIGH_RESIDUAL" in message["text"]
+    assert "dashboard_quality" in message["text"]
+    assert "OK med avvik" in message["subject"]
