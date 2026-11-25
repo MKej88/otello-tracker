@@ -12,7 +12,7 @@ from app.db.connection import get_connection
 CATEGORY_LABELS = {
     "RESULTS": "Resultatrapport",
     "DIVIDEND": "Utbytte",
-    "JCP": "JCP",
+    "JCP": "Renter på egenkapital",
     "BUYBACK": "Tilbakekjøp",
     "M_AND_A": "Oppkjøp og transaksjoner",
     "CAPITAL": "Kapital",
@@ -26,7 +26,7 @@ MATERIAL_CATEGORIES = {"DIVIDEND", "JCP", "BUYBACK", "M_AND_A", "CAPITAL", "GUID
 REVIEW_STATUSES = {"NEW", "REVIEW_REQUIRED"}
 REASON_LABELS = {
     "DIVIDEND": "Dokumentdata identifiserer et konkret utbytte.",
-    "JCP": "Dokumentdata identifiserer en konkret JCP-hendelse.",
+    "JCP": "Dokumentdata identifiserer en konkret hendelse knyttet til renter på egenkapital.",
     "BUYBACK": "Dokumentdata identifiserer et konkret tilbakekjøp.",
     "M_AND_A": "Dokumentdata identifiserer en konkret selskapstransaksjon.",
     "CAPITAL": "Dokumentdata identifiserer en konkret kapitalhendelse.",
@@ -284,7 +284,8 @@ async def news_and_events(
     )
     for row in actions:
         company = "Bemobi" if row.get("symbol") == "BMOB3" else "Otello"
-        label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
+        is_jcp = row.get("action_type") == "JCP"
+        label = "renter på egenkapital" if is_jcp else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
             ("payment_date", "Betalingsdato"),
@@ -296,7 +297,11 @@ async def news_and_events(
                         event_id=f"action-{row['id']}-{field}",
                         event_date=str(event_date),
                         company=company,
-                        title=f"{date_label} for {label}",
+                        title=(
+                            "Utbetaling av renter på egenkapital"
+                            if is_jcp and field == "payment_date"
+                            else f"{date_label} for {label}"
+                        ),
                         category="DISTRIBUTION",
                         importance="HIGH",
                         date_label=date_label,
