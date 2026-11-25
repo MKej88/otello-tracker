@@ -674,7 +674,7 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            Hovedmodellen antar for enkelhets skyld at hele den modellerte 2026-distribusjonen utbetales som ordinært utbytte og ilegges 10 % brasiliansk kildeskatt. JCP-seksjonen nedenfor viser hvordan deler av denne payouten kan komme tidligere gjennom kvartalsvis JCP; beløpene skal ikke legges oppå hovedestimatet.
+            Hovedmodellen antar for enkelhets skyld at hele den modellerte 2026-distribusjonen utbetales som ordinært utbytte og ilegges 10 % brasiliansk kildeskatt. Seksjonen om renter på egenkapital nedenfor viser hvordan deler av denne payouten kan komme tidligere gjennom kvartalsvise renter på egenkapital; beløpene skal ikke legges oppå hovedestimatet.
           </p>
         </article>
       </section>
@@ -683,7 +683,7 @@ export default function CashPage() {
         <article className="card cardStandard cashDistributionCard">
           <div className="cardHeader">
             <div>
-              <span className="label">KVARTALSVIS JCP</span>
+              <span className="label">KVARTALSVISE RENTER PÅ EGENKAPITAL</span>
               <h2 className="numeric">Annonsert 1H26 · {jcp3QGrossMbrl == null ? "Q3 avventer" : "annonsert Q3"} · estimert Q4</h2>
             </div>
             <span className="pill numeric">15 % KILDESKATT</span>
@@ -720,7 +720,7 @@ export default function CashPage() {
 
           <div className="cashInterestStrip">
             <div>
-              <span className="numeric">JCP 3Q annonsert + 4Q estimert</span>
+              <span className="numeric">Renter på egenkapital · 3Q annonsert + 4Q estimert</span>
               <strong className="numeric">R$ {formatNumber(jcp2H26GrossMbrl, 1)}m</strong>
               <small>Bemobi brutto</small>
             </div>
@@ -741,7 +741,7 @@ export default function CashPage() {
               <strong className="numeric">{moneyM(jcp4Q.netOtecMnok)}</strong>
             </div>
             <div>
-              <span className="numeric">JCP 2026 · annonsert + 4Q-estimat</span>
+              <span className="numeric">Renter på egenkapital 2026 · annonsert + 4Q-estimat</span>
               <strong className="numeric">R$ {formatNumber(jcpFullYearGrossMbrl, 1)}m</strong>
             </div>
             <div>
@@ -751,10 +751,10 @@ export default function CashPage() {
           </div>
 
           <p className="cashNote">
-            1Q26 og 2Q26 er annonserte JCP-beløp. {jcp3QGrossMbrl == null
+            1Q26 og 2Q26 er annonserte renter på egenkapital. {jcp3QGrossMbrl == null
               ? "Q3 er offentliggjort, men ikke verifisert i trackerens selskapsmeldingsdata. Verdien utelates fra summer til innhentingen er bekreftet."
               : "Q3 er hentet fra verifisert selskapsmelding; beløpet inngår som annonsert, ikke som TJLP-estimat."}
-            {" "}Q4 er fortsatt et usikkert scenario på om lag R$16m, ikke en annonsert utdeling. JCP er en mulig utbetalingsform for samme samlede payout og skal ikke legges til utbyttemodellen en gang til.
+            {" "}Q4 er fortsatt et usikkert scenario på om lag R$16m, ikke en annonsert utdeling. Renter på egenkapital er en mulig utbetalingsform for samme samlede payout og skal ikke legges til utbyttemodellen en gang til.
           </p>
         </article>
 
@@ -928,7 +928,7 @@ export default function CashPage() {
           <div><strong>Direkte cash</strong><span>Samme estimerte kontantbeholdning og cash per aksje som på Oversikt, hentet fra den økonomiske cash-bridgen.</span></div>
           <div><strong>Look-through cash</strong><span>Otellos eierandel av Bemobis siste rapporterte cash, omregnet med siste BRL/NOK i tracker.</span></div>
           <div><strong>Utbyttemodell</strong><span>TTM-resultat × gjeldende payout-policy × Otellos distribusjonsandel, der hovedscenarioet antar ordinært utbytte og 10 % brasiliansk kildeskatt.</span></div>
-          <div><strong>JCP-estimat</strong><span>JCP vises separat med 15 % kildeskatt som timing/form på deler av samme payout, og skal ikke dobbelttelles mot utbyttemodellen.</span></div>
+          <div><strong>Estimat for renter på egenkapital</strong><span>Renter på egenkapital vises separat med 15 % kildeskatt som timing/form på deler av samme payout, og skal ikke dobbelttelles mot utbyttemodellen.</span></div>
         </div>
       </section>
     </div>
