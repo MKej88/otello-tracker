@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatNumber } from "../src/uiFormat.ts";
+import { formatCompanyEventTitle, formatNumber } from "../src/uiFormat.ts";
 
 test("tallformat bevarer norsk visning, avrunding og manglende verdier", () => {
   assert.equal(formatNumber(1234.5), "1\u00a0234,50");
@@ -23,4 +23,13 @@ test("tallformat bevarer norsk visning, avrunding og manglende verdier", () => {
   }
   assert.throws(() => formatNumber(1, -1), RangeError);
   assert.throws(() => formatNumber(1, Infinity), RangeError);
+});
+
+
+test("kalender normaliserer eldre Bemobi-titler uten å endre andre hendelser", () => {
+  assert.equal(formatCompanyEventTitle("Betalingsdato for JCP", "Bemobi"), "Utbetaling av renter på egenkapital");
+  assert.equal(formatCompanyEventTitle("Ex-dato for JCP", "Bemobi"), "Ex-dato for renter på egenkapital");
+  assert.equal(formatCompanyEventTitle("Utbetaling av renter på egenkapital", "Bemobi"), "Utbetaling av renter på egenkapital");
+  assert.equal(formatCompanyEventTitle("Betalingsdato for utbytte", "Bemobi"), "Betalingsdato for utbytte");
+  assert.equal(formatCompanyEventTitle("Betalingsdato for JCP", "Otello"), "Betalingsdato for JCP");
 });
