@@ -249,6 +249,19 @@ async def load_dashboard_hot_snapshot(
     age_seconds = (current - generated_at).total_seconds()
     if age_seconds < 0 or age_seconds > SNAPSHOT_MAX_AGE_SECONDS:
         return None
+    # Older snapshots can contain already-rendered calendar titles. Normalize only
+    # the two legacy titles, leaving dates, sources, identity and NAV data untouched.
+    events = payload.get("events")
+    if isinstance(events, dict) and isinstance(events.get("events"), list):
+        titles = {
+            "Betalingsdato for JCP": "Utbetaling av renter på egenkapital",
+            "Ex-dato for JCP": "Ex-dato for renter på egenkapital",
+        }
+        for event in events["events"]:
+            if isinstance(event, dict) and event.get("company") == "Bemobi":
+                title = event.get("title")
+                if isinstance(title, str) and title in titles:
+                    event["title"] = titles[title]
     return payload
 
 

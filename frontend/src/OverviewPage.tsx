@@ -2,7 +2,7 @@ import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
-import { formatDate, formatInteger, formatNumber } from "./uiFormat";
+import { formatCompanyEventTitle, formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { medianDiscountPriceLine } from "./navMedianPrice";
 import { navUpsideLine } from "./navUpside";
@@ -334,7 +334,7 @@ function upcomingEvents(payload?: OverviewEventsPayload | null): OverviewEvent[]
       date: event.date,
       startsAtUtc: event.starts_at_utc,
       timeStatus: event.time_status,
-      title: event.title,
+      title: formatCompanyEventTitle(event.title, event.company),
       typeBadge: companyEventType(event.category),
       scopeBadge: event.company,
       scopeClass: event.company === "Bemobi" ? "bemobi" : "otello",
