@@ -44,3 +44,12 @@ export function formatDateTime(
   });
   return `${date} kl. ${time}`;
 }
+
+
+// Keep legacy cached API responses consistent with the current Norwegian calendar.
+export function formatCompanyEventTitle(title: string, company: string): string {
+  if (company !== "Bemobi") return title;
+  if (title === "Betalingsdato for JCP") return "Utbetaling av renter på egenkapital";
+  if (title === "Ex-dato for JCP") return "Ex-dato for renter på egenkapital";
+  return title;
+}
