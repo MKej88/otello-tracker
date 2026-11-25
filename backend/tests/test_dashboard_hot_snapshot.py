@@ -394,3 +394,37 @@ def test_unknown_component_is_rejected() -> None:
         assert "Unknown dashboard hot-snapshot component" in str(exc)
     else:
         raise AssertionError("unknown hot-snapshot component must be rejected")
+
+
+def test_legacy_snapshot_calendar_titles_are_normalized_without_changing_data() -> None:
+    repository = FakeRepository()
+    payment = {
+        "id": "action-20-payment_date", "company": "Bemobi",
+        "title": "Betalingsdato for JCP", "date": "2026-11-30",
+        "category": "DISTRIBUTION", "confirmed": True, "source": "Bemobi IR",
+    }
+    ex_date = {**payment, "id": "action-20-ex_date", "date": "2026-11-18",
+               "title": "Ex-dato for JCP"}
+    other = {**payment, "id": "action-21-payment_date", "title": "Betalingsdato for utbytte"}
+    existing = {
+        "version": hot.SNAPSHOT_VERSION, "generated_at": current_timestamp(),
+        "summary": {"ready": True}, "economic": {"ready": True},
+        "quotes": {"ready": True}, "buyback": {"ready": True},
+        "events": {"ready": True, "events": [payment, ex_date, other], "calendar": []},
+    }
+    stored = json.dumps(existing)
+    repository.rows[hot.STATE_KEY] = {
+        "value": stored, "updated_at": existing["generated_at"],
+    }
+    expected = [
+        {**payment, "title": "Utbetaling av renter på egenkapital"},
+        {**ex_date, "title": "Ex-dato for renter på egenkapital"},
+        other,
+    ]
+    component = asyncio.run(hot.dashboard_hot_component(repository, "events"))
+    assert component is not None
+    assert component["events"] == expected
+    bootstrap = asyncio.run(hot.dashboard_bootstrap_payload(repository))
+    assert bootstrap["events"]["events"] == expected
+    assert repository.rows[hot.STATE_KEY]["value"] == stored
+    assert repository.writes == 0
