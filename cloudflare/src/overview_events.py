@@ -130,7 +130,8 @@ async def _company_events(repository: Any, *, today: date) -> list[dict[str, Any
         company = _company_name(row.get("symbol"))
         if company is None:
             continue
-        label = "JCP" if row.get("action_type") == "JCP" else "utbytte/distribusjon"
+        is_jcp = row.get("action_type") == "JCP"
+        label = "renter på egenkapital" if is_jcp else "utbytte/distribusjon"
         for field, date_label in (
             ("ex_date", "Ex-dato"),
             ("payment_date", "Betalingsdato"),
@@ -142,7 +143,11 @@ async def _company_events(repository: Any, *, today: date) -> list[dict[str, Any
                         event_id=f"action-{row['id']}-{field}",
                         event_date=str(event_date),
                         company=company,
-                        title=f"{date_label} for {label}",
+                        title=(
+                            "Utbetaling av renter på egenkapital"
+                            if is_jcp and field == "payment_date"
+                            else f"{date_label} for {label}"
+                        ),
                         category="DISTRIBUTION",
                         importance="HIGH",
                         date_label=date_label,
