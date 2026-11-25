@@ -124,7 +124,17 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         lines.append(f"- Datakontroller bestått: {passed}/{len(checks)}")
     for key, label in (("blockers", "Blokkering"), ("warnings", "Advarsel")):
         for item in preflight.get(key) or []:
-            incident("preflight", f"{label}: {safe_detail(item)}")
+            if isinstance(item, dict) and item.get("name") == "dashboard_quality":
+                details = item.get("details") or {}
+                quality = safe_detail(details.get("data_status") or "ukjent")
+                incident(
+                    "preflight",
+                    f"{label}: NAV-datakvalitet {quality} (dashboard_quality). "
+                    "Årsaken må bekreftes i produksjonsdiagnosen; "
+                    "statusen alene påviser ikke feil i NAV-beregningen.",
+                )
+            else:
+                incident("preflight", f"{label}: {safe_detail(item)}")
     for step, data in (result.get("source_results") or {}).items():
         status = str(data.get("status") or "ikke rapportert")
         counts = [
