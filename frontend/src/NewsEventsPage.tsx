@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import { usePollingResource } from "./usePollingResource";
-import { formatDate, formatDateTime } from "./uiFormat";
+import { formatCompanyEventTitle, formatDate, formatDateTime } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import "./news-events.css";
 
@@ -123,7 +123,7 @@ export default function NewsEventsPage() {
             <>
               <strong>{formatDate(nextEvent.date)}</strong>
               {nextEvent.starts_at_utc ? <small>{formatDateTime(nextEvent.starts_at_utc)} (norsk tid)</small> : nextEvent.time_status === "NOT_PUBLISHED" ? <small>Tidspunkt ikke publisert</small> : null}
-              <span>{nextEvent.title}</span>
+              <span>{formatCompanyEventTitle(nextEvent.title, nextEvent.company)}</span>
               <small>{nextEvent.company} · {nextEvent.confirmed ? "Bekreftet" : "Forventet"}</small>
             </>
           ) : (
@@ -209,7 +209,7 @@ export default function NewsEventsPage() {
                   <div className="newsMeta newsMetaCompact">
                     <span className={`companyTag company${item.company}`}>{item.company}</span>
                   </div>
-                  <h3>{item.title}</h3>
+                  <h3>{formatCompanyEventTitle(item.title, item.company)}</h3>
                   {item.starts_at_utc ? <p>{formatDateTime(item.starts_at_utc)} (norsk tid)</p> : item.time_status === "NOT_PUBLISHED" ? <p>Tidspunkt ikke publisert</p> : null}
                   <p>{item.date_label} · {item.confirmed ? "Bekreftet" : "Forventet"}</p>
                   <SourceLink source={item.source} url={item.url} />
