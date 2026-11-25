@@ -129,7 +129,7 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                 quality = safe_detail(details.get("data_status") or "ukjent")
                 incident(
                     "preflight",
-                    f"{label}: NAV-datakvalitet {quality}. "
+                    f"{label}: NAV-datakvalitet {quality} (dashboard_quality). "
                     "Årsaken må bekreftes i produksjonsdiagnosen; "
                     "statusen alene påviser ikke feil i NAV-beregningen.",
                 )
