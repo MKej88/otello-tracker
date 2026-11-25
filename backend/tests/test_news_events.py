@@ -37,7 +37,7 @@ def test_explicit_jcp_can_be_confirmed_important() -> None:
         {"classification_reason": "CVM metadata explicitly mentions JCP"},
     )
     assert classification == "CONFIRMED_IMPORTANT"
-    assert reason == "Dokumentdata identifiserer en konkret JCP-hendelse."
+    assert reason == "Dokumentdata identifiserer en konkret hendelse knyttet til renter på egenkapital."
     assert effect is not None
 
 
@@ -99,7 +99,7 @@ def test_jcp_uses_precise_label_and_exposes_nav_impact() -> None:
         }
     )
 
-    assert item["category_label"] == "JCP"
+    assert item["category_label"] == "Renter på egenkapital"
     assert item["nav_impact"] == "DIRECT"
     assert item["importance"] == "HIGH"
     assert item["classification"] == "CONFIRMED_IMPORTANT"

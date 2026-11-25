@@ -149,4 +149,4 @@ def test_news_page_shows_only_official_sources() -> None:
     assert "feeds</span>" not in news
     assert "Automatisk oversatt" not in news
     assert '"Media"' not in news
-    assert 'item.category === "JCP" ? "JCP"' in news
+    assert 'item.category === "JCP" ? "Renter på egenkapital"' in news

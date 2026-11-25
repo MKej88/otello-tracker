@@ -93,7 +93,7 @@ def test_cash_page_owns_dividend_jcp_and_tax_ui() -> None:
     bemobi_base = (ROOT / "frontend/src/BemobiPageBase.tsx").read_text(encoding="utf-8")
 
     assert "10 % KILDESKATT" in cash_page
-    assert "KVARTALSVIS JCP" in cash_page
+    assert "KVARTALSVISE RENTER PÅ EGENKAPITAL" in cash_page
     assert "15 % KILDESKATT" in cash_page
     assert "Netto cash til Otello – utbytteforutsetning" in cash_page
 

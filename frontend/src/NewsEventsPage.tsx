@@ -73,7 +73,7 @@ function NewsSourceMeta({ item }: { item: NewsItem }) {
 }
 
 function categoryLabel(item: NewsItem) {
-  return item.category === "JCP" ? "JCP" : item.category_label;
+  return item.category === "JCP" ? "Renter på egenkapital" : item.category_label;
 }
 
 export default function NewsEventsPage() {

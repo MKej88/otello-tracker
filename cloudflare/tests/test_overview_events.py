@@ -120,3 +120,25 @@ def test_no_forecasts_for_official_report_when_source_is_missing():
     report = next(e for e in result["events"] if e["category"] == "RESULTS")
     assert report["date"] == "2026-11-12"
     assert "quarter_preview" not in report
+
+
+def test_jcp_calendar_uses_norwegian_label_without_changing_event_identity():
+    class Repository(FakeRepository):
+        async def all(self, sql, params=()):
+            if "FROM corporate_actions" in sql:
+                return [{
+                    "id": 20, "action_type": "JCP", "symbol": "BMOB3",
+                    "ex_date": "2026-11-18", "payment_date": "2026-11-30",
+                    "source_name": "Bemobi Investor Relations",
+                    "url": "https://example.com/notice.pdf",
+                }]
+            return await super().all(sql, params)
+
+    result = asyncio.run(overview_events(Repository(), as_of_date="2026-11-17"))
+    events = {event["id"]: event for event in result["events"]}
+    assert events["action-20-ex_date"]["title"] == "Ex-dato for renter på egenkapital"
+    payment = events["action-20-payment_date"]
+    assert payment["title"] == "Utbetaling av renter på egenkapital"
+    assert payment["category"] == "DISTRIBUTION"
+    assert payment["date"] == "2026-11-30"
+    assert payment["confirmed"] is True
