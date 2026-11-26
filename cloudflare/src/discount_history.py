@@ -470,8 +470,9 @@ async def discount_history(
     days: int = 365,
     max_points: int = 600,
     year_to_date: bool = False,
+    current_economic_reference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validated legacy history plus the user-facing historical Estimert NAV series."""
+    """Validated history; an internal locked refresh may reuse its current NAV reference."""
     days = max(30, min(int(days), 3650))
     max_points = max(50, min(int(max_points), 1000))
     history = await dashboard_history(repository, days=days, max_points=max_points)
@@ -483,7 +484,11 @@ async def discount_history(
             **history,
             "period_days": days,
             "statistics": _discount_statistics([]),
-            "current_economic": await _economic_reference(repository),
+            "current_economic": (
+            dict(current_economic_reference)
+            if current_economic_reference is not None
+            else await _economic_reference(repository)
+        ),
             "estimated": estimated,
         }
 
@@ -581,7 +586,11 @@ async def discount_history(
             "shares_outstanding": latest_point.get("shares_outstanding"),
             "share_count_quality": latest_point.get("share_count_quality"),
         },
-        "current_economic": await _economic_reference(repository),
+        "current_economic": (
+            dict(current_economic_reference)
+            if current_economic_reference is not None
+            else await _economic_reference(repository)
+        ),
         "points": points,
         "estimated": estimated,
     }

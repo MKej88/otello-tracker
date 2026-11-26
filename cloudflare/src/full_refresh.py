@@ -442,14 +442,20 @@ async def materialize_history_batch(
     return {**result, "repository": repository.performance_metrics()}
 
 
-async def materialize_history_period(database: Any, *, period_key: str) -> dict[str, Any]:
+async def materialize_history_period(
+    database: Any, *, period_key: str,
+    shared_economic_reference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Use a fresh repository per durable period, not one long-lived read cache."""
     try:
         from .materialized_discount_history import materialize_discount_periods
     except ImportError:
         from materialized_discount_history import materialize_discount_periods
     repository = PerformanceD1WriteRepository(database)
-    result = await materialize_discount_periods(repository, period_keys=(period_key,))
+    result = await materialize_discount_periods(
+        repository, period_keys=(period_key,),
+        shared_economic_reference=shared_economic_reference,
+    )
     return {**result, "repository": repository.performance_metrics()}
 
 
@@ -464,6 +470,7 @@ def summarize_history_periods(results: dict[str, dict[str, Any]]) -> dict[str, A
     dates = set()
     timings = {}
     repository_metrics = {}
+    reused_periods = []
     for key in PERIOD_KEYS:
         result = results.get(key) or {}
         date_value = result.get("source_date")
@@ -474,6 +481,8 @@ def summarize_history_periods(results: dict[str, dict[str, Any]]) -> dict[str, A
         ):
             written.append(key)
             dates.add(date_value)
+            if key in (result.get("economic_reference_reused_periods") or []):
+                reused_periods.append(key)
         else:
             failures.append({
                 "period_key": key,
@@ -496,6 +505,7 @@ def summarize_history_periods(results: dict[str, dict[str, Any]]) -> dict[str, A
         "failures": failures,
         "timings_ms": timings,
         "repository_by_period": repository_metrics,
+        "economic_reference_reused_periods": reused_periods,
     }
 
 
