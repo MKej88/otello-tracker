@@ -12,6 +12,8 @@ from src.job_lock import (
     acquire_refresh_lock,
     release_refresh_lock,
     renew_refresh_lock,
+    renew_workflow_refresh_lock,
+    release_workflow_refresh_lock,
 )
 
 
@@ -267,3 +269,112 @@ def test_release_reports_failure_when_another_owner_holds_lock() -> None:
 
     assert asyncio.run(release_refresh_lock(repository, stale_token)) is False
     assert repository.value == current_token
+
+
+class SQLiteLeaseRepository:
+    """Execute production SQL, including atomic ownership guards."""
+    def __init__(self, value, heartbeat):
+        import sqlite3
+        self.connection = sqlite3.connect(":memory:")
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute(
+            "CREATE TABLE runtime_state (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)"
+        )
+        if value is not None:
+            self.connection.execute(
+                "INSERT INTO runtime_state VALUES (?, ?, ?)", (LOCK_KEY, value, heartbeat)
+            )
+        self.fail_after_write = False
+        self.takeover_before_write = None
+
+    async def run(self, sql, parameters=()):
+        if self.takeover_before_write is not None:
+            self.connection.execute(
+                "UPDATE runtime_state SET value=? WHERE key=?",
+                (self.takeover_before_write, LOCK_KEY),
+            )
+            self.takeover_before_write = None
+        self.connection.execute(sql, parameters)
+        self.connection.commit()
+        if self.fail_after_write:
+            self.fail_after_write = False
+            raise MemoryError("simulated interruption after committed D1 UPDATE")
+
+    async def first(self, sql, parameters=()):
+        row = self.connection.execute(sql, parameters).fetchone()
+        return dict(row) if row else None
+
+
+def test_workflow_renewal_recovers_after_committed_update_and_lost_result():
+    from datetime import timedelta
+    now = datetime.now(UTC).replace(microsecond=0)
+    owner = "full:2026-11-25:unique-instance"
+    iso = lambda value: value.isoformat().replace("+00:00", "Z")
+    original = f"{owner}|{iso(now + timedelta(hours=1))}"
+    repository = SQLiteLeaseRepository(original, iso(now))
+    repository.fail_after_write = True
+
+    async def exercise():
+        try:
+            await renew_workflow_refresh_lock(
+                repository, original, owner=owner, ttl_seconds=10800, now=now,
+            )
+        except MemoryError:
+            pass
+        else:
+            raise AssertionError("Expected simulated post-commit interruption")
+        recovered = await renew_workflow_refresh_lock(
+            repository, original, owner=owner, ttl_seconds=10800,
+            now=now + timedelta(seconds=5),
+        )
+        assert recovered["renewed"] and recovered["recovered_same_owner"]
+        assert recovered["token"] == f"{owner}|{iso(now + timedelta(hours=3, seconds=5))}"
+        assert await release_workflow_refresh_lock(repository, original, owner=owner)
+        assert await repository.first("SELECT value FROM runtime_state WHERE key=?", (LOCK_KEY,)) is None
+
+    asyncio.run(exercise())
+
+
+def test_workflow_renewal_never_recovers_expired_stale_or_other_owner():
+    from datetime import timedelta
+    now = datetime.now(UTC).replace(microsecond=0)
+    owner = "full:2026-11-25:unique-instance"
+    iso = lambda value: value.isoformat().replace("+00:00", "Z")
+    original = f"{owner}|{iso(now + timedelta(hours=1))}"
+    cases = [
+        (f"full:other|{iso(now + timedelta(hours=2))}", iso(now)),
+        (f"{owner}|{iso(now - timedelta(seconds=1))}", iso(now)),
+        (original, iso(now - timedelta(minutes=31))),
+        (f"{owner}|{iso(now + timedelta(minutes=30))}", iso(now)),
+        (None, iso(now)),
+    ]
+    for value, heartbeat in cases:
+        repository = SQLiteLeaseRepository(value, heartbeat)
+        result = asyncio.run(renew_workflow_refresh_lock(
+            repository, original, owner=owner, ttl_seconds=10800, now=now,
+        ))
+        assert not result["renewed"]
+        row = asyncio.run(repository.first("SELECT value FROM runtime_state WHERE key=?", (LOCK_KEY,)))
+        assert (row or {}).get("value") == value
+
+
+def test_workflow_renewal_and_cleanup_cannot_overwrite_concurrent_takeover():
+    from datetime import timedelta
+    now = datetime.now(UTC).replace(microsecond=0)
+    owner = "full:2026-11-25:unique-instance"
+    iso = lambda value: value.isoformat().replace("+00:00", "Z")
+    original = f"{owner}|{iso(now + timedelta(hours=1))}"
+    replacement = f"fast:other|{iso(now + timedelta(hours=2))}"
+    repository = SQLiteLeaseRepository(original, iso(now))
+    repository.takeover_before_write = replacement
+    result = asyncio.run(renew_workflow_refresh_lock(
+        repository, original, owner=owner, ttl_seconds=10800, now=now,
+    ))
+    assert not result["renewed"]
+    assert result["held_by"] == "fast:other"
+    assert not asyncio.run(release_workflow_refresh_lock(repository, original, owner=owner))
+    repository = SQLiteLeaseRepository(original, iso(now))
+    repository.takeover_before_write = replacement
+    assert not asyncio.run(release_workflow_refresh_lock(repository, original, owner=owner))
+    row = asyncio.run(repository.first("SELECT value FROM runtime_state WHERE key=?", (LOCK_KEY,)))
+    assert row["value"] == replacement
