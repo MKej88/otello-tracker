@@ -1630,6 +1630,10 @@ async def _sync_latest_result_release(
                 repository, candidate=candidate, existing=already, fetcher=fetcher,
                 archive_bucket=archive_bucket,
             )
+            # A legacy repair without current CVM discovery does not claim
+            # current report coverage and needs no additional provenance reads.
+            if repaired is not None and not candidate.get("live_cvm"):
+                return repaired
             period = None
             try:
                 period = json.loads(str(already.get("payload_json") or "{}")).get("period")
