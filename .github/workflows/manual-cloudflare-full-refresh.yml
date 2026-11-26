@@ -137,6 +137,8 @@ jobs:
               "timings_ms": history.get("timings_ms"),
               "period_cache_status": period_cache.get("status"),
               "period_timings_ms": period_cache.get("timings_ms"),
+              "repository_by_period": period_cache.get("repository_by_period"),
+              "period_failures": period_cache.get("failures"),
           }), flush=True)
           for key in ("source_results", "sources"):
               sources = metadata.get(key) or {}

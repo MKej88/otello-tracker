@@ -428,7 +428,8 @@ def _records_written(results: dict[str, Any], nav: dict[str, Any]) -> int:
 
 
 async def materialize_history_batch(
-    database: Any, *, after_date: str | None = None
+    database: Any, *, after_date: str | None = None,
+    build_period_cache: bool = True,
 ) -> dict[str, Any]:
     """Build one bounded, cursor-aware history batch for a durable Workflow step."""
     repository = PerformanceD1WriteRepository(database)
@@ -436,8 +437,66 @@ async def materialize_history_batch(
         repository,
         batch_size=HISTORY_MATERIALIZATION_BATCH_SIZE,
         after_date=after_date,
+        build_period_cache=build_period_cache,
     )
     return {**result, "repository": repository.performance_metrics()}
+
+
+async def materialize_history_period(database: Any, *, period_key: str) -> dict[str, Any]:
+    """Use a fresh repository per durable period, not one long-lived read cache."""
+    try:
+        from .materialized_discount_history import materialize_discount_periods
+    except ImportError:
+        from materialized_discount_history import materialize_discount_periods
+    repository = PerformanceD1WriteRepository(database)
+    result = await materialize_discount_periods(repository, period_keys=(period_key,))
+    return {**result, "repository": repository.performance_metrics()}
+
+
+def summarize_history_periods(results: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Do not claim six ready periods when a step failed, is absent or dates differ."""
+    try:
+        from .materialized_discount_history import PERIOD_KEYS, PERIOD_CACHE_VERSION
+    except ImportError:
+        from materialized_discount_history import PERIOD_KEYS, PERIOD_CACHE_VERSION
+    written = []
+    failures = []
+    dates = set()
+    timings = {}
+    repository_metrics = {}
+    for key in PERIOD_KEYS:
+        result = results.get(key) or {}
+        date_value = result.get("source_date")
+        if (
+            result.get("status") == "ok" and result.get("periods") == [key]
+            and result.get("written") == 1 and date_value
+            and result.get("calculation_version") == PERIOD_CACHE_VERSION
+        ):
+            written.append(key)
+            dates.add(date_value)
+        else:
+            failures.append({
+                "period_key": key,
+                "reason": str(result.get("error") or result.get("reason") or
+                              (result.get("failures") or [{}])[0].get("reason") or
+                              "period_step_not_complete")[:500],
+            })
+        if key in (result.get("timings_ms") or {}):
+            timings[key] = result["timings_ms"][key]
+        if result.get("repository"):
+            repository_metrics[key] = result["repository"]
+    if len(dates) > 1:
+        failures.append({"reason": "period_source_dates_differ"})
+    return {
+        "status": "ok" if not failures and len(written) == len(PERIOD_KEYS) else "partial",
+        "source_date": next(iter(dates)) if len(dates) == 1 else None,
+        "calculation_version": PERIOD_CACHE_VERSION,
+        "written": len(written),
+        "periods": written,
+        "failures": failures,
+        "timings_ms": timings,
+        "repository_by_period": repository_metrics,
+    }
 
 
 def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str, Any]:

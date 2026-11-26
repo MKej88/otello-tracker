@@ -268,11 +268,14 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             finish_full_refresh,
             merge_bemobi_ir_news_health,
             materialize_history_batch,
+            materialize_history_period,
+            summarize_history_periods,
             preflight,
             refresh_nav,
             start_full_refresh,
             summarize_history_materialization,
         )
+        from materialized_discount_history import PERIOD_KEYS
         from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
         from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
         from life360_market_data import refresh_life360_market_data
@@ -741,6 +744,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     return await materialize_history_batch(
                         self.env.DB,
                         after_date=batch_after_date,
+                        build_period_cache=False,
                     )
 
                 try:
@@ -762,6 +766,27 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 await renew_lock(f"after estimated NAV history {batch_number}")
                 if estimated_nav_history.get("stop_reason") != "continue":
                     break
+
+            if estimated_nav_history.get("complete"):
+                period_results: dict[str, dict] = {}
+                for period_key in PERIOD_KEYS:
+                    @step.do(
+                        f"materialize NAV period {period_key}",
+                        config={"retries": {"limit": 2, "delay": "15 seconds"}, "timeout": "3 minutes"},
+                    )
+                    async def period_step():
+                        return await materialize_history_period(self.env.DB, period_key=period_key)
+
+                    try:
+                        period_results[period_key] = await period_step()
+                    except Exception as exc:
+                        period_results[period_key] = error_result(exc)
+                    await renew_lock(f"after NAV period {period_key}")
+                period_cache = summarize_history_periods(period_results)
+                estimated_nav_history["period_cache"] = period_cache
+                estimated_nav_history.setdefault("timings_ms", {})["period_cache_ms"] = round(
+                    sum(period_cache["timings_ms"].values()), 1,
+                )
 
             @step.do(
                 "finish full refresh",

@@ -179,8 +179,14 @@ async def _write_entry(
     )
 
 
-async def materialize_discount_periods(repository) -> dict[str, Any]:
-    """Precompute the six investor periods after nightly NAV history is complete."""
+async def materialize_discount_periods(
+    repository, *, period_keys: tuple[str, ...] = PERIOD_KEYS,
+) -> dict[str, Any]:
+    """Precompute selected periods using the unchanged period-specific calculation."""
+    if not period_keys or len(set(period_keys)) != len(period_keys) or any(
+        key not in PERIOD_KEYS for key in period_keys
+    ):
+        raise ValueError("Invalid NAV period selection")
     latest_history_date = await _latest_history_date(repository)
     if latest_history_date is None:
         return {
@@ -195,6 +201,8 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
     failures: list[dict[str, Any]] = []
     period_timings: dict[str, float] = {}
     for period_key, days, year_to_date in _period_specs(latest_history_date):
+        if period_key not in period_keys:
+            continue
         started = perf_counter()
         print(f"NAV period cache: {period_key} started", flush=True)
         try:
@@ -251,7 +259,7 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
         del payload, estimated
 
     return {
-        "status": "ok" if not failures and len(written) == len(PERIOD_KEYS) else "partial",
+        "status": "ok" if not failures and len(written) == len(period_keys) else "partial",
         "source_date": latest_history_date,
         "calculation_version": PERIOD_CACHE_VERSION,
         "written": len(written),

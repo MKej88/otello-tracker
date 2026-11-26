@@ -226,6 +226,7 @@ async def materialize_estimated_nav_history_batch(
     *,
     batch_size: int = 100,
     after_date: str | None = None,
+    build_period_cache: bool = True,
 ) -> dict[str, Any]:
     """Materialize one bounded missing/stale batch and persist scan progress."""
     if after_date is not None:
@@ -282,11 +283,14 @@ async def materialize_estimated_nav_history_batch(
         retry = await _retry_due_failures(repository)
         timings["retry_ms"] = round((perf_counter() - retry_started) * 1000, 1)
         print(f"NAV history phase: retry queue completed ({timings['retry_ms']} ms)", flush=True)
-        cache_started = perf_counter()
-        print("NAV history phase: period cache started", flush=True)
-        period_cache = await _materialize_period_cache(repository)
-        timings["period_cache_ms"] = round((perf_counter() - cache_started) * 1000, 1)
-        print(f"NAV history phase: period cache completed ({timings['period_cache_ms']} ms)", flush=True)
+        if build_period_cache:
+            cache_started = perf_counter()
+            print("NAV history phase: period cache started", flush=True)
+            period_cache = await _materialize_period_cache(repository)
+            timings["period_cache_ms"] = round((perf_counter() - cache_started) * 1000, 1)
+            print(f"NAV history phase: period cache completed ({timings['period_cache_ms']} ms)", flush=True)
+        else:
+            period_cache = {"status": "deferred", "reason": "separate_workflow_steps"}
     else:
         retry = {
             "attempted": 0,
