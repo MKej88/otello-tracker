@@ -520,3 +520,60 @@ def test_preflight_model_information_is_preserved_in_email() -> None:
     assert "Advarsler: 0" in message["text"]
     assert "med avvik" not in message["subject"]
     assert json.dumps(result, sort_keys=True) == original
+
+
+def test_compact_email_prioritizes_actual_failure_and_omits_successful_source_steps():
+    result = {
+        "status": "FAILED", "job_id": 42, "target_date": "2026-11-25",
+        "source_health": {"B3": "OK", "CVM": "OK", "NEWSWEB": "OK"},
+        "source_results": {"b3": {"status": "ok", "rows_written": 10}, "cvm": {"status": "ok"}},
+        "critical_errors": [{"step": "workflow", "error": "Traceback (most recent call last):\n  File long_path\nRuntimeError: refresh writer lease lost at history"}],
+        "nav": {"status": "ok"},
+    }
+    message = build_status_email(result, economic={"ready": True, "nav_per_share": 22.5},
+                                 public_url="https://otellotracker.com")
+    body = message["text"]
+    assert "refresh writer lease lost at history" in body
+    assert "Traceback" not in body and "long_path" not in body
+    assert body.index("Avvik og oppfølging") < body.index("Kontrollstatus")
+    assert "Kildesteg" not in body and "B3: OK" not in body
+    assert "Investor-NAV: ikke klar" in body
+    assert "22,50 kr/aksje" not in body
+    assert "https://github.com/MKej88/otello-tracker/issues/164" in message["html"]
+    assert "https://github.com/MKej88/otello-tracker/actions" in body
+
+
+def test_history_cache_and_investor_cache_failures_are_not_hidden_by_success():
+    result = {
+        "status": "SUCCESS",
+        "estimated_nav_history": {
+            "complete": True, "retry": {"pending": 2},
+            "period_cache": {"status": "partial", "written": 5,
+                             "failures": [{"period_key": "1y", "reason": "memory limit"}]},
+        },
+        "investor_snapshots": {"status": "partial", "components": {
+            "bemobi_consensus": {"status": "error", "error_type": "TimeoutError"},
+        }},
+    }
+    message = build_status_email(result)
+    assert "OK med avvik" in message["subject"]
+    for body in (message["text"], message["html"]):
+        assert "5/6" in body and "1y: memory limit" in body
+        assert "2 historikkpunkter" in body and "bemobi_consensus" in body
+
+
+def test_healthy_report_is_short_and_does_not_repeat_successful_source_details():
+    result = {"status": "SUCCESS", "source_health": {"B3": "OK", "CVM": "OK"},
+              "source_results": {"b3": {"status": "ok"}, "cvm": {"status": "ok"}},
+              "nav": {"status": "ok"}, "dashboard_hot_snapshot": {"status": "ok"},
+              "estimated_nav_history": {"complete": True, "retry": {"pending": 0},
+                                        "period_cache": {"status": "ok", "written": 6}},
+              "archive": {"status": "ok"}, "investor_snapshots": {"status": "ok"},
+              "preflight": {"ready": True, "blockers": [], "warnings": []}}
+    message = build_status_email(result, economic={"ready": True, "nav_per_share": 22.5, "discount_pct": 25})
+    body = message["text"]
+    assert len(body.splitlines()) <= 23
+    assert "Datakilder: 2/2 OK" in body and "Periodecache: 6/6" in body
+    assert "NAV-historikk: OK" in body and "Kildesteg" not in body
+    assert "B3: OK" not in body and "Life360" not in body
+    assert "Ingen rapporterte feil eller advarsler" in body

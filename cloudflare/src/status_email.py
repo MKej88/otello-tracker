@@ -10,6 +10,7 @@ try:
         operational_lines,
         oslo_time,
         render_html,
+        safe_detail,
     )
 except ImportError:
     from nav_quality_policy import expected_dashboard_quality
@@ -18,6 +19,7 @@ except ImportError:
         operational_lines,
         oslo_time,
         render_html,
+        safe_detail,
     )
 
 _STATUS_LABELS = {
@@ -136,82 +138,64 @@ def build_status_email(
     source_ok = sum(1 for value in source_health.values() if str(value).upper() == "OK")
     duration = _duration_label(started_at, finished_at)
 
+    details, incidents = operational_lines(result)
+    report_status = "OK med avvik" if raw_status == "SUCCESS" and incidents else status
     lines = [
         "Otello Tracker – nattstatus",
         "",
-        f"Status: {status}",
+        f"Status: {report_status}",
         f"Datadato: {target_date}",
     ]
-    lines.append(f"Startet: {oslo_time(started_at)}")
-    lines.append(f"Fullført: {oslo_time(finished_at)}")
+    if started_at:
+        lines.append(f"Startet: {oslo_time(started_at)}")
+    if finished_at:
+        lines.append(f"Fullført: {oslo_time(finished_at)}")
     if duration:
         lines.append(f"Kjøretid: {duration}")
-    lines.append(f"Oppdaterte datapunkter: {int(result.get('records_written') or 0)}")
+    if result.get("job_id") is not None:
+        lines.append(f"Jobb-ID: {result['job_id']}")
     if source_count:
-        lines.append(f"Datakilder: {source_ok}/{source_count} OK")
+        exceptions = [
+            f"{_SOURCE_LABELS.get(str(code), str(code))}: {str(health).upper()}"
+            for code, health in source_health.items() if str(health).upper() != "OK"
+        ]
+        lines.append(f"Datakilder: {source_ok}/{source_count} OK"
+                     + (" – " + "; ".join(exceptions) if exceptions else ""))
+    else:
+        lines.append("Datakilder: ikke bekreftet")
 
-    if source_health:
-        lines.extend(["", "Datakilder:"])
-        for code, health in source_health.items():
-            label = _SOURCE_LABELS.get(str(code), str(code))
-            lines.append(f"- {label}: {str(health).upper()}")
-
+    # Put actual failures and consequences ahead of normal checks and market numbers.
+    lines.extend(details)
     preflight = result.get("preflight") or {}
     if preflight:
-        ready = "OK" if preflight.get("ready") else "FEILET"
-        blockers = len(preflight.get("blockers") or [])
-        warnings = len(preflight.get("warnings") or [])
-        lines.extend(
-            [
-                "",
-                "Datakontroll:",
-                f"- Preflight: {ready}",
-                f"- Blokkeringer: {blockers}",
-                f"- Advarsler: {warnings}",
-            ]
-        )
-
+        ready = "OK" if preflight.get("ready") is True else "FEILET" if preflight.get("ready") is False else "ikke rapportert"
+        lines.extend(["", f"Preflight: {ready} · Blokkeringer: {len(preflight.get('blockers') or [])} · Advarsler: {len(preflight.get('warnings') or [])}"])
     if model_information:
-        lines.append(
-            "- Modellinformasjon: NAV bruker forventede estimater mellom rapportdatoene."
-        )
+        lines.append("Modellinformasjon: normal estimering mellom rapportdatoene.")
 
     economic = economic or {}
-    if economic.get("ready"):
+    if raw_status != "FAILED" and economic.get("ready"):
         nav = _number(economic.get("nav_per_share"), 2)
         discount = _number(economic.get("discount_pct"), 1)
-        conservative_nav = _number(economic.get("conservative_nav_per_share"), 2)
-        lines.extend(["", "Investor-NAV:"])
+        lines.extend(["", "Investor-NAV (sist tilgjengelig):"])
         if nav is not None:
             lines.append(f"- Økonomisk NAV: {nav} kr/aksje")
         if discount is not None:
             lines.append(f"- Rabatt: {discount} %")
-        if conservative_nav is not None:
-            lines.append(f"- Konservativ NAV: {conservative_nav} kr/aksje")
-        life360 = economic.get("life360") or {}
-        if life360.get("ready"):
-            lif_price = _number(life360.get("price"), 2)
-            lif_value = _number(life360.get("market_value_mnok"), 1)
-            lif_adjustment = _number(life360.get("adjustment_mnok"), 1)
-            if lif_price is not None:
-                lines.append(f"- Life360 LIF: USD {lif_price}")
-            if lif_value is not None:
-                lines.append(f"- Life360 markedsverdi: {lif_value} MNOK")
-            if lif_adjustment is not None:
-                lines.append(f"- Life360 NAV-justering: {lif_adjustment} MNOK")
         if economic.get("as_of_date"):
-            lines.append(f"- NAV-dato: {economic['as_of_date']}")
+            lines.append(f"- NAV-dato: {safe_detail(economic['as_of_date'])}")
     else:
-        reason = str(economic.get("reason") or "ikke tilgjengelig")
+        reason = "ikke bekreftet i denne kjøringen" if raw_status == "FAILED" else safe_detail(economic.get("reason") or "ikke tilgjengelig")
         lines.extend(["", f"Investor-NAV: ikke klar ({reason})"])
 
-    details, incidents = operational_lines(result)
-    lines.extend(details)
     if incidents and raw_status == "SUCCESS":
         subject = f"Otello Tracker – nattkjøring OK med avvik – {target_date}"
     clean_url = dashboard_url(public_url)
     if clean_url:
         lines.extend(["", f"Dashboard: {clean_url}/"])
+        if clean_url == "https://otellotracker.com":
+            lines.append("Produksjonsdiagnose: https://github.com/MKej88/otello-tracker/issues/164")
+            lines.append("Kjørelogger: https://github.com/MKej88/otello-tracker/actions")
 
     lines.extend(["", "Automatisk statusmelding fra Otello Tracker."])
     text = "\n".join(lines)
@@ -303,13 +287,14 @@ async def send_full_refresh_status_email(
         from performance_repository import PerformanceD1Repository
 
         repository = PerformanceD1Repository(env.DB)
-        try:
-            economic = await economic_nav_summary(repository)
-        except Exception as exc:
-            economic = {
-                "ready": False,
-                "reason": f"NAV-oppsummering feilet: {type(exc).__name__}",
-            }
+        if str(result.get("status") or "").upper() != "FAILED":
+            try:
+                economic = await economic_nav_summary(repository)
+            except Exception as exc:
+                economic = {
+                    "ready": False,
+                    "reason": f"NAV-oppsummering feilet: {type(exc).__name__}",
+                }
 
         job_id = result.get("job_id")
         if job_id is not None:

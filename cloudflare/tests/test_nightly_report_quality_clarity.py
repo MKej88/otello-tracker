@@ -61,9 +61,15 @@ class NightlyReportQualityClarityTests(unittest.TestCase):
                   "source_health": {"BEMOBI_IR": "DEGRADED"}}
         lines, count = operational_lines(result)
         self.assertEqual(count, 1)
-        self.assertIn("Utdelingsinnlesing: ok", "\n".join(lines))
+        self.assertIn("Utdelingsinnlesing er kontrollert", "\n".join(lines))
+        self.assertNotIn("Kildesteg", "\n".join(lines))
         bemobi["distribution_ingestion"] = {"status": "error"}
-        self.assertEqual(operational_lines(result)[1], 2)
+        independent_lines, independent_count = operational_lines(result)
+        self.assertEqual(independent_count, 3)
+        independent_report = "\n".join(independent_lines)
+        self.assertIn("Utdelingsinnlesing: error", independent_report)
+        self.assertIn("IR-rapportfeed: empty", independent_report)
+        self.assertIn("BEMOBI_IR", independent_report)
 
 
 if __name__ == "__main__":
