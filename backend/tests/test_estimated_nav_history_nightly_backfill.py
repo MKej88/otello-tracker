@@ -76,3 +76,23 @@ def test_nav_history_retry_queue_is_present_in_both_schemas() -> None:
     assert "CHECK (attempts > 0)" in cloudflare
     assert "idx_estimated_nav_history_retry_due" in cloudflare
     assert "calculation_version, next_retry_at, date" in cloudflare
+
+
+def test_history_summary_retains_bounded_phase_timings_and_cache_status() -> None:
+    import sys
+    sys.path.insert(0, str(ROOT / "cloudflare" / "src"))
+    from full_refresh import summarize_history_materialization
+
+    first = {"written": 50, "attempted": 50, "cursor_advanced": True,
+             "timings_ms": {"scan_ms": 10.5}, "failures": []}
+    last = {"written": 1, "attempted": 1, "cursor_advanced": True,
+            "timings_ms": {"scan_ms": 2.5, "retry_ms": 3, "period_cache_ms": 8},
+            "retry": {"attempted": 0, "pending": 0},
+            "period_cache": {"status": "ok", "timings_ms": {"1m": 1.5}},
+            "failures": []}
+    summary = summarize_history_materialization([first, last])
+    assert summary["complete"]
+    assert summary["written"] == 51
+    assert summary["timings_ms"] == {"scan_ms": 13.0, "retry_ms": 3.0, "period_cache_ms": 8.0}
+    assert summary["period_cache"]["status"] == "ok"
+    assert summary["retry"]["pending"] == 0

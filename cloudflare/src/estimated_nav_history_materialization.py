@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from time import perf_counter
 from typing import Any
 
 try:
@@ -229,6 +230,8 @@ async def materialize_estimated_nav_history_batch(
     """Materialize one bounded missing/stale batch and persist scan progress."""
     if after_date is not None:
         date.fromisoformat(after_date)
+    scan_started = perf_counter()
+    print("NAV history phase: scan started", flush=True)
     persistent_cursor = await _load_scan_cursor(repository)
     effective_after_date = max(
         (value for value in (after_date, persistent_cursor) if value is not None),
@@ -271,9 +274,19 @@ async def materialize_estimated_nav_history_batch(
         written += 1
 
     persisted_cursor_after = await _save_scan_cursor(repository, next_cursor)
+    timings = {"scan_ms": round((perf_counter() - scan_started) * 1000, 1)}
+    print(f"NAV history phase: scan completed ({timings['scan_ms']} ms, {attempted} points)", flush=True)
     if attempted < batch_size:
+        retry_started = perf_counter()
+        print("NAV history phase: retry queue started", flush=True)
         retry = await _retry_due_failures(repository)
+        timings["retry_ms"] = round((perf_counter() - retry_started) * 1000, 1)
+        print(f"NAV history phase: retry queue completed ({timings['retry_ms']} ms)", flush=True)
+        cache_started = perf_counter()
+        print("NAV history phase: period cache started", flush=True)
         period_cache = await _materialize_period_cache(repository)
+        timings["period_cache_ms"] = round((perf_counter() - cache_started) * 1000, 1)
+        print(f"NAV history phase: period cache completed ({timings['period_cache_ms']} ms)", flush=True)
     else:
         retry = {
             "attempted": 0,
@@ -302,4 +315,5 @@ async def materialize_estimated_nav_history_batch(
         "cursor_advanced": bool(rows) and next_cursor != effective_after_date,
         "retry": retry,
         "period_cache": period_cache,
+        "timings_ms": timings,
     }
