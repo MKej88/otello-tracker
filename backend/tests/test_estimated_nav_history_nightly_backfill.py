@@ -96,3 +96,69 @@ def test_history_summary_retains_bounded_phase_timings_and_cache_status() -> Non
     assert summary["timings_ms"] == {"scan_ms": 13.0, "retry_ms": 3.0, "period_cache_ms": 8.0}
     assert summary["period_cache"]["status"] == "ok"
     assert summary["retry"]["pending"] == 0
+
+
+def test_workflow_defers_cache_to_independent_period_steps() -> None:
+    entry = ENTRY.read_text(encoding="utf-8")
+    assert "build_period_cache=False" in entry
+    assert 'if estimated_nav_history.get("complete"):' in entry
+    assert "for period_key in PERIOD_KEYS:" in entry
+    assert 'f"materialize NAV period {period_key}"' in entry
+    assert 'await renew_lock(f"after NAV period {period_key}")' in entry
+
+
+def test_period_summary_rejects_missing_failed_and_mixed_date_steps() -> None:
+    import sys
+    sys.path.insert(0, str(ROOT / "cloudflare" / "src"))
+    from full_refresh import summarize_history_periods
+    from materialized_discount_history import PERIOD_KEYS, PERIOD_CACHE_VERSION
+
+    results = {key: {"status": "ok", "periods": [key], "written": 1,
+                     "source_date": "2026-11-25", "calculation_version": PERIOD_CACHE_VERSION,
+                     "timings_ms": {key: 2}, "repository": {"d1_reads": 10}}
+               for key in PERIOD_KEYS}
+    ready = summarize_history_periods(results)
+    assert ready["status"] == "ok" and ready["written"] == 6
+    assert ready["repository_by_period"]["1y"]["d1_reads"] == 10
+    assert ready["timings_ms"]["1y"] == 2
+    assert summarize_history_periods({**results, "1y": {"status": "error", "error": "memory limit"}})["status"] == "partial"
+    assert summarize_history_periods({key: value for key, value in results.items() if key != "1y"})["written"] == 5
+    mixed = {**results, "1y": {**results["1y"], "source_date": "2026-11-24"}}
+    assert summarize_history_periods(mixed)["status"] == "partial"
+
+
+def test_single_period_uses_same_calculation_and_cache_write(monkeypatch) -> None:
+    import asyncio
+    import sys
+    sys.path.insert(0, str(ROOT / "cloudflare" / "src"))
+    import materialized_discount_history as cache
+
+    calls = []
+    writes = []
+
+    async def latest(repository):
+        return "2026-11-25"
+
+    async def history(repository, **kwargs):
+        calls.append(kwargs)
+        return {"estimated": {"ready": True, "to": "2026-11-25", "marker": kwargs["days"]}}
+
+    async def enrich(repository, payload):
+        return payload
+
+    async def write(repository, **kwargs):
+        writes.append(kwargs)
+
+    monkeypatch.setattr(cache, "_latest_history_date", latest)
+    monkeypatch.setattr(cache, "discount_history", history)
+    monkeypatch.setattr(cache, "_enrich_life360_period", enrich)
+    monkeypatch.setattr(cache, "_write_entry", write)
+    whole = asyncio.run(cache.materialize_discount_periods(object()))
+    original = list(writes)
+    writes.clear()
+    calls.clear()
+    for key in cache.PERIOD_KEYS:
+        result = asyncio.run(cache.materialize_discount_periods(object(), period_keys=(key,)))
+        assert result["status"] == "ok" and result["periods"] == [key]
+    assert whole["written"] == 6
+    assert writes == original
