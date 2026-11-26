@@ -1311,19 +1311,54 @@ async def _verified_existing_cvm_q3_result(repository, candidate: dict, existing
         result_doc_id = int(candidate["id"])
     except (ValueError, TypeError, KeyError, AttributeError):
         return False
+    pinned_digest = PINNED_Q3_DOCUMENTS["result"]["sha256"]
+    pinned_identity = filing_identity(Q3_RELEASE_URL)
+    # A live mirror has already verified the bytes and manifest in the Worker.
+    # Do not accept the old pinned Q3 proof if today's mirror has other bytes.
+    artifact = candidate.get("mirror_artifact")
+    if artifact is not None and (
+        not isinstance(artifact, dict)
+        or artifact.get("sha256") != pinned_digest
+        or artifact.get("period") != "3Q26"
+        or filing_identity(artifact.get("url")) != pinned_identity
+    ):
+        return False
+
+    # Legacy fallback: the parsed fact refers to the parent document, and
+    # the verified PDF was stored as a resolved child with its own digest.
     verified = await repository.first(
         """
-        SELECT id FROM source_documents
-        WHERE document_type='RESULT_RELEASE_PDF'
-          AND content_sha256=?
-          AND json_valid(metadata_json)
-          AND CAST(json_extract(metadata_json, '$.parent_source_document_id') AS INTEGER)=?
-          AND json_extract(metadata_json, '$.resolution')='OFFICIAL_CVM_3Q26_FALLBACK'
+        SELECT sd.id, sd.url FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='CVM' AND sd.document_type='RESULT_RELEASE_PDF'
+          AND sd.content_sha256=?
+          AND json_valid(sd.metadata_json)
+          AND CAST(json_extract(sd.metadata_json, '$.parent_source_document_id') AS INTEGER)=?
+          AND json_extract(sd.metadata_json, '$.resolution')='OFFICIAL_CVM_3Q26_FALLBACK'
+        ORDER BY sd.id
         LIMIT 1
         """,
-        (PINNED_Q3_DOCUMENTS["result"]["sha256"], result_doc_id),
+        (pinned_digest, result_doc_id),
     )
-    return verified is not None
+    if verified is not None and filing_identity(verified.get("url")) == pinned_identity:
+        return True
+
+    # Direct CVM/R2 transport: when resolved_url equals the candidate URL,
+    # ingestion stores the digest on the exact source row referenced by RESULT,
+    # not on a resolved child. Check that row, never an unrelated matching hash.
+    direct = await repository.first(
+        """
+        SELECT sd.id, sd.url FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='CVM' AND sd.id=? AND sd.content_sha256=?
+        LIMIT 1
+        """,
+        (result_doc_id, pinned_digest),
+    )
+    return (
+        direct is not None
+        and filing_identity(direct.get("url")) == pinned_identity
+    )
 
 
 async def _backfill_existing_result_margin(
