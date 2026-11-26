@@ -29,8 +29,11 @@ def workflow_run():
         '_workflow_instance_key': lambda e: 'second-instance',
         'FULL_REFRESH_LOCK_TTL_SECONDS': 10800,
         'PerformanceD1WriteRepository': lambda db: db,
-        'acquire_refresh_lock': AsyncMock(return_value={'acquired': True, 'token': 'lease'}),
-        'release_refresh_lock': AsyncMock(return_value=True),
+        'D1WriteRepository': lambda db: db,
+        'acquire_refresh_lock': AsyncMock(return_value={
+            'acquired': True, 'token': 'full:2026-10-16:second-instance|2026-10-17T07:00:00Z',
+        }),
+        'release_workflow_refresh_lock': AsyncMock(return_value=True),
         'completed_nightly_job': AsyncMock(return_value={'id': 42}),
         'start_full_refresh': AsyncMock(),
         'send_full_refresh_status_email': AsyncMock(),
@@ -60,13 +63,17 @@ def test_legacy_schedule_exits_before_lock_writes_and_email():
 def test_completed_job_after_wait_releases_lock_without_second_run_or_mail():
     ns = workflow_run()
     step = Step()
-    result = asyncio.run(ns['run'](SimpleNamespace(env=SimpleNamespace(DB=object())), {
+    database = object()
+    result = asyncio.run(ns['run'](SimpleNamespace(env=SimpleNamespace(DB=database)), {
         'trigger': 'worker_cron:35 3 * * *', 'target_date': '2026-10-16',
     }, step))
     assert result['reason'] == 'already_completed'
     assert result['existing_job_id'] == 42
     assert step.calls.index('acquire full refresh writer lock') < step.calls.index('check completed nightly refresh after writer lock')
-    ns['release_refresh_lock'].assert_awaited_once()
+    ns['release_workflow_refresh_lock'].assert_awaited_once_with(
+        database, 'full:2026-10-16:second-instance|2026-10-17T07:00:00Z',
+        owner='full:2026-10-16:second-instance',
+    )
     ns['start_full_refresh'].assert_not_awaited()
     ns['send_full_refresh_status_email'].assert_not_awaited()
 
