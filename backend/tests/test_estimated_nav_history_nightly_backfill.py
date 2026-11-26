@@ -162,3 +162,55 @@ def test_single_period_uses_same_calculation_and_cache_write(monkeypatch) -> Non
         assert result["status"] == "ok" and result["periods"] == [key]
     assert whole["written"] == 6
     assert writes == original
+
+
+def test_period_reference_reuse_is_run_scoped_and_date_checked(monkeypatch) -> None:
+    import asyncio
+    import sys
+    sys.path.insert(0, str(ROOT / "cloudflare" / "src"))
+    import materialized_discount_history as cache
+
+    calls = []
+    writes = []
+    reference = {"ready": True, "as_of_date": "2026-11-25", "nav_per_share": 22.1}
+
+    async def latest(repository):
+        return "2026-11-25"
+
+    async def history(repository, **kwargs):
+        calls.append(kwargs)
+        return {"estimated": {"ready": True, "to": "2026-11-25", "marker": kwargs["days"]},
+                "current_economic": dict(kwargs.get("current_economic_reference") or reference)}
+
+    async def enrich(repository, payload):
+        return payload
+
+    async def write(repository, **kwargs):
+        writes.append(kwargs)
+
+    monkeypatch.setattr(cache, "_latest_history_date", latest)
+    monkeypatch.setattr(cache, "discount_history", history)
+    monkeypatch.setattr(cache, "_enrich_life360_period", enrich)
+    monkeypatch.setattr(cache, "_write_entry", write)
+
+    async def build(key, shared=None):
+        return await cache.materialize_discount_periods(
+            object(), period_keys=(key,), shared_economic_reference=shared,
+        )
+
+    first = asyncio.run(build("1m"))
+    assert "current_economic_reference" not in calls[-1]
+    shared = first["economic_reference_for_next"]
+    normal = asyncio.run(build("1y"))
+    expected = writes[-1]
+    reused = asyncio.run(build("1y", shared))
+    assert reused["economic_reference_reused_periods"] == ["1y"]
+    assert calls[-1]["current_economic_reference"] == reference
+    assert writes[-1] == expected
+    assert normal["economic_reference_for_next"] == shared
+
+    for invalid in (None, {"source_date": "2026-11-24", "reference": reference},
+                    {"source_date": "2026-11-25", "reference": {"ready": False}}):
+        fresh = asyncio.run(build("3y", invalid))
+        assert fresh["economic_reference_reused_periods"] == []
+        assert "current_economic_reference" not in calls[-1]

@@ -769,18 +769,27 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
 
             if estimated_nav_history.get("complete"):
                 period_results: dict[str, dict] = {}
+                # The writer lease covers the whole run. Reuse only the compact
+                # reference produced by a successful period in this same run.
+                shared_economic_reference = None
                 for period_key in PERIOD_KEYS:
                     @step.do(
                         f"materialize NAV period {period_key}",
                         config={"retries": {"limit": 2, "delay": "15 seconds"}, "timeout": "3 minutes"},
                     )
                     async def period_step():
-                        return await materialize_history_period(self.env.DB, period_key=period_key)
+                        return await materialize_history_period(
+                            self.env.DB, period_key=period_key,
+                            shared_economic_reference=shared_economic_reference,
+                        )
 
                     try:
                         period_results[period_key] = await period_step()
                     except Exception as exc:
                         period_results[period_key] = error_result(exc)
+                    result_reference = period_results[period_key].get("economic_reference_for_next")
+                    if period_results[period_key].get("status") == "ok" and result_reference:
+                        shared_economic_reference = result_reference
                     await renew_lock(f"after NAV period {period_key}")
                 period_cache = summarize_history_periods(period_results)
                 estimated_nav_history["period_cache"] = period_cache

@@ -181,6 +181,7 @@ async def _write_entry(
 
 async def materialize_discount_periods(
     repository, *, period_keys: tuple[str, ...] = PERIOD_KEYS,
+    shared_economic_reference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Precompute selected periods using the unchanged period-specific calculation."""
     if not period_keys or len(set(period_keys)) != len(period_keys) or any(
@@ -200,6 +201,14 @@ async def materialize_discount_periods(
     written: list[str] = []
     failures: list[dict[str, Any]] = []
     period_timings: dict[str, float] = {}
+    reference = (shared_economic_reference or {}).get("reference")
+    can_reuse = (
+        (shared_economic_reference or {}).get("source_date") == latest_history_date
+        and isinstance(reference, dict)
+        and reference.get("ready") is True
+    )
+    reused_periods: list[str] = []
+    reference_for_next = None
     for period_key, days, year_to_date in _period_specs(latest_history_date):
         if period_key not in period_keys:
             continue
@@ -211,6 +220,7 @@ async def materialize_discount_periods(
                 days=days,
                 max_points=PERIOD_MAX_POINTS,
                 year_to_date=year_to_date,
+                **({"current_economic_reference": reference} if can_reuse else {}),
             )
             payload = await _enrich_life360_period(repository, payload)
         except Exception as exc:
@@ -253,6 +263,12 @@ async def materialize_discount_periods(
             payload=payload,
         )
         written.append(period_key)
+        if can_reuse:
+            reused_periods.append(period_key)
+        current = payload.get("current_economic")
+        if isinstance(current, dict) and current.get("ready") is True:
+            # Only the compact public projection, never SQL rows or large history.
+            reference_for_next = {"source_date": latest_history_date, "reference": dict(current)}
         period_timings[period_key] = round((perf_counter() - started) * 1000, 1)
         print(f"NAV period cache: {period_key} completed ({period_timings[period_key]} ms)", flush=True)
         # Do not retain the previous period payload while building the next.
@@ -266,6 +282,8 @@ async def materialize_discount_periods(
         "periods": written,
         "failures": failures,
         "timings_ms": period_timings,
+        "economic_reference_reused_periods": reused_periods,
+        "economic_reference_for_next": reference_for_next,
     }
 
 

@@ -230,3 +230,31 @@ def test_discount_history_uses_only_latest_complete_snapshot_per_date(tmp_path: 
     assert expected["statistics"]["median_discount_pct"] == 25.0
     assert expected["statistics"]["current_percentile"] == 75.0
     assert expected["current_validated"]["discount_pct"] == 30.0
+
+
+def test_shared_economic_reference_preserves_actual_worker_payload(tmp_path: Path, monkeypatch) -> None:
+    import src.discount_history as worker
+    database = str(tmp_path / "shared-economic-reference.db")
+    init_database(database)
+    seed_curated_history(database)
+    with get_connection(database) as connection:
+        _insert_snapshot(connection, observed_at="2026-08-13T23:00:00Z", discount="20")
+        _insert_snapshot(connection, observed_at="2026-08-14T23:00:00Z", discount="30")
+        connection.commit()
+
+    reference_calls = []
+    reference = {"ready": True, "as_of_date": "2026-08-14", "nav_per_share": 25.0,
+                 "discount_pct": 30.0, "quality": "TEST"}
+    async def current_reference(repository):
+        reference_calls.append(1)
+        return dict(reference)
+
+    monkeypatch.setattr(worker, "_economic_reference", current_reference)
+    repository = SQLiteAsyncRepository(database)
+    baseline = asyncio.run(worker.discount_history(repository, days=365, max_points=72))
+    assert reference_calls == [1]
+    actual = asyncio.run(worker.discount_history(repository, days=365, max_points=72,
+                                                  current_economic_reference=reference))
+    assert actual == baseline
+    assert reference_calls == [1]
+    assert actual["current_economic"] is not reference
