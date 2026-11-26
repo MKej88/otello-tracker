@@ -324,6 +324,31 @@ function trendTone(point: FocusTrendPoint | undefined, positiveWhenLower: boolea
   return positive ? "positive" : "negative";
 }
 
+function FocusChangeCell({ point, unit, positiveWhenLower }: {
+  point?: FocusTrendPoint;
+  unit: "bp" | "pp";
+  positiveWhenLower: boolean;
+}) {
+  const forecast = (value?: number | null) =>
+    value == null || !Number.isFinite(value) ? "–" : `${number(value, 2)} %`;
+  const change = unit === "bp" ? point?.change_bp : point?.change;
+  const delta = change == null || !Number.isFinite(change)
+    ? "–"
+    : unit === "bp" ? signedBp(change) : `${signed(change, 2)} pp`;
+  return (
+    <td>
+      <div className="brazilFocusChangeValues numeric">
+        <span className="brazilFocusForecasts">
+          {forecast(point?.previous)} → {forecast(point?.current)}
+        </span>
+        <strong className={trendTone(point, positiveWhenLower)}>
+          {delta === "–" ? delta : `(${delta})`}
+        </strong>
+      </div>
+    </td>
+  );
+}
+
 function Sparkline({ points }: { points?: SeriesPoint[] }) {
   const path = useMemo(() => {
     const values = (points ?? [])
@@ -552,11 +577,11 @@ export default function BrazilPage() {
 
       <section className="card brazilChangeCard">
         <div className="sectionHeading compactHeading">
-          <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Siste måned</h2></div>
-          <small className="numeric">{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Tabellen viser endringen mot siste komplette snapshot rundt 30 dager tidligere."}</small>
+          <div><span className="label">HVA HAR ENDRET SEG?</span><h2>Endringer i markedsforventningene siste måned</h2></div>
+          <small className="numeric">{comparisonFocusDate ? `Sammenlignet med Focus ${dateLabel(comparisonFocusDate)}` : "Sammenlignet med siste komplette måling rundt 30 dager tidligere."}</small>
         </div>
         <p className="brazilChangeExplanation">
-          Tabellen viser siste måneds endringer i markedsaktørenes prognoser for Brasil, samlet inn av Brasils sentralbank gjennom <a href="https://www.bcb.gov.br/en/publications/focusmarketreadout" target="_blank" rel="noopener noreferrer">Focus-undersøkelsen</a>.
+          For hvert prognoseår vises tidligere prognose → ny prognose (endring siste måned), basert på Brasils sentralbanks <a href="https://www.bcb.gov.br/en/publications/focusmarketreadout" target="_blank" rel="noopener noreferrer">Focus-undersøkelsen</a>. Endringene gjelder prognosene, ikke utviklingen fra dagens nivå. bp = basispunkter, pp = prosentpoeng.
         </p>
         <div className="brazilChangeLayout">
           <div className="brazilChangeTableWrap">
@@ -565,18 +590,18 @@ export default function BrazilPage() {
               <tbody>
                 <tr>
                   <td>Styringsrente</td>
-                  <td><strong className={`numeric ${trendTone(selicCurrent30d, true)}`}>{signedBp(selicCurrent30d?.change_bp)}</strong></td>
-                  <td><strong className={`numeric ${trendTone(selicNext30d, true)}`}>{signedBp(selicNext30d?.change_bp)}</strong></td>
+                  <FocusChangeCell point={selicCurrent30d} unit="bp" positiveWhenLower={true} />
+                  <FocusChangeCell point={selicNext30d} unit="bp" positiveWhenLower={true} />
                 </tr>
                 <tr>
                   <td>Prisvekst</td>
-                  <td><strong className={`numeric ${trendTone(ipcaCurrent30d, true)}`}>{signedBp(ipcaCurrent30d?.change_bp)}</strong></td>
-                  <td><strong className={`numeric ${trendTone(ipcaNext30d, true)}`}>{signedBp(ipcaNext30d?.change_bp)}</strong></td>
+                  <FocusChangeCell point={ipcaCurrent30d} unit="bp" positiveWhenLower={true} />
+                  <FocusChangeCell point={ipcaNext30d} unit="bp" positiveWhenLower={true} />
                 </tr>
                 <tr>
                   <td>BNP-vekst</td>
-                  <td><strong className={`numeric ${trendTone(gdpCurrent30d, false)}`}>{gdpCurrent30d?.change == null ? "–" : `${signed(gdpCurrent30d.change, 2)} pp`}</strong></td>
-                  <td><strong className={`numeric ${trendTone(gdpNext30d, false)}`}>{gdpNext30d?.change == null ? "–" : `${signed(gdpNext30d.change, 2)} pp`}</strong></td>
+                  <FocusChangeCell point={gdpCurrent30d} unit="pp" positiveWhenLower={false} />
+                  <FocusChangeCell point={gdpNext30d} unit="pp" positiveWhenLower={false} />
                 </tr>
               </tbody>
             </table>
