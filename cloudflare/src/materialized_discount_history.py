@@ -193,7 +193,10 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
 
     written: list[str] = []
     failures: list[dict[str, Any]] = []
+    period_timings: dict[str, float] = {}
     for period_key, days, year_to_date in _period_specs(latest_history_date):
+        started = perf_counter()
+        print(f"NAV period cache: {period_key} started", flush=True)
         try:
             payload = await discount_history(
                 repository,
@@ -242,6 +245,10 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
             payload=payload,
         )
         written.append(period_key)
+        period_timings[period_key] = round((perf_counter() - started) * 1000, 1)
+        print(f"NAV period cache: {period_key} completed ({period_timings[period_key]} ms)", flush=True)
+        # Do not retain the previous period payload while building the next.
+        del payload, estimated
 
     return {
         "status": "ok" if not failures and len(written) == len(PERIOD_KEYS) else "partial",
@@ -250,6 +257,7 @@ async def materialize_discount_periods(repository) -> dict[str, Any]:
         "written": len(written),
         "periods": written,
         "failures": failures,
+        "timings_ms": period_timings,
     }
 
 

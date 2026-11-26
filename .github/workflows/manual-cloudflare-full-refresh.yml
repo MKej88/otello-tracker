@@ -127,6 +127,17 @@ jobs:
           print("D1 full refresh", "id", job["id"], "status", job["status"],
                 "target_date", requested, flush=True)
           metadata = json.loads(job.get("metadata_json") or "{}")
+          history = metadata.get("estimated_nav_history") or {}
+          period_cache = history.get("period_cache") or {}
+          print("D1 NAV history diagnostics:", json.dumps({
+              "attempted": history.get("attempted"),
+              "written": history.get("written"),
+              "complete": history.get("complete"),
+              "stop_reason": history.get("stop_reason"),
+              "timings_ms": history.get("timings_ms"),
+              "period_cache_status": period_cache.get("status"),
+              "period_timings_ms": period_cache.get("timings_ms"),
+          }), flush=True)
           for key in ("source_results", "sources"):
               sources = metadata.get(key) or {}
               if isinstance(sources, dict):

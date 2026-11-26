@@ -502,6 +502,13 @@ def summarize_history_materialization(batches: list[dict[str, Any]]) -> dict[str
         "complete": complete,
         "stop_reason": stop_reason,
         "next_cursor": last.get("next_cursor"),
+        "timings_ms": {
+            key: round(sum(float((batch.get("timings_ms") or {}).get(key) or 0) for batch in batches), 1)
+            for key in ("scan_ms", "retry_ms", "period_cache_ms")
+            if any(key in (batch.get("timings_ms") or {}) for batch in batches)
+        },
+        "retry": last.get("retry"),
+        "period_cache": last.get("period_cache"),
     }
     if last.get("error"):
         summary["error"] = str(last.get("error"))[:1000]
