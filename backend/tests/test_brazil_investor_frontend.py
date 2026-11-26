@@ -72,6 +72,6 @@ def test_brazil_page_shows_both_forecast_levels_with_monthly_change() -> None:
     ):
         for period in ("Current", "Next"):
             assert (
-                f'<FocusChangeCell point={{{indicator}{period}30d}}} '
-                f'unit="{unit}" positiveWhenLower={{{positive_when_lower}}} />'
+                '<FocusChangeCell point={' + indicator + period + '30d} ' +
+                f'unit="{unit}" positiveWhenLower=' + "{" + positive_when_lower + "} />"
             ) in source
