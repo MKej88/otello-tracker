@@ -9,6 +9,11 @@ from html import escape
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+try:
+    from .nav_quality_policy import _dashboard_quality_reasons
+except ImportError:
+    from nav_quality_policy import _dashboard_quality_reasons
+
 
 def safe_detail(value: object) -> str:
     text = (
@@ -139,13 +144,35 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                 incident(
                     "preflight",
                     f"{label}: NAV-datakvalitet {quality} (dashboard_quality). "
-                    + (f"{evidence}. " if evidence else "")
-                    + "Årsaken må bekreftes i produksjonsdiagnosen; "
-                    "statusen alene påviser ikke feil i NAV-beregningen.",
+                    + (" ".join(_dashboard_quality_reasons(details)) + " "
+                       if _dashboard_quality_reasons(details) else
+                       "Årsaken må bekreftes i produksjonsdiagnosen. ")
+                    + (f"Grunnlag: {evidence}. " if evidence else "")
+                    + "Statusen alene påviser ikke feil i NAV-beregningen.",
                 )
             else:
                 incident("preflight", f"{label}: {safe_detail(item)}")
-    for step, data in (result.get("source_results") or {}).items():
+    source_results = result.get("source_results") or {}
+    bemobi = source_results.get("bemobi_web") or {}
+    ir_news = bemobi.get("ir_news") or {}
+    # This flag is set by the merger only when it was otherwise OK and the
+    # official quarterly release is verified. Do not infer a common cause
+    # from two generic partial/degraded labels.
+    shared_report_feed = (
+        bemobi.get("status") == "partial"
+        and bemobi.get("report_feed_warning_non_blocking") is True
+        and bemobi.get("non_blocking_degraded") is True
+        and ir_news.get("status") == "ok"
+        and ir_news.get("report_feed_status") not in {None, "ok"}
+        and not bemobi.get("error")
+        and (result.get("source_health") or {}).get("BEMOBI_IR") == "DEGRADED"
+        and all(
+            (bemobi.get(key) or {}).get("status") in {"ok", "skipped"}
+            for key in ("distribution_ingestion", "distribution_cash", "result_release")
+        )
+        and (bemobi.get("ir") or {}).get("status") == "ok"
+    )
+    for step, data in source_results.items():
         status = str(data.get("status") or "ikke rapportert")
         counts = [
             f"{label}: {data[key]}"
@@ -161,6 +188,24 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
             f"- Kildesteg {step}: {status}"
             + (f" ({', '.join(counts)})" if counts else "")
         )
+        if step == "bemobi_web":
+            for key, label in (
+                ("ir", "IR-fakta"), ("ir_news", "IR-meldinger"),
+                ("result_release", "Resultatrapport"),
+                ("distribution_ingestion", "Utdelingsinnlesing"),
+                ("distribution_cash", "Utdelingsoppgjør"),
+            ):
+                sub = data.get(key) or {}
+                if sub:
+                    detail = sub.get("error") or sub.get("reason")
+                    if key == "ir_news" and sub.get("report_feed_status"):
+                        detail = f"rapportfeed={sub['report_feed_status']}" + (f"; {detail}" if detail else "")
+                    lines.append(f"- Bemobi {label}: {safe_detail(sub.get('status') or 'ikke rapportert')}"
+                                 + (f" – {safe_detail(detail)}" if detail else ""))
+            if shared_report_feed:
+                incident("BEMOBI_IR", f"Rapportfeed {safe_detail(ir_news['report_feed_status'])}; "
+                         "offisiell resultatrapport verifisert. Se delstatus for bemobi_web.")
+                continue
         if data.get("error") or status.lower() in {
             "error",
             "partial",
@@ -170,6 +215,8 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         }:
             incident(step, data.get("error") or data.get("reason") or status)
     for source, health in (result.get("source_health") or {}).items():
+        if source == "BEMOBI_IR" and shared_report_feed:
+            continue
         if str(health).upper() != "OK":
             incident(str(source), f"Kildestatus: {health}")
 

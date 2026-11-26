@@ -69,3 +69,20 @@ def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
         )
 
     return list(dict.fromkeys(reasons))
+
+
+def expected_dashboard_quality(details: dict[str, Any], *, critical_checks_passed: bool) -> bool:
+    """Only explicitly recognised, non-actionable estimates may become model information."""
+    if not critical_checks_passed:
+        return False
+    if str(details.get("data_status") or "").upper() not in {"ESTIMATED", "DEGRADED"}:
+        return False
+    timestamps = details.get("market_timestamps") or {}
+    if not isinstance(timestamps, dict) or str(timestamps.get("status") or "").upper() in {"STALE", "UNKNOWN", "ERROR", "FAILED"}:
+        return False
+    # ESTIMATED alone is not sufficient evidence for the preflight.
+    if not any(details.get(key) for key in (
+        "cash_quality", "share_count_quality", "ona_quality", "option_quality",
+    )):
+        return False
+    return _expected_between_reports(details) and not _dashboard_quality_reasons(details)
