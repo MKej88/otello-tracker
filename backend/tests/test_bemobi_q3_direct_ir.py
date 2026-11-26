@@ -499,10 +499,13 @@ def test_existing_cvm_q3_only_claims_pinned_sha_provenance_with_resolved_doc():
 
         async def first(self, sql, parameters=()):
             if "FROM source_documents" in sql:
-                assert parameters == (
-                    web.PINNED_Q3_DOCUMENTS["result"]["sha256"], 102,
-                )
-                return {"id": 8059} if self.resolved else None
+                if "parent_source_document_id" in sql:
+                    assert parameters == (
+                        web.PINNED_Q3_DOCUMENTS["result"]["sha256"], 102,
+                    )
+                    return {"id": 8059, "url": web.Q3_RELEASE_URL} if self.resolved else None
+                assert parameters == (102, web.PINNED_Q3_DOCUMENTS["result"]["sha256"])
+                return None
             return await super().first(sql, parameters)
 
     good = asyncio.run(web.sync_latest_result_release(
@@ -517,3 +520,48 @@ def test_existing_cvm_q3_only_claims_pinned_sha_provenance_with_resolved_doc():
     ))
     assert missing["status"] == "skipped"
     assert missing["verified_existing_official_q3"] is False
+
+
+def test_direct_cvm_q3_provenance_requires_exact_source_row_and_sha():
+    class DirectRepository:
+        def __init__(self, direct_url, digest, *, source_id=102):
+            self.direct_url = direct_url
+            self.digest = digest
+            self.source_id = source_id
+            self.calls = []
+
+        async def first(self, sql, parameters=()):
+            self.calls.append((sql, parameters))
+            assert "s.code='CVM'" in sql
+            if "parent_source_document_id" in sql:
+                return None
+            assert "sd.id=? AND sd.content_sha256=?" in sql
+            if parameters == (self.source_id, self.digest):
+                return {"id": self.source_id, "url": self.direct_url}
+            return None
+
+    digest = web.PINNED_Q3_DOCUMENTS["result"]["sha256"]
+    candidate = {
+        "id": 102,
+        "source_code": "CVM",
+        "title": "Dados Econômico-Financeiros | Press-release | Release 3T26",
+        "url": web.Q3_RELEASE_URL,
+        "published_at": "2026-11-12T00:00:00Z",
+        "live_cvm": True,
+        "mirror_artifact": {
+            "url": web.Q3_RELEASE_URL, "period": "3Q26", "sha256": digest,
+        },
+    }
+    existing = {"payload_json": json.dumps({"period": "3Q26"})}
+
+    def verify(repo, selected=candidate, stored=existing):
+        return asyncio.run(web._verified_existing_cvm_q3_result(repo, selected, stored))
+
+    assert verify(DirectRepository(CVM_Q3_SOURCE_URL, digest))
+    assert not verify(DirectRepository(CVM_Q3_SOURCE_URL, "0" * 64))
+    assert not verify(DirectRepository(CVM_Q3_SOURCE_URL, digest, source_id=999))
+    assert not verify(DirectRepository(CVM_Q3_SOURCE_URL.replace("1588745", "1589034"), digest))
+    assert not verify(DirectRepository(CVM_Q3_SOURCE_URL, digest),
+                      {**candidate, "mirror_artifact": {**candidate["mirror_artifact"], "sha256": "0" * 64}})
+    assert not verify(DirectRepository(CVM_Q3_SOURCE_URL, digest),
+                      stored={"payload_json": json.dumps({"period": "2Q26"})})
