@@ -575,8 +575,8 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             )
             async def bemobi_web_step():
                 repository = PerformanceD1WriteRepository(self.env.DB)
-                # The issuer feed must run even when CVM's bulk archive fails.
-                # Its persisted documents are the first candidates for KPI ingestion.
+                # Mandatory issuer notices remain independent of CVM.
+                # Live quarterly report discovery is owned by CVM/R2.
                 ir_news = await refresh_ir_news(repository, target_date=target_date)
                 result = await refresh_bemobi_web(
                     repository,

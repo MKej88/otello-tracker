@@ -14,7 +14,7 @@ SOURCE_URL = "https://ri.bemobi.com.br/en/financial-information/documents-filed-
 FEED_URL = f"https://api.mziq.com/mzfilemanager/company/{COMPANY_ID}/filter/categories/year/meta"
 STATE_KEY = "bemobi_official_news_v1"
 CATEGORIES = ("comunicados", "aviso-acionistas", "fatos-relevantes-e-comunicados")
-# Discover official results without guessing MZiQ internal category slugs.
+# Recognise historical official result documents; live discovery is owned by CVM.
 REPORT_TITLES = (
     ("EARNINGS_PRESENTATION", re.compile(r"\b(?:earnings presentation|apresentacao de resultados)\b")),
     # CVM/IR sometimes publishes the release under the short official title
@@ -93,143 +93,59 @@ def parse_ir_filings(payload, *, target_date: str, include_reports: bool = False
 
 
 async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict:
-    """Refresh mandatory notices plus optional results from Bemobi's MZiQ feed.
+    """Refresh mandatory issuer notices only; CVM owns current report discovery.
 
-    Never erase valid notices because discovery of additional categories fails.
+    Retain previously validated result documents for news and ingestion fallback.
+    An empty notice response is not an assertion about quarterly report coverage.
     """
     if fetcher is None:
         from workers import fetch
         fetcher = fetch
 
-    async def read_feed(
-        year: int, categories: list[str], *, include_reports: bool,
-        language: str = "en_US",
-    ):
-        response = await fetcher(
-            FEED_URL, method="POST",
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            body=json.dumps(dict(year=year, categories=categories, language=language, published=True)),
-        )
-        if not bool(getattr(response, "ok", False)):
-            raise RuntimeError(
-                f"Bemobi IR dokumentfeed: HTTP {getattr(response, 'status', 'unknown')}"
-            )
-        raw = await read_response_text(
-            response, max_bytes=3 * 1024 * 1024, label="Bemobi IR dokumentfeed"
-        )
-        payload = json.loads(raw)
-        # Reuse the strict issuer, publication-date and official URL validation.
-        items = parse_ir_filings(
-            payload, target_date=target_date, include_reports=include_reports
-        )
-        raw_rows = payload["data"]["document_metas"]
-        published_rows = [
-            item for item in raw_rows
-            if isinstance(item, dict) and item.get("is_published") is True
-        ]
-        report_titles = [item for item in published_rows if _report_kind(item)]
-        # Only bounded, public metadata goes into source_health, never document
-        # bodies or arbitrary user-controlled titles/URLs.
-        probe = {
-            "raw_count": len(raw_rows),
-            "published_count": len(published_rows),
-            "report_title_count": len(report_titles),
-            "report_title_in_notices": sum(
-                item.get("internal_name") in CATEGORIES for item in report_titles
-            ),
-            "categories_seen": sorted({
-                str(item.get("internal_name") or "")[:50]
-                for item in published_rows
-            })[:6],
-        }
-        return items, probe
-
     try:
         rows = {}
         year = date.fromisoformat(target_date).year
         years = (year, year - 1) if target_date[5:7] == "01" else (year,)
-        report_feed_errors = []
-        report_feed_probes = []
-        live_release_count = 0
         for selected in years:
-            # Baseline notices are mandatory and independently validated.
-            notices, _ = await read_feed(
-                selected, list(CATEGORIES), include_reports=False
+            response = await fetcher(
+                FEED_URL, method="POST",
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                body=json.dumps(dict(year=selected, categories=list(CATEGORIES),
+                                     language="en_US", published=True)),
             )
-            for item in notices:
+            if not bool(getattr(response, "ok", False)):
+                raise RuntimeError(
+                    f"Bemobi IR dokumentfeed: HTTP {getattr(response, 'status', 'unknown')}"
+                )
+            raw = await read_response_text(
+                response, max_bytes=3 * 1024 * 1024, label="Bemobi IR dokumentfeed"
+            )
+            for item in parse_ir_filings(json.loads(raw), target_date=target_date):
                 rows[item["id"]] = item
-            # Query the issuer's general and named report categories first in
-            # English. MZiQ can serve Portuguese-only issuer documents, so try
-            # the same official endpoint in pt_BR only when English found no
-            # release. A last-good snapshot cannot turn an empty live feed OK.
-            report_discovered = False
-            failures = []
-            for language, categories in (
-                ("en_US", []),
-                ("en_US", ["release-de-resultados"]),
-                ("pt_BR", []),
-                ("pt_BR", ["release-de-resultados"]),
-            ):
-                if language == "pt_BR" and report_discovered:
-                    break
-                try:
-                    items, probe = await read_feed(
-                        selected, categories, include_reports=True, language=language,
-                    )
-                    found_releases = sum(
-                        item["document_kind"] == "EARNINGS_RELEASE" for item in items
-                    )
-                    report_feed_probes.append({
-                        "year": selected,
-                        "language": language,
-                        "scope": "all" if not categories else "earnings",
-                        "release_count": found_releases,
-                        **probe,
-                    })
-                    live_release_count += found_releases
-                    for item in items:
-                        if item["document_kind"] != "NOTICE":
-                            rows[item["id"]] = item
-                            if item["document_kind"] == "EARNINGS_RELEASE":
-                                report_discovered = True
-                except Exception as exc:
-                    failures.append(
-                        f"{selected} {language} ({','.join(categories) or 'all'}): "
-                        f"{type(exc).__name__}: {str(exc)[:160]}"
-                    )
-            if failures and not report_discovered:
-                report_feed_errors.extend(failures)
 
-        if report_feed_errors or not any(
-            item["document_kind"] != "NOTICE" for item in rows.values()
-        ):
-            # A failed/empty optional feed does not prove reports were withdrawn.
-            previous = await repository.first(
-                "SELECT value FROM runtime_state WHERE key=? LIMIT 1", (STATE_KEY,)
-            )
-            try:
-                stored = json.loads(str((previous or {}).get("value") or "{}"))
-                for item in stored.get("rows", []):
-                    if (isinstance(item, dict)
-                        and item.get("document_kind") in {
-                            "EARNINGS_RELEASE", "FINANCIAL_STATEMENTS",
-                            "EARNINGS_PRESENTATION",
-                        }
-                        and item.get("id") not in rows):
-                        rows[item["id"]] = item
-            except (ValueError, TypeError, AttributeError):
-                pass
+        previous = await repository.first(
+            "SELECT value FROM runtime_state WHERE key=? LIMIT 1", (STATE_KEY,)
+        )
+        try:
+            stored = json.loads(str((previous or {}).get("value") or "{}"))
+            for item in stored.get("rows", []):
+                if (isinstance(item, dict)
+                    and item.get("document_kind") in {
+                        "EARNINGS_RELEASE", "FINANCIAL_STATEMENTS", "EARNINGS_PRESENTATION",
+                    }
+                    and all(key in item for key in ("id", "date", "title", "original_title", "url"))
+                    and item["date"] <= target_date
+                    and item["id"] not in rows):
+                    rows[item["id"]] = item
+        except (ValueError, TypeError, AttributeError):
+            pass
 
         final_rows = sorted(
             rows.values(), key=lambda item: (item["date"], item["id"]), reverse=True
         )
-        # Last-good documents must not make an empty *live* feed look healthy.
-        report_feed_status = (
-            "partial" if report_feed_errors else "ok" if live_release_count else "empty"
-        )
         snapshot = dict(
             checked_date=target_date, rows=final_rows, source_url=SOURCE_URL,
-            report_feed_status=report_feed_status,
+            report_feed_status="retired", report_source="CVM",
         )
         await repository.run(
             "INSERT INTO runtime_state(key,value) VALUES (?,?) "
@@ -239,14 +155,12 @@ async def refresh_ir_news(repository, *, target_date: str, fetcher=None) -> dict
         )
         return dict(
             status="ok", documents=len(final_rows), checked_date=target_date,
-            report_feed_status=report_feed_status,
-            report_feed_errors=report_feed_errors[:2],
-            report_feed_probes=report_feed_probes[:4],
+            report_feed_status="retired", report_source="CVM",
         )
     except Exception as exc:
         return dict(
             status="not_available", error=f"{type(exc).__name__}: {str(exc)[:450]}",
-            last_good_preserved=True,
+            last_good_preserved=True, report_feed_status="retired", report_source="CVM",
         )
 
 async def official_ir_news(repository, *, target_date: str) -> tuple[list[dict], str | None]:

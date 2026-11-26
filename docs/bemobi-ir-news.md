@@ -1,7 +1,9 @@
 # Bemobi: direkte IR-meldinger og kildealder
 
 Nyhetsvisningen prioriterer Bemobis offisielle MZ-dokumentfeed for selskapets
-meldinger og resultatdokumenter. CVM IPE er en kompletterende kontrollkilde;
+meldinger. Offisielle resultatrapporter oppdages nå gjennom CVM RAD, med
+verifisert privat R2-speiling som primær transport og direkte CVM som reserve.
+CVM IPE er en kompletterende kilde for øvrige dokumenter;
 CVMs strukturerte ITR/DFP-arkiver brukes fortsatt til regnskapstall og CAPEX.
 Kilden er oppgitt av selskapets dokumentliste:
 https://ri.bemobi.com.br/en/financial-information/documents-filed-at-cvm/
@@ -10,18 +12,18 @@ POST-endepunkt, selskap-ID, kategorier og språk er kontrollert mot sidens
 `fmId`, `fmBase`, `configPage` og `mziq.cmsint.js` 17.10.2026.
 Markedsmeldinger, meldinger til aksjonærer og vesentlige meldinger hentes hver
 natt i eksisterende CVM-steg, uavhengig av hvor oppdatert CVMs samlefil er.
-Den uavhengige kategorifiltrerte IR-forespørselen er obligatorisk. I tillegg
-prøves en ufiltrert kategoriforespørsel for offisielle resultatmeldinger,
-kvartalsregnskap og resultatpresentasjoner. Bare dokumenter med verifiserbar
-tittel, publiseringsdato, selskap-ID og MZiQ-lenke inkluderes. Dersom den
-utvidede forespørselen er utilgjengelig, beholdes tidligere rapportlenker,
-mens nye, gyldige markedsmeldinger fortsatt oppdateres. Utvidet dekning
-forutsetter at leverandørens ufiltrerte API-svar faktisk inkluderer disse kategoriene.
+Den uavhengige kategorifiltrerte IR-forespørselen er obligatorisk.
+De fire valgfrie MZiQ-rapportprobene er avviklet (status `retired`, ikke `ok`).
+Tidligere validerte rapportlenker beholdes. CVM-speilingen kontrollerer den
+nyeste offisielle resultatrapportens identitet, kvartal og dokumenthash, også
+for fremtidige kvartaler. Ubekreftet CVM-rapportdekning gir fortsatt PARTIAL.
+Andre dokumenttyper, som presentasjoner og kvartalsregnskap, kan fremdeles
+komme gjennom CVM IPE-arkivet; samme-dagsdekning for disse er ikke garantert.
 I januar undersøkes også foregående år. Ingen nye cron-jobber eller
 uautoriserte tredjepartskilder brukes.
 
 Snapshot lagres i runtime_state/bemobi_official_news_v1. Vellykket tomt svar
-fjerner gamle IR-oppføringer; nettverks-/formatfeil beholder siste gode sett.
+erstatter gamle meldinger, men beholder tidligere validerte rapportdokumenter; nettverks-/formatfeil beholder siste gode sett.
 Lenker valideres mot Bemobis selskap-ID og offisielle MZ-verter. Fremtidige,
 upubliserte og andre selskapers dokumenter publiseres ikke. API-kontroll som
 er mer enn én dag gammel varsles i nyhetsvisningen.

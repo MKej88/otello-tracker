@@ -215,7 +215,7 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         and bemobi.get("report_feed_warning_non_blocking") is True
         and bemobi.get("non_blocking_degraded") is True
         and ir_news.get("status") == "ok"
-        and ir_news.get("report_feed_status") not in {None, "ok"}
+        and ir_news.get("report_feed_status") not in {None, "ok", "retired"}
         and not bemobi.get("error")
         and (result.get("source_health") or {}).get("BEMOBI_IR") == "DEGRADED"
         and all(
@@ -234,6 +234,11 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                          f"offisiell resultatrapport verifisert{period_text}. "
                          "Utdelingsinnlesing er kontrollert.")
                 continue
+            if data.get("report_coverage_warning"):
+                release = data.get("result_release") or {}
+                discovery = release.get("cvm_live_discovery") or {}
+                detail = discovery.get("error") or release.get("error") or release.get("reason") or "ukjent årsak"
+                incident(step, f"Resultatrapport: CVM-rapportdekning ikke bekreftet; {_incident_detail(detail)}")
             # Show independent substep issues rather than a list of healthy steps.
             for key, label in (
                 ("ir", "IR-fakta"), ("ir_news", "IR-meldinger"),
@@ -246,7 +251,7 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                     "error", "partial", "failed", "not_available", "review_required",
                 }:
                     incident(step, f"{label}: {_incident_detail(sub.get('error') or sub.get('reason') or sub.get('status'))}")
-                elif key == "ir_news" and sub.get("report_feed_status") not in {None, "ok"}:
+                elif key == "ir_news" and sub.get("report_feed_status") not in {None, "ok", "retired"}:
                     incident(step, f"IR-rapportfeed: {safe_detail(sub['report_feed_status'])}")
             if any(name == step for name, _ in incidents) and not data.get("error"):
                 continue
