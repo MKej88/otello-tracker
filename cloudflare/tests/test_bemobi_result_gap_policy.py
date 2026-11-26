@@ -292,3 +292,40 @@ def test_empty_report_index_nonblocking_only_with_pinned_cvm_q3_provenance() -> 
         assert degraded["status"] == "partial"
         assert degraded.get("non_blocking_degraded") is not True
         assert _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": degraded})
+
+
+@pytest.mark.parametrize("period", ["3Q26", "4Q26", "1Q27"])
+def test_retired_report_feed_uses_verified_cvm_coverage(period):
+    notice = {"status": "ok", "report_feed_status": "retired", "report_source": "CVM"}
+    result = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": {"status": "skipped", "period": period,
+                                            "report_coverage": "verified"}}, notice)
+    assert result["status"] == "ok"
+    assert not result.get("report_coverage_warning")
+
+
+@pytest.mark.parametrize("status", ["ok", "partial"])
+def test_retired_feed_does_not_hide_unconfirmed_cvm_coverage(status):
+    result = merge_bemobi_ir_news_health(
+        {"status": status, "non_blocking_degraded": True,
+         "result_release": {"status": "skipped", "period": "3Q26",
+                            "report_coverage": "unconfirmed",
+                            "cvm_live_discovery": {"status": "not_available", "error": "stale mirror"}}},
+        {"status": "ok", "report_feed_status": "retired"})
+    assert result["status"] == "partial" and result["report_coverage_warning"]
+    assert _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": result})
+    assert "stale mirror" in _source_group_detail("BEMOBI_IR", {"bemobi_web": result}, {"bemobi_web": "DEGRADED"})
+    from status_email_report import operational_lines
+    lines, count = operational_lines({"status": "PARTIAL", "source_results": {"bemobi_web": result},
+                                      "source_health": {"BEMOBI_IR": "DEGRADED"}})
+    assert count > 0
+    assert "CVM-rapportdekning ikke bekreftet" in "\n".join(lines)
+    assert "IR-rapportfeed: retired" not in "\n".join(lines)
+
+
+def test_retired_feed_keeps_mandatory_notice_failure_blocking():
+    result = merge_bemobi_ir_news_health(
+        {"status": "ok", "result_release": {"report_coverage": "verified"}},
+        {"status": "not_available", "report_feed_status": "retired", "error": "HTTP 503"})
+    assert result["status"] == "partial"
+    assert _degraded_source_blocks_job("BEMOBI_IR", {"bemobi_web": result})

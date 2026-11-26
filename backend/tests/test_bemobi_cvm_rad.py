@@ -56,7 +56,8 @@ def test_verified_live_period_reuses_stored_fact(monkeypatch):
             if "FROM runtime_state" in sql:
                 return None
             if "FROM source_documents sd" in sql:
-                return {"id": 42, "source_code": "CVM"}
+                return {"id": 42, "source_code": "CVM", "url": rows[0]["url"],
+                        "content_sha256": "a" * 64}
             if "fact_type='RESULT'" in sql:
                 assert parameters == (42,)
                 return {"id": 9, "payload_json": json.dumps({"period": "3Q26",
@@ -84,3 +85,24 @@ def test_live_discovery_failure_preserves_existing_ingestion(monkeypatch):
     assert result["status"] == "ok"
     assert result["report_coverage"] == "unconfirmed"
     assert result["cvm_live_discovery"]["status"] == "not_available"
+
+
+def test_future_quarter_requires_exact_current_filing_and_digest():
+    import bemobi_web_refresh as web
+    rows = release_candidates(parse_rows(payload(line("Release 3T26", version="2")),
+        date(2026,11,12), date(2026,11,13)))
+    candidate = {"id": 42, "source_code": "CVM", "live_cvm": True,
+                 "url": rows[0]["url"], "expected_period": "4Q26",
+                 "mirror_artifact": {"url": rows[0]["url"], "period": "4Q26", "sha256": "b" * 64}}
+    class Repo:
+        def __init__(self, row):
+            self.row = row
+        async def first(self, sql, parameters=()):
+            assert parameters == (42,)
+            return self.row
+    valid = {"id": 42, "url": rows[0]["url"], "content_sha256": "b" * 64}
+    assert asyncio.run(web._verified_current_cvm_filing(Repo(valid), candidate, "4Q26"))
+    for row in (None, {**valid, "content_sha256": "c" * 64},
+                {**valid, "content_sha256": None}, {**valid, "url": "https://example.com"}):
+        assert not asyncio.run(web._verified_current_cvm_filing(Repo(row), candidate, "4Q26"))
+    assert not asyncio.run(web._verified_current_cvm_filing(Repo(valid), candidate, "3Q26"))

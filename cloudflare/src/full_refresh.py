@@ -126,6 +126,18 @@ def merge_bemobi_ir_news_health(
     Missing or unparseable new results still produce a PARTIAL job.
     """
     merged = {**result, "ir_news": ir_news}
+    if ir_news.get("report_feed_status") == "retired":
+        release = merged.get("result_release") or {}
+        if release.get("report_coverage") != "verified":
+            merged["status"] = "partial" if merged.get("status") in {"ok", "partial"} else merged.get("status", "partial")
+            merged["non_blocking_degraded"] = False
+            merged["result_release_expected_gap"] = False
+            merged["report_coverage_warning"] = True
+        elif ir_news.get("status") != "ok":
+            if merged.get("status") == "ok":
+                merged["status"] = "partial"
+            merged["non_blocking_degraded"] = False
+        return merged
     if merged.get("status") != "ok":
         return merged
 
@@ -256,6 +268,11 @@ def _source_group_detail(
                 detail_parts.append(f"feil: {error[:700]}")
             detail_parts.append("siste gode fakta ble beholdt")
             return "; ".join(detail_parts)[:1000]
+        if bemobi.get("report_coverage_warning"):
+            release = bemobi.get("result_release") or {}
+            discovery = release.get("cvm_live_discovery") or {}
+            detail = discovery.get("error") or release.get("error") or release.get("reason") or "siste offisielle rapport kunne ikke bekreftes"
+            return f"Bemobi resultatrapport: CVM-rapportdekning ikke bekreftet; {str(detail)[:500]}; siste gyldige fakta beholdes"
         for key, label in (
             ("result_release", "Bemobi resultatrapport"),
             ("distribution_ingestion", "Bemobi-utbytte fra selskapsmeldinger"),
@@ -287,11 +304,12 @@ def _source_group_detail(
         ir_news = bemobi.get("ir_news") if isinstance(bemobi.get("ir_news"), dict) else {}
         if ir_news and (
             ir_news.get("status") != "ok"
-            or ir_news.get("report_feed_status") not in {"ok", None}
+            or ir_news.get("report_feed_status") not in {"ok", None, "retired"}
         ):
             status = str(ir_news.get("status") or "unknown")
             feed_status = str(ir_news.get("report_feed_status") or "-")
-            details = [f"Bemobi IR dokumentfeed: status={status}, rapportfeed={feed_status}"]
+            details = [f"Bemobi IR selskapsmeldinger: status={status}" if feed_status == "retired"
+                       else f"Bemobi IR dokumentfeed: status={status}, rapportfeed={feed_status}"]
             if ir_news.get("error"):
                 details.append(str(ir_news["error"])[:500])
             for error in (ir_news.get("report_feed_errors") or [])[:2]:

@@ -1361,6 +1361,37 @@ async def _verified_existing_cvm_q3_result(repository, candidate: dict, existing
     )
 
 
+async def _verified_current_cvm_filing(repository, candidate: dict, period: str | None) -> bool:
+    if (candidate.get("source_code") != "CVM" or candidate.get("live_cvm") is not True
+        or period != candidate.get("expected_period") or not period):
+        return False
+    identity = filing_identity(candidate.get("url"))
+    if not identity:
+        return False
+    row = await repository.first(
+        """
+        SELECT sd.id, sd.url, sd.content_sha256 FROM source_documents sd
+        JOIN sources s ON s.id=sd.source_id
+        WHERE s.code='CVM' AND sd.id=? LIMIT 1
+        """,
+        (candidate["id"],),
+    )
+    if not row or filing_identity(row.get("url")) != identity:
+        return False
+    digest = str(row.get("content_sha256") or "")
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        return False
+    artifact = candidate.get("mirror_artifact")
+    if artifact is not None and (
+        artifact.get("sha256") != digest or artifact.get("period") != period
+        or filing_identity(artifact.get("url")) != identity
+    ):
+        return False
+    if identity == filing_identity(Q3_RELEASE_URL):
+        return digest == PINNED_Q3_DOCUMENTS["result"]["sha256"]
+    return True
+
+
 async def _backfill_existing_result_margin(
     repository,
     *,
@@ -1494,6 +1525,9 @@ async def sync_latest_result_release(
             coverage.get("status") == "ok"
             and result.get("status") in {"ok", "skipped"}
             and result.get("period") == coverage.get("latest_period")
+            and bool(live_rows)
+            and result.get("verified_cvm_filing") == list(filing_identity(live_rows[0]["url"]) or ())
+            and bool(result.get("verified_cvm_filing"))
         )
         result = {**result, "cvm_live_discovery": coverage,
                   "report_coverage": "verified" if verified else "unconfirmed"}
@@ -1596,8 +1630,6 @@ async def _sync_latest_result_release(
                 repository, candidate=candidate, existing=already, fetcher=fetcher,
                 archive_bucket=archive_bucket,
             )
-            if repaired is not None:
-                return repaired
             period = None
             try:
                 period = json.loads(str(already.get("payload_json") or "{}")).get("period")
@@ -1608,9 +1640,23 @@ async def _sync_latest_result_release(
             verified_current = await _verified_existing_cvm_q3_result(
                 repository, candidate, already,
             )
+            verified_filing = (
+                await _verified_current_cvm_filing(repository, candidate, period)
+                if candidate.get("live_cvm") else False
+            )
+            # Legacy Q3 resolved-child evidence remains accepted only for the
+            # current exact CVM filing; the generic direct-row path covers future quarters.
+            identity = filing_identity(candidate.get("url"))
+            evidence = {"verified_cvm_filing": list(identity)} if (
+                identity and candidate.get("live_cvm")
+                and (verified_filing or verified_current)
+            ) else {}
+            if repaired is not None:
+                return {**repaired, **evidence}
             return {
                 "status": "skipped",
                 "reason": "latest_result_already_ingested",
+                **evidence,
                 "rows_written": 0,
                 "verified_existing_official_q3": verified_current,
                 **({"period": period} if candidate.get("live_cvm") and period else {}),
@@ -1644,6 +1690,17 @@ async def _sync_latest_result_release(
 
         period = result["period"]
         digest = hashlib.sha256(raw).hexdigest()
+        identity = filing_identity(candidate.get("url"))
+        artifact = candidate.get("mirror_artifact")
+        verified_filing = (
+            candidate.get("live_cvm") is True and identity is not None
+            and candidate.get("source_code") == "CVM"
+            and result["period"] == candidate.get("expected_period")
+            and filing_identity(resolved_url) == identity
+            and (artifact is None or artifact.get("sha256") == digest)
+            and (identity != filing_identity(Q3_RELEASE_URL)
+                 or digest == PINNED_Q3_DOCUMENTS["result"]["sha256"])
+        )
         resolved_document_id = await _store_resolved_result_document(
             repository,
             candidate=candidate,
@@ -1777,6 +1834,7 @@ async def _sync_latest_result_release(
             "resolved_from_html": resolved_from_html,
             "resolved_url": source_url,
             "resolved_source_document_id": resolved_document_id,
+            **({"verified_cvm_filing": list(identity)} if verified_filing else {}),
         }
 
     return {"status": "not_available", "reason": ("live_cvm_result_not_parseable" if live_rows else "result_documents_not_parseable"), "errors": errors[:6], "rows_written": 0}

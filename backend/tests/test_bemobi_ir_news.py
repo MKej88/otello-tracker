@@ -160,84 +160,36 @@ def test_expanded_official_feed_includes_only_verified_report_document_types():
     }
 
 
-def test_optional_report_discovery_cannot_remove_last_good_documents():
+def test_retired_report_feed_preserves_historical_documents_and_fetches_notices_once():
     repository = Repository()
     notice = row()
-    release = dict(notice)
-    release.update(id="earnings-2q26", internal_name="release-de-resultados",
+    release = dict(notice, id="earnings-2q26", internal_name="release-de-resultados",
                    file_title="Earnings Release 2Q26")
-    optional_down = False
-
-    class Response:
-        ok = True
-
-        def __init__(self, rows):
-            self.rows = rows
-
-        async def text(self):
-            return json.dumps(payload(self.rows))
-
-    async def fetch(url, **kwargs):
-        options = json.loads(kwargs["body"])
-        if not options["categories"]:
-            if optional_down:
-                raise RuntimeError("HTTP 503")
-            return Response([notice, release])
-        return Response([notice])
-
-    first = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-10-17", fetcher=fetch))
-    assert first["status"] == "ok" and first["documents"] == 2
-    news, warning = asyncio.run(ir.official_ir_news(
-        repository, target_date="2026-10-17"))
-    assert warning is None
-    assert {item["category"] for item in news} == {"CORPORATE", "RESULTS"}
-    optional_down = True
-    second = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-10-18", fetcher=fetch))
-    assert second["status"] == "ok"
-    assert second["report_feed_status"] == "partial"
-    saved = json.loads(repository.value)
-    assert {item["id"] for item in saved["rows"]} == {"filing-1", "earnings-2q26"}
-
-
-def test_named_earnings_category_recovers_release_when_general_feed_omits_it():
-    repository = Repository()
-    notice = row()
-    release = dict(notice)
-    release.update(id="release-3q26", internal_name="release-de-resultados",
-                   file_title="Earnings Release 3Q26",
-                   file_published_date="2026-11-12T00:00:00Z")
-
-    class Response:
-        ok = True
-
-        def __init__(self, rows):
-            self.rows = rows
-
-        async def text(self):
-            return json.dumps(payload(self.rows))
-
+    repository.value = json.dumps(dict(checked_date="2026-10-17",
+        report_feed_status="empty", rows=ir.parse_ir_filings(
+            payload([release]), target_date="2026-10-17", include_reports=True)))
     calls = []
 
+    class Response:
+        ok = True
+        async def text(self):
+            return json.dumps(payload([notice]))
+
     async def fetch(url, **kwargs):
-        categories = json.loads(kwargs["body"])["categories"]
-        calls.append(categories)
-        if categories == ["release-de-resultados"]:
-            return Response([release])
-        return Response([notice])
+        assert url == ir.FEED_URL
+        calls.append(json.loads(kwargs["body"]))
+        return Response()
 
     result = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-11-13", fetcher=fetch,
-    ))
-    assert result["status"] == "ok"
-    assert result["report_feed_status"] == "ok"
-    assert ["release-de-resultados"] in calls
-    news, warning = asyncio.run(ir.official_ir_news(
-        repository, target_date="2026-11-13",
-    ))
+        repository, target_date="2026-10-18", fetcher=fetch))
+    assert result["status"] == "ok" and result["documents"] == 2
+    assert result["report_feed_status"] == "retired"
+    assert result["report_source"] == "CVM"
+    assert calls == [dict(year=2026, categories=list(ir.CATEGORIES),
+                          language="en_US", published=True)]
+    news, warning = asyncio.run(ir.official_ir_news(repository, target_date="2026-10-18"))
     assert warning is None
-    assert any(item["headline"] == "Earnings Release 3Q26" for item in news)
+    assert {item["category"] for item in news} == {"CORPORATE", "RESULTS"}
 
 
 def test_bemobi_official_short_portuguese_release_title_is_recognized():
@@ -259,111 +211,29 @@ def test_bemobi_official_short_portuguese_release_title_is_recognized():
     assert result[0]["document_kind"] == "EARNINGS_RELEASE"
 
 
-def test_previous_release_is_retained_but_empty_live_feed_stays_degraded():
+def test_january_still_checks_both_notice_years_without_report_probes():
     repository = Repository()
-    release = row()
-    release.update(
-        id="earnings-2q26", internal_name="release-de-resultados",
-        file_title="Earnings Release 2Q26",
-    )
-    repository.value = json.dumps({
-        "checked_date": "2026-11-14",
-        "rows": ir.parse_ir_filings(
-            payload([release]), target_date="2026-11-14", include_reports=True,
-        ),
-    })
-
-    class Response:
-        ok = True
-        async def text(self):
-            return json.dumps(payload([row()]))
-
-    async def fetch(url, **kwargs):
-        return Response()
-
-    result = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-11-15", fetcher=fetch,
-    ))
-    assert result["status"] == "ok"
-    assert result["report_feed_status"] == "empty"
-    assert [
-        (probe["language"], probe["scope"], probe["release_count"],
-         probe["raw_count"], probe["published_count"], probe["report_title_count"])
-        for probe in result["report_feed_probes"]
-    ] == [
-        ("en_US", "all", 0, 1, 1, 0),
-        ("en_US", "earnings", 0, 1, 1, 0),
-        ("pt_BR", "all", 0, 1, 1, 0),
-        ("pt_BR", "earnings", 0, 1, 1, 0),
-    ]
-    assert any(
-        doc["id"] == "earnings-2q26"
-        for doc in json.loads(repository.value)["rows"]
-    )
-
-
-
-def test_portuguese_official_report_feed_recovers_release_when_english_empty():
-    repository = Repository()
-    notice = row()
-    release = dict(notice)
-    release.update(
-        id="earnings-3q26",
-        internal_name="release-de-resultados",
-        file_title="Release 3T26 / 3Q26",
-        file_published_date="2026-11-12T00:00:00Z",
-    )
     calls = []
-
-    class Response:
-        ok = True
-
-        def __init__(self, rows):
-            self.rows = rows
-
-        async def text(self):
-            return json.dumps(payload(self.rows))
-
-    async def fetch(url, **kwargs):
-        assert url == ir.FEED_URL
-        params = json.loads(kwargs["body"])
-        calls.append((params["language"], params["categories"]))
-        if params["language"] == "pt_BR" and not params["categories"]:
-            return Response([notice, release])
-        return Response([notice])
-
-    result = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-11-13", fetcher=fetch,
-    ))
-    assert result["report_feed_status"] == "ok"
-    assert ("pt_BR", []) in calls
-    assert result["report_feed_probes"][2]["language"] == "pt_BR"
-    assert result["report_feed_probes"][2]["release_count"] == 1
-    assert result["report_feed_probes"][2]["raw_count"] == 2
-    news, warning = asyncio.run(ir.official_ir_news(
-        repository, target_date="2026-11-13",
-    ))
-    assert warning is None
-    assert any(item["headline"] == "Release 3T26 / 3Q26" for item in news)
-
-
-def test_notice_category_report_title_is_visible_in_probe_without_false_ok():
-    repository = Repository()
-    disguised = row()
-    disguised.update(file_title="Release 3T26 / 3Q26")
-
     class Response:
         ok = True
         async def text(self):
-            return json.dumps(payload([disguised]))
-
+            return json.dumps(payload([]))
     async def fetch(url, **kwargs):
+        calls.append(json.loads(kwargs["body"]))
         return Response()
+    result = asyncio.run(ir.refresh_ir_news(repository, target_date="2027-01-03", fetcher=fetch))
+    assert result["status"] == "ok"
+    assert [item["year"] for item in calls] == [2027, 2026]
+    assert all(item["categories"] == list(ir.CATEGORIES) for item in calls)
 
-    result = asyncio.run(ir.refresh_ir_news(
-        repository, target_date="2026-11-15", fetcher=fetch,
-    ))
-    assert result["report_feed_status"] == "empty"
-    assert result["report_feed_probes"][0]["report_title_count"] == 1
-    assert result["report_feed_probes"][0]["report_title_in_notices"] == 1
-    assert result["report_feed_probes"][0]["categories_seen"] == ["comunicados"]
+
+def test_retired_feed_does_not_mask_notice_failure():
+    repository = Repository()
+    repository.value = json.dumps(dict(checked_date="2026-11-24", rows=[]))
+    before = repository.value
+    async def fetch(*args, **kwargs):
+        raise RuntimeError("HTTP 503")
+    result = asyncio.run(ir.refresh_ir_news(repository, target_date="2026-11-25", fetcher=fetch))
+    assert result["status"] == "not_available"
+    assert result["report_feed_status"] == "retired"
+    assert repository.value == before
