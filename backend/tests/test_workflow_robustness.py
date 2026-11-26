@@ -120,11 +120,12 @@ def test_preflight_and_nav_are_fail_closed_but_secondary_sources_are_not() -> No
 
 def test_full_workflow_renews_lease_and_releases_latest_token() -> None:
     entry = (ROOT / "cloudflare" / "src" / "entry.py").read_text(encoding="utf-8")
-    assert "renew_refresh_lock" in entry
+    assert "renew_workflow_refresh_lock" in entry
     assert 'await renew_lock("after Norges Bank")' in entry
     assert 'await renew_lock(f"after Norges Bank history {chunk_year}")' in entry
     assert 'await renew_lock("after Otello reports")' in entry
-    assert "release_refresh_lock(repository, lock_token)" in entry
+    assert "release_workflow_refresh_lock(" in entry
+    assert "repository, lock_token, owner=lock_owner," in entry
 
 
 def test_workflow_steps_do_not_capture_state_with_default_arguments() -> None:

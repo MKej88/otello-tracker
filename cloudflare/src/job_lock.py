@@ -207,3 +207,100 @@ async def release_refresh_lock(repository, token: str | None) -> bool:
         (LOCK_KEY,),
     )
     return row is None
+
+
+async def renew_workflow_refresh_lock(
+    repository,
+    token: str | None,
+    *,
+    owner: str,
+    ttl_seconds: int,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Recover a committed renewal whose durable step result was lost.
+
+    Only the unique full Workflow instance owner can recover its own active
+    lease. Compare-and-swap against the observed value, including expiry and
+    heartbeat guards, never acquires or replaces another writer's lease.
+    The normal fast-refresh renewal remains strictly token-based.
+    """
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    now_iso = _iso(current)
+    stale_before = _iso(current - timedelta(seconds=LOCK_STALE_HEARTBEAT_SECONDS))
+    expires_iso = _lease_expiry(current, ttl_seconds)
+    row = await repository.first(
+        "SELECT value, updated_at FROM runtime_state WHERE key=? LIMIT 1",
+        (LOCK_KEY,),
+    )
+    actual = str((row or {}).get("value") or "")
+    held_by, separator, held_until = actual.partition("|")
+    heartbeat = str((row or {}).get("updated_at") or "")
+    result = {
+        "renewed": False, "owner": owner, "token": None,
+        "expires_at": held_until or None, "held_by": held_by or None,
+        "reason": "lease_lost", "lock_key": LOCK_KEY,
+        "recovered_same_owner": False,
+    }
+    if (
+        not owner.startswith("full:") or not token
+        or token.partition("|")[0] != owner or "|" not in token
+        or not separator or held_by != owner
+        or held_until <= now_iso or heartbeat <= stale_before
+        or held_until < token.partition("|")[2]
+    ):
+        return result
+
+    # The observed token may be newer than the durable caller's token if a
+    # preceding attempt committed its UPDATE before the runtime interrupted it.
+    renewed_token = f"{owner}|{max(held_until, expires_iso)}"
+    await repository.run(
+        """
+        UPDATE runtime_state
+        SET value=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE key=? AND value=?
+          AND substr(value, instr(value, '|') + 1) > ?
+          AND COALESCE(updated_at, '') > ?
+        """,
+        (renewed_token, LOCK_KEY, actual, now_iso, stale_before),
+    )
+    verified = await repository.first(
+        "SELECT value, updated_at FROM runtime_state WHERE key=? LIMIT 1",
+        (LOCK_KEY,),
+    )
+    verified_value = str((verified or {}).get("value") or "")
+    verified_owner, _, verified_expiry = verified_value.partition("|")
+    renewed = (
+        verified_value == renewed_token
+        and str((verified or {}).get("updated_at") or "") > stale_before
+    )
+    return {
+        **result,
+        "renewed": renewed,
+        "token": renewed_token if renewed else None,
+        "held_by": verified_owner or None,
+        "expires_at": verified_expiry or None,
+        "reason": None if renewed else "lease_lost",
+        "recovered_same_owner": renewed and actual != token,
+    }
+
+
+async def release_workflow_refresh_lock(
+    repository, token: str | None, *, owner: str,
+) -> bool:
+    """Clean up the same instance's latest token, never a different owner."""
+    if (
+        not owner.startswith("full:") or not token
+        or "|" not in token or token.partition("|")[0] != owner
+    ):
+        return False
+    row = await repository.first(
+        "SELECT value FROM runtime_state WHERE key=? LIMIT 1", (LOCK_KEY,),
+    )
+    if row is None:
+        return True
+    actual = str(row.get("value") or "")
+    if "|" not in actual or actual.partition("|")[0] != owner:
+        return False
+    # The existing exact-token DELETE also protects against a takeover
+    # between the read and the cleanup write.
+    return await release_refresh_lock(repository, actual)

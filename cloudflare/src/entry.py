@@ -277,7 +277,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         )
         from materialized_discount_history import PERIOD_KEYS
         from fx_history_rebuild import rebuild_existing_nav_with_norges_bank
-        from job_lock import acquire_refresh_lock, release_refresh_lock, renew_refresh_lock
+        from job_lock import (
+            acquire_refresh_lock, release_workflow_refresh_lock, renew_workflow_refresh_lock,
+        )
+        from repository import D1WriteRepository
         from life360_market_data import refresh_life360_market_data
         from newsweb_pdf_refresh import enrich_newsweb_buybacks_if_due
         from newsweb_reconciliation import reconcile_newsweb
@@ -324,12 +327,15 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
             )
             async def renew_step():
-                repository = PerformanceD1WriteRepository(self.env.DB)
-                result = await renew_refresh_lock(
+                repository = D1WriteRepository(self.env.DB)
+                result = await renew_workflow_refresh_lock(
                     repository,
                     current_token,
+                    owner=lock_owner,
                     ttl_seconds=FULL_REFRESH_LOCK_TTL_SECONDS,
                 )
+                if result.get("recovered_same_owner"):
+                    print(f"Writer lease recovered for same Workflow at {checkpoint}", flush=True)
                 if not result.get("renewed"):
                     raise RuntimeError(
                         "refresh writer lease lost at "
@@ -347,8 +353,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
             config={"retries": {"limit": 3, "delay": "5 seconds"}, "timeout": "2 minutes"},
         )
         async def release_step():
-            repository = PerformanceD1WriteRepository(self.env.DB)
-            released = await release_refresh_lock(repository, lock_token)
+            repository = D1WriteRepository(self.env.DB)
+            released = await release_workflow_refresh_lock(
+                repository, lock_token, owner=lock_owner,
+            )
             return {"released": released, "owner": lock_owner}
 
         try:
