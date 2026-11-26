@@ -101,6 +101,23 @@ class WarningCandidateTests(unittest.TestCase):
                     full=changed(valid_full(), path, value),
                     sources=sources(), expected_target=TARGET))
 
+    def test_current_cvm_and_mandatory_notice_failures_never_get_warning_exception(self):
+        for patch in (
+            {"report_coverage_warning": True},
+            {"non_blocking_degraded": False},
+            {"ir_news": {"status": "not_available", "report_feed_status": "retired"}},
+            {"distribution_ingestion": {"status": "error"}},
+            {"ir_news": {"status": "ok", "report_feed_status": "retired"},
+             "result_release": {"status": "skipped", "report_coverage": "unconfirmed"}},
+        ):
+            with self.subTest(patch=patch):
+                full = valid_full()
+                data = json.loads(full["metadata_json"])
+                data["sources"]["bemobi_web"].update(patch)
+                full["metadata_json"] = json.dumps(data)
+                self.assertFalse(secondary_bemobi_warning_candidate(
+                    full=full, sources=sources(), expected_target=TARGET))
+
     def test_additional_failed_sources_or_error_message_do_not_get_exception(self):
         full = valid_full()
         bad_source = sources()
@@ -140,6 +157,13 @@ class SeverityTests(unittest.TestCase):
         ]:
             with self.subTest(key=key):
                 self.assertEqual(diagnostic_severity(**{**base, key: value}), "AVVIK")
+
+    def test_monitoring_warning_visible_without_critical_failure(self):
+        self.assertEqual(diagnostic_severity(
+            full_status="SUCCESS", fast_status="SUCCESS", fresh=True,
+            monitoring_unhealthy=False, nav_audit_unhealthy=False,
+            secondary_bemobi_warning=False, core_nav_status="OK",
+            monitoring_warning=True), "ADVARSEL")
 
     def test_all_healthy_is_green(self):
         self.assertEqual(diagnostic_severity(

@@ -50,7 +50,10 @@ on:
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
-    # Read-only watchdog every two hours; full diagnosis remains once daily.
+    # Independent morning recheck: a delayed/missed GitHub schedule or a transient
+    # failure must not leave the entire day without a full production diagnosis.
+    - cron: "45 6 * * *"
+    # Read-only watchdog every two hours; unchanged fast-refresh cadence.
     - cron: "17 */2 * * *"
 
 permissions:
@@ -86,12 +89,20 @@ jobs:
   diagnose:
     # Live production reads only after the nightly deadline, or on manual request.
     # In particular, never compare a fresh main commit with a pre-deploy night.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
     outputs:
       incident_deferred: ${{ steps.d1_report.outputs.d1_deferred }}
+      d1_status: ${{ steps.d1_report.outputs.d1_status }}
+      target_date: ${{ steps.d1_report.outputs.target_date }}
+      full_status: ${{ steps.d1_report.outputs.full_status }}
+      fast_status: ${{ steps.d1_report.outputs.fast_status }}
+      workflow_status: ${{ steps.workflow_report.outputs.workflow_status }}
+      workflow_retries: ${{ steps.workflow_report.outputs.workflow_retries }}
+      workflow_failures: ${{ steps.workflow_report.outputs.workflow_failures }}
+      monitoring_state: ${{ steps.d1_report.outputs.monitoring_state }}
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
@@ -309,6 +320,10 @@ jobs:
               handle.write(
                   f"production_unhealthy={'true' if production_unhealthy else 'false'}\n"
               )
+              state = result.get("status")
+              handle.write(f"workflow_status={state if state in {'complete', 'errored', 'terminated', 'running', 'queued', 'paused', 'waiting'} else 'unknown'}\n")
+              handle.write(f"workflow_retries={retry_count}\n")
+              handle.write(f"workflow_failures={failure_count}\n")
           if production_unhealthy:
               print("::warning::Diagnostikken fant en feilet Cloudflare Workflow-instans.")
           PY
@@ -371,7 +386,7 @@ jobs:
                   "sql": job_columns + """
                       WHERE job_name = 'cloudflare_full_refresh'
                       ORDER BY id DESC
-                      LIMIT 1
+                      LIMIT 2
                   """
               },
               {
@@ -589,6 +604,7 @@ jobs:
           full_stale = (
               full_age is None or full_age > FULL_MAX_AGE
               or nightly_is_overdue((full or {}).get("started_at"), now=now)
+              or full_target != expected_nightly_date(now).isoformat()
           )
           fast_stale = fast_age is None or fast_age > FAST_MAX_AGE
 
@@ -639,6 +655,7 @@ jobs:
               core_nav_status=str(nav.get("status") or "MISSING").upper(),
               core_nav_components=components,
               manual_full_refresh_pending=manual_window["under_grace"],
+              monitoring_warning=bool(monitoring["warnings"]),
           )
           core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
@@ -756,6 +773,11 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
               handle.write(f"d1_unhealthy={'true' if d1_unhealthy else 'false'}\n")
               handle.write(f"d1_warning={'true' if d1_warning else 'false'}\n")
+              handle.write(f"d1_status={d1_status}\n")
+              handle.write(f"target_date={expected_nightly_date(now).isoformat()}\n")
+              for label, value in (("full_status", full_status), ("fast_status", fast_status)):
+                  handle.write(f"{label}={value if value in {'SUCCESS', 'PARTIAL', 'FAILED', 'RUNNING', 'MISSING'} else 'UNKNOWN'}\n")
+              handle.write(f"monitoring_state={'AVVIK' if monitoring['unhealthy'] else 'ADVARSEL' if monitoring['warnings'] else 'OK'}\n")
               # While a valid manual job is pending, a non-failing diagnosis
               # must not close an existing incident as if final success were
               # confirmed. Other critical failures still fail and notify.
@@ -864,7 +886,7 @@ jobs:
     # No privileged workflow_run trigger. Only trusted scheduled main jobs notify.
     if: >-
       always() && github.event_name == 'schedule' &&
-      (github.event.schedule == '30 4 * * *' ||
+      ((github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *') ||
        github.event.schedule == '17 */2 * * *')
     needs: [diagnose, fast-freshness]
     runs-on: ubuntu-latest
@@ -874,8 +896,8 @@ jobs:
       issues: write
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      INCIDENT_KIND: ${{ github.event.schedule == '30 4 * * *' && 'nightly' || 'fast' }}
-      INCIDENT_RESULT: ${{ github.event.schedule == '30 4 * * *' && (needs.diagnose.result == 'success' && needs.diagnose.outputs.incident_deferred == 'true' && 'deferred' || needs.diagnose.result) || needs['fast-freshness'].result }}
+      INCIDENT_KIND: ${{ (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *') && 'nightly' || 'fast' }}
+      INCIDENT_RESULT: ${{ (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *') && (needs.diagnose.result == 'success' && needs.diagnose.outputs.incident_deferred == 'true' && 'deferred' || needs.diagnose.result) || needs['fast-freshness'].result }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Open or close dedicated incident issue
@@ -945,4 +967,102 @@ jobs:
               print(f"Resolved {kind} incident: #{found['number']}")
           else:
               print(f"{kind} healthy, no incident to close")
+          PY
+
+
+  publish-status:
+    name: Publish nightly status to issue 164
+    needs: [diagnose]
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: cloudflare-diagnostic-status-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIAGNOSE_RESULT: ${{ needs.diagnose.result }}
+      D1_STATUS: ${{ needs.diagnose.outputs.d1_status }}
+      TARGET_DATE: ${{ needs.diagnose.outputs.target_date }}
+      FULL_STATUS: ${{ needs.diagnose.outputs.full_status }}
+      FAST_STATUS: ${{ needs.diagnose.outputs.fast_status }}
+      WORKFLOW_STATUS: ${{ needs.diagnose.outputs.workflow_status }}
+      WORKFLOW_RETRIES: ${{ needs.diagnose.outputs.workflow_retries }}
+      WORKFLOW_FAILURES: ${{ needs.diagnose.outputs.workflow_failures }}
+      MONITORING_STATE: ${{ needs.diagnose.outputs.monitoring_state }}
+      INCIDENT_DEFERRED: ${{ needs.diagnose.outputs.incident_deferred }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Publish current diagnosis without waiting for another cron
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from datetime import UTC, datetime
+          from urllib.request import Request, urlopen
+
+          def choice(name, allowed):
+              value = os.environ.get(name, "")
+              return value if value in allowed else "IKKE BEKREFTET"
+
+          def count(name):
+              value = os.environ.get(name, "")
+              return value if re.fullmatch(r"[0-9]{1,7}", value) else "-"
+
+          result = choice("DIAGNOSE_RESULT", {"success", "failure", "cancelled", "skipped"})
+          d1 = choice("D1_STATUS", {"OK", "ADVARSEL", "AVVIK"})
+          workflow = choice("WORKFLOW_STATUS", {"complete", "errored", "terminated", "running", "queued", "paused", "waiting"})
+          monitor = choice("MONITORING_STATE", {"OK", "ADVARSEL", "AVVIK"})
+          statuses = {"SUCCESS", "PARTIAL", "FAILED", "RUNNING", "MISSING"}
+          target = os.environ.get("TARGET_DATE", "")
+          target = target if re.fullmatch(r"\d{4}-\d{2}-\d{2}", target) else "-"
+          overall = ("AVVIK" if result != "success" or d1 == "AVVIK"
+                     else "ADVARSEL" if d1 == "ADVARSEL" or monitor == "ADVARSEL"
+                     or os.environ.get("INCIDENT_DEFERRED") == "true"
+                     else "OK" if d1 == "OK" and workflow == "complete"
+                     else "IKKE BEKREFTET")
+          stamp = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+          body = "\n".join([
+              "# Siste automatiske Cloudflare-produksjonsdiagnose", "",
+              f"- Publisert: `{stamp}`",
+              f"- Diagnosekjøring: [Actions-logg]({os.environ['RUN_URL']})",
+              f"- Run-ID: `{os.environ['GITHUB_RUN_ID']}`",
+              f"- Samlet status: **{overall}**",
+              f"- Datadato: `{target}`", "",
+              "| Kontroll | Resultat |", "|---|---|",
+              f"| GitHub Actions – diagnose | {result} |",
+              f"| D1-produksjonsdiagnose | {d1} |",
+              f"| Fulloppdatering (D1) | {choice('FULL_STATUS', statuses)} |",
+              f"| 30-minuttersoppdatering (D1) | {choice('FAST_STATUS', statuses)} |",
+              f"| Workflow-instans | {workflow} |",
+              f"| Omkjøringer / mislykkede forsøk | {count('WORKFLOW_RETRIES')} / {count('WORKFLOW_FAILURES')} |",
+              f"| Kilde-/markedskontroller | {monitor} |", "",
+              "Detaljert NAV-avstemming, kildehelse, tidsstempler og feil finnes i den lenkede kjøreloggen.",
+              "Ved manglende diagnosegrunnlag vises dette eksplisitt, ikke som OK.",
+              "Status oppdateres av samme planlagte diagnose; fast-watchdog og offline CI overskriver den ikke.",
+          ]) + "\n"
+          url = "https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"] + "/issues/164"
+          headers = {"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28",
+                     "Content-Type": "application/json"}
+          # Do not overwrite newer observations if a delayed/retried run completes late.
+          with urlopen(Request(url, headers=headers), timeout=20) as response:
+              old = json.load(response)
+          previous = re.search(r"(?m)^- Run-ID: `([0-9]+)`$", str(old.get("body") or ""))
+          if previous and int(previous.group(1)) > int(os.environ["GITHUB_RUN_ID"]):
+              print("Nyere diagnose er allerede publisert.")
+              raise SystemExit(0)
+          request = Request(url, data=json.dumps({"body": body}).encode("utf-8"),
+                            headers=headers, method="PATCH")
+          with urlopen(request, timeout=20) as response:
+              json.load(response)
+          print(f"Status #164: {overall}")
           PY

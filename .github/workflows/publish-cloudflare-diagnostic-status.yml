@@ -1,15 +1,8 @@
 name: Publish Cloudflare diagnostic status
 
 on:
-  schedule:
-    # Diagnostics run at 04:30 UTC. Publish after a generous buffer.
-    - cron: "0 5 * * *"
+  # Manual recovery only. Scheduled diagnostics publish directly in their own run.
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/publish-cloudflare-diagnostic-status.yml
 
 permissions:
   contents: read
@@ -18,7 +11,7 @@ permissions:
 
 concurrency:
   group: cloudflare-diagnostic-status-publish
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -56,12 +49,27 @@ jobs:
 
           with open("latest-runs.json", encoding="utf-8") as handle:
               runs = json.load(handle).get("workflow_runs") or []
-          # Only scheduled/manual live diagnostics; never offline push checks.
-          run = select_production_diagnostic(
-              runs,
-              scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
-              now=datetime.now(UTC),
-          )
+          # Confirm that the selected run actually executed the full diagnosis.
+          # A scheduled fast-watchdog run or offline CI is not a nightly report.
+          from urllib.request import Request, urlopen
+          base = "https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"]
+          headers = {"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"}
+          eligible = []
+          for candidate in sorted(runs, key=lambda row: row.get("created_at") or "", reverse=True):
+              if (candidate.get("event") != "schedule"
+                  or candidate.get("head_branch") != "main"
+                  or candidate.get("status") != "completed"):
+                  continue
+              with urlopen(Request(base + f"/actions/runs/{int(candidate['id'])}/jobs?per_page=100",
+                                   headers=headers), timeout=20) as response:
+                  jobs = json.load(response).get("jobs") or []
+              if any(job.get("name") == "Read Cloudflare Workflow and D1 status"
+                     and job.get("conclusion") not in {None, "skipped"} for job in jobs):
+                  eligible.append(candidate)
+                  break
+          run = select_production_diagnostic(eligible, scheduled=False, now=datetime.now(UTC))
 
           values = {
               "run_id": run["id"],
@@ -199,6 +207,19 @@ jobs:
               json.dumps({"body": body}, ensure_ascii=False),
               encoding="utf-8",
           )
+          PY
+          # A manual recovery must not overwrite a newer automatically published run.
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${STATUS_ISSUE_NUMBER}" \
+            --output /tmp/current-issue.json
+          python - <<'PY'
+          import json, os, re
+          current = json.load(open("/tmp/current-issue.json", encoding="utf-8"))
+          match = re.search(r"(?m)^- Run-ID: `([0-9]+)`$", current.get("body") or "")
+          new = re.search(r"(?m)^- Run-ID: `([0-9]+)`$", open("status-issue-body.md", encoding="utf-8").read())
+          if match and (not new or int(match.group(1)) > int(new.group(1))):
+              raise SystemExit("Nyere diagnose er allerede publisert; avbryter.")
           PY
           curl --fail --silent --show-error \
             --request PATCH \

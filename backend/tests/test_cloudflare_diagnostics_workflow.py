@@ -93,7 +93,7 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     assert 'd1_unhealthy = d1_status == "AVVIK"' in workflow
     assert 'render_monitoring(monitoring)' in workflow
     assert "github.event_name == 'schedule' &&" in workflow
-    assert "github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')" in workflow
+    assert "github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))" in workflow
 
 
 def test_nav_cache_audit_reads_public_bootstrap_and_database_without_extra_secrets():
@@ -111,7 +111,7 @@ def test_merge_runs_only_offline_tests_not_live_production_probe() -> None:
     """A push can precede deployment, so historical PARTIAL must not fail CI."""
     workflow = _workflow_text()
     assert "if: github.event_name == 'pull_request' || github.event_name == 'push'" in workflow
-    assert "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')" in workflow
+    assert "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))" in workflow
     assert "if: github.event_name != 'pull_request'" not in workflow
     assert "github.event_name == 'schedule' &&" in workflow
     assert "github.event_name == 'schedule' || github.event_name == 'push'" not in workflow
@@ -153,3 +153,17 @@ def test_merge_offline_gate_tracks_all_diagnostic_policy_inputs() -> None:
         "cloudflare/tests/test_production_diagnostic_policy.py",
     ):
         assert workflow.count(f"      - {source}") == 2
+
+
+def test_nightly_status_publication_is_same_run_and_manual_publisher_ignores_fast_only():
+    workflow = _workflow_text()
+    publisher = (ROOT / ".github/workflows/publish-cloudflare-diagnostic-status.yml").read_text(encoding="utf-8")
+    assert 'cron: "45 6 * * *"' in workflow
+    assert "publish-status:" in workflow
+    assert "needs: [diagnose]" in workflow
+    assert "D1_STATUS: ${{ needs.diagnose.outputs.d1_status }}" in workflow
+    assert "github.event_name == 'schedule'" in workflow.split("  publish-status:", 1)[1]
+    assert "workflow_dispatch:" in publisher
+    assert "  schedule:" not in publisher
+    assert 'job.get("name") == "Read Cloudflare Workflow and D1 status"' in publisher
+    assert 'job.get("conclusion") not in {None, "skipped"}' in publisher

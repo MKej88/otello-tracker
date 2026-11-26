@@ -83,6 +83,18 @@ def secondary_bemobi_warning_candidate(
         "ok", "success", "skipped",
     }:
         return False
+    # New source policy: retired MZiQ probes are not an independent fallback.
+    # Current official CVM coverage and mandatory issuer notices must pass.
+    ir_news = _object(bemobi.get("ir_news"))
+    if (bemobi.get("report_coverage_warning") is True
+            or bemobi.get("non_blocking_degraded") is False
+            or (ir_news and ir_news.get("status") != "ok")
+            or (_object(bemobi.get("distribution_ingestion")).get("status")
+                not in {None, "ok", "success", "skipped"})):
+        return False
+    if (ir_news.get("report_feed_status") == "retired"
+            and _object(bemobi.get("result_release")).get("report_coverage") != "verified"):
+        return False
     # A known unavailable secondary release/broker/preview may use last good
     # facts, provided all primary data and NAV checks have passed.
     if bemobi.get("status") != "partial":
@@ -125,6 +137,7 @@ def diagnostic_severity(
     core_nav_components: dict | None = None,
     fast_severity: str | None = None,
     manual_full_refresh_pending: bool = False,
+    monitoring_warning: bool = False,
 ) -> str:
     """OK / ADVARSEL / AVVIK; expected NAV modeling is not an incident."""
     nav_quality = core_nav_quality(core_nav_status, core_nav_components)
@@ -148,7 +161,7 @@ def diagnostic_severity(
     if full_status == "SUCCESS":
         return ("ADVARSEL" if secondary_bemobi_warning
                 or nav_quality == "ADVARSEL" or fast_severity == "WARNING"
-                or manual_full_refresh_pending else "OK")
+                or manual_full_refresh_pending or monitoring_warning else "OK")
     if full_status == "PARTIAL" and secondary_bemobi_warning:
         return "ADVARSEL"
     return "AVVIK"
