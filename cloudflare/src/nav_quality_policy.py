@@ -80,9 +80,7 @@ def expected_dashboard_quality(details: dict[str, Any], *, critical_checks_passe
     timestamps = details.get("market_timestamps") or {}
     if not isinstance(timestamps, dict) or str(timestamps.get("status") or "").upper() in {"STALE", "UNKNOWN", "ERROR", "FAILED"}:
         return False
-    # ESTIMATED alone is not sufficient evidence for the preflight.
-    if not any(details.get(key) for key in (
-        "cash_quality", "share_count_quality", "ona_quality", "option_quality",
-    )):
-        return False
+    # ESTIMATED is an explicit model classification. DEGRADED requires a
+    # recognised structured quality flag or the existing methodology markers.
+    # Both remain actionable if the shared policy identifies a concrete defect.
     return _expected_between_reports(details) and not _dashboard_quality_reasons(details)

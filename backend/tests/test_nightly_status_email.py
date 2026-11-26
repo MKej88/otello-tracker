@@ -495,3 +495,28 @@ def test_nav_warning_contains_structured_quality_evidence() -> None:
     assert "cash_calibration_quality=HIGH_RESIDUAL" in message["text"]
     assert "dashboard_quality" in message["text"]
     assert "OK med avvik" in message["subject"]
+
+
+def test_preflight_model_information_is_preserved_in_email() -> None:
+    result = {
+        "status": "SUCCESS",
+        "target_date": "2026-11-25",
+        "preflight": {
+            "ready": True,
+            "blockers": [],
+            "warnings": [],
+            "checks": [
+                {
+                    "name": "dashboard_quality",
+                    "status": "PASS",
+                    "details": {"classification": "MODEL_INFO", "data_status": "ESTIMATED"},
+                }
+            ],
+        },
+    }
+    original = json.dumps(result, sort_keys=True)
+    message = build_status_email(result)
+    assert "Modellinformasjon" in message["text"]
+    assert "Advarsler: 0" in message["text"]
+    assert "med avvik" not in message["subject"]
+    assert json.dumps(result, sort_keys=True) == original

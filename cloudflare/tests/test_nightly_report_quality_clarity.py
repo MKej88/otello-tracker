@@ -31,7 +31,19 @@ class NightlyReportQualityClarityTests(unittest.TestCase):
         self.assertTrue(expected_dashboard_quality(expected, critical_checks_passed=True))
         self.assertFalse(expected_dashboard_quality(expected, critical_checks_passed=False))
         self.assertFalse(expected_dashboard_quality({"data_status": "DEGRADED"}, critical_checks_passed=True))
-        self.assertFalse(expected_dashboard_quality({"data_status": "ESTIMATED"}, critical_checks_passed=True))
+        self.assertTrue(expected_dashboard_quality({"data_status": "ESTIMATED"}, critical_checks_passed=True))
+        self.assertTrue(expected_dashboard_quality(
+            {"data_status": "DEGRADED", "quality_notes": "Base ONA is partial forecast data"},
+            critical_checks_passed=True))
+        self.assertFalse(expected_dashboard_quality(
+            {"data_status": "DEGRADED", "quality_notes": "Unknown quality issue"},
+            critical_checks_passed=True))
+        self.assertFalse(expected_dashboard_quality(
+            {"data_status": "ESTIMATED", "cash_calibration_quality": "HIGH_RESIDUAL"},
+            critical_checks_passed=True))
+        self.assertFalse(expected_dashboard_quality(
+            {"data_status": "ESTIMATED", "receivable_quality": "ESTIMATED_GROSS"},
+            critical_checks_passed=True))
         self.assertFalse(expected_dashboard_quality(
             {**expected, "receivable_quality": "ESTIMATED_GROSS"}, critical_checks_passed=True))
         self.assertFalse(expected_dashboard_quality(
