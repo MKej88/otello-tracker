@@ -4,10 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 try:
-    from .nav_quality_policy import (
-        _dashboard_quality_reasons,
-        _expected_between_reports,
-    )
+    from .nav_quality_policy import expected_dashboard_quality
     from .status_email_report import (
         dashboard_url,
         operational_lines,
@@ -15,7 +12,7 @@ try:
         render_html,
     )
 except ImportError:
-    from nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
+    from nav_quality_policy import expected_dashboard_quality
     from status_email_report import (
         dashboard_url,
         operational_lines,
@@ -94,7 +91,19 @@ def build_status_email(
     preflight = result.get("preflight") or {}
     warnings = preflight.get("warnings") or []
     actionable_warnings = []
-    model_information = False
+    model_information = (
+        result.get("status") == "SUCCESS"
+        and preflight.get("ready") is True
+        and not preflight.get("blockers")
+        and not result.get("critical_errors")
+        and any(
+            item.get("name") == "dashboard_quality"
+            and item.get("status") == "PASS"
+            and (item.get("details") or {}).get("classification") == "MODEL_INFO"
+            for item in preflight.get("checks") or []
+            if isinstance(item, dict)
+        )
+    )
     for warning in warnings:
         details = warning.get("details") if isinstance(warning, dict) else None
         if (
@@ -106,9 +115,7 @@ def build_status_email(
             and preflight.get("ready") is True
             and not preflight.get("blockers")
             and not result.get("critical_errors")
-            and (details.get("market_timestamps") or {}).get("status") not in {"STALE", "UNKNOWN"}
-            and _expected_between_reports(details)
-            and not _dashboard_quality_reasons(details)
+            and expected_dashboard_quality(details, critical_checks_passed=True)
         ):
             model_information = True
         else:

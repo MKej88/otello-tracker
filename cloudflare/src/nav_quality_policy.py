@@ -69,3 +69,18 @@ def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
         )
 
     return list(dict.fromkeys(reasons))
+
+
+def expected_dashboard_quality(details: dict[str, Any], *, critical_checks_passed: bool) -> bool:
+    """Only explicitly recognised, non-actionable estimates may become model information."""
+    if not critical_checks_passed:
+        return False
+    if str(details.get("data_status") or "").upper() not in {"ESTIMATED", "DEGRADED"}:
+        return False
+    timestamps = details.get("market_timestamps") or {}
+    if not isinstance(timestamps, dict) or str(timestamps.get("status") or "").upper() in {"STALE", "UNKNOWN", "ERROR", "FAILED"}:
+        return False
+    # ESTIMATED is an explicit model classification. DEGRADED requires a
+    # recognised structured quality flag or the existing methodology markers.
+    # Both remain actionable if the shared policy identifies a concrete defect.
+    return _expected_between_reports(details) and not _dashboard_quality_reasons(details)

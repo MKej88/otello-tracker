@@ -8,10 +8,12 @@ try:
     from .buyback_service import buyback_forecast
     from .dashboard_service import dashboard_summary, enrich_dashboard_summary
     from .economic_nav_investor import economic_nav_summary
+    from .nav_quality_policy import expected_dashboard_quality, _dashboard_quality_reasons
 except ImportError:
     from buyback_service import buyback_forecast
     from dashboard_service import dashboard_summary, enrich_dashboard_summary
     from economic_nav_investor import economic_nav_summary
+    from nav_quality_policy import expected_dashboard_quality, _dashboard_quality_reasons
 
 HISTORY_START = "2021-02-10"
 NEWSWEB_HISTORY_START_YEAR = "2020"
@@ -448,11 +450,7 @@ async def run_d1_preflight(
                 "cash_fx": economic.get("cash_fx"),
             },
         )
-        _check(
-            checks,
-            "dashboard_quality",
-            summary.get("data_status") not in {"DEGRADED", "ESTIMATED"},
-            details={
+        quality_details = {
                 "data_status": summary.get("data_status"),
                 "as_of_date": summary.get("as_of_date"),
                 "model_scope": summary.get("model_scope"),
@@ -464,7 +462,19 @@ async def run_d1_preflight(
                 "option_quality": summary.get("option_quality"),
                 "quality_notes": summary.get("quality_notes"),
                 "market_timestamps": summary.get("market_timestamps"),
-            },
+        }
+        model_information = expected_dashboard_quality(
+            quality_details,
+            critical_checks_passed=not any(item["status"] == "FAIL" for item in checks),
+        )
+        quality_details["classification"] = "MODEL_INFO" if model_information else "REVIEW"
+        quality_details["reasons"] = _dashboard_quality_reasons(quality_details)
+        _check(
+            checks,
+            "dashboard_quality",
+            str(summary.get("data_status") or "").upper() in {"OK", "VALID", "REPORTED"}
+            or model_information,
+            details=quality_details,
             warning=True,
         )
 
