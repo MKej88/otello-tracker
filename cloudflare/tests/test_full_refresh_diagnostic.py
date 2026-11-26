@@ -168,9 +168,26 @@ class ScheduledVsManualTests(unittest.TestCase):
             return next(c for c in result["checks"] if c["name"] == "Ingen dobbel nattkjøring")
         self.assertEqual(double_check(good)["state"], "OK")
         self.assertEqual(double_check(duplicate)["state"], "AVVIK")
+        recovered = assess_production(
+            now=NOW, jobs=[{**jobs[0], "status": "FAILED"}, jobs[2]],
+            sources=sources, prices=prices, states=states,
+        )
+        check = next(c for c in recovered["checks"] if c["name"] == "Planlagt nattkjøring")
+        self.assertEqual(check["state"], "ADVARSEL")
+        self.assertIn("FAILED", check["actual"])
+        self.assertFalse(recovered["unhealthy"])
 
 
 class WorkflowWiringTests(unittest.TestCase):
+    def test_manual_grace_reads_two_full_rows_and_backup_has_same_alert_path(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("WHERE job_name = 'cloudflare_full_refresh'\n                      ORDER BY id DESC\n                      LIMIT 2", text)
+        self.assertIn('cron: "45 6 * * *"', text)
+        self.assertGreaterEqual(text.count("github.event.schedule == '45 6 * * *'"), 4)
+        self.assertIn("publish-status:", text)
+        self.assertIn("needs: [diagnose]", text)
+
+
     def test_scheduled_incident_not_closed_while_manual_refresh_pending(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("manual_refresh_grace(", text)

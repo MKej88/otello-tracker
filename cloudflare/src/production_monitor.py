@@ -140,6 +140,14 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
             f'vellykkede fulloppdateringer, {len(target_jobs)} forsøk totalt',
             'maksimalt 1 planlagt nattkjøring; manuelle oppdateringer er separate',
         )
+    manual_successful = [r for r in successful if refresh_kind(r) == 'manual']
+    actual_scheduled = [r for r in target_jobs if refresh_kind(r) == 'scheduled']
+    if manual_successful and not scheduled_successful and not legacy_recovery_allowed:
+        add('Planlagt nattkjøring', True,
+            'datadato gjenopprettet manuelt; ' + ', '.join(
+                sorted({str(r.get('status') or 'UKJENT') for r in actual_scheduled})
+            ) if actual_scheduled else 'datadato dekket manuelt; ingen planlagt fulljobb registrert',
+            'skille planlagt kjøring fra manuell gjenoppretting', state='ADVARSEL')
     if legacy_recovery_allowed:
         add(
             'Eldre fulloppdateringer uten dokumentert trigger', True,
