@@ -59,6 +59,12 @@ def dashboard_url(value: str) -> str:
 
 def _guidance(step: str, error: str) -> str:
     value = f"{step} {error}".lower()
+    if "lease lost" in value or "writer lock" in value or "writer lease" in value:
+        return "Kontroller skrivelås og aktiv Workflow-instans før ny kjøring."
+    if "memory limit" in value or "memoryerror" in value:
+        return "Kontroller minnefeil og omkjøringer i Workflow-diagnosen."
+    if step == "BEMOBI_IR" and "offisiell resultatrapport verifisert" in value:
+        return "Følg opp rapportfeeden; rapportdekning er verifisert via alternativ kilde."
     if "429" in value or "too many" in value or "rate limit" in value:
         return "En forespørselsgrense kan være nådd. Kontroller kjøreloggen og begrens samtidige oppslag før ny kjøring."
     if "timeout" in value or "timed out" in value or "unavailable" in value:
@@ -76,17 +82,38 @@ def _guidance(step: str, error: str) -> str:
     return "Kontroller steget i kjøreloggen og siste datadato. Vurder ny kjøring når årsaken er avklart."
 
 
+def _incident_detail(value: object) -> str:
+    """Prefer the actual exception or structured reason, not a traceback dump."""
+    if isinstance(value, dict):
+        name = value.get("name") or value.get("step") or ""
+        detail = value.get("error") or value.get("reason") or value.get("details")
+        if isinstance(detail, dict):
+            evidence = []
+            for key, item in detail.items():
+                if isinstance(item, (str, int, float, bool)) and key not in {"quality_notes", "traceback"}:
+                    evidence.append(f"{key}={safe_detail(item)[:120]}")
+            detail = ", ".join(evidence[:6])
+        return safe_detail(f"{name}: {detail}" if detail else name or "Årsak ikke oppgitt")
+    raw = str(value)
+    if "Traceback (most recent call last)" in raw:
+        causes = re.findall(
+            r"(?:RuntimeError|MemoryError|TimeoutError|ValueError|TypeError|OSError):\s*([^\n]+)",
+            raw,
+        )
+        if causes:
+            return safe_detail(causes[-1])
+        if "Worker exceeded memory limit" in raw:
+            return "Worker exceeded memory limit"
+    return safe_detail(raw)
+
+
 def operational_lines(result: dict) -> tuple[list[str], int]:
-    lines = [
-        "",
-        "Kjøringsdetaljer:",
-        f"- Jobb-ID: {result.get('job_id') or 'ikke tilgjengelig'}",
-    ]
+    checks_summary: list[str] = []
     incidents: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
     def incident(step: str, detail: object) -> None:
-        item = (step, safe_detail(detail))
+        item = (step, _incident_detail(detail))
         if item not in seen:
             seen.add(item)
             incidents.append(item)
@@ -104,9 +131,37 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         ("dashboard_hot_snapshot", "Dashboard-cache"),
         ("estimated_nav_history", "NAV-historikk"),
         ("archive", "R2-arkivering"),
+        ("investor_snapshots", "Investor-cache"),
     ):
         data = result.get(key) or {}
         status = str(data.get("status") or "ikke rapportert").lower()
+        if key == "estimated_nav_history" and "complete" in data:
+            period_cache = data.get("period_cache") or {}
+            pending = (data.get("retry") or {}).get("pending")
+            if data.get("complete") is True and period_cache.get("status") == "ok" and not pending:
+                status = "ok"
+            elif data.get("complete") is False or period_cache.get("status") in {"partial", "error", "failed"} or pending:
+                status = "partial"
+            else:
+                status = "ikke rapportert"
+            if status == "partial":
+                parts = []
+                if data.get("complete") is False:
+                    parts.append(f"historikk: {data.get('stop_reason') or 'ikke fullført'}")
+                if period_cache.get("status") in {"partial", "error", "failed"}:
+                    parts.append(f"periodecache: {period_cache.get('written', 0)}/6")
+                    for failure in (period_cache.get("failures") or [])[:6]:
+                        parts.append(f"{failure.get('period_key') or 'periode'}: {_incident_detail(failure.get('reason') or failure)}")
+                if pending:
+                    parts.append(f"{pending} historikkpunkter venter på nytt forsøk")
+                if parts:
+                    incident(key, "; ".join(parts))
+            if period_cache.get("status") == "ok" and period_cache.get("written") == 6:
+                checks_summary.append("Periodecache: 6/6")
+        if key == "investor_snapshots":
+            for component, detail in (data.get("components") or {}).items():
+                if detail.get("status") in {"error", "partial", "failed", "skipped"}:
+                    incident(key, f"{component}: {detail.get('error') or detail.get('error_type') or detail.get('reason') or detail.get('status')}")
         translated = {
             "ok": "OK",
             "success": "OK",
@@ -114,19 +169,16 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
             "partial": "DELVIS",
             "skipped": "HOPPET OVER",
         }.get(status, status)
-        lines.append(f"- {label}: {translated}")
-        if data.get("generated_at"):
-            lines.append(f"- Cache generert: {oslo_time(data['generated_at'])}")
-        if data.get("reason"):
-            lines.append(f"- {label}, begrunnelse: {safe_detail(data['reason'])}")
+        checks_summary.append(f"{label}: {translated}")
         if data.get("error") or status in {"error", "partial", "failed", "not_ready"}:
-            incident(key, data.get("error") or data.get("reason") or status)
+            if not any(name == key for name, _ in incidents):
+                incident(key, data.get("error") or data.get("reason") or status)
 
     preflight = result.get("preflight") or {}
     checks = preflight.get("checks") or []
     if checks:
         passed = sum(item.get("status") == "PASS" for item in checks)
-        lines.append(f"- Datakontroller bestått: {passed}/{len(checks)}")
+        checks_summary.append(f"Datakontroller bestått: {passed}/{len(checks)}")
     for key, label in (("blockers", "Blokkering"), ("warnings", "Advarsel")):
         for item in preflight.get(key) or []:
             if isinstance(item, dict) and item.get("name") == "dashboard_quality":
@@ -151,7 +203,7 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                     + "Statusen alene påviser ikke feil i NAV-beregningen.",
                 )
             else:
-                incident("preflight", f"{label}: {safe_detail(item)}")
+                incident("preflight", f"{label}: {_incident_detail(item)}")
     source_results = result.get("source_results") or {}
     bemobi = source_results.get("bemobi_web") or {}
     ir_news = bemobi.get("ir_news") or {}
@@ -174,21 +226,15 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
     )
     for step, data in source_results.items():
         status = str(data.get("status") or "ikke rapportert")
-        counts = [
-            f"{label}: {data[key]}"
-            for key, label in (
-                ("rows_written", "lagrede rader"),
-                ("archived", "arkiverte"),
-                ("applied", "anvendte"),
-                ("review_required", "til gjennomgang"),
-            )
-            if isinstance(data.get(key), (int, float))
-        ]
-        lines.append(
-            f"- Kildesteg {step}: {status}"
-            + (f" ({', '.join(counts)})" if counts else "")
-        )
         if step == "bemobi_web":
+            if shared_report_feed:
+                period = (data.get("result_release") or {}).get("period")
+                period_text = f" ({safe_detail(period)})" if period else ""
+                incident("BEMOBI_IR", "Rapportfeed returnerer ingen rapporter; "
+                         f"offisiell resultatrapport verifisert{period_text}. "
+                         "Utdelingsinnlesing er kontrollert.")
+                continue
+            # Show independent substep issues rather than a list of healthy steps.
             for key, label in (
                 ("ir", "IR-fakta"), ("ir_news", "IR-meldinger"),
                 ("result_release", "Resultatrapport"),
@@ -196,15 +242,13 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                 ("distribution_cash", "Utdelingsoppgjør"),
             ):
                 sub = data.get(key) or {}
-                if sub:
-                    detail = sub.get("error") or sub.get("reason")
-                    if key == "ir_news" and sub.get("report_feed_status"):
-                        detail = f"rapportfeed={sub['report_feed_status']}" + (f"; {detail}" if detail else "")
-                    lines.append(f"- Bemobi {label}: {safe_detail(sub.get('status') or 'ikke rapportert')}"
-                                 + (f" – {safe_detail(detail)}" if detail else ""))
-            if shared_report_feed:
-                incident("BEMOBI_IR", f"Rapportfeed {safe_detail(ir_news['report_feed_status'])}; "
-                         "offisiell resultatrapport verifisert. Se delstatus for bemobi_web.")
+                if sub.get("error") or str(sub.get("status")).lower() in {
+                    "error", "partial", "failed", "not_available", "review_required",
+                }:
+                    incident(step, f"{label}: {_incident_detail(sub.get('error') or sub.get('reason') or sub.get('status'))}")
+                elif key == "ir_news" and sub.get("report_feed_status") not in {None, "ok"}:
+                    incident(step, f"IR-rapportfeed: {safe_detail(sub['report_feed_status'])}")
+            if any(name == step for name, _ in incidents) and not data.get("error"):
                 continue
         if data.get("error") or status.lower() in {
             "error",
@@ -225,25 +269,23 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
             "workflow",
             "Kjøringen er ikke bekreftet fullført; detaljert feilårsak mangler i resultatet.",
         )
-    lines.extend(["", "Feil, advarsler og oppfølging:"])
+    lines = ["", f"Avvik og oppfølging ({len(incidents)}):"]
     if not incidents:
         lines.append(
             "Ingen rapporterte feil eller advarsler i mottatte kjøringsresultater."
         )
-    for step, detail in incidents[:15]:
-        lines.extend(
-            [f"- {step}: {detail}", f"  Oppfølging: {_guidance(step, detail)}"]
-        )
-    if len(incidents) > 15:
-        lines.append(f"Ytterligere {len(incidents) - 15} avvik finnes i kjøreloggen.")
-    lines.extend(
-        [
-            "",
-            "Kontrollomfang:",
-            "Rapporten viser resultatene fra denne nattkjøringen. Ikke rapportert betyr at kontrollen ikke er bekreftet.",
-            "Separate GitHub-kontroller av produksjon, NAV og cache kjøres senere og inngår ikke i denne mailens status.",
-        ]
-    )
+    actions = []
+    for step, detail in incidents[:10]:
+        lines.append(f"- {step}: {detail}")
+        action = _guidance(step, detail)
+        if action not in actions:
+            actions.append(action)
+    if len(incidents) > 10:
+        lines.append(f"Ytterligere {len(incidents) - 10} avvik finnes i kjøreloggen.")
+    if actions:
+        lines.extend(["", "Anbefalt oppfølging:", *[f"- {action}" for action in actions]])
+    lines.extend(["", "Kontrollstatus:", " · ".join(checks_summary)])
+    lines.extend(["", "Separate GitHub-kontroller inngår ikke i denne statusen. Ikke rapportert = ikke bekreftet."])
     return lines, len(incidents)
 
 
@@ -259,6 +301,8 @@ def render_html(text: str, *, status: str, incidents: int, public_url: str) -> s
     sections = []
     for block in blocks[1:-1]:
         rows = block.splitlines()
+        if not rows:
+            continue
         if rows[0].startswith("Dashboard:"):
             continue
         title = (
@@ -272,11 +316,11 @@ def render_html(text: str, *, status: str, incidents: int, public_url: str) -> s
         for row in rows:
             label, separator, value = row.removeprefix("- ").partition(": ")
             if separator:
-                content += f'<tr><td style="padding:8px 12px 8px 0;border-bottom:1px solid #eef2f6;vertical-align:top;width:42%">{escape(label)}</td><td style="padding:8px 0;border-bottom:1px solid #eef2f6;overflow-wrap:anywhere">{escape(value)}</td></tr>'
+                content += f'<tr><td style="padding:5px 8px 5px 0;border-bottom:1px solid #eef2f6;vertical-align:top;width:30%">{escape(label)}</td><td style="padding:5px 0;border-bottom:1px solid #eef2f6;overflow-wrap:anywhere">{escape(value)}</td></tr>'
             else:
-                content += f'<tr><td colspan="2" style="padding:8px 0;overflow-wrap:anywhere">{escape(row)}</td></tr>'
+                content += f'<tr><td colspan="2" style="padding:5px 0;overflow-wrap:anywhere">{escape(row)}</td></tr>'
         sections.append(
-            f'<h2 style="font-size:17px;margin:25px 0 10px;color:#172b4d">{escape(title.rstrip(":"))}</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0">{content}</table>'
+            f'<h2 style="font-size:17px;margin:18px 0 6px;color:#172b4d">{escape(title.rstrip(":"))}</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0">{content}</table>'
         )
     url = dashboard_url(public_url)
     button = (
@@ -284,14 +328,17 @@ def render_html(text: str, *, status: str, incidents: int, public_url: str) -> s
         if url
         else ""
     )
+    if url == "https://otellotracker.com":
+        button += ('<p style="margin:12px 0"><a href="https://github.com/MKej88/otello-tracker/issues/164">Produksjonsdiagnose</a>'
+                   ' · <a href="https://github.com/MKej88/otello-tracker/actions">Kjørelogger</a></p>')
     badge = f"{status} · {incidents} rapporterte avvik" if incidents else status
     return (
         '<!doctype html><html lang="nb"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
         '<body style="margin:0;background:#f2f5f9;font-family:Arial,Helvetica,sans-serif;color:#344054;font-size:14px;line-height:1.5">'
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px 12px">'
         '<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:100%;max-width:640px;background:#fff;border:1px solid #e4e7ec;border-radius:10px">'
-        '<tr><td style="background:#172b4d;color:#fff;padding:28px"><div style="font-size:12px;letter-spacing:2px">OTELLO TRACKER</div><h1 style="margin:8px 0 0;font-size:26px">Nattrapport</h1></td></tr>'
-        f'<tr><td style="padding:24px 28px"><p style="color:{color};font-size:18px;font-weight:bold;margin:0">{escape(badge)}</p>'
+        '<tr><td style="background:#172b4d;color:#fff;padding:18px 20px"><div style="font-size:12px;letter-spacing:2px">OTELLO TRACKER</div><h1 style="margin:8px 0 0;font-size:26px">Nattrapport</h1></td></tr>'
+        f'<tr><td style="padding:18px 20px"><p style="color:{color};font-size:18px;font-weight:bold;margin:0">{escape(badge)}</p>'
         + "".join(sections)
         + button
         + '<p style="font-size:12px;color:#667085;margin-top:24px">Automatisk statusmelding fra Otello Tracker. Tidspunkter vises i norsk tid.</p></td></tr></table></td></tr></table></body></html>'
