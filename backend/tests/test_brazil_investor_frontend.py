@@ -54,3 +54,24 @@ def test_brazil_page_keeps_technical_source_errors_out_of_primary_view() -> None
     assert "SOURCE_ERROR" not in source
     assert "Ingen AI-score" not in source
     assert "AI-score" in source
+
+
+def test_brazil_page_shows_both_forecast_levels_with_monthly_change() -> None:
+    source = PAGE.read_text(encoding="utf-8")
+
+    assert "Endringer i markedsforventningene siste måned" in source
+    assert "Endringene gjelder prognosene, ikke utviklingen fra dagens nivå" in source
+    assert "{forecast(point?.previous)} → {forecast(point?.current)}" in source
+    assert 'unit === "bp" ? point?.change_bp : point?.change' in source
+    assert 'value == null || !Number.isFinite(value) ? "–"' in source
+
+    for indicator, unit, positive_when_lower in (
+        ("selic", "bp", "true"),
+        ("ipca", "bp", "true"),
+        ("gdp", "pp", "false"),
+    ):
+        for period in ("Current", "Next"):
+            assert (
+                '<FocusChangeCell point={' + indicator + period + '30d} ' +
+                f'unit="{unit}" positiveWhenLower=' + "{" + positive_when_lower + "} />"
+            ) in source

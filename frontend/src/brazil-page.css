@@ -655,6 +655,26 @@
   font-size: 1rem;
 }
 
+.brazilFocusChangeValues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+}
+
+.brazilFocusForecasts,
+.brazilFocusChangeValues strong {
+  white-space: nowrap;
+}
+
+.brazilFocusForecasts {
+  font-weight: 600;
+}
+
+.brazilFocusChangeValues strong {
+  font-size: .82rem;
+}
+
 .brazilChangeTable strong.positive,
 .brazilChangeFx strong.positive {
   color: var(--ot-positive);
