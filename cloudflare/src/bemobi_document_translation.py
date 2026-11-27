@@ -438,9 +438,20 @@ def _official_document_fallbacks(url: str) -> list[str]:
 
 async def _download_original(url: str, bucket: Any, downloader: Any,
                              *, trace: dict[str, Any] | None = None,
-                             delivery: str | None = None) -> bytes:
+                             delivery: str | None = None, document_id: int | None = None) -> bytes:
     from bemobi_cvm_rad import filing_identity
     from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, read_verified_q3_document
+
+    if document_id == 7540 and bucket is not None:
+        from bemobi_7540_normalization import read_7540_normalization
+        attempt = {"route": "normalized_r2", "result": "error"}
+        if trace is not None:
+            trace["downloads"].append(attempt)
+        # This incident must use only the independently verified processing copy.
+        # Do not silently fall back to the rejected padded transport body.
+        payload = await read_7540_normalization(bucket, url, delivery=delivery, document_id=document_id)
+        attempt["result"] = "ok"
+        return payload
 
     original_error = None
     for index, candidate in enumerate([url, *_official_document_fallbacks(url)]):
@@ -591,7 +602,8 @@ async def process_pending_translations(
                 downloader = fetch
             stage = "download"
             payload = await _download_original(str(row["url"]), bucket, downloader, trace=trace,
-                                               delivery=str(row.get("published_at") or "") or None)
+                                               delivery=str(row.get("published_at") or "") or None,
+                                               document_id=document_id)
             stage = "deduplication"
             content_hash = hashlib.sha256(payload).hexdigest()
             duplicate = await repository.first(

@@ -328,7 +328,7 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                 for attempt in downloads[:4] if isinstance(downloads, list) else []:
                     if not isinstance(attempt, dict):
                         continue
-                    route = _known(attempt.get("route"), {"original", "official_alternative", "verified_r2", "queue_r2"})
+                    route = _known(attempt.get("route"), {"original", "official_alternative", "verified_r2", "queue_r2", "normalized_r2"})
                     result = _known(attempt.get("result"), {"ok", "http_error", "not_pdf", "error"})
                     code = _count(attempt.get("http")) if type(attempt.get("http")) is int and 100 <= attempt["http"] <= 599 else "-"
                     attempts.append(f"{route}: {result} (HTTP {code})")
