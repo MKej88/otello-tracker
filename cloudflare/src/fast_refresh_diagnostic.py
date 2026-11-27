@@ -248,6 +248,9 @@ WITH unresolved AS (
                   OR translation_error LIKE '%model%does not exist%' THEN 'legacy_model'
              WHEN translation_error LIKE '%Workers AI%' THEN 'legacy_ai'
              ELSE 'unknown' END AS stage,
+           CASE WHEN instr(translation_error, 'ai_code=') > 0
+                THEN substr(translation_error, instr(translation_error, 'ai_code=') + length('ai_code='), 4)
+                ELSE NULL END AS ai_code_text,
            CASE WHEN instr(translation_error, 'originaldokument HTTP ') > 0
                 THEN substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + length('originaldokument HTTP '), 3)
                 ELSE NULL END AS http_text
@@ -256,9 +259,31 @@ WITH unresolved AS (
       AND sd.translation_error IS NOT NULL
 )
 SELECT document_id, source, attempts, status, stage,
+       CASE WHEN ai_code_text IN ('3003','3006','3007','3008','3023','3036','3039','3040','3041','3042',
+                                 '5004','5005','5007','5016','5018','5019','5028','5035')
+            THEN CAST(ai_code_text AS INTEGER) ELSE NULL END AS ai_code,
        CASE WHEN http_text GLOB '[1-5][0-9][0-9]' THEN CAST(http_text AS INTEGER) ELSE NULL END AS http
 FROM unresolved ORDER BY document_id DESC LIMIT 30
 """
+
+_AI_CODES = frozenset({3003, 3006, 3007, 3008, 3023, 3036, 3039, 3040, 3041, 3042,
+                       5004, 5005, 5007, 5016, 5018, 5019, 5028, 5035})
+_AI_CATEGORIES = frozenset({"invalid_request", "request_too_large", "timeout", "account_access",
+                            "quota", "capacity", "model_unavailable", "provider_error",
+                            "binding_error", "invalid_response", "empty_response", "truncated",
+                            "probe_validation"})
+
+
+def _ai_error_label(info: Any) -> str:
+    if not isinstance(info, dict):
+        return "-"
+    code = info.get("code")
+    http = info.get("http")
+    category = _known(info.get("category"), _AI_CATEGORIES)
+    code_label = str(code) if type(code) is int and code in _AI_CODES else "-"
+    http_label = str(http) if type(http) is int and 400 <= http <= 599 else "-"
+    return f"{category} / kode {code_label} / HTTP {http_label}"
+
 
 _TRANSLATION_MODELS = frozenset({"@cf/google/gemma-4-26b-a4b-it", "@cf/meta/llama-3.1-8b-instruct"})
 _TRANSLATION_STAGES = frozenset({"claim", "download", "deduplication", "pdf_extraction", "translation",
@@ -285,6 +310,10 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
         model = _known(translation.get("model"), _TRANSLATION_MODELS)
         lines.append(f"- Modell konfigurert i kjøringen: {model} (ikke i seg selv bevis på AI-kall)")
         lines.append(f"- Valgt / fullført / feilet: {_count(translation.get('selected'))} / {_count(translation.get('completed'))} / {_count(translation.get('failed'))}")
+        probe = translation.get("ai_probe")
+        if isinstance(probe, dict):
+            lines.append(f"- AI-produksjonstest: {_known(probe.get('status'), {'ok', 'error', 'not_run'})}; "
+                         f"binding-kall: {_count(probe.get('binding_calls'))}; feil: {_ai_error_label(probe.get('error'))}")
         diagnostics = translation.get("diagnostics")
         if not isinstance(diagnostics, list):
             lines.append("- Trinnvis måling mangler (eldre kjøring). AI-kall kan ikke bekreftes.")
@@ -307,6 +336,9 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                 lines.append(f"| {_count(item.get('document_id'))} | {_known(item.get('source'), {'CVM', 'BEMOBI_IR'})} | "
                              f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error'})} | "
                              f"{'; '.join(attempts) or '-'} | {_count(item.get('ai_provider_calls'))} / {binding} / {_count(item.get('ai_responses'))} |")
+                if isinstance(item.get("ai_error"), dict):
+                    lines.append(f"")
+                    lines.append(f"- AI-feil dokument {_count(item.get('document_id'))}: {_ai_error_label(item['ai_error'])}")
             if not diagnostics:
                 lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")
     lines.extend(["", "### Uavklarte dokumenter (maks 30)", "",
@@ -318,4 +350,7 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
         lines.append(f"| {_count(row.get('document_id'))} | {_known(row.get('source'), {'CVM', 'BEMOBI_IR'})} | "
                      f"{_known(row.get('status'), {'FAILED', 'PENDING'})} | {_count(row.get('attempts'))} | "
                      f"{_known(row.get('stage'), _TRANSLATION_STAGES)} | {_count(http) if type(http) is int and 100 <= http <= 599 else '-'} |")
+    for row in unresolved[:30]:
+        if isinstance(row, dict) and type(row.get("ai_code")) is int and row["ai_code"] in _AI_CODES:
+            lines.append(f"- Workers AI-feilkode for dokument {_count(row.get('document_id'))}: {row['ai_code']}")
     return lines

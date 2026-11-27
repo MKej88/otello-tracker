@@ -118,16 +118,20 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
                                           translation_attempts INTEGER, translation_error TEXT);
             INSERT INTO source_documents VALUES
               (1, 1, 'FAILED', 3, 'originaldokument HTTP 526 secret URL'),
-              (2, 1, 'FAILED', 1, 'translation:RuntimeError: secret'),
+              (2, 1, 'FAILED', 1, 'translation:WorkersAIError: ai_category=quota; ai_code=3036; ai_http=429 secret'),
               (3, 2, 'FAILED', 3, 'secret');
         """)
         db.row_factory = sqlite3.Row
         unresolved = [dict(row) for row in db.execute(TRANSLATION_DOCUMENTS_SQL)]
         self.assertEqual(unresolved[1]["http"], 526)
         self.assertEqual(unresolved[0]["stage"], "translation")
+        self.assertEqual(unresolved[0]["ai_code"], 3036)
         self.assertEqual(len(unresolved), 2)
         item = record("PARTIAL", steps={"bemobi_translation": {
-            "model": "@cf/google/gemma-4-26b-a4b-it", "diagnostics": [{
+            "model": "@cf/google/gemma-4-26b-a4b-it",
+            "ai_probe": {"status": "error", "binding_calls": 1,
+                         "error": {"category": "quota", "code": 3036, "http": 429, "message": "secret"}},
+            "diagnostics": [{
                 "document_id": 2, "source": "CVM", "stage": "translation", "outcome": "error",
                 "native_binding": True, "ai_provider_calls": 1, "ai_binding_calls": 1, "ai_responses": 0,
                 "downloads": [{"route": "original", "result": "http_error", "http": 526, "url": "secret"},
@@ -138,6 +142,8 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         self.assertIn("official_alternative: ok (HTTP 200)", rendered)
         self.assertIn("1 / 1 / 0", rendered)
         self.assertIn("gemma-4", rendered)
+        self.assertIn("AI-produksjonstest: error", rendered)
+        self.assertIn("kode 3036 / HTTP 429", rendered)
         self.assertNotIn("secret", rendered)
         self.assertIn("eldre kjøring", "\n".join(render_translation_diagnostics(
             record(steps={"bemobi_translation": {"model": "secret"}}), [])))
