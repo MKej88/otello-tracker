@@ -16,6 +16,8 @@ sys.path.insert(0, str(SOURCE_DIR))
 from bemobi_document_translation import (  # noqa: E402
     DEFAULT_WORKERS_AI_MODEL,
     WorkersAIProvider,
+    probe_workers_ai,
+    run_translation_queue,
     _download_original,
     _official_document_fallbacks,
     _summarize_document,
@@ -132,6 +134,9 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
         messages = ai.calls[0][1]["messages"]
         self.assertEqual(messages[0]["role"], "system")
         self.assertEqual(messages[1]["content"], "Texto português")
+        self.assertEqual(ai.calls[0][1]["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(ai.calls[0][1]["max_completion_tokens"], 4096)
+        self.assertNotIn("max_tokens", ai.calls[0][1])
         self.assertNotIn("api_key", provider.__dataclass_fields__)
 
     async def test_chat_completion_response_and_truncation(self) -> None:
@@ -167,6 +172,39 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "tomt eller ugyldig"):
             await provider.complete("Oversett", "Dokument")
+
+
+class AIProductionProbeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_synthetic_probe_uses_real_binding_without_document(self):
+        ai = FakeWorkersAI({"choices": [{"finish_reason": "stop",
+                         "message": {"content": "Selskapet har 123 aksjer."}}]})
+        result = await probe_workers_ai(WorkersAIProvider(ai, DEFAULT_WORKERS_AI_MODEL))
+        self.assertEqual(result, {"status": "ok", "binding_calls": 1})
+        self.assertEqual(ai.calls[0][1]["max_completion_tokens"], 128)
+
+    async def test_probe_failure_does_not_claim_any_document(self):
+        class Repository:
+            def __init__(self):
+                self.writes = []
+            async def first(self, query, parameters):
+                if "SELECT sd.id" in query:
+                    return {"id": 9}
+                return {"pending": 7, "failed": 3, "exhausted": 1, "overdue": 7}
+            async def run(self, *args):
+                self.writes.append(args)
+                raise AssertionError("No write permitted on failed probe")
+            async def all(self, *args):
+                raise AssertionError("No document selection permitted on failed probe")
+        repository = Repository()
+        ai = FakeWorkersAI(RuntimeError("InferenceError: 3036: daily quota secret"))
+        result = await run_translation_queue(repository, SimpleNamespace(),
+                                             WorkersAIProvider(ai, DEFAULT_WORKERS_AI_MODEL))
+        self.assertEqual(result["selected"], 0)
+        self.assertEqual(result["ai_probe"]["error"]["code"], 3036)
+        self.assertEqual(result["ai_probe"]["error"]["category"], "quota")
+        self.assertEqual(result["status"], "partial")
+        self.assertNotIn("secret", str(result))
+        self.assertEqual(repository.writes, [])
 
 
 class OriginalFallbackTest(unittest.IsolatedAsyncioTestCase):
@@ -317,7 +355,7 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnostics[0]["downloads"][0]["result"], "ok")
         final_query, final_parameters = repository.updates[-1]
         self.assertIn("translation_status='PENDING'", final_query)
-        self.assertEqual(final_parameters, ("translation:RuntimeError: rate limit", 9))
+        self.assertEqual(final_parameters, ("translation:WorkersAIError: ai_category=quota; ai_code=0; ai_http=0", 9))
 
 
 class FakeRepository:

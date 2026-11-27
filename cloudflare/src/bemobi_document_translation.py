@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import inspect
@@ -44,6 +45,69 @@ _RETRYABLE_EXTERNAL_ERROR_RE = re.compile(
 )
 
 
+# Only fixed, documented provider codes and categories are emitted in diagnostics.
+AI_ERROR_CODES = frozenset({3003, 3006, 3007, 3008, 3023, 3036, 3039, 3040, 3041, 3042,
+                            5004, 5005, 5007, 5016, 5018, 5019, 5028, 5035})
+_AI_CODE_CATEGORY = {
+    3003: "invalid_request", 3006: "request_too_large", 3007: "timeout", 3008: "timeout",
+    3023: "account_access", 3036: "quota", 3040: "capacity", 3041: "account_access",
+    3042: "model_unavailable", 5007: "model_unavailable", 5016: "account_access",
+    5018: "account_access", 5019: "invalid_request", 5028: "model_unavailable", 5035: "account_access",
+    3039: "invalid_request", 5004: "invalid_request", 5005: "invalid_request",
+}
+
+
+class WorkersAIError(RuntimeError):
+    def __init__(self, category: str, *, code: int | None = None, http: int | None = None,
+                 detail: str = "Workers AI-kall feilet"):
+        self.category = category
+        self.code = code
+        self.http = http
+        super().__init__(detail)
+
+
+def _classify_ai_exception(exc: Exception) -> WorkersAIError:
+    # Never print the provider message, which may contain document text or credentials.
+    message = str(exc)
+    code = getattr(exc, "code", None)
+    if type(code) is not int or code not in AI_ERROR_CODES:
+        # Cloudflare's error strings may prefix a numeric internal code.
+        match = re.search(r"(?i)(?:inferenceerror|aigatewayerror|aierror|error(?: code)?|code)\s*[:=]?\s*(\d{4})\b", message)
+        code = int(match[1]) if match and int(match[1]) in AI_ERROR_CODES else None
+    http = getattr(exc, "status", None)
+    if type(http) is not int or not 400 <= http <= 599:
+        match = re.search(r"(?i)\bHTTP\s+([45]\d\d)\b", message)
+        http = int(match[1]) if match else None
+    lower = message.lower()
+    category = _AI_CODE_CATEGORY.get(code)
+    if category is None:
+        if isinstance(exc, TimeoutError) or http == 408 or "timeout" in lower:
+            category = "timeout"
+        elif "rate limit" in lower or "rate-limit" in lower or "quota" in lower or "neurons" in lower:
+            category = "quota"
+        elif "capacity" in lower or http == 429:
+            category = "capacity"
+        elif http in (401, 403):
+            category = "account_access"
+        elif http in (404, 410) or "no such model" in lower or "model deprecated" in lower:
+            category = "model_unavailable"
+        elif http == 413:
+            category = "request_too_large"
+        elif http == 400:
+            category = "invalid_request"
+        elif http is not None and http >= 500:
+            category = "provider_error"
+        else:
+            category = "binding_error"
+    return WorkersAIError(category, code=code, http=http,
+                          detail="rate limit" if category == "quota" else "Workers AI-kall feilet")
+
+
+def _ai_error_info(exc: Exception) -> dict[str, Any]:
+    error = exc if isinstance(exc, WorkersAIError) else _classify_ai_exception(exc)
+    return {"category": error.category, "code": error.code, "http": error.http}
+
+
 class TranslationProvider(Protocol):
     model: str
 
@@ -57,6 +121,7 @@ class WorkersAIProvider:
     ai: Any
     model: str
     trace: dict[str, Any] | None = None
+    max_output_tokens: int = 4096
 
     async def complete(self, instruction: str, text: str) -> str:
         inputs = {
@@ -65,8 +130,12 @@ class WorkersAIProvider:
                 {"role": "user", "content": text},
             ],
             "temperature": 0,
-            "max_tokens": 4096,
+            "max_tokens": self.max_output_tokens,
         }
+        if self.model == DEFAULT_WORKERS_AI_MODEL:
+            inputs.pop("max_tokens")
+            inputs["max_completion_tokens"] = self.max_output_tokens
+            inputs["chat_template_kwargs"] = {"enable_thinking": False}
         # Native bindings expect a JavaScript object, not a Python dict proxy/Map.
         try:
             from js import Object
@@ -77,9 +146,12 @@ class WorkersAIProvider:
             payload = to_js(inputs, dict_converter=Object.fromEntries)
         if self.trace is not None:
             self.trace["ai_binding_calls"] += 1
-        result = self.ai.run(self.model, payload)
-        if inspect.isawaitable(result):
-            result = await result
+        try:
+            result = self.ai.run(self.model, payload)
+            if inspect.isawaitable(result):
+                result = await asyncio.wait_for(result, timeout=90)
+        except Exception as exc:
+            raise _classify_ai_exception(exc) from exc
         if not isinstance(result, dict):
             # JSON round-trip converts nested JS arrays/objects reliably.
             try:
@@ -90,16 +162,18 @@ class WorkersAIProvider:
                 if callable(converter):
                     result = converter()
         if not isinstance(result, dict):
-            raise RuntimeError("Workers AI returnerte et ugyldig svarformat")
+            raise WorkersAIError("invalid_response", detail="Workers AI returnerte et ugyldig svarformat")
         response = result.get("response")
         if isinstance(result.get("choices"), list) and result["choices"]:
             choice = result["choices"][0]
             if not isinstance(choice, dict) or choice.get("finish_reason") != "stop":
-                raise RuntimeError("Workers AI fullførte ikke tekstgenereringen")
+                finish = choice.get("finish_reason") if isinstance(choice, dict) else None
+                raise WorkersAIError("truncated" if finish == "length" else "invalid_response",
+                                     detail="Workers AI fullførte ikke tekstgenereringen")
             message = choice.get("message")
             response = message.get("content") if isinstance(message, dict) else None
         if not isinstance(response, str) or not response.strip():
-            raise RuntimeError("Workers AI returnerte et tomt eller ugyldig svar")
+            raise WorkersAIError("empty_response", detail="Workers AI returnerte et tomt eller ugyldig svar")
         return response.strip()
 
 
@@ -169,6 +243,8 @@ def is_safe_translated_key(key: str) -> bool:
 
 
 def _is_retryable_external_error(error: Exception) -> bool:
+    if isinstance(error, WorkersAIError):
+        return error.category in {"quota", "capacity", "timeout", "provider_error", "binding_error"}
     return isinstance(error, (ConnectionError, TimeoutError)) or (
         isinstance(error, RuntimeError)
         and _RETRYABLE_EXTERNAL_ERROR_RE.search(str(error)) is not None
@@ -538,7 +614,12 @@ async def process_pending_translations(
         except Exception as exc:
             # Store stage and exception class; raw diagnostic stays private in D1.
             trace.update(stage=stage, outcome="error")
-            reason = f"{stage}:{type(exc).__name__}: {str(exc)[:240]}"
+            if isinstance(exc, WorkersAIError):
+                trace["ai_error"] = _ai_error_info(exc)
+                # A stable, redacted marker makes the error queryable without raw provider messages.
+                reason = f"{stage}:WorkersAIError: ai_category={exc.category}; ai_code={exc.code or 0}; ai_http={exc.http or 0}"
+            else:
+                reason = f"{stage}:{type(exc).__name__}: {str(exc)[:240]}"
             if (_is_retryable_external_error(exc)
                     and attempts_before + 1 < MAX_TRANSLATION_ATTEMPTS):
                 await repository.run(
@@ -558,6 +639,12 @@ async def process_pending_translations(
                 f"bemobi_translation failed document_id={document_id} stage={stage} type={type(exc).__name__}"
             )
             failed += 1
+            if isinstance(exc, WorkersAIError) and exc.category in {
+                "quota", "capacity", "timeout", "provider_error", "binding_error",
+                "account_access", "model_unavailable", "invalid_request",
+            }:
+                # A provider-wide failure must not consume the rest of the batch.
+                break
     return {"selected": len(rows), "completed": completed, "failed": failed}
 
 
@@ -582,11 +669,42 @@ async def translation_queue_health(repository: Any) -> dict[str, Any]:
             ("pending", "processing", "failed", "exhausted", "overdue")}
 
 
+async def probe_workers_ai(provider: WorkersAIProvider) -> dict[str, Any]:
+    """Synthetic Portuguese text; no financial PDF, DB writes or document claim."""
+    trace = {"ai_binding_calls": 0}
+    test_provider = replace(provider, trace=trace, max_output_tokens=128)
+    try:
+        response = await test_provider.complete(
+            "Oversett til norsk bokmål. Bevar tallet. Returner kun oversettelsen.",
+            "A empresa tem 123 ações.",
+        )
+        if "123" not in response or "aksj" not in response.casefold():
+            raise WorkersAIError("probe_validation", detail="AI-testen ga ikke forventet norsk tekst")
+        return {"status": "ok", "binding_calls": trace["ai_binding_calls"]}
+    except Exception as exc:
+        return {"status": "error", "binding_calls": trace["ai_binding_calls"],
+                "error": _ai_error_info(exc)}
+
+
 async def run_translation_queue(repository: Any, bucket: Any, provider: TranslationProvider | None,
                                 *, limit: int = 3) -> dict[str, Any]:
     if provider is None or bucket is None:
         return {"status": "partial", "reason": "AI- eller dokumentlagerbinding mangler",
                 "non_critical": True, "queue": await translation_queue_health(repository)}
+    probe = None
+    if isinstance(provider, WorkersAIProvider):
+        # Probe only if a document is due; avoid needless calls to an empty/delayed queue.
+        due = await repository.first(
+            f"""SELECT sd.id FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+                WHERE s.code IN ('CVM','BEMOBI_IR') AND {_ELIGIBLE} LIMIT 1""", ()
+        )
+        if due:
+            probe = await probe_workers_ai(provider)
+            if probe["status"] != "ok":
+                return {"status": "partial", "non_critical": True, "model": provider.model,
+                        "selected": 0, "completed": 0, "failed": 0, "diagnostics": [],
+                        "ai_probe": probe, "queue": await translation_queue_health(repository),
+                        "reason": "AI-produksjonstest feilet; dokumentforsøk ikke brukt"}
     diagnostics: list[dict[str, Any]] = []
     result = await process_pending_translations(repository, bucket, provider, limit=limit, diagnostics=diagnostics)
     queue = await translation_queue_health(repository)
@@ -594,6 +712,7 @@ async def run_translation_queue(repository: Any, bucket: Any, provider: Translat
     return {
         **result, "status": "partial" if warning else "ok", "non_critical": True,
         "model": provider.model,
+        "ai_probe": probe or {"status": "not_run"},
         "diagnostics": diagnostics,
         "queue": queue,
         **({"reason": f"{queue['failed']} feilet ({queue['exhausted']} uten flere automatiske forsøk), "
