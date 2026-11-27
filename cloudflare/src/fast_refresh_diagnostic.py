@@ -336,9 +336,9 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                 lines.append(f"| {_count(item.get('document_id'))} | {_known(item.get('source'), {'CVM', 'BEMOBI_IR'})} | "
                              f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error'})} | "
                              f"{'; '.join(attempts) or '-'} | {_count(item.get('ai_provider_calls'))} / {binding} / {_count(item.get('ai_responses'))} |")
-                if isinstance(item.get("ai_error"), dict):
-                    lines.append(f"")
-                    lines.append(f"- AI-feil dokument {_count(item.get('document_id'))}: {_ai_error_label(item['ai_error'])}")
+            for item in diagnostics[:20]:
+                if isinstance(item, dict) and isinstance(item.get("ai_error"), dict):
+                    lines.extend(["", f"- AI-feil dokument {_count(item.get('document_id'))}: {_ai_error_label(item['ai_error'])}"])
             if not diagnostics:
                 lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")
     lines.extend(["", "### Uavklarte dokumenter (maks 30)", "",
