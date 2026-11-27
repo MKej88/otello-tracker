@@ -122,7 +122,8 @@ def build_document(opener, row, listings):
     except (ValueError, KeyError, TypeError) as exc:
         raise MirrorFailure("listing_identity_or_date_not_verified") from exc
     failures = []
-    for url in official_urls(identity):
+    canonical = None
+    for index, url in enumerate(official_urls(identity)):
         stage = "download"
         try:
             request = urllib.request.Request(url, headers={**HEADERS, "Accept": "application/pdf"})
@@ -130,6 +131,8 @@ def build_document(opener, row, listings):
                 if resp.status != 200 or resp.geturl() != url:
                     raise ValueError("Uventet PDF-respons")
                 raw = bounded_read(resp, MAX_PDF)
+            if index == 0:
+                canonical = raw
             digest = hashlib.sha256(raw).hexdigest()
             artifact = dict(url=url, bytes=len(raw), sha256=digest, key=pdf_key(identity, digest))
             manifest = dict(schema=1, cvm_code="25500", identity=list(identity),
@@ -137,7 +140,15 @@ def build_document(opener, row, listings):
             stage = "manifest"
             verified = validate_manifest(manifest, identity)
             stage = "pdf_integrity"
-            verify_pdf(raw, verified)
+            try:
+                verify_pdf(raw, verified)
+            except ValueError:
+                if index != 1 or canonical is None:
+                    raise
+                from bemobi_cvm_padding_normalization import build_manifest
+                stage = "padding_normalization"
+                normalized_manifest, _ = build_manifest(identity, delivery, listing, canonical, raw)
+                return normalized_manifest, raw
             stage = "pdf_readability"
             reader = PdfReader(io.BytesIO(raw))
             if reader.is_encrypted or not reader.pages:
@@ -168,10 +179,10 @@ def build(folder):
                 raise ValueError("Manifestet er for stort")
             out = folder / str(document_id)
             out.mkdir(exist_ok=False)
-            (out / "original.pdf").write_bytes(raw)
+            write_local_pair(out, manifest, raw)
             (out / "manifest.json").write_bytes(manifest_raw)
             successes += 1
-            print(f"Dokument {document_id}: verifisert original")
+            print(f"Dokument {document_id}: verifisert original" + (" og behandlingskopi" if manifest["schema"] == 2 else ""))
         except Exception as exc:
             failures += 1
             detail = exc.code if isinstance(exc, MirrorFailure) else type(exc).__name__
@@ -179,6 +190,34 @@ def build(folder):
     print(f"Verifisert: {successes}; uavklart: {failures}")
     if rows and not successes:
         raise SystemExit("Ingen dokumenter kunne verifiseres; eksisterende R2-kopier er bevart")
+
+
+def write_local_pair(out, manifest, raw):
+    if manifest.get("schema") == 2:
+        from bemobi_7540_normalization import normalize_padding
+        from bemobi_cvm_padding_normalization import verify_manifest_pair
+        processing = normalize_padding(raw)
+        verify_manifest_pair(manifest, raw, processing)
+        (out / "processing.pdf").write_bytes(processing)
+    (out / "original.pdf").write_bytes(raw)
+
+
+def verify_local_pair(out, manifest, identity, delivery, *, prefix=""):
+    if manifest["delivery"] != delivery:
+        raise ValueError("Publiseringsdato avviker")
+    with (out / (prefix + "original.pdf")).open("rb") as handle:
+        raw = bounded_read(handle, MAX_PDF)
+    if manifest.get("schema") == 2:
+        from bemobi_cvm_padding_normalization import validate_manifest as validate_padding, verify_manifest_pair
+        validate_padding(manifest, identity, delivery)
+        with (out / (prefix + "processing.pdf")).open("rb") as handle:
+            processing = bounded_read(handle, MAX_PDF)
+        verify_manifest_pair(manifest, raw, processing)
+        return [(manifest["original"]["key"], "original.pdf", "application/pdf"),
+                (manifest["processing"]["key"], "processing.pdf", "application/pdf")]
+    artifact = validate_manifest(manifest, identity)
+    verify_pdf(raw, artifact)
+    return [(artifact["key"], "original.pdf", "application/pdf")]
 
 
 def publish(folder):
@@ -193,12 +232,9 @@ def publish(folder):
         with (out / "manifest.json").open("rb") as handle:
             manifest = json.loads(bounded_read(handle, MAX_INDEX))
         identity = tuple(manifest["identity"])
-        artifact = validate_manifest(manifest, identity)
-        with (out / "original.pdf").open("rb") as handle:
-            raw = bounded_read(handle, MAX_PDF)
-        verify_pdf(raw, artifact)
-        for key, filename, content_type in ((artifact["key"], "original.pdf", "application/pdf"),
-                                           (manifest_key(identity), "manifest.json", "application/json")):
+        artifacts = verify_local_pair(out, manifest, identity, manifest["delivery"])
+        # Publish immutable original/processing first; manifest is the commit marker.
+        for key, filename, content_type in [*artifacts, (manifest_key(identity), "manifest.json", "application/json")]:
             local = out / filename
             readback = out / ("readback-" + filename)
             target = bucket + "/" + key

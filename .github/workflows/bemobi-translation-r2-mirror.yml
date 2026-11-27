@@ -10,11 +10,13 @@ on:
       - .github/workflows/bemobi-translation-r2-mirror.yml
       - tools/mirror_bemobi_translation_queue.py
       - cloudflare/src/bemobi_translation_mirror.py
+      - cloudflare/src/bemobi_cvm_padding_normalization.py
   pull_request:
     paths:
       - .github/workflows/bemobi-translation-r2-mirror.yml
       - tools/mirror_bemobi_translation_queue.py
       - cloudflare/src/bemobi_translation_mirror.py
+      - cloudflare/src/bemobi_cvm_padding_normalization.py
       - backend/tests/test_bemobi_translation_mirror.py
 
 permissions:
@@ -36,7 +38,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
-      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_mirror.py
+      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_mirror.py backend/tests/test_bemobi_cvm_padding_normalization.py
 
   publish:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
