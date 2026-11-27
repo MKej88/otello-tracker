@@ -61,6 +61,8 @@ def test_brazil_page_shows_both_forecast_levels_with_monthly_change() -> None:
 
     assert "Endringer i markedsforventningene siste måned" in source
     assert "Endringene gjelder prognosene, ikke utviklingen fra dagens nivå" in source
+    assert "medianen av markedsaktørenes prognoser, ikke sentralbankens egne forventninger" in source
+    assert source.index("BRL/NOK · siste måned") < source.index("Om <a href=") < source.index("{data.latest_high_importance_release ? (")
     assert "{forecast(point?.previous)} → {forecast(point?.current)}" in source
     assert 'unit === "bp" ? point?.change_bp : point?.change' in source
     assert 'value == null || !Number.isFinite(value) ? "–"' in source
