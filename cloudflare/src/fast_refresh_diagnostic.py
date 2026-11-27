@@ -181,9 +181,17 @@ def assess_fast_refresh_window(records: list[dict], *,
 # Only fixed categories and counts leave D1; never expose document URLs or error text.
 TRANSLATION_ERROR_GROUPS_SQL = """
 SELECT CASE
-    WHEN translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+    WHEN translation_error LIKE 'value_validation:%' OR translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+    WHEN translation_error LIKE '%originaldokument HTTP %' THEN 'document_http'
     WHEN translation_error LIKE '%krever OCR%' THEN 'pdf_without_text'
-    WHEN translation_error LIKE 'originaldokument HTTP %' THEN 'document_http'
+    WHEN translation_error LIKE 'download:%' THEN 'document_download'
+    WHEN translation_error LIKE 'pdf_extraction:%' THEN 'pdf_extraction'
+    WHEN translation_error LIKE 'translation:%' THEN 'ai_translation'
+    WHEN translation_error LIKE 'summary:%' THEN 'ai_summary'
+    WHEN translation_error LIKE 'archive:%' THEN 'archive'
+    WHEN translation_error LIKE '%model%not found%' OR translation_error LIKE '%model%deprecated%'
+         OR translation_error LIKE '%model%does not exist%' OR translation_error LIKE '%model%not available%' THEN 'ai_model'
+    WHEN translation_error LIKE '%JsException%' OR translation_error LIKE '%PyProxy%' THEN 'runtime_binding'
     WHEN translation_error LIKE '%Workers AI%' OR translation_error LIKE '%JSON%' THEN 'ai_response'
     WHEN translation_error LIKE '%Maksimalt antall behandlingsforsøk%' THEN 'interrupted_exhausted'
     ELSE 'other'
