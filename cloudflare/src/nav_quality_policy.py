@@ -32,6 +32,7 @@ def _expected_between_reports(details: dict[str, Any]) -> bool:
         cash_quality in {"FORECAST_PARTIAL", "ANCHORED_ESTIMATE"}
         or share_count_quality == "POTENTIALLY_STALE"
         or ona_quality in {"FORECAST_PARTIAL", "INTERPOLATED"}
+        or receivable_quality == "ESTIMATED_NET"
         or "partial forecast data" in notes
         or "interpolated between reported anchors" in notes
         or option_quality in {"INTERPOLATED_TO_REPORTED", "FORECAST_MARK_TO_MARKET"}
@@ -56,7 +57,7 @@ def _dashboard_quality_reasons(details: dict[str, Any]) -> list[str]:
         )
     if receivable_quality == "ESTIMATED_GROSS" or "gross-estimated" in notes:
         reasons.append(
-            "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden."
+            "Minst én Bemobi-fordring er bruttoestimert fordi dokumentert nettobeløp eller et brukbart rapportanker mangler."
         )
 
     if (
