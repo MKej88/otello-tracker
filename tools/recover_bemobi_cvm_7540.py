@@ -22,12 +22,10 @@ CUTOFF = "2026-11-27T16:44:07.000Z"
 SELECT = """
 SELECT sd.id AS document_id, sd.url, substr(sd.published_at,1,10) AS delivery,
        sd.translation_status AS status, sd.translation_attempts AS attempts,
-       sd.translation_processed_at AS processed_at
+       sd.translation_processed_at AS processed_at,
+       sd.translation_error AS error
 FROM source_documents sd JOIN sources s ON s.id=sd.source_id
 WHERE s.code='CVM' AND sd.id=?
-  AND sd.translation_status='FAILED' AND sd.translation_attempts=3
-  AND sd.translation_error LIKE 'download:%HTTP 526%'
-  AND (sd.translation_processed_at IS NULL OR sd.translation_processed_at<=?)
 """
 UPDATE = """
 UPDATE source_documents
@@ -37,27 +35,64 @@ SET translation_status='PENDING', translation_attempts=0, translation_error=NULL
 WHERE id=? AND url=? AND substr(published_at,1,10)=?
   AND source_id IN (SELECT id FROM sources WHERE code='CVM')
   AND translation_status='FAILED' AND translation_attempts=3
-  AND translation_error LIKE 'download:%HTTP 526%'
+  AND translation_error = ?
+  AND (translation_error = 'originaldokument HTTP 526'
+       OR translation_error LIKE 'download:%originaldokument HTTP 526')
   AND translation_processed_at IS ?
   AND (translation_processed_at IS NULL OR translation_processed_at<=?)
 """
 
 
+def error_kind(error):
+    if error == "originaldokument HTTP 526":
+        return "legacy_http_526"
+    if isinstance(error, str) and re.fullmatch(r"download:[^\r\n]{1,120}originaldokument HTTP 526", error):
+        return "download_http_526"
+    if not error:
+        return "none"
+    return "other"
+
+
+def eligible(row):
+    return (row.get("document_id") == DOCUMENT_ID and row.get("status") == "FAILED"
+            and type(row.get("attempts")) is int and row["attempts"] == 3
+            and error_kind(row.get("error")) in ("legacy_http_526", "download_http_526")
+            and (row.get("processed_at") is None
+                 or isinstance(row["processed_at"], str)
+                 and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", row["processed_at"]))
+                 and row["processed_at"] <= CUTOFF))
+
+
 def collect(folder):
-    rows = d1_client("CLOUDFLARE_READ_TOKEN")(SELECT, (DOCUMENT_ID, CUTOFF))["results"]
+    rows = d1_client("CLOUDFLARE_READ_TOKEN")(SELECT, (DOCUMENT_ID,))["results"]
     folder.mkdir(parents=True, exist_ok=True)
+    (folder / "row.json").unlink(missing_ok=True)
     if not rows:
-        print("Dokument 7540: ingen kvalifisert historisk feil; ingen endring")
+        print("Dokument 7540: ikke funnet i CVM-kilden")
         return
     if len(rows) != 1 or rows[0]["document_id"] != DOCUMENT_ID:
         raise ValueError("Uventet dokumentidentitet")
-    (folder / "row.json").write_text(json.dumps(rows[0]), encoding="utf-8")
+    row = rows[0]
+    status = row.get("status")
+    safe_status = status if status in ("FAILED", "PENDING", "PROCESSING", "READY", "NOT_REQUIRED") else "other"
+    attempts = row.get("attempts")
+    safe_attempts = attempts if type(attempts) is int and 0 <= attempts <= 100 else None
+    processed_at = row.get("processed_at")
+    safe_timestamp = processed_at if isinstance(processed_at, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", processed_at) else None
+    print("Dokument 7540: " + json.dumps({
+        "status": safe_status, "attempts": safe_attempts,
+        "error_kind": error_kind(row.get("error")), "processed_at": safe_timestamp,
+        "eligible": eligible(row)}, sort_keys=True))
+    if not eligible(row):
+        print("Dokument 7540: ingen kvalifisert historisk feil; ingen endring")
+        return
+    (folder / "row.json").write_text(json.dumps(row), encoding="utf-8")
     print("Dokument 7540: historisk feil kvalifisert for kontroll")
 
 
 def load_row(folder):
     row = json.loads((folder / "row.json").read_text(encoding="utf-8"))
-    if row.get("document_id") != DOCUMENT_ID or row.get("status") != "FAILED" or row.get("attempts") != 3:
+    if not eligible(row):
         raise ValueError("Ugyldig dokumentavgrensning")
     return row
 
@@ -117,7 +152,7 @@ def publish(folder):
                          (folder / "readback-processing.pdf").read_bytes())
     print("Dokument 7540: begge filer og manifest verifisert i R2")
     result = d1_client("CLOUDFLARE_API_TOKEN")(UPDATE, (DOCUMENT_ID, row["url"], row["delivery"],
-                                                     row.get("processed_at"), CUTOFF))
+                                                     row["error"], row.get("processed_at"), CUTOFF))
     changes = result.get("meta", {}).get("changes")
     if changes not in (0, 1):
         raise ValueError("Uventet antall D1-endringer")

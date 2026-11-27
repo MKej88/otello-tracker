@@ -17,7 +17,7 @@ from bemobi_7540_normalization import (normalize_padding, verify_pair, make_mani
     manifest_key_7540)
 from bemobi_translation_mirror import official_urls, verify_pdf
 from bemobi_document_translation import _download_original
-from recover_bemobi_cvm_7540 import SELECT, UPDATE, CUTOFF
+from recover_bemobi_cvm_7540 import SELECT, UPDATE, CUTOFF, eligible, error_kind
 
 
 def sample_pdf():
@@ -89,9 +89,30 @@ def test_recovery_is_targeted_and_idempotent():
       translation_attempts,translation_error,translation_processed_at,extraction_status,summary_status
       FROM source_documents WHERE id=7540;
     """)
-    assert len(db.execute(SELECT,(7540,CUTOFF)).fetchall()) == 1
-    params = (7540,"url",DELIVERY,"2026-11-27T14:00:00.000Z",CUTOFF)
+    db.row_factory = sqlite3.Row
+    rows = db.execute(SELECT,(7540,)).fetchall()
+    assert len(rows) == 1 and eligible(dict(rows[0]))
+    params = (7540,"url",DELIVERY,"download:RuntimeError: originaldokument HTTP 526","2026-11-27T14:00:00.000Z",CUTOFF)
+    # An exact compare-and-set must not reset a different error at the same timestamp.
+    db.execute("UPDATE source_documents SET translation_error='originaldokument HTTP 526' WHERE id=7540")
+    assert db.execute(UPDATE,params).rowcount == 0
+    row = dict(db.execute(SELECT,(7540,)).fetchone())
+    assert eligible(row) and error_kind(row["error"]) == "legacy_http_526"
+    params = (7540,"url",DELIVERY,row["error"],row["processed_at"],CUTOFF)
     assert db.execute(UPDATE,params).rowcount == 1
     assert db.execute(UPDATE,params).rowcount == 0
     assert db.execute("SELECT translation_status FROM source_documents WHERE id=7541").fetchone()[0] == "FAILED"
     db.close()
+
+    
+def test_historical_error_eligibility_is_strict():
+    row = dict(document_id=7540, status="FAILED", attempts=3,
+               error="originaldokument HTTP 526", processed_at="2026-11-27T14:00:00.000Z")
+    assert eligible(row)
+    for change in (dict(document_id=7541), dict(status="READY"), dict(attempts=2),
+                   dict(error="translation: originaldokument HTTP 526"),
+                   dict(error="originaldokument HTTP 526 followed by other error"),
+                   dict(error="originaldokument HTTP 500"),
+                   dict(processed_at="2026-11-27T17:00:00.000Z"),
+                   dict(processed_at="invalid")):
+        assert not eligible({**row, **change})
