@@ -294,7 +294,8 @@ def _official_document_fallbacks(url: str) -> list[str]:
 
 
 async def _download_original(url: str, bucket: Any, downloader: Any,
-                             *, trace: dict[str, Any] | None = None) -> bytes:
+                             *, trace: dict[str, Any] | None = None,
+                             delivery: str | None = None) -> bytes:
     from bemobi_cvm_rad import filing_identity
     from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, read_verified_q3_document
 
@@ -334,6 +335,16 @@ async def _download_original(url: str, bucket: Any, downloader: Any,
                     return payload
                 except Exception:
                     pass
+        from bemobi_translation_mirror import read_translation_mirror
+        attempt = {"route": "queue_r2", "result": "error"}
+        if trace is not None:
+            trace["downloads"].append(attempt)
+        try:
+            payload = await read_translation_mirror(bucket, url, delivery=delivery)
+            attempt["result"] = "ok"
+            return payload
+        except Exception:
+            pass
     raise original_error
 
 
@@ -426,7 +437,8 @@ async def process_pending_translations(
 
                 downloader = fetch
             stage = "download"
-            payload = await _download_original(str(row["url"]), bucket, downloader, trace=trace)
+            payload = await _download_original(str(row["url"]), bucket, downloader, trace=trace,
+                                               delivery=str(row.get("published_at") or "") or None)
             stage = "deduplication"
             content_hash = hashlib.sha256(payload).hexdigest()
             duplicate = await repository.first(
