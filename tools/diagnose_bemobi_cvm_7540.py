@@ -36,6 +36,121 @@ def collect(folder):
     print("Dokument 7540: kildeidentitet hentet (kun lesing)")
 
 
+def _structure_flags(payload):
+    """Recognize structure markers, never emit content or infer signature validity."""
+    return {
+        "pdf_header": b"%PDF-" in payload,
+        "pdf_object": bool(re.search(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b", payload)),
+        "pdf_xref": bool(re.search(rb"(?:^|[\r\n])\s*(?:xref|startxref)\b", payload)),
+        "pdf_byte_range": bool(re.search(rb"/ByteRange\s*\[", payload)),
+        "pdf_signature_type": bool(re.search(rb"/Type\s*/Sig\b", payload)),
+        "pdf_signature_subfilter": bool(re.search(rb"/SubFilter\s*/(?:adbe\.pkcs7\.detached|adbe\.pkcs7\.sha1|ETSI\.CAdES\.detached|ETSI\.RFC3161)\b", payload)),
+        "cms_signed_data_oid": b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02" in payload,
+        "pem_signature": b"-----BEGIN PKCS7-----" in payload or b"-----BEGIN CMS-----" in payload,
+        "html": bool(re.search(rb"<(?:!doctype\s+html|html\b|head\b|body\b|script\b|form\b|/html\b)", payload, re.I)),
+        "xml": bool(re.search(rb"<\?xml\b", payload, re.I)),
+        "zip": b"PK\x03\x04" in payload,
+        "gzip": payload.startswith(b"\x1f\x8b"),
+        "jpeg": payload.startswith(b"\xff\xd8\xff"),
+        "png": payload.startswith(b"\x89PNG\r\n\x1a\n"),
+    }
+
+
+def _der_sequence_length(payload):
+    # Structural hint only; DER sequence alone is not evidence of a signature.
+    if len(payload) < 2 or payload[0] != 0x30:
+        return None
+    length = payload[1]
+    if length < 128:
+        return 2 + length
+    n = length & 127
+    if not 1 <= n <= 4 or len(payload) < 2 + n or payload[2] == 0:
+        return None
+    size = int.from_bytes(payload[2:2+n], "big")
+    return 2 + n + size if size >= 128 else None
+
+
+def _strict_pdf_info(raw):
+    import logging
+    logger = logging.getLogger("pypdf")
+    previous = logger.disabled
+    logger.disabled = True
+    try:
+        reader = PdfReader(io.BytesIO(raw), strict=True)
+        if reader.is_encrypted:
+            return {"status": "encrypted"}, None
+        count = len(reader.pages)
+        # Compare extracted text only via an in-memory hash, not via log content.
+        text = "\n".join(page.extract_text() or "" for page in reader.pages[:min(count, 100)])
+        return {"status": "readable" if count else "no_pages", "pages": count,
+                "text_characters": len(text), "text_comparison_complete": count <= 100}, hashlib.sha256(text.encode()).digest()
+    except Exception:
+        return {"status": "unreadable"}, None
+    finally:
+        logger.disabled = previous
+
+
+def inspect_tail(raw):
+    """Compare complete transport body with a prefix ending at the last EOF.
+    No normalization is authorized by this diagnostic; both remain unmodified.
+    """
+    eof = raw.rfind(b"%%EOF")
+    if eof < 0 or not raw.startswith(b"%PDF") or len(raw) > MAX_PDF:
+        return {"status": "not_applicable"}, None
+    core = raw[:eof + 5]
+    tail = raw[eof + 5:]
+    stripped = tail.strip(b" \t\r\n\x00\x0c")
+    start = tail.lstrip(b" \t\r\n")
+    flags = _structure_flags(stripped)
+    der_length = _der_sequence_length(start)
+    if not stripped:
+        category = "padding_only"
+    elif flags["pdf_header"] or flags["pdf_object"] or flags["pdf_xref"]:
+        category = "pdf_structure_present"
+    elif flags["cms_signed_data_oid"] or flags["pem_signature"]:
+        category = "possible_cms"
+    elif flags["html"]:
+        category = "html_markers"
+    elif flags["xml"]:
+        category = "xml_markers"
+    elif flags["zip"] or flags["gzip"] or flags["jpeg"] or flags["png"]:
+        category = "embedded_format_marker"
+    elif der_length is not None and der_length <= len(start):
+        category = "possible_der"
+    elif all(32 <= b <= 126 or b in (9, 10, 13) for b in stripped):
+        category = "ascii_text"
+    else:
+        category = "unclassified_binary_or_text"
+    full_info, full_text_hash = _strict_pdf_info(raw)
+    core_info, core_text_hash = _strict_pdf_info(core + b"\n")
+    comparable = (full_text_hash is not None and core_text_hash is not None
+                  and full_info.get("text_comparison_complete") is True
+                  and core_info.get("text_comparison_complete") is True)
+    report = {
+        "status": "inspected",
+        "category": category,
+        "core_bytes": len(core),
+        "tail_bytes": len(tail),
+        "tail_nonpadding_bytes": len(stripped),
+        "tail_zero_bytes": tail.count(b"\x00"),
+        "tail_ascii_printable_bytes": sum(32 <= b <= 126 or b in (9, 10, 13) for b in tail),
+        "tail_markers": flags,
+        "core_signature_markers": {key: value for key, value in _structure_flags(core).items()
+                                   if key in ("pdf_byte_range", "pdf_signature_type", "pdf_signature_subfilter",
+                                              "cms_signed_data_oid", "pem_signature")},
+        "der_sequence_fits": der_length is not None and der_length <= len(start),
+        "der_sequence_consumes_tail": der_length is not None and der_length == len(start),
+        "full_pdf": full_info,
+        "eof_prefix_pdf": core_info,
+        "same_page_count": (full_info["pages"] == core_info["pages"]
+                            if "pages" in full_info and "pages" in core_info else None),
+        "same_extracted_text": full_text_hash == core_text_hash if comparable else None,
+    }
+    # Digests are internal only; the report compares them without exposing raw data.
+    fingerprint = (hashlib.sha256(core).digest(), hashlib.sha256(tail).digest(), core_text_hash)
+    return report, fingerprint
+
+
 def inspect_body(raw, content_type, declared_length=None):
     """Return only booleans, bounded counts and fixed enum values; never body bytes."""
     mime = content_type.split(";", 1)[0].strip().lower()
@@ -102,7 +217,7 @@ def inspect_body(raw, content_type, declared_length=None):
     return report
 
 
-def inspect_route(opener, url):
+def inspect_route(opener, url, *, fingerprints=None):
     try:
         req = urllib.request.Request(url, headers={**HEADERS, "Accept": "application/pdf"})
         with opener.open(req, timeout=40) as resp:
@@ -112,8 +227,13 @@ def inspect_route(opener, url):
             raw = resp.read(MAX_PDF + 1)
             length = resp.headers.get("Content-Length", "")
             declared = int(length) if re.fullmatch(r"[0-9]{1,12}", length) else None
-            return {"status": status, "result": "inspected",
-                    **inspect_body(raw, resp.headers.get("Content-Type", ""), declared)}
+            report = {"status": status, "result": "inspected",
+                      **inspect_body(raw, resp.headers.get("Content-Type", ""), declared)}
+            tail_report, fingerprint = inspect_tail(raw)
+            report["tail_analysis"] = tail_report
+            if fingerprints is not None and fingerprint is not None:
+                fingerprints.append(fingerprint)
+            return report
     except urllib.error.HTTPError as exc:
         return {"status": exc.code, "result": "http_error"}
     except Exception:
@@ -132,9 +252,16 @@ def diagnose(folder):
     listing = get_listing(opener, delivery)
     validate_listing(listing, identity, delivery)
     print("Dokument 7540: aktivt dokument, utsteder og dato bekreftet")
+    fingerprints = []
     for route, url in zip(("canonical", "alternative"), official_urls(identity), strict=True):
-        report = inspect_route(opener, url)
+        report = inspect_route(opener, url, fingerprints=fingerprints)
         print("Dokument 7540 " + route + ": " + json.dumps(report, sort_keys=True))
+    if len(fingerprints) == 2:
+        left, right = fingerprints
+        comparison = {"same_pdf_prefix_bytes": left[0] == right[0],
+                      "same_tail_bytes": left[1] == right[1],
+                      "same_prefix_extracted_text": left[2] == right[2] if left[2] and right[2] else None}
+        print("Dokument 7540 sammenligning: " + json.dumps(comparison, sort_keys=True))
     print("Diagnose fullført; ingen endringer i D1, R2 eller oversettelseskø")
 
 
