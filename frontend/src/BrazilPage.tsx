@@ -611,6 +611,9 @@ export default function BrazilPage() {
             <strong className={`numeric ${(metrics.brl_nok?.change_1m_pct ?? 0) > 0 ? "positive" : (metrics.brl_nok?.change_1m_pct ?? 0) < 0 ? "negative" : ""}`}>{signed(metrics.brl_nok?.change_1m_pct, 1)} %</strong>
           </div>
         </div>
+        <p className="brazilChangeExplanation">
+          <strong>Om <a href="https://www.bcb.gov.br/en/publications/focusmarketreadout" target="_blank" rel="noopener noreferrer">Focus-undersøkelsen</a>:</strong> Brasils sentralbank publiserer ukentlig en undersøkelse som sammenfatter markedsanalytikernes forventninger til blant annet styringsrente, inflasjon, BNP-vekst og valutakurs. Tallene viser medianen av markedsaktørenes prognoser, ikke sentralbankens egne forventninger.
+        </p>
       </section>
 
       {data.latest_high_importance_release ? (
