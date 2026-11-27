@@ -84,7 +84,8 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     workflow = _workflow_text()
     assert 'cloudflare/src/production_monitor.py' in workflow
     assert 'batch.extend(monitoring_queries(' in workflow
-    assert 'len(result) != 15' in workflow
+    assert 'len(result) != 16' in workflow
+    assert 'batch.append({"sql": TRANSLATION_ERROR_GROUPS_SQL})' in workflow
     assert 'monitoring = assess_production(' in workflow
     assert 'secondary_bemobi_warning_candidate(' in workflow
     assert 'diagnostic_severity(' in workflow

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import ast
 import json
+import sqlite3
 import textwrap
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fast_refresh_diagnostic import assess_fast_refresh, assess_fast_refresh_window
+from fast_refresh_diagnostic import (assess_fast_refresh, assess_fast_refresh_window,
+                                     public_fast_refresh_warning, TRANSLATION_ERROR_GROUPS_SQL)
 
 NOW = datetime(2026, 10, 30, 0, 55, tzinfo=UTC)
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloudflare-workflow-diagnostics.yml"
@@ -74,6 +76,37 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
                       steps={"bemobi_translation": {"status": "partial", "non_critical": True},
                              "dirty_nav": {"status": "error"}})
         self.assertEqual(self.assess(item)["severity"], "FAILURE")
+
+    def test_public_translation_warning_only_exposes_curated_counts(self):
+        item = record("PARTIAL", errors=[{"step": "bemobi_translation", "error": "secret"}],
+                      steps={"bemobi_translation": {"status": "partial", "non_critical": True,
+                               "queue": {"failed": 9, "exhausted": 1, "overdue": 1, "secret": "private"},
+                               "failed": 1}, "dirty_nav": {"status": "ok"}})
+        self.assertEqual(public_fast_refresh_warning(item, now=NOW, max_age=timedelta(minutes=90)),
+                         {"steps": ["bemobi_translation"], "translation_queue": {
+                             "failed": 9, "exhausted": 1, "overdue": 1, "failed_this_run": 1}})
+        metadata = json.loads(item["metadata_json"])
+        metadata["source_errors"].append({"step": "dirty_nav"})
+        item["metadata_json"] = json.dumps(metadata)
+        self.assertIsNone(public_fast_refresh_warning(item, now=NOW, max_age=timedelta(minutes=90)))
+
+    def test_translation_error_groups_expose_categories_not_raw_messages(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("""
+            CREATE TABLE sources(id INTEGER, code TEXT);
+            INSERT INTO sources VALUES (1, 'CVM'), (2, 'OTHER');
+            CREATE TABLE source_documents(source_id INTEGER, translation_status TEXT,
+                                          translation_attempts INTEGER, translation_error TEXT);
+            INSERT INTO source_documents VALUES
+              (1, 'FAILED', 3, 'verdikontroll feilet (2 mangler)'),
+              (1, 'PENDING', 1, 'originaldokument HTTP 429'),
+              (1, 'FAILED', 2, 'secret URL'),
+              (1, 'READY', 1, 'secret'),
+              (2, 'FAILED', 3, 'secret');
+        """)
+        self.assertEqual(db.execute(TRANSLATION_ERROR_GROUPS_SQL).fetchall(),
+                         [("document_http", 1, 0), ("other", 1, 0), ("value_validation", 1, 1)])
+        db.close()
 
     def test_missing_valid_nav_keeps_partial_critical(self):
         item = record("PARTIAL", errors=[{"step": "brazil_snapshot"}],

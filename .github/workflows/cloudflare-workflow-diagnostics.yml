@@ -382,6 +382,7 @@ jobs:
           from production_monitor import monitoring_queries
           from nav_cache_audit import audit_contract, audit_queries
           from nav_followup_diagnostic import followup_queries
+          from fast_refresh_diagnostic import TRANSLATION_ERROR_GROUPS_SQL
 
           job_columns = """
               SELECT id, job_name, started_at, finished_at, status,
@@ -454,6 +455,7 @@ jobs:
           batch.extend(monitoring_queries(datetime.now(UTC)))
           batch.extend(audit_queries(audit_contract()))
           batch.extend(followup_queries())
+          batch.append({"sql": TRANSLATION_ERROR_GROUPS_SQL})
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -566,7 +568,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 15 or any(item.get("success") is False for item in result):
+          if len(result) != 16 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -751,6 +753,14 @@ jobs:
                   f"{cell(row.get('records_written'), 30)} | {cell(target, 20)} | "
                   f"{cell(row.get('error_message'), 2000)} |"
               )
+
+          lines.extend(["", "## Delsteg i siste løpende oppdatering", ""])
+          for item in fast_report["steps"][:10]:
+              lines.append(f"- {cell(item['step'], 80)}: {cell(item['type'], 80)} ({cell(item['status'], 80)})")
+          lines.extend(["", "## Oversettelseskø: feilkategorier", "",
+                        "| Årsak | Dokumenter | Uten flere forsøk |", "|---|---:|---:|"])
+          for row in result[15].get("results") or []:
+              lines.append(f"| {cell(row.get('reason'), 80)} | {int(row.get('document_count') or 0)} | {int(row.get('exhausted_count') or 0)} |")
 
           lines.extend([
               "",
