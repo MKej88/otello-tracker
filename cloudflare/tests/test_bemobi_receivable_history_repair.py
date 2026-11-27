@@ -38,7 +38,8 @@ def _action():
     }
 
 
-def _setup(monkeypatch, repo, *, actions=None, fx_ready=True, history_ready=True):
+def _setup(monkeypatch, repo, *, actions=None, fx_ready=True, history_ready=True,
+           quality='ESTIMATED_GROSS', amount='10319333.091227880720'):
     events = []
     async def get_actions(repository):
         assert repository is repo
@@ -50,7 +51,7 @@ def _setup(monkeypatch, repo, *, actions=None, fx_ready=True, history_ready=True
         if not fx_ready:
             return None
         return (
-            Decimal("10319333.091227880720"), "ESTIMATED_GROSS",
+            Decimal(amount), quality,
             [{"corporate_action_id": 20}],
         )
 
@@ -143,3 +144,29 @@ def test_never_replays_unbounded_history_or_unready_estimated_history(monkeypatc
     assert fail["errors"][0]["reason"] == "estimated_history_not_ready"
     assert events[-1] == ("estimated", "2026-11-18")
     assert repo.materialized == []
+
+
+def test_replays_gross_history_only_when_source_supports_net(monkeypatch):
+    class GrossRepository(FakeRepository):
+        async def all(self, sql, params=()):
+            rows = await super().all(sql, params)
+            assert "o.receivable_quality='ESTIMATED_GROSS'" in sql
+            return [{**row, "associated_receivable_nok": "100",
+                     "receivable_quality": "ESTIMATED_GROSS"} for row in rows]
+
+        async def first(self, sql, params=()):
+            assert "SELECT associated_receivable_nok" in sql
+            return {"associated_receivable_nok": "82.5", "receivable_quality": "ESTIMATED_NET"}
+
+    repo = GrossRepository(("2026-11-18",))
+    events = _setup(monkeypatch, repo)
+    first = asyncio.run(repair.repair_late_bemobi_receivable_history(repo, target_date="2026-11-21"))
+    assert first["repaired"] == []
+    assert events == [("expected", "2026-11-18")]
+
+    events = _setup(monkeypatch, repo, quality="ESTIMATED_NET", amount="82.5")
+    result = asyncio.run(repair.repair_late_bemobi_receivable_history(repo, target_date="2026-11-21"))
+    assert result["status"] == "ok"
+    assert result["repaired"][0]["receivable_nok"] == "82.5"
+    assert result["repaired"][0]["quality"] == "ESTIMATED_NET"
+    assert repo.materialized == ["2026-11-18"]
