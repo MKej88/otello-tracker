@@ -150,7 +150,9 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     monkeypatch.setenv('GITHUB_OUTPUT', str(tmp_path / 'output'))
     exec(compile(pack_script, '<query-pack>', 'exec'), {})
     batch = json.loads((tmp_path / 'd1-query-request.json').read_text())['batch']
-    assert len(batch) == 12
+    assert len(batch) == 15
+    from nav_followup_diagnostic import followup_queries
+    assert batch[12:] == followup_queries()
     assert all(q['sql'].strip().upper().startswith(('SELECT ', 'WITH ')) for q in batch)
     data = fixture()
     rows = [[data['jobs'][0]], [dict(status='SUCCESS', started_at='2026-10-17T04:00:00Z', finished_at='2026-10-17T04:01:00Z')],
@@ -163,11 +165,40 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     nav_data['nav_rows'][0]['status'] = 'BACKFILLED'
     rows[5] = [copy.deepcopy(nav_data['nav_rows'][0])]
     rows.extend([nav_data['nav_rows'], nav_data['cache_rows'], nav_data['lock_rows']])
+    # A healthy baseline has no queued history and an explicitly confirmed
+    # receivable state; absent receivable evidence must not imply OK.
+    rows.extend([[], [], [{'estimate_date': '2026-10-16', 'receivable_quality': 'NONE',
+                          'associated_receivable_nok': '0'}]])
     (tmp_path / 'public-bootstrap.json').write_text(json.dumps(nav_data['public']))
     (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
     report_script = report_script.replace('now = datetime.now(UTC)', 'now = datetime(2026, 10, 17, 4, 30, tzinfo=UTC)')
     exec(compile(report_script, '<report>', 'exec'), {})
     assert 'd1_unhealthy=false' in (tmp_path / 'output').read_text()
+    assert 'd1_warning=false' in (tmp_path / 'output').read_text()
+    assert 'history_pending=0' in (tmp_path / 'output').read_text()
+
+    # The new checks must propagate a real backlog as a warning, not a failure.
+    rows[12] = [{'reason_code': 'missing_option_inputs', 'count': 250,
+                 'due': 10, 'first_date': '2025-01-01', 'last_date': '2025-09-07',
+                 'max_attempts': 3}]
+    rows[13] = [{'date': '2025-01-01', 'reason_code': 'missing_option_inputs', 'attempts': 3}]
+    rows[14] = [{'estimate_date': '2026-10-16', 'receivable_quality': 'ESTIMATED_GROSS',
+                 'associated_receivable_nok': '40', 'modeled_action_id': 20,
+                 'action_id': 20, 'action_type': 'JCP', 'gross_per_share': '0.20',
+                 'net_amount_per_share': '0.165', 'holding_shares': 100, 'brl_nok': '2',
+                 'source_document_id': 88, 'tax_treatment': 'PUBLISHED_NET'}]
+    (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
+    (tmp_path / 'output').write_text('')
+    exec(compile(report_script, '<report>', 'exec'), {})
+    output = (tmp_path / 'output').read_text()
+    assert 'd1_unhealthy=false' in output
+    assert 'd1_warning=true' in output
+    assert 'history_pending=250' in output
+    assert 'history_due=10' in output
+    assert '33.00 NOK' in (tmp_path / 'summary').read_text()
+
+    # A critical duplicate still takes precedence over the new warnings.
+    (tmp_path / 'output').write_text('')
     rows[6].append(copy.deepcopy(data['jobs'][0]))
     (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
     exec(compile(report_script, '<report>', 'exec'), {})
