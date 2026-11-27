@@ -67,3 +67,20 @@ If the provider has granted different terms, document them separately.
 
 Provider API: https://exchangerate.dev/docs/api-reference
 Provider terms: https://exchangerate.dev/terms
+
+## Robust referanse ved Oslo-slutt
+
+Den foretrukne observasjonen er innen tre minutter før sluttauksjonen. Reelle,
+validerte observasjoner inntil fem minutter før stenging lagres også, men
+fryses først ved gjenoppretting etter referansevinduet. Velg nærmeste lagrede
+observasjon; aldri en senere spotkurs eller Norges Banks dagskurs. Etter ny
+EXR-innhenting forsøkes gjenoppretting på nytt. Referansens faktiske tidspunkt
+og avvik fra børsslutt beholdes i API-et. Hvert referanseforsøk får eget
+D1-spor. Datakvalitet skiller manglende fangst fra avvist observasjon.
+
+Exchangerate.dev dokumenterer nå historiske intradagobservasjoner via
+`/v1/timeseries` (1 minutt på Pro): https://exchangerate.dev/docs/historical .
+Dette er førstevalg for en fremtidig historisk reserve, forutsatt at abonnement,
+BRL/NOK-dekning og redistribusjonsrettigheter er bekreftet. Ingen betalt
+integrasjon aktiveres uten avklaring. Norges Bank forblir rimelighetskontroll,
+ikke minuttkursreserve.

@@ -66,6 +66,9 @@ class Repository:
         row = self.conn.execute(sql, args).fetchone()
         return dict(row) if row else None
 
+    async def all(self, sql, args=()):
+        return [dict(row) for row in self.conn.execute(sql, args).fetchall()]
+
     async def run(self, sql, args=()):
         self.conn.execute(sql, args)
 
@@ -97,12 +100,27 @@ def test_recover_from_exact_stored_intraday_quote_and_use_later_live_fx():
 def test_later_spot_or_daily_norges_bank_fix_never_fabricates_close():
     repo = Repository()
     repo.official()
-    repo.quote(iso(CLOSE - timedelta(minutes=4)), "1.7100")
+    repo.quote(iso(CLOSE - timedelta(minutes=6)), "1.7100")
     repo.quote(iso(CLOSE + timedelta(minutes=1)), "1.7350")
     result = asyncio.run(recover_fx_close_reference(repo, now=NOW))
     assert result == {"status": "missing", "reason": "no_valid_stored_reference"}
     assert repo.reference() is None
     assert not asyncio.run(fx_close_movement(repo, CLOSE, NOW))["ready"]
+
+
+def test_five_minute_recovery_uses_nearest_preclose_observation():
+    repo = Repository()
+    repo.official()
+    repo.quote(iso(CLOSE - timedelta(minutes=5)), "1.7000")
+    repo.quote(iso(CLOSE - timedelta(minutes=4)), "1.7100")
+    repo.quote(iso(CLOSE + timedelta(minutes=1)), "1.7400")
+    result = asyncio.run(recover_fx_close_reference(repo, now=NOW))
+    assert result["status"] == "ok"
+    assert repo.reference()["observed_at"] == iso(CLOSE - timedelta(minutes=4))
+    movement = asyncio.run(fx_close_movement(repo, CLOSE, NOW))
+    assert movement["ready"] is True
+    assert movement["reference_offset_seconds"] == -240
+    assert movement["reference_approximate"] is True
 
 
 def test_reject_deviation_from_official_and_absent_official():
@@ -153,7 +171,7 @@ def test_quality_whitelists_error_codes_and_stale_capture_records():
         (iso(CLOSE - timedelta(days=1)),),
     )
     result = asyncio.run(_oslo_close_fx_quality(repo, now=NOW))
-    assert result["capture_reason"] is None
+    assert result["capture_reason"] == "capture_not_recorded"
     assert result["capture_checked_at"] is None
 
 

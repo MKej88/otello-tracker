@@ -99,7 +99,7 @@ class OsloCloseFxTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_rejects_observation_far_from_close_without_fabricated_reference(self):
-        for offset in (-4, 1):
+        for offset in (-6, 1):
             with self.subTest(offset=offset):
                 repo = Repository()
                 async def fetch(url, headers):
@@ -110,6 +110,19 @@ class OsloCloseFxTests(unittest.TestCase):
                 ))
                 self.assertEqual(result["reason"], "observation_not_near_oslo_close")
                 self.assertEqual(repo.writes, [])
+
+    def test_saves_four_minute_candidate_without_freezing_early(self):
+        repo = Repository()
+        async def fetch(url, headers):
+            return Response(observed=iso(CLOSE - timedelta(minutes=4)))
+        result = asyncio.run(capture_fx_close_reference(
+            repo, now=NOW, enabled=True, license_approved=True,
+            api_key=None, fetcher=fetch,
+        ))
+        self.assertEqual(result["reason"], "awaiting_closer_reference")
+        self.assertIsNone(repo.frozen)
+        self.assertEqual(len(repo.writes), 1)
+        self.assertIn("INSERT INTO fx_rates", repo.writes[0][0])
 
     def test_license_flag_blocks_network(self):
         repo = Repository()

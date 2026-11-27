@@ -782,6 +782,13 @@ async def run_after_oslo_close_refresh(
         repository, now=current, api_key=exr_api_key,
         enabled=exr_enabled, license_approved=exr_license_approved,
     ))
+    # A delayed provider response can still contain a valid pre-close quote.
+    # Retry only after the new observation is durably stored.
+    if (exr_enabled and exr_license_approved
+            and steps["fx_reference"].get("status") != "ok"
+            and steps["fx_reference"].get("reason") != "already_captured"
+            and steps["fx_quote"].get("status") == "ok"):
+        await attempt("fx_reference", lambda: recover_fx_close_reference(repository, now=current))
     await attempt("card", lambda: bemobi_after_oslo(repository, now=current))
     card = steps["card"]
     expected_fx = exr_enabled and exr_license_approved

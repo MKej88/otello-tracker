@@ -379,7 +379,7 @@ OSLO_FX_CAPTURE_REASONS = frozenset({
     "fx_disabled_or_not_approved", "outside_reference_window",
     "already_captured", "upstream_error",
     "observation_not_near_oslo_close", "missing_sanity_reference",
-    "deviation_from_official_rate", "provider_error",
+    "deviation_from_official_rate", "provider_error", "awaiting_closer_reference",
 })
 OSLO_FX_ERROR_TYPES = frozenset({
     "ValueError", "TypeError", "RuntimeError", "TimeoutError",
@@ -418,7 +418,7 @@ async def _oslo_close_fx_quality(repository, *, now: datetime) -> dict[str, Any]
     if movement.get("ready"):
         status = "OK"
         reason = None
-    elif now < close + timedelta(minutes=18):
+    elif now < close + timedelta(minutes=35):
         status = "WAITING"
     elif reason == "missing_fx_after_oslo_close" and now < close + timedelta(minutes=65):
         status = "WAITING"
@@ -427,7 +427,9 @@ async def _oslo_close_fx_quality(repository, *, now: datetime) -> dict[str, Any]
     return {
         "status": status,
         "reason": reason,
-        "capture_reason": capture_reason,
+        "capture_reason": capture_reason or (
+            "capture_not_recorded" if status == "DEGRADED" and not capture and reason == "missing_oslo_close_fx_reference" else None
+        ),
         "capture_error_type": error_type,
         "capture_observed_at": iso(provider_observed) if provider_observed else None,
         "capture_checked_at": iso(checked_at) if capture else None,

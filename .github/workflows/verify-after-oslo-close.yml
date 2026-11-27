@@ -10,6 +10,9 @@ on:
       - cloudflare/src/bemobi_after_oslo.py
       - cloudflare/src/scheduled.py
       - cloudflare/tests/test_after_oslo_close_refresh.py
+      - cloudflare/src/after_oslo_fx.py
+      - cloudflare/tests/test_after_oslo_fx.py
+      - cloudflare/tests/test_after_oslo_fx_recovery.py
   schedule:
     # 17:15 Oslo time, summer and winter UTC alternatives.
     - cron: "15 15,16 * * 1-5"
