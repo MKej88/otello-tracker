@@ -1,0 +1,53 @@
+name: Bemobi CVM document 1477 file format diagnosis
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bemobi-cvm-1477-diagnostic.yml
+      - tools/diagnose_bemobi_cvm_1477.py
+  pull_request:
+    paths:
+      - .github/workflows/bemobi-cvm-1477-diagnostic.yml
+      - tools/diagnose_bemobi_cvm_1477.py
+      - backend/tests/test_bemobi_cvm_1477_diagnostic.py
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_cvm_1477_diagnostic.py
+
+  diagnose:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Read only CVM document 1477 identity
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/diagnose_bemobi_cvm_1477.py collect "$RUNNER_TEMP/cvm-1477"
+      - name: Inspect both official transport responses without credentials
+        run: python3 tools/diagnose_bemobi_cvm_1477.py diagnose "$RUNNER_TEMP/cvm-1477"
