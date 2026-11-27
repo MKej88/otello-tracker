@@ -1,0 +1,68 @@
+name: Bemobi rolling 24-month translation history
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '42 */2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bemobi-translation-history.yml
+      - tools/backfill_bemobi_translation_history.py
+  pull_request:
+    paths:
+      - .github/workflows/bemobi-translation-history.yml
+      - tools/backfill_bemobi_translation_history.py
+      - backend/tests/test_bemobi_translation_history.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bemobi-translation-r2-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_history.py
+  stage:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Read rolling history candidates
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/backfill_bemobi_translation_history.py collect "$RUNNER_TEMP/bemobi-history"
+      - name: Verify official PDFs without credentials
+        run: python3 tools/backfill_bemobi_translation_history.py build "$RUNNER_TEMP/bemobi-history"
+      - run: npm ci --prefix cloudflare --no-audit --no-fund
+      - name: Verify R2 readback and queue only verified current filings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: python3 tools/backfill_bemobi_translation_history.py publish "$RUNNER_TEMP/bemobi-history"
