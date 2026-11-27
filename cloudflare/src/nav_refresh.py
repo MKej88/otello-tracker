@@ -611,11 +611,51 @@ def _interpolated_base_ex_option(
     return legacy_at_grant + (_anchor_base_ex_option(end_anchor) - legacy_at_grant) * post_elapsed / post_span
 
 
+def _documented_receivable_factor(action: dict[str, Any]) -> tuple[Decimal, str] | None:
+    """Use the published standard net entitlement, not a guessed tax rate.
+
+    Shareholder-specific tax treatment may differ. A reported Otello anchor
+    always takes precedence over this estimate.
+    """
+    if not action.get("source_document_id"):
+        return None
+    try:
+        gross = Decimal(str(action["amount_per_share"]))
+        if not gross.is_finite() or gross <= 0:
+            return None
+        treatment = action.get("tax_treatment")
+        net_value = action.get("net_amount_per_share")
+        rate_value = action.get("withholding_rate")
+        net = Decimal(str(net_value)) if net_value is not None else None
+        rate = Decimal(str(rate_value)) if rate_value is not None else None
+        if net is not None and (not net.is_finite() or not 0 < net <= gross):
+            return None
+        if rate is not None and (not rate.is_finite() or not 0 <= rate < 1):
+            return None
+        if net is not None and rate is not None and abs(net - gross * (1 - rate)) > Decimal("0.0000001"):
+            return None
+        if action["action_type"] == "JCP":
+            if net is not None:
+                return net / gross, "PUBLISHED_NET"
+            if rate is not None:
+                return 1 - rate, "PUBLISHED_WITHHOLDING_RATE"
+        elif action["action_type"] == "DIVIDEND":
+            # Payment-date cash is gross for ordinary dividends; only use a
+            # documented zero-withholding entitlement until net cash is supported.
+            if (net == gross or treatment == "NO_WITHHOLDING") and rate in (None, Decimal("0")) and net in (None, gross):
+                return Decimal("1"), "DOCUMENTED_NO_WITHHOLDING"
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return None
+
+
 async def _receivable_actions(repository) -> list[dict[str, Any]]:
     actions = await repository.all(
         """
         SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date,
-               ca.amount_per_share, ca.currency, ca.source_document_id,
+               COALESCE(ca.gross_amount_per_share, ca.amount_per_share) AS amount_per_share,
+               ca.net_amount_per_share, ca.withholding_rate, ca.tax_treatment,
+               ca.currency, ca.source_document_id,
                ca.component_group,
                h.id AS holding_id, h.shares AS holding_shares,
                h.ownership_pct AS holding_ownership_pct,
@@ -646,7 +686,7 @@ async def _receivable_actions(repository) -> list[dict[str, Any]]:
         WHERE i.symbol='BMOB3'
           AND ca.action_type IN ('DIVIDEND','JCP')
           AND ca.ex_date IS NOT NULL AND ca.payment_date IS NOT NULL
-          AND ca.amount_per_share IS NOT NULL AND ca.currency='BRL'
+          AND COALESCE(ca.gross_amount_per_share, ca.amount_per_share) IS NOT NULL AND ca.currency='BRL'
         ORDER BY ca.ex_date, ca.id
         """
     )
@@ -731,6 +771,14 @@ async def _receivable_actions(repository) -> list[dict[str, Any]]:
                 factor = calibrated["factor"]
                 quality = "REPORTED_CALIBRATED"
                 calibration = calibrated["metadata"]
+        else:
+            documented = _documented_receivable_factor(dict(action))
+            if documented is not None:
+                factor, basis = documented
+                quality = "ESTIMATED_NET"
+                calibration = {"basis": basis, "source_document_id": action["source_document_id"],
+                               "shareholder_specific_tax_confirmed": False}
+
         result.append(
             {
                 "id": action["id"],
@@ -788,7 +836,11 @@ async def _receivable_for_day(
                 "amount_nok": decimal_text(amount_nok),
             }
         )
-    quality = "ESTIMATED_GROSS" if "ESTIMATED_GROSS" in qualities else "REPORTED_CALIBRATED"
+    quality = (
+        "ESTIMATED_GROSS" if "ESTIMATED_GROSS" in qualities
+        else "ESTIMATED_NET" if "ESTIMATED_NET" in qualities
+        else "REPORTED_CALIBRATED"
+    )
     return total, quality, components
 
 
@@ -1080,7 +1132,9 @@ async def refresh_full_nav_if_dirty(repository, as_of_date: str) -> dict[str, An
     elif row["ona_quality"] == "INTERPOLATED":
         quality_notes += " Base ONA excluding the option obligation is interpolated between reported anchors and is therefore estimated for this date."
     if row["receivable_quality"] == "ESTIMATED_GROSS":
-        quality_notes += " At least one active Bemobi receivable is gross-estimated because no report-date receivable anchor exists inside its lifecycle."
+        quality_notes += " At least one active Bemobi receivable is gross-estimated because a usable report anchor or documented net entitlement is missing."
+    elif row["receivable_quality"] == "ESTIMATED_NET":
+        quality_notes += " Bemobi receivable estimated net using published distribution terms; shareholder-specific tax remains unconfirmed until Otello reports."
     if row["option_quality"] == "FORECAST_MARK_TO_MARKET":
         quality_notes += " The option liability uses the latest reported risk-free-rate/volatility assumptions until a new Otello report supplies updated valuation inputs."
 
