@@ -76,6 +76,12 @@ def verify_pdf(raw: bytes, artifact: dict) -> None:
 async def read_translation_mirror(bucket, url: str, *, delivery: str | None = None) -> bytes:
     identity = filing_identity(url)
     manifest = json.loads(await _read(bucket, manifest_key(identity), MAX_INDEX))
+    if manifest.get("schema") == 2:
+        from bemobi_cvm_padding_normalization import validate_manifest as validate_padding, verify_manifest_pair
+        validate_padding(manifest, identity, delivery[:10] if delivery else None)
+        original = await _read(bucket, manifest["original"]["key"], MAX_PDF)
+        processing = await _read(bucket, manifest["processing"]["key"], MAX_PDF)
+        return verify_manifest_pair(manifest, original, processing)
     artifact = validate_manifest(manifest, identity)
     if delivery and manifest["delivery"] != delivery[:10]:
         raise ValueError("CVM-reservens publiseringsdato stemmer ikke")

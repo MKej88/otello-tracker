@@ -9,10 +9,9 @@ from pathlib import Path
 
 from reactivate_bemobi_translation_documents import d1_client
 from mirror_bemobi_translation_queue import (NoRedirect, build_document, publish as publish_mirror,
-    MirrorFailure)
+    MirrorFailure, write_local_pair, verify_local_pair)
 from bemobi_cvm_rad import filing_identity
 from bemobi_cvm_mirror import MAX_INDEX
-from bemobi_translation_mirror import validate_manifest, verify_pdf
 
 BATCH = 6
 # Unknown versions, replaced filings, IR metadata and completed documents are not candidates.
@@ -44,8 +43,9 @@ SELECT = f"""
 SELECT id AS document_id,url,substr(published_at,1,10) AS delivery
 FROM source_documents WHERE {SCOPE}
 AND CASE WHEN json_valid(metadata_json) THEN
-    COALESCE(json_extract(metadata_json,'$.translation_backfill_checked_at'),'') <
-    strftime('%Y-%m-%dT%H:%M:%fZ','now','-24 hours') ELSE 0 END
+    (COALESCE(json_extract(metadata_json,'$.translation_backfill_policy'),'')<>'padding-v1'
+     OR COALESCE(json_extract(metadata_json,'$.translation_backfill_checked_at'),'') <
+    strftime('%Y-%m-%dT%H:%M:%fZ','now','-24 hours')) ELSE 0 END
 ORDER BY published_at DESC,id DESC LIMIT ?
 """
 UPDATE = f"""
@@ -58,7 +58,7 @@ WHERE id=? AND url=? AND substr(published_at,1,10)=? AND {SCOPE}
 DEFER = f"""
 UPDATE source_documents
 SET metadata_json=json_set(metadata_json,'$.translation_backfill_checked_at',
-       strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+       strftime('%Y-%m-%dT%H:%M:%fZ','now'),'$.translation_backfill_policy','padding-v1')
 WHERE id=? AND url=? AND substr(published_at,1,10)=? AND {SCOPE}
 """
 
@@ -98,9 +98,9 @@ def build(folder):
                 raise ValueError("Manifestet er for stort")
             out = folder / str(doc)
             out.mkdir(exist_ok=False)
-            (out/"original.pdf").write_bytes(raw)
+            write_local_pair(out, manifest, raw)
             (out/"manifest.json").write_bytes(encoded)
-            print(f"Historisk dokument {doc}: verifisert")
+            print(f"Historisk dokument {doc}: verifisert" + (" med normalisert behandlingskopi" if manifest["schema"] == 2 else ""))
         except Exception as exc:
             detail = exc.code if isinstance(exc, MirrorFailure) else type(exc).__name__
             print(f"Historisk dokument {doc}: utsatt ({detail})")
@@ -109,10 +109,7 @@ def build(folder):
 def verify_readback(row, folder):
     out = folder / str(row["document_id"])
     manifest = json.loads((out/"readback-manifest.json").read_bytes())
-    artifact = validate_manifest(manifest, filing_identity(row["url"]))
-    if manifest["delivery"] != row["delivery"]:
-        raise ValueError("Publiseringsdato avviker")
-    verify_pdf((out/"readback-original.pdf").read_bytes(), artifact)
+    verify_local_pair(out, manifest, filing_identity(row["url"]), row["delivery"], prefix="readback-")
 
 
 def stage(rows, folder, query):

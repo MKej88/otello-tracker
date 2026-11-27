@@ -470,6 +470,8 @@ async def _download_original(url: str, bucket: Any, downloader: Any,
             if not payload.startswith(b"%PDF"):
                 attempt["result"] = "not_pdf"
                 raise ValueError("Originaldokumentet er ikke en PDF")
+            if filing_identity(url) and b"%%EOF" not in payload[-2048:]:
+                raise ValueError("CVM-PDF krever verifisert behandlingskopi")
             attempt["result"] = "ok"
             return payload
         except Exception as exc:

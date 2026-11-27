@@ -9,10 +9,12 @@ on:
     paths:
       - .github/workflows/bemobi-translation-history.yml
       - tools/backfill_bemobi_translation_history.py
+      - cloudflare/src/bemobi_cvm_padding_normalization.py
   pull_request:
     paths:
       - .github/workflows/bemobi-translation-history.yml
       - tools/backfill_bemobi_translation_history.py
+      - cloudflare/src/bemobi_cvm_padding_normalization.py
       - backend/tests/test_bemobi_translation_history.py
 
 permissions:
@@ -35,7 +37,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
-      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_history.py
+      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_history.py backend/tests/test_bemobi_cvm_padding_normalization.py
   stage:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
