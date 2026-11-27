@@ -146,18 +146,58 @@ def rebuild_other_net_assets_anchors(database_path: str | None = None) -> dict[s
     return {"written": written, "skipped": skipped}
 
 
+def _documented_receivable_factor(action: dict[str, Any]) -> tuple[Decimal, str] | None:
+    """Use the published standard net entitlement, not a guessed tax rate.
+
+    Shareholder-specific tax treatment may differ. A reported Otello anchor
+    always takes precedence over this estimate.
+    """
+    if not action.get("source_document_id"):
+        return None
+    try:
+        gross = Decimal(str(action["amount_per_share"]))
+        if not gross.is_finite() or gross <= 0:
+            return None
+        treatment = action.get("tax_treatment")
+        net_value = action.get("net_amount_per_share")
+        rate_value = action.get("withholding_rate")
+        net = Decimal(str(net_value)) if net_value is not None else None
+        rate = Decimal(str(rate_value)) if rate_value is not None else None
+        if net is not None and (not net.is_finite() or not 0 < net <= gross):
+            return None
+        if rate is not None and (not rate.is_finite() or not 0 <= rate < 1):
+            return None
+        if net is not None and rate is not None and abs(net - gross * (1 - rate)) > Decimal("0.0000001"):
+            return None
+        if action["action_type"] == "JCP":
+            if net is not None:
+                return net / gross, "PUBLISHED_NET"
+            if rate is not None:
+                return 1 - rate, "PUBLISHED_WITHHOLDING_RATE"
+        elif action["action_type"] == "DIVIDEND":
+            # Payment-date cash is gross for ordinary dividends; only use a
+            # documented zero-withholding entitlement until net cash is supported.
+            if (net == gross or treatment == "NO_WITHHOLDING") and rate in (None, Decimal("0")) and net in (None, gross):
+                return Decimal("1"), "DOCUMENTED_NO_WITHHOLDING"
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return None
+
+
 def _receivable_actions(connection) -> list[dict[str, Any]]:
     actions = connection.execute(
         """
         SELECT ca.id, ca.action_type, ca.ex_date, ca.payment_date,
-               ca.amount_per_share, ca.currency, ca.source_document_id,
+               COALESCE(ca.gross_amount_per_share, ca.amount_per_share) AS amount_per_share,
+               ca.net_amount_per_share, ca.withholding_rate, ca.tax_treatment,
+               ca.currency, ca.source_document_id,
                ca.component_group
         FROM corporate_actions ca
         JOIN instruments i ON i.id = ca.issuer_instrument_id
         WHERE i.symbol = 'BMOB3'
           AND ca.action_type IN ('DIVIDEND', 'JCP')
           AND ca.ex_date IS NOT NULL AND ca.payment_date IS NOT NULL
-          AND ca.amount_per_share IS NOT NULL AND ca.currency = 'BRL'
+          AND COALESCE(ca.gross_amount_per_share, ca.amount_per_share) IS NOT NULL AND ca.currency = 'BRL'
         ORDER BY ca.ex_date, ca.id
         """
     ).fetchall()
@@ -237,6 +277,13 @@ def _receivable_actions(connection) -> list[dict[str, Any]]:
                 factor = calibrated["factor"]
                 quality = "REPORTED_CALIBRATED"
                 calibration = calibrated["metadata"]
+        else:
+            documented = _documented_receivable_factor(dict(action))
+            if documented is not None:
+                factor, basis = documented
+                quality = "ESTIMATED_NET"
+                calibration = {"basis": basis, "source_document_id": action["source_document_id"],
+                               "shareholder_specific_tax_confirmed": False}
 
         result.append(
             {
@@ -293,7 +340,11 @@ def _receivable_for_day(connection, current_iso: str, actions: list[dict[str, An
                 "amount_nok": decimal_text(amount_nok),
             }
         )
-    quality = "ESTIMATED_GROSS" if "ESTIMATED_GROSS" in qualities else "REPORTED_CALIBRATED"
+    quality = (
+        "ESTIMATED_GROSS" if "ESTIMATED_GROSS" in qualities
+        else "ESTIMATED_NET" if "ESTIMATED_NET" in qualities
+        else "REPORTED_CALIBRATED"
+    )
     return total, quality, components
 
 
@@ -557,7 +608,7 @@ def other_net_assets_status(database_path: str | None = None) -> dict[str, Any]:
             SELECT COUNT(*) n, MIN(estimate_date) min_date, MAX(estimate_date) max_date,
                    SUM(CASE WHEN quality = 'FORECAST_PARTIAL' THEN 1 ELSE 0 END) forecast_partial,
                    SUM(CASE WHEN CAST(associated_receivable_nok AS REAL) != 0 THEN 1 ELSE 0 END) receivable_days,
-                   SUM(CASE WHEN receivable_quality = 'ESTIMATED_GROSS' THEN 1 ELSE 0 END) estimated_receivable_days,
+                   SUM(CASE WHEN receivable_quality IN ('ESTIMATED_GROSS', 'ESTIMATED_NET') THEN 1 ELSE 0 END) estimated_receivable_days,
                    SUM(CASE WHEN CAST(option_liability_nok AS REAL) != 0 THEN 1 ELSE 0 END) option_liability_days,
                    SUM(CASE WHEN option_quality = 'FORECAST_MARK_TO_MARKET' THEN 1 ELSE 0 END) option_forecast_days
             FROM other_net_assets_daily_estimates
