@@ -2,10 +2,14 @@ name: Bemobi CVM document 7540 verified normalization
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  workflow_call:
+    secrets:
+      CLOUDFLARE_READ_TOKEN:
+        required: true
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
   pull_request:
     paths:
       - .github/workflows/bemobi-cvm-7540-recovery.yml
@@ -36,14 +40,14 @@ jobs:
       - run: python3 -m pytest -q backend/tests/test_bemobi_7540_normalization.py
 
   recover:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository))
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 2
       - name: Limit automatic recovery to the normalization change
