@@ -201,6 +201,20 @@ def assess_production(*, now: datetime, jobs: list[dict], sources: list[dict],
             add('CVM-filens datadato', archive_date is not None and target - timedelta(days=CVM_IPE_MAX_AGE_DAYS) <= archive_date <= now.date(),
                 archive_date or 'MANGLER', f'høyst {CVM_IPE_MAX_AGE_DAYS} kalenderdager før {target}')
 
+    # Translation is informational, independent of NAV and source ingestion.
+    if target_jobs:
+        translation = (_json(target_jobs[0].get('metadata_json')).get('sources') or {}).get('bemobi_translation')
+        if isinstance(translation, dict):
+            status = translation.get('status')
+            queue = translation.get('queue') or {}
+            if status in {'partial', 'error', 'failed', 'skipped'}:
+                add('Norsk Bemobi-oversettelse', False,
+                    f"{queue.get('failed', '?')} feilet, {queue.get('overdue', '?')} forsinket; status {status}",
+                    'ingen feilede eller forsinkede dokumenter', state='ADVARSEL')
+            elif status == 'ok':
+                add('Norsk Bemobi-oversettelse', True, 'ingen registrerte avvik',
+                    'ingen feilede eller forsinkede dokumenter')
+
     # A controlled warning is still an observation, but no longer a fatal AVVIK.
     return {'target_date': target.isoformat(),
             'unhealthy': any(c['state'] == 'AVVIK' for c in checks),

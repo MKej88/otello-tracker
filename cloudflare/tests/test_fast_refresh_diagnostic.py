@@ -65,6 +65,16 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         })
         self.assertEqual(self.assess(item)["severity"], "FAILURE")
 
+    def test_translation_queue_warning_does_not_hide_nav_errors(self):
+        item = record("PARTIAL", errors=[{"step": "bemobi_translation"}],
+                      steps={"bemobi_translation": {"status": "partial", "non_critical": True},
+                             "dirty_nav": {"status": "ok"}})
+        self.assertEqual(self.assess(item)["severity"], "WARNING")
+        item = record("PARTIAL", errors=[{"step": "bemobi_translation"}, {"step": "dirty_nav"}],
+                      steps={"bemobi_translation": {"status": "partial", "non_critical": True},
+                             "dirty_nav": {"status": "error"}})
+        self.assertEqual(self.assess(item)["severity"], "FAILURE")
+
     def test_missing_valid_nav_keeps_partial_critical(self):
         item = record("PARTIAL", errors=[{"step": "brazil_snapshot"}],
                       steps={"brazil_snapshot": {"non_critical": True}})

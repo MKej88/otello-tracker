@@ -175,17 +175,24 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
                         published_at TEXT,
                         content_sha256 TEXT,
                         translation_status TEXT,
-                        translation_processed_at TEXT
+                        translation_processed_at TEXT,
+                        translation_attempts INTEGER NOT NULL DEFAULT 0
                     );
                     INSERT INTO sources VALUES (1, 'CVM');
-                    INSERT INTO source_documents VALUES (
+                    INSERT INTO source_documents (id,source_id,url,title,published_at,content_sha256,translation_status,translation_processed_at) VALUES (
                         1, 1, 'https://example.com/old.pdf', 'Gammel', NULL, NULL,
                         'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours')
                     );
-                    INSERT INTO source_documents VALUES (
+                    INSERT INTO source_documents (id,source_id,url,title,published_at,content_sha256,translation_status,translation_processed_at) VALUES (
                         2, 1, 'https://example.com/new.pdf', 'Ny', NULL, NULL,
                         'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now')
                     );
+                    INSERT INTO source_documents
+                        (id,source_id,url,title,translation_status,translation_processed_at,translation_attempts)
+                        VALUES
+                        (3,1,'https://example.com/failed.pdf','Feilet','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours'),1),
+                        (4,1,'https://example.com/recent.pdf','Nylig','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now'),1),
+                        (5,1,'https://example.com/exhausted.pdf','Oppbrukt','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours'),3);
                     """)
 
             async def all(self, query: str, parameters: tuple[object, ...]):
@@ -201,7 +208,7 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
             Repository(), SimpleNamespace(), FakeWorkersAI({"response": "ubrukt"})
         )
 
-        self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 0})
+        self.assertEqual(result, {"selected": 2, "completed": 0, "failed": 0})
 
     async def test_rate_limit_keeps_document_pending_for_next_run(self) -> None:
         class Repository:

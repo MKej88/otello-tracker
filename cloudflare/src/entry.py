@@ -225,6 +225,8 @@ class Default(WorkerEntrypoint):
             exr_enabled=str(getattr(bindings, "EXR_MARKET_FX_ENABLED", "false")).lower() == "true",
             exr_license_approved=str(getattr(bindings, "EXR_DATA_LICENSE_APPROVED", "false")).lower() == "true",
             exr_api_key=getattr(bindings, "EXCHANGERATE_DEV_API_KEY", None),
+            translation_ai=getattr(bindings, "AI", None),
+            translation_model=getattr(bindings, "BEMOBI_TRANSLATION_MODEL", None),
         )
         if cron == FAST_REFRESH_CRON:
             # Run after the fast writer lock is released. A missed 03:35 firing
@@ -258,7 +260,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
         from bemobi_document_translation import (
             DEFAULT_WORKERS_AI_MODEL,
             WorkersAIProvider,
-            process_pending_translations,
+            run_translation_queue,
         )
         from cvm_full_refresh import refresh_bemobi_cvm
         from bemobi_ir_news import refresh_ir_news
@@ -557,7 +559,7 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                             )
                         ),
                     )
-                    return await process_pending_translations(repository, self.env.SOURCE_ARCHIVE, provider)
+                    return await run_translation_queue(repository, self.env.SOURCE_ARCHIVE, provider)
 
                 try:
                     source_results["bemobi_translation"] = await bemobi_translation_step()
@@ -565,8 +567,9 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     source_results["bemobi_translation"] = error_result(exc)
             else:
                 source_results["bemobi_translation"] = {
-                    "status": "skipped",
-                    "reason": "workers_ai_binding_not_configured",
+                    "status": "partial",
+                    "non_critical": True,
+                    "reason": "Workers AI-binding mangler",
                 }
 
             @step.do(

@@ -17,6 +17,17 @@ MAX_CHUNK_CHARACTERS = 12_000
 TRANSLATOR_VERSION = "bemobi-nb-v1"
 DEFAULT_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 STALE_PROCESSING_HOURS = 6
+MAX_TRANSLATION_ATTEMPTS = 3
+RETRY_DELAY_HOURS = 6
+
+# Both nightly and half-hour workers use the same atomic claim predicate.
+_ELIGIBLE = """(
+    (translation_status='PENDING' AND translation_attempts < 3)
+    OR (translation_status='FAILED' AND translation_attempts < 3
+        AND (translation_processed_at IS NULL OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 hours')))
+    OR (translation_status='PROCESSING'
+        AND (translation_processed_at IS NULL OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 hours')))
+)"""
 _SAFE_KEY = re.compile(r"^translated/bemobi/[0-9a-f]{64}/bemobi-norsk\.pdf$")
 _VALUE_RE = re.compile(
     r"(?:R\$|BRL)\s*[\d.,]+|\d+(?:[.,]\d+)?\s*%|"
@@ -246,28 +257,23 @@ async def process_pending_translations(
     fetcher: Callable[..., Awaitable[Any]] | None = None,
 ) -> dict[str, Any]:
     rows = await repository.all(
-        """SELECT sd.id, sd.url, sd.title, sd.published_at, sd.content_sha256
+        f"""SELECT sd.id, sd.url, sd.title, sd.published_at, sd.content_sha256,
+                  sd.translation_attempts
            FROM source_documents sd JOIN sources s ON s.id=sd.source_id
-           WHERE s.code IN ('CVM','BEMOBI_IR')
-             AND (sd.translation_status='PENDING'
-                  OR (sd.translation_status='PROCESSING'
-                      AND (sd.translation_processed_at IS NULL
-                           OR sd.translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now',?))))
-           ORDER BY sd.id LIMIT ?""",
-        (f"-{STALE_PROCESSING_HOURS} hours", max(1, min(limit, 20))),
+           WHERE s.code IN ('CVM','BEMOBI_IR') AND {_ELIGIBLE}
+           ORDER BY sd.published_at DESC, sd.id DESC LIMIT ?""",
+        (max(1, min(limit, 20)),),
     )
     completed = failed = 0
     for row in rows:
         document_id = int(row["id"])
         claimed = await repository.run(
-            """UPDATE source_documents
+            f"""UPDATE source_documents
                SET translation_status='PROCESSING',
+                   translation_attempts=translation_attempts+1,
                    translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               WHERE id=? AND (translation_status='PENDING'
-                    OR (translation_status='PROCESSING'
-                        AND (translation_processed_at IS NULL
-                             OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now',?))))""",
-            (document_id, f"-{STALE_PROCESSING_HOURS} hours"),
+               WHERE id=? AND {_ELIGIBLE}""",
+            (document_id,),
         )
         if (
             getattr(claimed, "meta", None) is not None
@@ -275,7 +281,10 @@ async def process_pending_translations(
         ):
             continue
         print(f"bemobi_translation processing document_id={document_id}")
+        attempts_before = int(row.get("translation_attempts") or 0)
         try:
+            if attempts_before >= MAX_TRANSLATION_ATTEMPTS:
+                raise ValueError("Maksimalt antall behandlingsforsøk etter avbrutt kjøring")
             downloader = fetcher
             if downloader is None:
                 from workers import fetch
@@ -377,7 +386,8 @@ async def process_pending_translations(
             completed += 1
         except Exception as exc:
             reason = str(exc)[:300]
-            if _is_retryable_external_error(exc):
+            if (_is_retryable_external_error(exc)
+                    and attempts_before + 1 < MAX_TRANSLATION_ATTEMPTS):
                 await repository.run(
                     """UPDATE source_documents SET extraction_status=COALESCE(extraction_status,'PENDING'),
                        translation_status='PENDING', summary_status='PENDING', translation_error=?,
@@ -396,6 +406,43 @@ async def process_pending_translations(
             )
             failed += 1
     return {"selected": len(rows), "completed": completed, "failed": failed}
+
+
+async def translation_queue_health(repository: Any) -> dict[str, Any]:
+    """Count unresolved documents; do not expose document text or URLs."""
+    row = await repository.first(
+        """SELECT
+           SUM(CASE WHEN translation_status='PENDING' THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN translation_status='PROCESSING' THEN 1 ELSE 0 END) AS processing,
+           SUM(CASE WHEN translation_status='FAILED' THEN 1 ELSE 0 END) AS failed,
+           SUM(CASE WHEN translation_status='FAILED' AND translation_attempts>=3 THEN 1 ELSE 0 END) AS exhausted,
+           SUM(CASE WHEN translation_status='PENDING'
+                        AND substr(published_at,1,10)<date('now','-1 day')
+                    OR translation_status='PROCESSING'
+                        AND (translation_processed_at IS NULL OR translation_processed_at<strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 hours'))
+                    THEN 1 ELSE 0 END) AS overdue
+           FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+           WHERE s.code IN ('CVM','BEMOBI_IR')""",
+        (),
+    ) or {}
+    return {key: int(row.get(key) or 0) for key in
+            ("pending", "processing", "failed", "exhausted", "overdue")}
+
+
+async def run_translation_queue(repository: Any, bucket: Any, provider: TranslationProvider | None,
+                                *, limit: int = 3) -> dict[str, Any]:
+    if provider is None or bucket is None:
+        return {"status": "partial", "reason": "AI- eller dokumentlagerbinding mangler",
+                "non_critical": True, "queue": await translation_queue_health(repository)}
+    result = await process_pending_translations(repository, bucket, provider, limit=limit)
+    queue = await translation_queue_health(repository)
+    warning = bool(queue["failed"] or queue["overdue"] or result["failed"])
+    return {
+        **result, "status": "partial" if warning else "ok", "non_critical": True,
+        "queue": queue,
+        **({"reason": f"{queue['failed']} feilet ({queue['exhausted']} uten flere automatiske forsøk), "
+                      f"{queue['overdue']} forsinket, {result['failed']} feil i denne kjøringen"} if warning else {}),
+    }
 
 
 async def queue_translation_backfill(
@@ -426,7 +473,7 @@ async def queue_translation_backfill(
         placeholders = ",".join("?" for _ in document_ids)
         await repository.run(
             f"""UPDATE source_documents
-                SET translation_status='PENDING', translation_error=NULL
+                SET translation_status='PENDING', translation_error=NULL, translation_attempts=0
                 WHERE id IN ({placeholders})""",
             document_ids,
         )

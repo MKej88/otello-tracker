@@ -24,6 +24,7 @@ ADDITIVE_SCHEMA_MIGRATIONS = (
     MIGRATIONS / "0033_bemobi_norwegian_translations.sql",
     MIGRATIONS / "0037_bemobi_quarter_actuals.sql",
     MIGRATIONS / "0039_buyback_program_cap_history.sql",
+    MIGRATIONS / "0044_bemobi_translation_attempts.sql",
 )
 
 sys.path.insert(0, str(BACKEND))

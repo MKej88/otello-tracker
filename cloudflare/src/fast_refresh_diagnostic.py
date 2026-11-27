@@ -17,6 +17,7 @@ NON_CRITICAL_STEPS = frozenset({
     "dashboard_hot_snapshot",
     "investor_snapshots",
     "brazil_snapshot",
+    "bemobi_translation",
 })
 _SAFE_CODE = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
 
