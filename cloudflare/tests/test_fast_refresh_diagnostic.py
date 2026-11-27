@@ -134,6 +134,7 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
             "diagnostics": [{
                 "document_id": 2, "source": "CVM", "stage": "translation", "outcome": "error",
                 "native_binding": True, "ai_provider_calls": 1, "ai_binding_calls": 1, "ai_responses": 0,
+                "summary_error": "invalid_json", "translation_checkpoint": "saved",
                 "downloads": [{"route": "original", "result": "http_error", "http": 526, "url": "secret"},
                               {"route": "official_alternative", "result": "ok", "http": 200}],
             }]}})
@@ -144,6 +145,8 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         self.assertIn("gemma-4", rendered)
         self.assertIn("AI-produksjonstest: error", rendered)
         self.assertIn("kode 3036 / HTTP 429", rendered)
+        self.assertIn("Sammendragsfeil dokument 2: invalid_json", rendered)
+        self.assertIn("Mellomlagret oversettelse dokument 2: saved", rendered)
         self.assertNotIn("secret", rendered)
         self.assertIn("eldre kjøring", "\n".join(render_translation_diagnostics(
             record(steps={"bemobi_translation": {"model": "secret"}}), [])))
