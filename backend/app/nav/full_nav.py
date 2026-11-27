@@ -131,7 +131,9 @@ def rebuild_daily_full_nav(
             elif row["ona_quality"] == "INTERPOLATED":
                 quality_notes += " Base ONA excluding the option obligation is interpolated between reported anchors and is therefore estimated for this date."
             if row["receivable_quality"] == "ESTIMATED_GROSS":
-                quality_notes += " At least one active Bemobi receivable is gross-estimated because no report-date receivable anchor exists inside its lifecycle."
+                quality_notes += " At least one active Bemobi receivable is gross-estimated because a usable report anchor or documented net entitlement is missing."
+            elif row["receivable_quality"] == "ESTIMATED_NET":
+                quality_notes += " Bemobi receivable estimated net using published distribution terms; shareholder-specific tax remains unconfirmed until Otello reports."
             if row["option_quality"] == "FORECAST_MARK_TO_MARKET":
                 quality_notes += " The option liability uses the latest reported risk-free-rate/volatility assumptions until a new Otello report supplies updated valuation inputs."
 
