@@ -36,6 +36,16 @@ def test_healthy_data_and_no_new_notices_are_ok():
     assert not assess_production(**fixture())['unhealthy']
 
 
+def test_translation_queue_is_a_warning_not_a_nav_failure():
+    data = fixture()
+    meta = json.loads(data["jobs"][0]["metadata_json"])
+    meta["sources"] = {"bemobi_translation": {"status": "partial", "queue": {"failed": 2, "overdue": 1}}}
+    data["jobs"][0]["metadata_json"] = json.dumps(meta)
+    report = assess_production(**data)
+    assert not report["unhealthy"]
+    assert any(check["name"] == "Norsk Bemobi-oversettelse" for check in report["warnings"])
+
+
 def test_missing_job_and_wrong_target_are_detected():
     data = fixture()
     data['jobs'][0]['metadata_json'] = '{"target_date":"2026-10-15"}'
