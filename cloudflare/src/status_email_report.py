@@ -137,7 +137,8 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         status = str(data.get("status") or "ikke rapportert").lower()
         if key == "estimated_nav_history" and "complete" in data:
             period_cache = data.get("period_cache") or {}
-            pending = (data.get("retry") or {}).get("pending")
+            retry = data.get("retry") or {}
+            pending = retry.get("pending")
             if data.get("complete") is True and period_cache.get("status") == "ok" and not pending:
                 status = "ok"
             elif data.get("complete") is False or period_cache.get("status") in {"partial", "error", "failed"} or pending:
@@ -150,10 +151,14 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                     parts.append(f"historikk: {data.get('stop_reason') or 'ikke fullført'}")
                 if period_cache.get("status") in {"partial", "error", "failed"}:
                     parts.append(f"periodecache: {period_cache.get('written', 0)}/6")
-                    for failure in (period_cache.get("failures") or [])[:6]:
+                    for failure in (period_cache.get("failures") or period_cache.get("period_failures") or [])[:6]:
                         parts.append(f"{failure.get('period_key') or 'periode'}: {_incident_detail(failure.get('reason') or failure)}")
                 if pending:
                     parts.append(f"{pending} historikkpunkter venter på nytt forsøk")
+                    if retry.get("attempted") is not None:
+                        parts.append(f"behandlet {retry['attempted']}, løst {retry.get('written', 0)} i natt")
+                    for failure in (retry.get("failures") or [])[:3]:
+                        parts.append(f"{safe_detail(failure.get('date') or '-')}: {_incident_detail(failure.get('reason') or 'ukjent årsak')}")
                 if parts:
                     incident(key, "; ".join(parts))
             if period_cache.get("status") == "ok" and period_cache.get("written") == 6:
@@ -320,7 +325,17 @@ def render_html(text: str, *, status: str, incidents: int, public_url: str) -> s
         content = ""
         for row in rows:
             label, separator, value = row.removeprefix("- ").partition(": ")
-            if separator:
+            if separator and title.startswith("Avvik og oppfølging"):
+                # A single full-width cell avoids cramped, unbreakable technical labels
+                # on iPhone/Outlook while retaining the exact diagnostic text.
+                display_label = {"estimated_nav_history": "NAV-historikk",
+                                 "preflight": "Datakontroll"}.get(label, label)
+                content += (
+                    f'<tr><td colspan="2" style="padding:10px 0;border-bottom:1px solid #eef2f6;word-break:break-word;overflow-wrap:anywhere">'
+                    f'<div style="font-weight:bold;margin-bottom:4px">{escape(display_label)}</div>'
+                    f'<div>{escape(value)}</div></td></tr>'
+                )
+            elif separator:
                 content += f'<tr><td style="padding:5px 8px 5px 0;border-bottom:1px solid #eef2f6;vertical-align:top;width:30%">{escape(label)}</td><td style="padding:5px 0;border-bottom:1px solid #eef2f6;overflow-wrap:anywhere">{escape(value)}</td></tr>'
             else:
                 content += f'<tr><td colspan="2" style="padding:5px 0;overflow-wrap:anywhere">{escape(row)}</td></tr>'
