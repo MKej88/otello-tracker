@@ -30,6 +30,7 @@ type DashboardQuality = {
   data_status?: string;
   as_of_date?: string | null;
   reasons?: string[];
+  model_information?: string[];
 };
 
 type Runtime = {
@@ -630,6 +631,7 @@ export default function DataQualityPage() {
               <span>Dashboardkvalitet</span>
               <strong>{statusLabel(currentQuality?.status)}</strong>
               <small>{currentQuality?.as_of_date ? `Datadato ${formatDate(currentQuality.as_of_date)}` : "–"}</small>
+              {currentQuality?.model_information?.map((info) => <small key={info}>Modellinformasjon: {info}</small>)}
             </div>
           </div>
 
