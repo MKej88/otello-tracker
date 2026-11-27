@@ -298,7 +298,7 @@ def test_current_dashboard_quality_reports_net_estimate_as_model_information() -
     assert quality["status"] == "OK"
     assert quality["reasons"] == []
     assert len(quality["model_information"]) == 1
-    assert "Otellos faktiske skattebehandling" in quality["model_information"]
+    assert "Otellos faktiske skattebehandling" in quality["model_information"][0]
 
 
 def _running_full_payload(now: datetime) -> tuple[dict, dict]:
