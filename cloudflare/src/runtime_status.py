@@ -365,6 +365,9 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
         "data_status": data_status,
         "as_of_date": str(full.get("as_of_at") or "")[:10] or None,
         "reasons": reasons,
+        "model_information": ([
+            "Bemobi-fordringen er estimert netto etter dokumenterte utdelingsvilkår. Otellos faktiske skattebehandling er ikke bekreftet før rapportavstemming."
+        ] if details.get("receivable_quality") == "ESTIMATED_NET" else []),
     }
 
 
