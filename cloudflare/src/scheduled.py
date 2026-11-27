@@ -248,6 +248,8 @@ async def run_fast_refresh(
     exr_enabled: bool = False,
     exr_license_approved: bool = False,
     exr_api_key: str | None = None,
+    translation_ai: Any | None = None,
+    translation_model: str | None = None,
 ) -> dict[str, Any]:
     """Run the bounded 30-minute ingestion path with cheap no-change behavior."""
     run_started = perf_counter()
@@ -642,6 +644,25 @@ async def run_fast_refresh(
 
     await renew("after Brazil snapshot")
 
+    # Optional document processing runs after market data and NAV; it cannot fail the core refresh.
+    if translation_ai is not None and archive_bucket is not None:
+        from bemobi_document_translation import (
+            DEFAULT_WORKERS_AI_MODEL, WorkersAIProvider, run_translation_queue,
+        )
+
+        translation_errors: list[dict[str, str]] = []
+        await _safe_async_step(
+            "bemobi_translation",
+            lambda: run_translation_queue(
+                repository, archive_bucket,
+                WorkersAIProvider(translation_ai, str(translation_model or DEFAULT_WORKERS_AI_MODEL)),
+                limit=1,
+            ),
+            steps=steps, errors=translation_errors, timings_ms=timings_ms,
+        )
+        if translation_errors:
+            steps["bemobi_translation"]["non_critical"] = True
+
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}
     failed_sources = len(
@@ -808,6 +829,8 @@ async def run_scheduled(
     exr_enabled: bool = False,
     exr_license_approved: bool = False,
     exr_api_key: str | None = None,
+    translation_ai: Any | None = None,
+    translation_model: str | None = None,
 ) -> dict[str, Any]:
     if cron != FAST_REFRESH_CRON:
         return {"status": "SKIPPED", "reason": "unknown_cron", "cron": cron}
@@ -863,6 +886,8 @@ async def run_scheduled(
             scheduled_time_ms=scheduled_time_ms,
             renew_lock=renew_lock,
             **exr_options,
+            **({"translation_ai": translation_ai, "translation_model": translation_model}
+               if translation_ai is not None else {}),
         )
     finally:
         await release_refresh_lock(repository, lock_token)
