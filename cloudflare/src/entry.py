@@ -552,11 +552,8 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                     provider = WorkersAIProvider(
                         ai=ai_binding,
                         model=str(
-                            getattr(
-                                self.env,
-                                "BEMOBI_TRANSLATION_MODEL",
-                                DEFAULT_WORKERS_AI_MODEL,
-                            )
+                            getattr(self.env, "BEMOBI_TRANSLATION_MODEL", None)
+                            or DEFAULT_WORKERS_AI_MODEL
                         ),
                     )
                     return await run_translation_queue(repository, self.env.SOURCE_ARCHIVE, provider)

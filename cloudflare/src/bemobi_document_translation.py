@@ -5,6 +5,7 @@ import io
 import inspect
 import json
 import re
+from urllib.parse import urlencode, urlsplit
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -13,16 +14,20 @@ from pypdf import PdfReader
 from bounded_response import read_response_bytes
 
 MAX_PDF_BYTES = 30 * 1024 * 1024
-MAX_CHUNK_CHARACTERS = 12_000
-TRANSLATOR_VERSION = "bemobi-nb-v1"
-DEFAULT_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+MAX_CHUNK_CHARACTERS = 4_000
+MAX_SUMMARY_CHARACTERS = 48_000
+MAX_DOCUMENT_CHUNKS = 40
+TRANSLATOR_VERSION = "bemobi-nb-v2"
+DEFAULT_WORKERS_AI_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 STALE_PROCESSING_HOURS = 6
 MAX_TRANSLATION_ATTEMPTS = 3
 RETRY_DELAY_HOURS = 6
 
 # Both nightly and half-hour workers use the same atomic claim predicate.
 _ELIGIBLE = """(
-    (translation_status='PENDING' AND translation_attempts < 3)
+    (translation_status='PENDING' AND translation_attempts < 3
+        AND (translation_attempts=0 OR translation_processed_at IS NULL
+             OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 hours')))
     OR (translation_status='FAILED' AND translation_attempts < 3
         AND (translation_processed_at IS NULL OR translation_processed_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-6 hours')))
     OR (translation_status='PROCESSING'
@@ -35,7 +40,7 @@ _VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 _RETRYABLE_EXTERNAL_ERROR_RE = re.compile(
-    r"(?:rate[ -]?limit|HTTP (?:408|429|5\d\d)\b)", re.IGNORECASE
+    r"(?:rate[ -]?limit|out of capacity|HTTP (?:408|429|5\d\d)\b)", re.IGNORECASE
 )
 
 
@@ -53,30 +58,47 @@ class WorkersAIProvider:
     model: str
 
     async def complete(self, instruction: str, text: str) -> str:
-        result = self.ai.run(
-            self.model,
-            {
-                "messages": [
-                    {"role": "system", "content": instruction},
-                    {"role": "user", "content": text},
-                ],
-                "temperature": 0,
-                "max_tokens": 4096,
-            },
-        )
+        inputs = {
+            "messages": [
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0,
+            "max_tokens": 4096,
+        }
+        # Native bindings expect a JavaScript object, not a Python dict proxy/Map.
+        try:
+            from js import Object
+            from pyodide.ffi import to_js
+        except ImportError:
+            payload = inputs  # CPython tests
+        else:
+            payload = to_js(inputs, dict_converter=Object.fromEntries)
+        result = self.ai.run(self.model, payload)
         if inspect.isawaitable(result):
             result = await result
-        if isinstance(result, dict):
-            response = result.get("response")
-        else:
-            response = getattr(result, "response", None)
-            to_py = getattr(response, "to_py", None)
-            if callable(to_py):
-                response = to_py()
-        text_response = str(response or "").strip()
-        if not text_response:
+        if not isinstance(result, dict):
+            # JSON round-trip converts nested JS arrays/objects reliably.
+            try:
+                from js import JSON
+                result = json.loads(str(JSON.stringify(result)))
+            except ImportError:
+                converter = getattr(result, "to_py", None)
+                if callable(converter):
+                    result = converter()
+        if not isinstance(result, dict):
+            raise RuntimeError("Workers AI returnerte et ugyldig svarformat")
+        response = result.get("response")
+        if isinstance(result.get("choices"), list) and result["choices"]:
+            choice = result["choices"][0]
+            if not isinstance(choice, dict) or choice.get("finish_reason") != "stop":
+                raise RuntimeError("Workers AI fullførte ikke tekstgenereringen")
+            message = choice.get("message")
+            response = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(response, str) or not response.strip():
             raise RuntimeError("Workers AI returnerte et tomt eller ugyldig svar")
-        return text_response
+        return response.strip()
+
 
 
 def detect_language(text: str) -> str:
@@ -235,7 +257,10 @@ _SUMMARY_INSTRUCTION = """Skriv på norsk bokmål en faktabasert investorsammend
 
 
 def parse_summary_response(payload: str) -> tuple[str, str]:
-    summary = json.loads(payload)
+    try:
+        summary = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Workers AI-oppsummeringen er ikke gyldig JSON") from exc
     if not isinstance(summary, dict):
         raise ValueError("Workers AI-oppsummeringen er ikke et JSON-objekt")
 
@@ -246,6 +271,67 @@ def parse_summary_response(payload: str) -> tuple[str, str]:
     if not isinstance(norwegian_summary, str) or not norwegian_summary.strip():
         raise ValueError("Workers AI-oppsummeringen mangler et gyldig summary-felt")
     return title.strip(), norwegian_summary.strip()
+
+
+def _official_document_fallbacks(url: str) -> list[str]:
+    """Transport alternatives only; never substitute a different filing."""
+    from bemobi_cvm_rad import CANONICAL, DOWNLOAD, filing_identity
+    from bemobi_web_refresh import _official_mziq_document_fallbacks
+
+    identity = filing_identity(url)
+    if identity:
+        protocol, sequence, version = identity
+        canonical = CANONICAL if urlsplit(url).path != urlsplit(CANONICAL).path else DOWNLOAD
+        return [canonical + "?" + urlencode({
+            "CodigoInstituicao": 1, "Tela": "99" if canonical == CANONICAL else "ext",
+            "descTipo": "IPE", "numProtocolo": protocol, "numSequencia": sequence,
+            "numVersao": version,
+        })]
+    return _official_mziq_document_fallbacks(url)
+
+
+async def _download_original(url: str, bucket: Any, downloader: Any) -> bytes:
+    from bemobi_cvm_rad import filing_identity
+    from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, read_verified_q3_document
+
+    original_error = None
+    for candidate in [url, *_official_document_fallbacks(url)]:
+        try:
+            response = await downloader(candidate, headers={"Accept": "application/pdf"})
+            if not bool(getattr(response, "ok", False)):
+                raise RuntimeError(f"originaldokument HTTP {getattr(response, 'status', 'ukjent')}")
+            payload = await read_response_bytes(response, max_bytes=MAX_PDF_BYTES, label="Bemobi PDF")
+            if not payload.startswith(b"%PDF"):
+                raise ValueError("Originaldokumentet er ikke en PDF")
+            return payload
+        except Exception as exc:
+            if original_error is None:
+                original_error = exc
+    # Existing private R2 copies are pinned to exact official CVM filing IDs and hashes.
+    identity = filing_identity(url)
+    if identity and bucket is not None:
+        for kind, document in PINNED_Q3_DOCUMENTS.items():
+            if identity == filing_identity(document["url"]):
+                try:
+                    payload, _ = await read_verified_q3_document(bucket, kind)
+                    return payload
+                except Exception:
+                    pass
+    raise original_error
+
+
+async def _summarize_document(provider: TranslationProvider, text: str) -> tuple[str, str]:
+    if len(text) <= MAX_SUMMARY_CHARACTERS:
+        return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, text))
+    # Summarize all sections, never silently truncate a long financial filing.
+    summaries = []
+    for _, chunk in stable_chunks(text, limit=MAX_SUMMARY_CHARACTERS):
+        title, summary = parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, chunk))
+        summaries.append(title + "\n" + summary)
+    combined = "\n\n".join(summaries)
+    if len(combined) > MAX_SUMMARY_CHARACTERS:
+        raise ValueError("Deloppsummeringene overskrider sikker lengdegrense")
+    return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, combined))
 
 
 async def process_pending_translations(
@@ -282,6 +368,7 @@ async def process_pending_translations(
             continue
         print(f"bemobi_translation processing document_id={document_id}")
         attempts_before = int(row.get("translation_attempts") or 0)
+        stage = "claim"
         try:
             if attempts_before >= MAX_TRANSLATION_ATTEMPTS:
                 raise ValueError("Maksimalt antall behandlingsforsøk etter avbrutt kjøring")
@@ -290,16 +377,9 @@ async def process_pending_translations(
                 from workers import fetch
 
                 downloader = fetch
-            response = await downloader(
-                str(row["url"]), headers={"Accept": "application/pdf"}
-            )
-            if not bool(getattr(response, "ok", False)):
-                raise RuntimeError(
-                    f"originaldokument HTTP {getattr(response, 'status', 'ukjent')}"
-                )
-            payload = await read_response_bytes(
-                response, max_bytes=MAX_PDF_BYTES, label="Bemobi PDF"
-            )
+            stage = "download"
+            payload = await _download_original(str(row["url"]), bucket, downloader)
+            stage = "deduplication"
             content_hash = hashlib.sha256(payload).hexdigest()
             duplicate = await repository.first(
                 """SELECT original_language, extraction_status, summary_status,
@@ -335,6 +415,7 @@ async def process_pending_translations(
                 print(f"bemobi_translation ready document_id={document_id} reused=true")
                 completed += 1
                 continue
+            stage = "pdf_extraction"
             text = extract_pdf_text(payload)
             if len(re.sub(r"\s+", "", text)) < 80:
                 raise ValueError("PDF-en mangler lesbar tekst og krever OCR")
@@ -348,18 +429,24 @@ async def process_pending_translations(
                 )
                 completed += 1
                 continue
+            stage = "translation"
+            chunks = stable_chunks(text)
+            if len(chunks) > MAX_DOCUMENT_CHUNKS:
+                raise ValueError("Dokumentet overskrider sikker behandlingsgrense")
             translations = []
-            for chunk_id, chunk in stable_chunks(text):
+            for chunk_id, chunk in chunks:
                 translated = await provider.complete(
                     _TRANSLATE_INSTRUCTION, f"[{chunk_id}]\n{chunk}"
                 )
                 translations.append(translated)
             full_translation = "\n\n".join(translations)
+            stage = "value_validation"
             missing = validate_preserved_values(text, full_translation)
             if missing:
                 raise ValueError(f"verdikontroll feilet ({len(missing)} mangler)")
-            summary_raw = await provider.complete(_SUMMARY_INSTRUCTION, text)
-            title, norwegian_summary = parse_summary_response(summary_raw)
+            stage = "summary"
+            title, norwegian_summary = await _summarize_document(provider, text)
+            stage = "archive"
             key = translated_object_key(content_hash)
             pdf = render_norwegian_pdf(
                 title, str(row.get("published_at") or ""), full_translation
@@ -385,7 +472,8 @@ async def process_pending_translations(
             print(f"bemobi_translation ready document_id={document_id}")
             completed += 1
         except Exception as exc:
-            reason = str(exc)[:300]
+            # Store stage and exception class; raw diagnostic stays private in D1.
+            reason = f"{stage}:{type(exc).__name__}: {str(exc)[:240]}"
             if (_is_retryable_external_error(exc)
                     and attempts_before + 1 < MAX_TRANSLATION_ATTEMPTS):
                 await repository.run(
@@ -402,7 +490,7 @@ async def process_pending_translations(
                     (reason, document_id),
                 )
             print(
-                f"bemobi_translation failed document_id={document_id} reason={reason}"
+                f"bemobi_translation failed document_id={document_id} stage={stage} type={type(exc).__name__}"
             )
             failed += 1
     return {"selected": len(rows), "completed": completed, "failed": failed}
@@ -439,6 +527,7 @@ async def run_translation_queue(repository: Any, bucket: Any, provider: Translat
     warning = bool(queue["failed"] or queue["overdue"] or result["failed"])
     return {
         **result, "status": "partial" if warning else "ok", "non_critical": True,
+        "model": provider.model,
         "queue": queue,
         **({"reason": f"{queue['failed']} feilet ({queue['exhausted']} uten flere automatiske forsøk), "
                       f"{queue['overdue']} forsinket, {result['failed']} feil i denne kjøringen"} if warning else {}),

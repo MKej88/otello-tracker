@@ -16,6 +16,9 @@ sys.path.insert(0, str(SOURCE_DIR))
 from bemobi_document_translation import (  # noqa: E402
     DEFAULT_WORKERS_AI_MODEL,
     WorkersAIProvider,
+    _download_original,
+    _official_document_fallbacks,
+    _summarize_document,
     detect_language,
     is_safe_translated_key,
     parse_summary_response,
@@ -125,11 +128,20 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
         result = await provider.complete("Oversett til norsk", "Texto português")
 
         self.assertEqual(result, "Norsk oversettelse")
-        self.assertEqual(ai.calls[0][0], "@cf/meta/llama-3.1-8b-instruct")
+        self.assertEqual(ai.calls[0][0], "@cf/google/gemma-4-26b-a4b-it")
         messages = ai.calls[0][1]["messages"]
         self.assertEqual(messages[0]["role"], "system")
         self.assertEqual(messages[1]["content"], "Texto português")
         self.assertNotIn("api_key", provider.__dataclass_fields__)
+
+    async def test_chat_completion_response_and_truncation(self) -> None:
+        provider = WorkersAIProvider(FakeWorkersAI({"choices": [{
+            "finish_reason": "stop", "message": {"content": "Norsk tekst"}}]}), DEFAULT_WORKERS_AI_MODEL)
+        self.assertEqual(await provider.complete("Oversett", "Texto"), "Norsk tekst")
+        provider = WorkersAIProvider(FakeWorkersAI({"choices": [{
+            "finish_reason": "length", "message": {"content": "Avkortet tekst"}}]}), DEFAULT_WORKERS_AI_MODEL)
+        with self.assertRaisesRegex(RuntimeError, "fullførte ikke"):
+            await provider.complete("Oversett", "Texto")
 
     async def test_summary_json_is_returned_unchanged(self) -> None:
         summary = '{"title":"Styreprotokoll","summary":"Kort fortalt: Vedtak."}'
@@ -155,6 +167,42 @@ class WorkersAIProviderTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "tomt eller ugyldig"):
             await provider.complete("Oversett", "Dokument")
+
+
+class OriginalFallbackTest(unittest.IsolatedAsyncioTestCase):
+    async def test_cvm_alternate_preserves_exact_filing_identity(self):
+        from bemobi_cvm_rad import filing_identity
+        url = ("https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?"
+               "CodigoInstituicao=1&Tela=ext&descTipo=IPE&numProtocolo=12&numSequencia=34&numVersao=2")
+        alternate = _official_document_fallbacks(url)[0]
+        self.assertNotEqual(url, alternate)
+        self.assertEqual(filing_identity(url), filing_identity(alternate))
+        calls = []
+
+        async def fetcher(candidate, **kwargs):
+            calls.append(candidate)
+            if candidate == url:
+                return SimpleNamespace(ok=False, status=526)
+            async def body():
+                return b"%PDF-1.4 test"
+            return SimpleNamespace(ok=True, headers={}, arrayBuffer=body)
+
+        self.assertEqual(await _download_original(url, None, fetcher), b"%PDF-1.4 test")
+        self.assertEqual(calls, [url, alternate])
+        self.assertEqual(_official_document_fallbacks("https://example.com/a.pdf"), [])
+
+    async def test_summary_is_bounded_and_all_sections_are_used(self):
+        class Provider:
+            def __init__(self):
+                self.calls = []
+            async def complete(self, instruction, text):
+                self.calls.append(text)
+                return '{"title":"Tittel","summary":"Kort fortalt: Sammendrag."}'
+        provider = Provider()
+        await _summarize_document(provider, "A" * 48_000 + "B" * 48_000)
+        self.assertEqual(provider.calls[:2], ["A" * 48_000, "B" * 48_000])
+        self.assertEqual(len(provider.calls), 3)
+        self.assertTrue(all(len(x) <= 48_000 for x in provider.calls))
 
 
 class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
@@ -192,7 +240,8 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
                         VALUES
                         (3,1,'https://example.com/failed.pdf','Feilet','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours'),1),
                         (4,1,'https://example.com/recent.pdf','Nylig','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now'),1),
-                        (5,1,'https://example.com/exhausted.pdf','Oppbrukt','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours'),3);
+                        (5,1,'https://example.com/exhausted.pdf','Oppbrukt','FAILED',strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours'),3),
+                        (6,1,'https://example.com/retry.pdf','Vent','PENDING',strftime('%Y-%m-%dT%H:%M:%fZ','now'),1);
                     """)
 
             async def all(self, query: str, parameters: tuple[object, ...]):
@@ -258,7 +307,7 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 1})
         final_query, final_parameters = repository.updates[-1]
         self.assertIn("translation_status='PENDING'", final_query)
-        self.assertEqual(final_parameters, ("rate limit", 9))
+        self.assertEqual(final_parameters, ("translation:RuntimeError: rate limit", 9))
 
 
 class FakeRepository:
