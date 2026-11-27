@@ -1,0 +1,84 @@
+name: Bemobi CVM document 7540 verified normalization
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/bemobi-cvm-7540-recovery.yml
+      - tools/recover_bemobi_cvm_7540.py
+      - cloudflare/src/bemobi_7540_normalization.py
+      - backend/tests/test_bemobi_7540_normalization.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bemobi-cvm-7540-recovery-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_7540_normalization.py
+
+  recover:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Limit automatic recovery to the normalization change
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || git diff --name-only HEAD^1 HEAD | grep -Eq '^(cloudflare/src/bemobi_7540_normalization.py|tools/recover_bemobi_cvm_7540.py|.github/workflows/bemobi-cvm-7540-recovery.yml)$'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: "22"
+      - if: steps.scope.outputs.run == 'true'
+        run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Read only eligible historic document 7540
+        if: steps.scope.outputs.run == 'true'
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/recover_bemobi_cvm_7540.py collect "$RUNNER_TEMP/cvm-7540-recovery"
+      - name: Verify official response and both PDF versions without credentials
+        if: steps.scope.outputs.run == 'true'
+        run: python3 tools/recover_bemobi_cvm_7540.py build "$RUNNER_TEMP/cvm-7540-recovery"
+      - if: steps.scope.outputs.run == 'true'
+        run: npm ci --prefix cloudflare --no-audit --no-fund
+      - name: Publish verified original and derivative then reactivate exact row
+        if: steps.scope.outputs.run == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: python3 tools/recover_bemobi_cvm_7540.py publish "$RUNNER_TEMP/cvm-7540-recovery"
