@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { usePollingResource } from "./usePollingResource";
 import { formatDate, formatDateTime } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
+import { fastRefreshIssue, type SecondaryWarning } from "./fastRefreshQuality";
 import "./data-quality.css";
 
 const REFRESH_MS = 60_000;
@@ -13,6 +14,7 @@ type Job = {
   finished_at?: string | null;
   stale?: boolean;
   has_error?: boolean;
+  secondary_warning?: SecondaryWarning | null;
   target_date?: string | null;
   records_written?: number;
   source_health?: Record<string, string>;
@@ -111,6 +113,8 @@ type Issue = {
   state: QualityState;
   detail: string;
   lastGood?: string | null;
+  lastRun?: string | null;
+  badgeLabel?: string;
   checkedAt?: string | null;
   affects?: string | null;
 };
@@ -325,27 +329,8 @@ export default function DataQualityPage() {
       });
     }
 
-    if (runtime?.fast_refresh?.stale) {
-      next.push({
-        id: "fast-refresh-stale",
-        title: "Løpende oppdatering er eldre enn forventet",
-        state: "DEGRADED",
-        detail: "30-minutterskjøringen er eldre enn forventet. Siste gode data vises inntil en ny kjøring lykkes.",
-        lastGood: runtime.fast_refresh.finished_at,
-        checkedAt: runtime.checked_at,
-        affects: "Markedsdata, valuta og førstesiden",
-      });
-    } else if (runtime?.fast_refresh?.has_error) {
-      next.push({
-        id: "fast-refresh-error",
-        title: "Siste løpende oppdatering registrerte en feil",
-        state: "DEGRADED",
-        detail: "Siste 30-minutterskjøring registrerte en feil. Siste gode data beholdes der nye data ikke ble godkjent.",
-        lastGood: runtime.fast_refresh.finished_at,
-        checkedAt: runtime.checked_at,
-        affects: "Markedsdata, valuta og førstesiden",
-      });
-    }
+    const fastIssue = fastRefreshIssue(runtime?.fast_refresh, runtime?.checked_at);
+    if (fastIssue) next.push(fastIssue);
 
     if (runtime?.fx?.current === false) {
       next.push({
@@ -473,12 +458,13 @@ export default function DataQualityPage() {
           <div className="qualityIssueList">
             {issues.map((issue) => (
               <article className="qualityIssue" key={issue.id}>
-                <span className={statusClass(issue.state)}>{statusLabel(issue.state)}</span>
+                <span className={statusClass(issue.state)}>{issue.badgeLabel ?? statusLabel(issue.state)}</span>
                 <div>
                   <strong>{issue.title}</strong>
                   <p>{issue.detail}</p>
                   <div className="qualityIssueMeta">
                     {issue.lastGood && <span>Siste gode: {formatDateTime(issue.lastGood)}</span>}
+                    {issue.lastRun && <span>Siste kjøring: {formatDateTime(issue.lastRun)}</span>}
                     {issue.checkedAt && <span>Kontrollert: {formatDateTime(issue.checkedAt)}</span>}
                     {issue.affects && <span>Påvirker: {issue.affects}</span>}
                   </div>

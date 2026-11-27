@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 try:
+    from .fast_refresh_diagnostic import public_fast_refresh_warning
     from .nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
     from .nightly_trigger import nightly_is_overdue
     from .dashboard_hot_snapshot import dashboard_hot_snapshot_status
@@ -13,6 +14,7 @@ try:
     from .after_oslo_fx import fx_close_movement
     from .bemobi_after_oslo import latest_oslo_close, iso, timestamp
 except ImportError:
+    from fast_refresh_diagnostic import public_fast_refresh_warning
     from nav_quality_policy import _dashboard_quality_reasons, _expected_between_reports
     from nightly_trigger import nightly_is_overdue
     from dashboard_hot_snapshot import dashboard_hot_snapshot_status
@@ -476,6 +478,10 @@ async def runtime_status_summary(
         completed_max_age=FAST_MAX_AGE,
         running_max_age=FAST_RUNNING_MAX_AGE,
     )
+    if fast_row:
+        fast["secondary_warning"] = public_fast_refresh_warning(
+            fast_row, now=current, max_age=FAST_MAX_AGE,
+        )
     expected_fx_date = expected_norges_bank_date(current)
     latest_common_date = fx.get("latest_common_date")
     fx_current = (

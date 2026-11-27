@@ -176,3 +176,42 @@ def assess_fast_refresh_window(records: list[dict], *,
         return report
     report.update(severity="WARNING", reason="recent_running_with_healthy_previous")
     return report
+
+
+# Only fixed categories and counts leave D1; never expose document URLs or error text.
+TRANSLATION_ERROR_GROUPS_SQL = """
+SELECT CASE
+    WHEN translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+    WHEN translation_error LIKE '%krever OCR%' THEN 'pdf_without_text'
+    WHEN translation_error LIKE 'originaldokument HTTP %' THEN 'document_http'
+    WHEN translation_error LIKE '%Workers AI%' OR translation_error LIKE '%JSON%' THEN 'ai_response'
+    WHEN translation_error LIKE '%Maksimalt antall behandlingsforsøk%' THEN 'interrupted_exhausted'
+    ELSE 'other'
+END AS reason,
+COUNT(*) AS document_count,
+SUM(CASE WHEN translation_attempts >= 3 THEN 1 ELSE 0 END) AS exhausted_count
+FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+WHERE s.code IN ('CVM','BEMOBI_IR')
+  AND sd.translation_status IN ('FAILED','PENDING') AND sd.translation_error IS NOT NULL
+GROUP BY 1 ORDER BY 1
+"""
+
+
+def public_fast_refresh_warning(record: dict, *, now: datetime, max_age: timedelta) -> dict | None:
+    """Only confirmed secondary failures may narrow the public impact description."""
+    report = assess_fast_refresh(record, now=now, max_age=max_age)
+    if report["reason"] != "confirmed_noncritical_steps":
+        return None
+    steps = sorted({item["step"] for item in report["steps"]})
+    payload: dict[str, Any] = {"steps": steps}
+    if "bemobi_translation" in steps:
+        translation = _metadata(record.get("metadata_json"))["steps"]["bemobi_translation"]
+        queue = translation.get("queue")
+        if isinstance(queue, dict):
+            counts = {key: queue[key] for key in ("failed", "exhausted", "overdue")
+                      if type(queue.get(key)) is int and queue[key] >= 0}
+            failed = translation.get("failed")
+            if type(failed) is int and failed >= 0:
+                counts["failed_this_run"] = failed
+            payload["translation_queue"] = counts
+    return payload
