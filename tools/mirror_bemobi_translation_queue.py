@@ -94,16 +94,36 @@ def get_listing(opener, delivery):
         return json.loads(bounded_read(resp, MAX_INDEX))
 
 
+class MirrorFailure(ValueError):
+    """Fixed, non-sensitive stage codes for public workflow diagnostics."""
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
 def build_document(opener, row, listings):
     identity = filing_identity(row["url"])
-    delivery = date.fromisoformat(row["delivery"]).isoformat()
+    try:
+        delivery = date.fromisoformat(row["delivery"]).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise MirrorFailure("invalid_delivery_date") from exc
     if not identity:
-        raise ValueError("Mangler støttet CVM IPE-identitet")
+        raise MirrorFailure("unsupported_filing_identity")
     if delivery not in listings:
-        listings[delivery] = get_listing(opener, delivery)
+        try:
+            listings[delivery] = get_listing(opener, delivery)
+        except urllib.error.HTTPError as exc:
+            raise MirrorFailure(f"listing_http_{exc.code}") from exc
+        except Exception as exc:
+            raise MirrorFailure("listing_unavailable") from exc
     listing = listings[delivery]
-    validate_listing(listing, identity, delivery)
+    try:
+        validate_listing(listing, identity, delivery)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise MirrorFailure("listing_identity_or_date_not_verified") from exc
+    failures = []
     for url in official_urls(identity):
+        stage = "download"
         try:
             request = urllib.request.Request(url, headers={**HEADERS, "Accept": "application/pdf"})
             with opener.open(request, timeout=40) as resp:
@@ -114,14 +134,20 @@ def build_document(opener, row, listings):
             artifact = dict(url=url, bytes=len(raw), sha256=digest, key=pdf_key(identity, digest))
             manifest = dict(schema=1, cvm_code="25500", identity=list(identity),
                             delivery=delivery, listing=listing, artifact=artifact)
-            verify_pdf(raw, validate_manifest(manifest, identity))
+            stage = "manifest"
+            verified = validate_manifest(manifest, identity)
+            stage = "pdf_integrity"
+            verify_pdf(raw, verified)
+            stage = "pdf_readability"
             reader = PdfReader(io.BytesIO(raw))
             if reader.is_encrypted or not reader.pages:
                 raise ValueError("PDF kan ikke leses")
             return manifest, raw
-        except (ValueError, OSError, urllib.error.URLError):
-            continue
-    raise ValueError("Ingen verifiserbar PDF fra offisiell CVM")
+        except urllib.error.HTTPError as exc:
+            failures.append(f"http_{exc.code}")
+        except (ValueError, OSError, urllib.error.URLError) as exc:
+            failures.append(stage + "_" + type(exc).__name__)
+    raise MirrorFailure("official_routes_failed:" + ",".join(failures))
 
 
 def build(folder):
@@ -148,7 +174,8 @@ def build(folder):
             print(f"Dokument {document_id}: verifisert original")
         except Exception as exc:
             failures += 1
-            print(f"Dokument {document_id}: ikke verifisert ({type(exc).__name__})")
+            detail = exc.code if isinstance(exc, MirrorFailure) else type(exc).__name__
+            print(f"Dokument {document_id}: ikke verifisert ({detail})")
     print(f"Verifisert: {successes}; uavklart: {failures}")
     if rows and not successes:
         raise SystemExit("Ingen dokumenter kunne verifiseres; eksisterende R2-kopier er bevart")
