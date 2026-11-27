@@ -84,6 +84,12 @@ def main() -> int:
         issues.append("session:wrong_close_date")
     if issues:
         print("FAILURE: " + ", ".join(issues))
+        fx = response.get("fx_movement") or {}
+        if isinstance(fx, dict):
+            cause = fx.get("capture_reason")
+            observed = fx.get("capture_observed_at")
+            print("BRL/NOK capture: reason=" + str(cause or "not_recorded") +
+                  ", observed_at=" + str(observed or "-"))
         diagnostics = response.get("refresh_diagnostics") or {}
         if isinstance(diagnostics, dict):
             for name in ("bemobi_reference", "bemobi_quote", "fx_reference", "fx_quote"):

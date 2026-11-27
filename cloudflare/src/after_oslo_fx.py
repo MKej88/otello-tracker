@@ -24,7 +24,8 @@ except ImportError:
     from oslo_calendar import next_oslo_open_after
 
 REFERENCE_PREFIX = "brlnok_oslo_reference_v1:"
-CLOSE_LOOKBACK = timedelta(minutes=3)
+PREFERRED_CLOSE_LOOKBACK = timedelta(minutes=3)
+CLOSE_LOOKBACK = timedelta(minutes=5)
 # Don't accept an FX observation after close; the indicator is then no
 # longer an accurate close reference. Allow 5s rounding on the source clock.
 CLOSE_FUTURE_TOLERANCE = timedelta(seconds=5)
@@ -67,17 +68,19 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
             ("brlnok_oslo_capture_last_result",),
         )
         capture_details: dict[str, Any] = {}
+        capture_seen = False
         if attempt:
             try:
                 captured_at = timestamp(attempt.get("updated_at"))
                 details = json.loads(attempt["value"])
                 if (captured_at is not None and close <= captured_at <= measured_until
                         and isinstance(details, dict)):
+                    capture_seen = True
                     allowed = {
                         "fx_disabled_or_not_approved", "upstream_error",
                         "observation_not_near_oslo_close", "missing_sanity_reference",
                         "deviation_from_official_rate", "provider_error",
-                        "no_valid_stored_reference",
+                        "no_valid_stored_reference", "awaiting_closer_reference",
                     }
                     if details.get("reason") in allowed:
                         capture_details["capture_reason"] = details["reason"]
@@ -86,6 +89,8 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
                         capture_details["capture_observed_at"] = iso(observed)
             except (TypeError, ValueError, ArithmeticError, KeyError):
                 pass
+        if not capture_seen and current >= close + timedelta(minutes=35):
+            capture_details["capture_reason"] = "capture_not_recorded"
         return {"ready": False, "reason": "missing_oslo_close_fx_reference",
                 **latest_display, **capture_details}
     try:
@@ -223,6 +228,11 @@ async def capture_fx_close_reference(
                DO NOTHING""",
             (quote["observed_at"], format(quote["rate"], "f"), source_id),
         )
+        # Save a real 3–5 minute candidate, but wait for the normal capture
+        # window to finish before freezing it. Recovery picks the nearest row.
+        if observed < close - PREFERRED_CLOSE_LOOKBACK:
+            return {"status": "skipped", "reason": "awaiting_closer_reference",
+                    "observed_at": quote["observed_at"], "close_at": iso(close)}
         reference = {
             "rate": format(quote["rate"], "f"),
             "observed_at": quote["observed_at"],
@@ -328,6 +338,14 @@ async def run_fx_close_capture(database: Any, *, now: datetime, enabled: bool, a
         recovery = await recover_fx_close_reference(repository, now=now)
         if recovery.get("status") == "ok":
             result = {**recovery, "capture_fallback_reason": result.get("reason")}
+    # Preserve individual attempts for the session, including rejected provider
+    # timestamps. The existing last-result key remains backward compatible.
+    attempt_key = "brlnok_oslo_capture_attempt:" + capture_window(now).astimezone(ZoneInfo("Europe/Oslo")).date().isoformat() + ":" + iso(now)
+    await repository.run(
+        """INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+        (attempt_key, json.dumps(result, sort_keys=True), iso(now)),
+    )
     # Explicit, non-secret result for later read-only production diagnostics.
     await repository.run(
         """INSERT INTO runtime_state(key,value,updated_at) VALUES (?,?,?)

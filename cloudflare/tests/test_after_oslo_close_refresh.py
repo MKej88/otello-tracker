@@ -81,6 +81,33 @@ class PostCloseRefreshTests(unittest.TestCase):
                 self.assertTrue(repo.writes)
                 self.assertEqual(result["card_status"], "ready")
 
+    def test_retries_reference_after_new_fx_quote_is_written(self):
+        repo = FakeRepository()
+        events = []
+
+        async def recover(_repo, *, now):
+            events.append("recover")
+            return {"status": "ok"} if "fx_quote" in events else {"status": "missing"}
+
+        async def refresh(*args, **kwargs):
+            events.append("fx_quote")
+            return {"status": "ok"}
+
+        with (
+            patch.object(repository_module, "D1WriteRepository", return_value=repo),
+            patch.object(after_oslo, "bemobi_after_oslo", new=ready),
+            patch.object(scheduled, "recover_reference", new=recover_ok),
+            patch.object(scheduled, "recover_fx_close_reference", new=recover),
+            patch.object(scheduled, "refresh_bmob3_intraday_price", new=refresh_ok),
+            patch.object(scheduled, "refresh_exchangerate_dev_brl_nok", new=refresh),
+        ):
+            result = asyncio.run(scheduled.run_after_oslo_close_refresh(
+                object(), now=dt("2026-11-27T15:47:00Z"),
+                exr_enabled=True, exr_license_approved=True,
+            ))
+        self.assertEqual(events, ["recover", "fx_quote", "recover"])
+        self.assertEqual(result["steps"]["fx_reference"]["status"], "ok")
+
     def test_wrong_dst_hour_before_window_and_holidays_do_not_fetch(self):
         for now in ("2026-11-18T14:47:00Z", "2026-07-08T15:47:00Z",
                     "2026-11-18T15:36:00Z", "2026-11-21T15:47:00Z",
