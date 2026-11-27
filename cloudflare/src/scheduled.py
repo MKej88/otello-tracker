@@ -660,8 +660,12 @@ async def run_fast_refresh(
             ),
             steps=steps, errors=translation_errors, timings_ms=timings_ms,
         )
-        if translation_errors:
-            steps["bemobi_translation"]["non_critical"] = True
+        translation = steps["bemobi_translation"]
+        if translation_errors or translation.get("status") == "partial":
+            translation["non_critical"] = True
+            errors.append({"step": "bemobi_translation",
+                           "error": str(translation.get("reason") or "Oversettelseskø krever oppfølging"),
+                           "error_type": "TranslationQueueWarning"})
 
     attempted_sources = 4
     source_prefixes = {"otec", "bmob3", "newsweb", "otello"}
