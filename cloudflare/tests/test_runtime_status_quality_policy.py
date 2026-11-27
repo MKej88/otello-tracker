@@ -47,6 +47,14 @@ def test_high_cash_reconciliation_residual_remains_an_active_warning() -> None:
     assert "høy avstemmingsrest" in reasons[0]
 
 
+def test_documented_net_receivable_is_model_information() -> None:
+    details = {"data_status": "DEGRADED", "receivable_quality": "ESTIMATED_NET"}
+    assert _expected_between_reports(details) is True
+    assert _dashboard_quality_reasons(details) == []
+    details["cash_calibration_quality"] = "HIGH_RESIDUAL"
+    assert len(_dashboard_quality_reasons(details)) == 1
+
+
 def test_gross_estimated_receivable_remains_an_active_warning() -> None:
     details = {
         "data_status": "ESTIMATED",

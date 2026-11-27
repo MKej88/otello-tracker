@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 
-from src.nav_refresh import _receivable_actions
+from src.nav_refresh import _documented_receivable_factor, _receivable_actions, _receivable_for_day
 
 
 class _Repository:
@@ -57,3 +57,41 @@ def test_receivable_actions_batch_holding_and_anchor_reads() -> None:
     assert result[0]["gross_brl"] == 25
     assert result[0]["calibration_factor"] == Decimal("0.025")
     assert result[0]["quality"] == "REPORTED_CALIBRATED"
+
+
+def test_net_entitlement_uses_published_terms_and_keeps_unknown_tax_actionable() -> None:
+    action = {"action_type": "JCP", "amount_per_share": "0.19178292",
+              "net_amount_per_share": "0.15822091", "withholding_rate": "0.175",
+              "source_document_id": 88}
+    factor, basis = _documented_receivable_factor(action)
+    assert basis == "PUBLISHED_NET"
+    assert abs(factor * Decimal(action["amount_per_share"]) - Decimal("0.15822091")) < Decimal("0.000000001")
+    assert _documented_receivable_factor({**action, "net_amount_per_share": None}) == (Decimal("0.825"), "PUBLISHED_WITHHOLDING_RATE")
+    assert _documented_receivable_factor({**action, "source_document_id": None}) is None
+    assert _documented_receivable_factor({**action, "net_amount_per_share": None, "withholding_rate": None}) is None
+    assert _documented_receivable_factor({**action, "net_amount_per_share": "0.18"}) is None
+    assert _documented_receivable_factor({**action, "net_amount_per_share": "NaN"}) is None
+
+
+def test_source_documented_net_receivable_from_ex_date_until_payment() -> None:
+    class Repo(_Repository):
+        async def all(self, sql, parameters=()):
+            rows = await super().all(sql, parameters)
+            if "FROM corporate_actions ca" in sql:
+                for row in rows:
+                    row.update(action_type="JCP", amount_per_share="0.20",
+                               net_amount_per_share="0.165", withholding_rate="0.175",
+                               calibration_anchor_id=None)
+            return rows
+
+    repo = Repo(1)
+    actions = asyncio.run(_receivable_actions(repo))
+    assert actions[0]["quality"] == "ESTIMATED_NET"
+    amount, quality, components = asyncio.run(_receivable_for_day(repo, "2025-05-01", actions))
+    assert amount == Decimal("33")
+    assert quality == "ESTIMATED_NET"
+    assert components[0]["calibration"]["basis"] == "PUBLISHED_NET"
+    assert asyncio.run(_receivable_for_day(repo, "2025-05-15", actions)) == (Decimal("0"), "NONE", [])
+    unknown = {**actions[0], "id": 100, "quality": "ESTIMATED_GROSS", "calibration_factor": Decimal("1")}
+    _, mixed_quality, _ = asyncio.run(_receivable_for_day(repo, "2025-05-01", [actions[0], unknown]))
+    assert mixed_quality == "ESTIMATED_GROSS"

@@ -237,7 +237,7 @@ def test_dashboard_quality_reasons_keep_real_quality_problems() -> None:
 
     assert reasons == [
         "Kontantestimatet ligger i en periode med høy avstemmingsrest og har lavere kvalitet.",
-        "Minst én Bemobi-fordring er bruttoestimert fordi det mangler et rapportankre i perioden.",
+        "Minst én Bemobi-fordring er bruttoestimert fordi dokumentert nettobeløp eller et brukbart rapportanker mangler.",
     ]
 
 
@@ -280,7 +280,25 @@ def test_current_dashboard_quality_keeps_raw_status_but_suppresses_normal_estima
         "data_status": "DEGRADED",
         "as_of_date": "2026-09-04",
         "reasons": [],
+        "model_information": [],
     }
+
+
+def test_current_dashboard_quality_reports_net_estimate_as_model_information() -> None:
+    class NetQualityRepository(_QualityRepository):
+        async def first(self, query: str, params=()):
+            row = await super().first(query, params)
+            if "nav_scope='FULL'" in query:
+                components = json.loads(row["components_json"])
+                components["other_net_assets"]["receivable_quality"] = "ESTIMATED_NET"
+                row["components_json"] = json.dumps(components)
+            return row
+
+    quality = asyncio.run(_current_dashboard_quality(NetQualityRepository()))
+    assert quality["status"] == "OK"
+    assert quality["reasons"] == []
+    assert len(quality["model_information"]) == 1
+    assert "Otellos faktiske skattebehandling" in quality["model_information"][0]
 
 
 def _running_full_payload(now: datetime) -> tuple[dict, dict]:
