@@ -187,7 +187,10 @@ class OriginalFallbackTest(unittest.IsolatedAsyncioTestCase):
                 return b"%PDF-1.4 test"
             return SimpleNamespace(ok=True, headers={}, arrayBuffer=body)
 
-        self.assertEqual(await _download_original(url, None, fetcher), b"%PDF-1.4 test")
+        trace = {"downloads": []}
+        self.assertEqual(await _download_original(url, None, fetcher, trace=trace), b"%PDF-1.4 test")
+        self.assertEqual(trace["downloads"], [{"route": "original", "result": "http_error", "http": 526},
+                                              {"route": "official_alternative", "result": "ok"}])
         self.assertEqual(calls, [url, alternate])
         self.assertEqual(_official_document_fallbacks("https://example.com/a.pdf"), [])
 
@@ -293,6 +296,7 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
             ai=FakeWorkersAI(RuntimeError("rate limit")),
             model=DEFAULT_WORKERS_AI_MODEL,
         )
+        diagnostics = []
         with patch(
             "bemobi_document_translation.extract_pdf_text",
             return_value="A companhia e os acionistas " * 10,
@@ -302,9 +306,15 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(),
                 provider,
                 fetcher=fetcher,
+                diagnostics=diagnostics,
             )
 
         self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 1})
+        self.assertEqual(diagnostics[0]["stage"], "translation")
+        self.assertEqual(diagnostics[0]["ai_provider_calls"], 1)
+        self.assertEqual(diagnostics[0]["ai_binding_calls"], 1)
+        self.assertEqual(diagnostics[0]["ai_responses"], 0)
+        self.assertEqual(diagnostics[0]["downloads"][0]["result"], "ok")
         final_query, final_parameters = repository.updates[-1]
         self.assertIn("translation_status='PENDING'", final_query)
         self.assertEqual(final_parameters, ("translation:RuntimeError: rate limit", 9))

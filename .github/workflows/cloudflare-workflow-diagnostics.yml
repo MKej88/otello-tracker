@@ -382,7 +382,7 @@ jobs:
           from production_monitor import monitoring_queries
           from nav_cache_audit import audit_contract, audit_queries
           from nav_followup_diagnostic import followup_queries
-          from fast_refresh_diagnostic import TRANSLATION_ERROR_GROUPS_SQL
+          from fast_refresh_diagnostic import TRANSLATION_ERROR_GROUPS_SQL, TRANSLATION_DOCUMENTS_SQL
 
           job_columns = """
               SELECT id, job_name, started_at, finished_at, status,
@@ -456,6 +456,7 @@ jobs:
           batch.extend(audit_queries(audit_contract()))
           batch.extend(followup_queries())
           batch.append({"sql": TRANSLATION_ERROR_GROUPS_SQL})
+          batch.append({"sql": TRANSLATION_DOCUMENTS_SQL})
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -495,7 +496,7 @@ jobs:
               core_nav_quality, diagnostic_severity, secondary_bemobi_warning_candidate,
           )
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
-          from fast_refresh_diagnostic import assess_fast_refresh_window
+          from fast_refresh_diagnostic import assess_fast_refresh_window, render_translation_diagnostics
           from full_refresh_diagnostic import manual_refresh_grace
           from nav_followup_diagnostic import assess_followup, render_followup
 
@@ -568,7 +569,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 16 or any(item.get("success") is False for item in result):
+          if len(result) != 17 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -761,6 +762,8 @@ jobs:
                         "| Årsak | Dokumenter | Uten flere forsøk |", "|---|---:|---:|"])
           for row in result[15].get("results") or []:
               lines.append(f"| {cell(row.get('reason'), 80)} | {int(row.get('document_count') or 0)} | {int(row.get('exhausted_count') or 0)} |")
+
+          lines.extend(render_translation_diagnostics(fast, result[16].get("results") or []))
 
           lines.extend([
               "",

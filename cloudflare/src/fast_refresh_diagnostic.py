@@ -223,3 +223,99 @@ def public_fast_refresh_warning(record: dict, *, now: datetime, max_age: timedel
                 counts["failed_this_run"] = failed
             payload["translation_queue"] = counts
     return payload
+
+
+# A bounded read-only listing of unresolved IDs, source codes and sanitized HTTP status.
+# Legacy errors are classified inside D1; raw exception messages never leave the query.
+TRANSLATION_DOCUMENTS_SQL = """
+WITH unresolved AS (
+    SELECT sd.id AS document_id, s.code AS source, sd.translation_attempts AS attempts,
+           sd.translation_status AS status,
+           CASE
+             WHEN translation_error LIKE 'claim:%' THEN 'claim'
+             WHEN translation_error LIKE 'download:%' OR translation_error LIKE 'originaldokument HTTP %' THEN 'download'
+             WHEN translation_error LIKE 'deduplication:%' THEN 'deduplication'
+             WHEN translation_error LIKE 'pdf_extraction:%' OR translation_error LIKE '%krever OCR%' THEN 'pdf_extraction'
+             WHEN translation_error LIKE 'translation:%' THEN 'translation'
+             WHEN translation_error LIKE 'value_validation:%' OR translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+             WHEN translation_error LIKE 'summary:%' THEN 'summary'
+             WHEN translation_error LIKE 'archive:%' THEN 'archive'
+             WHEN translation_error LIKE 'database_write:%' THEN 'database_write'
+             WHEN translation_error LIKE '%PyProxy%' OR translation_error LIKE '%JsException%'
+                  OR translation_error LIKE '%Cannot read properties%' OR translation_error LIKE '%object has no attribute%'
+                  OR translation_error LIKE '%not JSON serializable%' THEN 'legacy_runtime'
+             WHEN translation_error LIKE '%model%not found%' OR translation_error LIKE '%model%deprecated%'
+                  OR translation_error LIKE '%model%does not exist%' THEN 'legacy_model'
+             WHEN translation_error LIKE '%Workers AI%' THEN 'legacy_ai'
+             ELSE 'unknown' END AS stage,
+           CASE WHEN instr(translation_error, 'originaldokument HTTP ') > 0
+                THEN substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + length('originaldokument HTTP '), 3)
+                ELSE NULL END AS http_text
+    FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+    WHERE s.code IN ('CVM','BEMOBI_IR') AND sd.translation_status IN ('FAILED','PENDING')
+      AND sd.translation_error IS NOT NULL
+)
+SELECT document_id, source, attempts, status, stage,
+       CASE WHEN http_text GLOB '[1-5][0-9][0-9]' THEN CAST(http_text AS INTEGER) ELSE NULL END AS http
+FROM unresolved ORDER BY document_id DESC LIMIT 30
+"""
+
+_TRANSLATION_MODELS = frozenset({"@cf/google/gemma-4-26b-a4b-it", "@cf/meta/llama-3.1-8b-instruct"})
+_TRANSLATION_STAGES = frozenset({"claim", "download", "deduplication", "pdf_extraction", "translation",
+                                 "value_validation", "summary", "archive", "database_write",
+                                 "legacy_runtime", "legacy_model", "legacy_ai", "unknown"})
+
+
+def _known(value: Any, options) -> str:
+    return value if isinstance(value, str) and value in options else "unknown"
+
+
+def _count(value: Any) -> str:
+    return str(value) if type(value) is int and 0 <= value <= 1_000_000_000 else "-"
+
+
+def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) -> list[str]:
+    """Only fixed enums and integer counters may enter the Actions report."""
+    steps = _metadata((record or {}).get("metadata_json")).get("steps")
+    translation = steps.get("bemobi_translation") if isinstance(steps, dict) else None
+    lines = ["", "## Oversettelse: siste kjøring og dokumentdiagnose", ""]
+    if not isinstance(translation, dict):
+        lines.append("- Ingen registrert oversettelsesmetadata for siste kjøring.")
+    else:
+        model = _known(translation.get("model"), _TRANSLATION_MODELS)
+        lines.append(f"- Modell konfigurert i kjøringen: {model} (ikke i seg selv bevis på AI-kall)")
+        lines.append(f"- Valgt / fullført / feilet: {_count(translation.get('selected'))} / {_count(translation.get('completed'))} / {_count(translation.get('failed'))}")
+        diagnostics = translation.get("diagnostics")
+        if not isinstance(diagnostics, list):
+            lines.append("- Trinnvis måling mangler (eldre kjøring). AI-kall kan ikke bekreftes.")
+        else:
+            lines.extend(["", "| Dokument-ID | Kilde | Trinn | Resultat | Nedlastingsforsøk | AI-kall (adapter / binding / svar) |",
+                          "|---:|---|---|---|---|---|"])
+            for item in diagnostics[:20]:
+                if not isinstance(item, dict):
+                    continue
+                downloads = item.get("downloads")
+                attempts = []
+                for attempt in downloads[:4] if isinstance(downloads, list) else []:
+                    if not isinstance(attempt, dict):
+                        continue
+                    route = _known(attempt.get("route"), {"original", "official_alternative", "verified_r2"})
+                    result = _known(attempt.get("result"), {"ok", "http_error", "not_pdf", "error"})
+                    code = _count(attempt.get("http")) if type(attempt.get("http")) is int and 100 <= attempt["http"] <= 599 else "-"
+                    attempts.append(f"{route}: {result} (HTTP {code})")
+                binding = _count(item.get("ai_binding_calls")) if item.get("native_binding") is True else "-"
+                lines.append(f"| {_count(item.get('document_id'))} | {_known(item.get('source'), {'CVM', 'BEMOBI_IR'})} | "
+                             f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error'})} | "
+                             f"{'; '.join(attempts) or '-'} | {_count(item.get('ai_provider_calls'))} / {binding} / {_count(item.get('ai_responses'))} |")
+            if not diagnostics:
+                lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")
+    lines.extend(["", "### Uavklarte dokumenter (maks 30)", "",
+                  "| Dokument-ID | Kilde | Status | Forsøk | Feiltrinn | HTTP |", "|---:|---|---|---:|---|---:|"])
+    for row in unresolved[:30]:
+        if not isinstance(row, dict):
+            continue
+        http = row.get("http")
+        lines.append(f"| {_count(row.get('document_id'))} | {_known(row.get('source'), {'CVM', 'BEMOBI_IR'})} | "
+                     f"{_known(row.get('status'), {'FAILED', 'PENDING'})} | {_count(row.get('attempts'))} | "
+                     f"{_known(row.get('stage'), _TRANSLATION_STAGES)} | {_count(http) if type(http) is int and 100 <= http <= 599 else '-'} |")
+    return lines
