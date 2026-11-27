@@ -205,7 +205,7 @@ export default function BemobiAfterOsloCard() {
             {fxReference != null && <p>BRL/NOK ved Oslo-slutt: {formatNumber(fxReference, 4)} NOK · {formatDateTime(rawFx?.reference_at)} · {rawFx?.reference_source || "Ukjent kilde"}.</p>}
             {fxLatest != null && <p>Siste dokumenterte valutakurs: {formatNumber(fxLatest, 4)} NOK · {formatDateTime(rawFx?.latest_at)} · {rawFx?.latest_source || "Ukjent kilde"}.</p>}
             {!fx && rawFx?.reason && <p>Årsakskode: <code>{rawFx.reason}</code>{rawFx.capture_reason ? <> · Kilde: <code>{rawFx.capture_reason}</code></> : null}{rawFx.capture_observed_at ? ` · Kildetid: ${formatDateTime(rawFx.capture_observed_at)}` : ""}.</p>}
-            <p>Referansen ved Oslo-slutt er omtrentlig. Valutaendringen måles frem til neste Oslo-åpning og beregnes separat fra Bemobis aksjekurs.</p>
+            <p>Referansen ved Oslo-slutt er omtrentlig: normalt maksimalt tre minutter før børsslutt, med inntil fem minutter som reserve. Faktisk kurstid oppgis ovenfor. Valutaendringen måles frem til neste Oslo-åpning og beregnes separat fra Bemobis aksjekurs.</p>
           </div>
         </details>
       </section>

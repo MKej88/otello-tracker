@@ -161,6 +161,8 @@ export function fxStatusLabel(fx?: FxMovement, refreshFailed = false, diagnostic
     case "missing_oslo_close_fx_reference":
       switch (fx.capture_reason) {
         case "observation_not_near_oslo_close": return "Referansekurs avvist: for langt fra Oslo-stenging";
+        case "capture_not_recorded": return "Ingen referanseinnhenting registrert ved Oslo-stenging";
+        case "awaiting_closer_reference": return "Lagret kandidat avventer godkjent referanse";
         case "upstream_error": return "Valutakilden svarte med feil ved Oslo-stenging";
         case "provider_error": return "Valutakilden kunne ikke levere gyldig referanse";
         case "fx_disabled_or_not_approved": return "Innhenting av intradag-valuta er deaktivert";

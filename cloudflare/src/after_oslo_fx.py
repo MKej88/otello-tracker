@@ -87,6 +87,8 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
                         capture_details["capture_observed_at"] = iso(observed)
             except (TypeError, ValueError, ArithmeticError, KeyError):
                 pass
+        if not capture_details and current >= close + timedelta(minutes=35):
+            capture_details["capture_reason"] = "capture_not_recorded"
         return {"ready": False, "reason": "missing_oslo_close_fx_reference",
                 **latest_display, **capture_details}
     try:
