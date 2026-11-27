@@ -175,14 +175,15 @@ class TranslationRetryTest(unittest.IsolatedAsyncioTestCase):
                         published_at TEXT,
                         content_sha256 TEXT,
                         translation_status TEXT,
-                        translation_processed_at TEXT
+                        translation_processed_at TEXT,
+                        translation_attempts INTEGER NOT NULL DEFAULT 0
                     );
                     INSERT INTO sources VALUES (1, 'CVM');
-                    INSERT INTO source_documents VALUES (
+                    INSERT INTO source_documents (id,source_id,url,title,published_at,content_sha256,translation_status,translation_processed_at) VALUES (
                         1, 1, 'https://example.com/old.pdf', 'Gammel', NULL, NULL,
                         'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 hours')
                     );
-                    INSERT INTO source_documents VALUES (
+                    INSERT INTO source_documents (id,source_id,url,title,published_at,content_sha256,translation_status,translation_processed_at) VALUES (
                         2, 1, 'https://example.com/new.pdf', 'Ny', NULL, NULL,
                         'PROCESSING', strftime('%Y-%m-%dT%H:%M:%fZ','now')
                     );
