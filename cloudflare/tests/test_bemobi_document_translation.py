@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import hashlib
+import json
 import sqlite3
 import sys
 import unittest
@@ -21,6 +23,11 @@ from bemobi_document_translation import (  # noqa: E402
     _download_original,
     _official_document_fallbacks,
     _summarize_document,
+    _checkpoint_identity,
+    _checkpoint_key,
+    _read_translation_checkpoint,
+    _write_translation_checkpoint,
+    SummaryFormatError,
     detect_language,
     is_safe_translated_key,
     parse_summary_response,
@@ -108,6 +115,115 @@ class TranslationUtilitiesTest(unittest.TestCase):
             ),
             ("Styreprotokoll", "Kort fortalt: Vedtak."),
         )
+
+
+class SummaryRecoveryTest(unittest.IsolatedAsyncioTestCase):
+    def test_fenced_json_accepted_but_arbitrary_prose_and_duplicate_keys_rejected(self):
+        valid = '{"title":"Tittel","summary":"Kort fortalt: Vedtak."}'
+        self.assertEqual(parse_summary_response("```json\n" + valid + "\n```"),
+                         ("Tittel", "Kort fortalt: Vedtak."))
+        for bad in ("Forklaring: " + valid, '{"title":"A","title":"B","summary":"C"}',
+                    '{"title":"A","summary":"B","extra":1}'):
+            with self.assertRaises(SummaryFormatError):
+                parse_summary_response(bad)
+
+    async def test_summary_retries_format_once_using_original_text(self):
+        class Provider:
+            model = "test"
+            def __init__(self):
+                self.calls = []
+            async def complete(self, instruction, text):
+                self.calls.append((instruction, text))
+                return ("ugyldig" if len(self.calls) == 1
+                        else '{"title":"Tittel","summary":"Kort fortalt: Vedtak."}')
+        provider = Provider()
+        self.assertEqual(await _summarize_document(provider, "Original"),
+                         ("Tittel", "Kort fortalt: Vedtak."))
+        self.assertEqual([text for _, text in provider.calls], ["Original", "Original"])
+
+    async def test_checkpoint_revalidates_identity_hash_and_values(self):
+        class Bucket:
+            def __init__(self):
+                self.objects = {}
+            async def put(self, key, raw, **kwargs):
+                self.objects[key] = raw
+            async def get(self, key):
+                if key not in self.objects:
+                    return None
+                raw = self.objects[key]
+                async def body():
+                    return raw
+                return SimpleNamespace(size=len(raw), arrayBuffer=body)
+        bucket = Bucket()
+        original = "A companhia tem 123 ações."
+        identity = _checkpoint_identity("a" * 64, original, "model")
+        translated = "Selskapet har 123 aksjer."
+        await _write_translation_checkpoint(bucket, identity, translated)
+        self.assertEqual(await _read_translation_checkpoint(bucket, identity, original), translated)
+        self.assertFalse(is_safe_translated_key(_checkpoint_key(identity)))
+        other = _checkpoint_identity("a" * 64, original, "other-model")
+        self.assertIsNone(await _read_translation_checkpoint(bucket, other, original))
+        raw = json.loads(bucket.objects[_checkpoint_key(identity)])
+        raw["translation"] = "Selskapet har 124 aksjer."
+        raw["translation_sha256"] = hashlib.sha256(raw["translation"].encode()).hexdigest()
+        bucket.objects[_checkpoint_key(identity)] = json.dumps(raw).encode()
+        self.assertIsNone(await _read_translation_checkpoint(bucket, identity, original))
+
+    async def test_document_retry_reuses_translation_after_summary_error(self):
+        class Bucket:
+            def __init__(self):
+                self.objects = {}
+            async def put(self, key, raw, **kwargs):
+                self.objects[key] = raw
+            async def get(self, key):
+                if key not in self.objects:
+                    return None
+                raw = self.objects[key]
+                async def body():
+                    return raw
+                return SimpleNamespace(size=len(raw), arrayBuffer=body)
+        class Repository:
+            def __init__(self):
+                self.updates = []
+            async def all(self, query, parameters):
+                return [{"id": 9, "url": "https://example.com/a.pdf", "published_at": "2026-11-27",
+                         "source_code": "CVM", "translation_attempts": 0}]
+            async def first(self, query, parameters):
+                return None
+            async def run(self, query, parameters):
+                self.updates.append((query, parameters))
+                return SimpleNamespace(meta=SimpleNamespace(changes=1))
+        class Provider:
+            model = "test"
+            def __init__(self):
+                self.translations = 0
+                self.summaries = 0
+            async def complete(self, instruction, text):
+                if instruction.startswith("Oversett hele"):
+                    self.translations += 1
+                    return "Selskapet har 123 aksjer. " * 10
+                self.summaries += 1
+                return ("ugyldig" if self.summaries <= 2 else
+                        '{"title":"Tittel","summary":"Kort fortalt: Selskapet har 123 aksjer."}')
+        async def fetcher(*args, **kwargs):
+            async def body():
+                return b"%PDF-test"
+            return SimpleNamespace(ok=True, headers={}, arrayBuffer=body)
+        repository, bucket, provider = Repository(), Bucket(), Provider()
+        first, second = [], []
+        with patch("bemobi_document_translation.extract_pdf_text",
+                   return_value="A companhia informa que tem 123 ações. " * 10):
+            result = await process_pending_translations(repository, bucket, provider,
+                                                        fetcher=fetcher, diagnostics=first)
+            self.assertEqual(result["failed"], 1)
+            self.assertEqual(first[0]["summary_error"], "invalid_json")
+            self.assertEqual(first[0]["translation_checkpoint"], "saved")
+            result = await process_pending_translations(repository, bucket, provider,
+                                                        fetcher=fetcher, diagnostics=second)
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(second[0]["translation_checkpoint"], "reused")
+        self.assertEqual(provider.translations, 1)
+        self.assertEqual(provider.summaries, 3)
 
 
 class FakeWorkersAI:

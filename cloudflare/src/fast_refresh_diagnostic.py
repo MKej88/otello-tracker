@@ -337,8 +337,18 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                              f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error'})} | "
                              f"{'; '.join(attempts) or '-'} | {_count(item.get('ai_provider_calls'))} / {binding} / {_count(item.get('ai_responses'))} |")
             for item in diagnostics[:20]:
-                if isinstance(item, dict) and isinstance(item.get("ai_error"), dict):
+                if not isinstance(item, dict):
+                    continue
+                if isinstance(item.get("ai_error"), dict):
                     lines.extend(["", f"- AI-feil dokument {_count(item.get('document_id'))}: {_ai_error_label(item['ai_error'])}"])
+                if "summary_error" in item:
+                    code = _known(item["summary_error"], {"invalid_json", "not_object", "invalid_title",
+                                                          "invalid_summary", "duplicate_field",
+                                                          "unexpected_fields", "size_or_type"})
+                    lines.extend(["", f"- Sammendragsfeil dokument {_count(item.get('document_id'))}: {code}"])
+                if "translation_checkpoint" in item:
+                    state = _known(item["translation_checkpoint"], {"miss", "saved", "reused", "write_failed"})
+                    lines.extend(["", f"- Mellomlagret oversettelse dokument {_count(item.get('document_id'))}: {state}"])
             if not diagnostics:
                 lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")
     lines.extend(["", "### Uavklarte dokumenter (maks 30)", "",

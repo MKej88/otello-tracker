@@ -18,6 +18,8 @@ MAX_PDF_BYTES = 30 * 1024 * 1024
 MAX_CHUNK_CHARACTERS = 4_000
 MAX_SUMMARY_CHARACTERS = 48_000
 MAX_DOCUMENT_CHUNKS = 40
+MAX_CHECKPOINT_BYTES = 4 * 1024 * 1024
+MAX_SUMMARY_RESPONSE_CHARS = 16_384
 TRANSLATOR_VERSION = "bemobi-nb-v2"
 DEFAULT_WORKERS_AI_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 STALE_PROCESSING_HOURS = 6
@@ -332,24 +334,89 @@ def render_norwegian_pdf(title: str, published_at: str, body: str) -> bytes:
 
 
 _TRANSLATE_INSTRUCTION = """Oversett hele portugisiske dokumentdelen til norsk bokmål. Bevar overskrifter, avsnitt, nummerering og tabellstruktur. Ikke endre, utelat eller tolke tall, valuta, prosenter, datoer, selskapsnavn, personnavn eller registreringsnumre. Bruk konsekvent: juros sobre capital próprio = renter på egenkapital (JCP), programa de recompra de ações = tilbakekjøpsprogram for aksjer, fato relevante = vesentlig melding, assembleia geral = generalforsamling, conselho de administração = styret. Returner bare oversettelsen."""
-_SUMMARY_INSTRUCTION = """Skriv på norsk bokmål en faktabasert investorsammendrag på 2–5 korte setninger, innledet med «Kort fortalt:». Ta bare med hendelser, beløp, datoer og Otello-effekt som dokumentet gir dekning for. Skill tydelig mellom fakta, beregning og tolkning. Ikke klassifiser vesentlighet og ikke finn på tall. Returner JSON med strengfeltene title og summary."""
+_SUMMARY_INSTRUCTION = """Skriv på norsk bokmål en faktabasert investorsammendrag på 2–5 korte setninger, innledet med «Kort fortalt:». Ta bare med hendelser, beløp, datoer og Otello-effekt som dokumentet gir dekning for. Skill tydelig mellom fakta, beregning og tolkning. Ikke klassifiser vesentlighet og ikke finn på tall. Returner nøyaktig ett JSON-objekt med strengfeltene title og summary. Ingen Markdown, kodegjerder eller forklaring utenfor objektet. Escape anførselstegn og linjeskift som gyldig JSON."""
+
+
+class SummaryFormatError(ValueError):
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def _unique_json_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise SummaryFormatError("duplicate_field", "Workers AI-oppsummeringen har duplikate JSON-felt")
+        result[key] = value
+    return result
 
 
 def parse_summary_response(payload: str) -> tuple[str, str]:
+    if not isinstance(payload, str) or len(payload) > MAX_SUMMARY_RESPONSE_CHARS:
+        raise SummaryFormatError("size_or_type", "Workers AI-oppsummeringen har ugyldig størrelse eller type")
+    payload = payload.strip().lstrip("\ufeff").strip()
+    # Accept one complete JSON code fence, never search arbitrary prose for a JSON fragment.
+    fenced = re.fullmatch(r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```", payload, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        payload = fenced.group(1).strip()
     try:
-        summary = json.loads(payload)
+        summary = json.loads(payload, object_pairs_hook=_unique_json_fields)
     except json.JSONDecodeError as exc:
-        raise ValueError("Workers AI-oppsummeringen er ikke gyldig JSON") from exc
+        raise SummaryFormatError("invalid_json", "Workers AI-oppsummeringen er ikke gyldig JSON") from exc
     if not isinstance(summary, dict):
-        raise ValueError("Workers AI-oppsummeringen er ikke et JSON-objekt")
+        raise SummaryFormatError("not_object", "Workers AI-oppsummeringen er ikke et JSON-objekt")
 
     title = summary.get("title")
     norwegian_summary = summary.get("summary")
     if not isinstance(title, str) or not title.strip():
-        raise ValueError("Workers AI-oppsummeringen mangler et gyldig title-felt")
+        raise SummaryFormatError("invalid_title", "Workers AI-oppsummeringen mangler et gyldig title-felt")
     if not isinstance(norwegian_summary, str) or not norwegian_summary.strip():
-        raise ValueError("Workers AI-oppsummeringen mangler et gyldig summary-felt")
+        raise SummaryFormatError("invalid_summary", "Workers AI-oppsummeringen mangler et gyldig summary-felt")
+    if set(summary) != {"title", "summary"}:
+        raise SummaryFormatError("unexpected_fields", "Workers AI-oppsummeringen har uventede JSON-felt")
+    if len(title) > 500 or len(norwegian_summary) > 5000:
+        raise SummaryFormatError("size_or_type", "Workers AI-oppsummeringen overskrider lengdegrensen")
     return title.strip(), norwegian_summary.strip()
+
+
+def _checkpoint_identity(content_hash: str, text: str, model: str) -> dict[str, str]:
+    if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+        raise ValueError("Ugyldig innholdshash")
+    return {"pdf_sha256": content_hash, "source_text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "model": model, "version": TRANSLATOR_VERSION}
+
+
+def _checkpoint_key(identity: dict[str, str]) -> str:
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    # Deliberately outside the public translated-PDF allowlist.
+    return f"private/bemobi/translation-checkpoints/v1/{identity['pdf_sha256']}/{digest}.json"
+
+
+async def _read_translation_checkpoint(bucket, identity, original: str) -> str | None:
+    from bemobi_cvm_mirror import _read
+
+    try:
+        raw = await _read(bucket, _checkpoint_key(identity), MAX_CHECKPOINT_BYTES)
+        checkpoint = json.loads(raw)
+        translated = checkpoint["translation"]
+        if (checkpoint["identity"] != identity or not isinstance(translated, str)
+                or not translated.strip()
+                or hashlib.sha256(translated.encode()).hexdigest() != checkpoint["translation_sha256"]
+                or validate_preserved_values(original, translated)):
+            return None
+        return translated
+    except Exception:
+        return None
+
+
+async def _write_translation_checkpoint(bucket, identity, translated: str) -> None:
+    checkpoint = {"identity": identity, "translation": translated,
+                  "translation_sha256": hashlib.sha256(translated.encode()).hexdigest()}
+    raw = json.dumps(checkpoint, ensure_ascii=False).encode()
+    if len(raw) > MAX_CHECKPOINT_BYTES:
+        raise ValueError("Mellomlagret oversettelse er for stor")
+    await bucket.put(_checkpoint_key(identity), raw, http_metadata={"contentType": "application/json"})
 
 
 def _official_document_fallbacks(url: str) -> list[str]:
@@ -424,18 +491,28 @@ async def _download_original(url: str, bucket: Any, downloader: Any,
     raise original_error
 
 
+async def _summary_once_with_retry(provider: TranslationProvider, text: str) -> tuple[str, str]:
+    # Retry format errors once, using the original text rather than an invalid response.
+    try:
+        return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, text))
+    except SummaryFormatError:
+        return parse_summary_response(await provider.complete(
+            _SUMMARY_INSTRUCTION + '\nForrige svar kunne ikke valideres. Svar kun med gyldig JSON: '
+            '{"title":"Norsk tittel","summary":"Kort fortalt: Norsk sammendrag."}', text))
+
+
 async def _summarize_document(provider: TranslationProvider, text: str) -> tuple[str, str]:
     if len(text) <= MAX_SUMMARY_CHARACTERS:
-        return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, text))
+        return await _summary_once_with_retry(provider, text)
     # Summarize all sections, never silently truncate a long financial filing.
     summaries = []
     for _, chunk in stable_chunks(text, limit=MAX_SUMMARY_CHARACTERS):
-        title, summary = parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, chunk))
+        title, summary = await _summary_once_with_retry(provider, chunk)
         summaries.append(title + "\n" + summary)
     combined = "\n\n".join(summaries)
     if len(combined) > MAX_SUMMARY_CHARACTERS:
         raise ValueError("Deloppsummeringene overskrider sikker lengdegrense")
-    return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, combined))
+    return await _summary_once_with_retry(provider, combined)
 
 
 @dataclass
@@ -571,17 +648,28 @@ async def process_pending_translations(
             chunks = stable_chunks(text)
             if len(chunks) > MAX_DOCUMENT_CHUNKS:
                 raise ValueError("Dokumentet overskrider sikker behandlingsgrense")
-            translations = []
-            for chunk_id, chunk in chunks:
-                translated = await observed.complete(
-                    _TRANSLATE_INSTRUCTION, f"[{chunk_id}]\n{chunk}"
-                )
-                translations.append(translated)
-            full_translation = "\n\n".join(translations)
+            identity = _checkpoint_identity(content_hash, text, provider.model)
+            full_translation = await _read_translation_checkpoint(bucket, identity, text)
+            trace["translation_checkpoint"] = "reused" if full_translation is not None else "miss"
+            if full_translation is None:
+                translations = []
+                for chunk_id, chunk in chunks:
+                    translated = await observed.complete(
+                        _TRANSLATE_INSTRUCTION, f"[{chunk_id}]\n{chunk}"
+                    )
+                    translations.append(translated)
+                full_translation = "\n\n".join(translations)
             stage = "value_validation"
             missing = validate_preserved_values(text, full_translation)
             if missing:
                 raise ValueError(f"verdikontroll feilet ({len(missing)} mangler)")
+            if trace["translation_checkpoint"] != "reused":
+                try:
+                    await _write_translation_checkpoint(bucket, identity, full_translation)
+                    trace["translation_checkpoint"] = "saved"
+                except Exception:
+                    # Storage failure must not prevent normal successful publication.
+                    trace["translation_checkpoint"] = "write_failed"
             stage = "summary"
             title, norwegian_summary = await _summarize_document(observed, text)
             stage = "archive"
@@ -618,9 +706,12 @@ async def process_pending_translations(
                 trace["ai_error"] = _ai_error_info(exc)
                 # A stable, redacted marker makes the error queryable without raw provider messages.
                 reason = f"{stage}:WorkersAIError: ai_category={exc.category}; ai_code={exc.code or 0}; ai_http={exc.http or 0}"
+            elif isinstance(exc, SummaryFormatError):
+                trace["summary_error"] = exc.code
+                reason = f"{stage}:SummaryFormatError: summary_code={exc.code}"
             else:
                 reason = f"{stage}:{type(exc).__name__}: {str(exc)[:240]}"
-            if (_is_retryable_external_error(exc)
+            if ((_is_retryable_external_error(exc) or isinstance(exc, SummaryFormatError))
                     and attempts_before + 1 < MAX_TRANSLATION_ATTEMPTS):
                 await repository.run(
                     """UPDATE source_documents SET extraction_status=COALESCE(extraction_status,'PENDING'),
