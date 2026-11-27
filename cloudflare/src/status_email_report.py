@@ -71,6 +71,8 @@ def _guidance(step: str, error: str) -> str:
         return "Datakilden kan være midlertidig utilgjengelig. Kontroller kilde og siste datadato før ny kjøring."
     if "401" in value or "403" in value or "unauthorized" in value:
         return "Tilgang kan være avvist. Kontroller tokenets rettigheter og utløpsdato."
+    if step == "bemobi_translation":
+        return "Kontroller oversettelseskøen og dokumentfeil; maksimalt tre automatiske forsøk per dokument."
     if step == "dashboard_hot_snapshot":
         return "Cacheoppdateringen er ikke bekreftet. Nettsiden kan vise eldre data; kontroller cache og API etter ny oppdatering."
     if step == "archive":
