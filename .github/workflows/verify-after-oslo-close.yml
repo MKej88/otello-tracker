@@ -13,6 +13,12 @@ on:
       - cloudflare/src/after_oslo_fx.py
       - cloudflare/tests/test_after_oslo_fx.py
       - cloudflare/tests/test_after_oslo_fx_recovery.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-after-oslo-close.yml
+      - tools/diagnose_oslo_close_fx.py
+      - cloudflare/src/after_oslo_fx.py
   schedule:
     # 17:15 Oslo time, summer and winter UTC alternatives.
     - cron: "15 15,16 * * 1-5"
@@ -53,3 +59,20 @@ jobs:
         env:
           PYTHONPATH: cloudflare/src
         run: python tools/verify_after_oslo_close.py
+
+  diagnose_fx:
+    needs: verify
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.verify.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Read-only D1 close observations and capture attempts
+        env:
+          PYTHONPATH: cloudflare/src
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME || 'otello-nav' }}
+        run: python tools/diagnose_oslo_close_fx.py
