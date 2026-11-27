@@ -17,6 +17,7 @@ NON_CRITICAL_STEPS = frozenset({
     "dashboard_hot_snapshot",
     "investor_snapshots",
     "brazil_snapshot",
+    "bemobi_translation",
 })
 _SAFE_CODE = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
 
@@ -72,10 +73,6 @@ def assess_fast_refresh(record: dict, *, now: datetime | None = None,
     if status == "SUCCESS":
         if isinstance(errors, list) and errors:
             result["reason"] = "success_with_source_errors"
-            return result
-        translation = (metadata.get("steps") or {}).get("bemobi_translation")
-        if isinstance(translation, dict) and translation.get("non_critical") is True and translation.get("status") in {"partial", "error", "failed"}:
-            result.update(severity="WARNING", reason="bemobi_translation_queue", steps=[{"step": "bemobi_translation", "type": "translation_queue", "status": translation["status"]}])
             return result
         result.update(severity="OK", reason="healthy")
         return result
