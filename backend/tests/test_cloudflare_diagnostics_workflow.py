@@ -84,7 +84,7 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     workflow = _workflow_text()
     assert 'cloudflare/src/production_monitor.py' in workflow
     assert 'batch.extend(monitoring_queries(' in workflow
-    assert 'len(result) != 12' in workflow
+    assert 'len(result) != 15' in workflow
     assert 'monitoring = assess_production(' in workflow
     assert 'secondary_bemobi_warning_candidate(' in workflow
     assert 'diagnostic_severity(' in workflow
@@ -167,3 +167,15 @@ def test_nightly_status_publication_is_same_run_and_manual_publisher_ignores_fas
     assert "  schedule:" not in publisher
     assert 'job.get("name") == "Read Cloudflare Workflow and D1 status"' in publisher
     assert 'job.get("conclusion") not in {None, "skipped"}' in publisher
+
+
+def test_nav_followup_queries_are_wired_into_warning_not_critical_status():
+    workflow = _workflow_text()
+    assert "batch.extend(followup_queries())" in workflow
+    assert "render_followup(followup)" in workflow
+    assert 'monitoring_warning=bool(monitoring["warnings"] or followup["warning"])' in workflow
+    assert "HISTORY_PENDING:" in workflow
+    helper = (ROOT / "cloudflare/src/nav_followup_diagnostic.py").read_text(encoding="utf-8")
+    assert 'HISTORY_VERSION = "ESTIMATED_NAV_V1"' in helper
+    assert 'ESTIMATED_NAV_CALCULATION_VERSION = "ESTIMATED_NAV_V1"' in (ROOT / "cloudflare/src/estimated_nav_history.py").read_text(encoding="utf-8")
+    assert 'FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"' in (ROOT / "cloudflare/src/nav_refresh.py").read_text(encoding="utf-8")

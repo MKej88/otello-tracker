@@ -577,3 +577,18 @@ def test_healthy_report_is_short_and_does_not_repeat_successful_source_details()
     assert "NAV-historikk: OK" in body and "Kildesteg" not in body
     assert "B3: OK" not in body and "Life360" not in body
     assert "Ingen rapporterte feil eller advarsler" in body
+
+
+def test_history_queue_email_reports_retry_result_and_full_width_incident():
+    message = build_status_email({
+        "status": "SUCCESS",
+        "estimated_nav_history": {"complete": True,
+            "period_cache": {"status": "ok", "written": 6},
+            "retry": {"pending": 250, "attempted": 10, "written": 0,
+                      "failures": [{"date": "2025-01-02", "reason": "missing_option_inputs"}]}},
+    })
+    assert "250 historikkpunkter" in message["text"]
+    assert "behandlet 10, løst 0" in message["text"]
+    assert "missing_option_inputs" in message["html"]
+    assert '<div style="font-weight:bold;margin-bottom:4px">NAV-historikk</div>' in message["html"]
+    assert 'colspan="2" style="padding:10px 0' in message["html"]

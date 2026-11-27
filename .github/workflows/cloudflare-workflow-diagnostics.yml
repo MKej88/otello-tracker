@@ -27,6 +27,8 @@ on:
       - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
+      - cloudflare/src/nav_followup_diagnostic.py
+      - cloudflare/tests/test_nav_followup_diagnostic.py
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
       - tools/select_production_diagnostic.py
@@ -43,6 +45,8 @@ on:
       - cloudflare/tests/test_full_refresh_diagnostic.py
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
+      - cloudflare/src/nav_followup_diagnostic.py
+      - cloudflare/tests/test_nav_followup_diagnostic.py
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
       - tools/select_production_diagnostic.py
@@ -85,6 +89,7 @@ jobs:
           python3 -m unittest discover -s cloudflare/tests -p 'test_production_incident_notification.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_full_refresh_diagnostic.py'
+          PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_nav_followup_diagnostic.py'
 
   diagnose:
     # Live production reads only after the nightly deadline, or on manual request.
@@ -103,6 +108,8 @@ jobs:
       workflow_retries: ${{ steps.workflow_report.outputs.workflow_retries }}
       workflow_failures: ${{ steps.workflow_report.outputs.workflow_failures }}
       monitoring_state: ${{ steps.d1_report.outputs.monitoring_state }}
+      history_pending: ${{ steps.d1_report.outputs.history_pending }}
+      history_due: ${{ steps.d1_report.outputs.history_due }}
     env:
       CF_API_BASE: https://api.cloudflare.com/client/v4
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
@@ -374,6 +381,7 @@ jobs:
           sys.path.insert(0, "cloudflare/src")
           from production_monitor import monitoring_queries
           from nav_cache_audit import audit_contract, audit_queries
+          from nav_followup_diagnostic import followup_queries
 
           job_columns = """
               SELECT id, job_name, started_at, finished_at, status,
@@ -445,6 +453,7 @@ jobs:
 
           batch.extend(monitoring_queries(datetime.now(UTC)))
           batch.extend(audit_queries(audit_contract()))
+          batch.extend(followup_queries())
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
@@ -486,6 +495,7 @@ jobs:
           from nav_cache_audit import audit_contract, assess_nav_cache, render_audit
           from fast_refresh_diagnostic import assess_fast_refresh_window
           from full_refresh_diagnostic import manual_refresh_grace
+          from nav_followup_diagnostic import assess_followup, render_followup
 
           FAST_MAX_AGE = timedelta(minutes=90)
           FULL_MAX_AGE = timedelta(hours=36)
@@ -556,7 +566,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 12 or any(item.get("success") is False for item in result):
+          if len(result) != 15 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -646,6 +656,11 @@ jobs:
               prices=result[7].get("results") or [], states=result[8].get("results") or [],
               allow_secondary_bemobi_warning=allow_secondary_warning,
           )
+          followup = assess_followup(
+              result[12].get("results") or [], result[13].get("results") or [],
+              result[14].get("results") or [],
+              preflight=safe_json((full or {}).get("metadata_json")).get("preflight") or {},
+          )
           d1_status = diagnostic_severity(
               full_status=full_status, fast_status=fast_status,
               fast_severity=fast_report['severity'], fresh=fresh,
@@ -655,7 +670,7 @@ jobs:
               core_nav_status=str(nav.get("status") or "MISSING").upper(),
               core_nav_components=components,
               manual_full_refresh_pending=manual_window["under_grace"],
-              monitoring_warning=bool(monitoring["warnings"]),
+              monitoring_warning=bool(monitoring["warnings"] or followup["warning"]),
           )
           core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
@@ -766,7 +781,7 @@ jobs:
                   f"{cell(row.get('rate'), 40)} | {cell(row.get('fetched_at'), 60)} |"
               )
 
-          report = "\n".join(lines) + "\n" + render_monitoring(monitoring) + render_audit(nav_audit)
+          report = "\n".join(lines) + "\n" + render_monitoring(monitoring) + render_audit(nav_audit) + render_followup(followup)
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(report)
@@ -774,6 +789,8 @@ jobs:
               handle.write(f"d1_unhealthy={'true' if d1_unhealthy else 'false'}\n")
               handle.write(f"d1_warning={'true' if d1_warning else 'false'}\n")
               handle.write(f"d1_status={d1_status}\n")
+              handle.write(f"history_pending={followup['pending']}\n")
+              handle.write(f"history_due={followup['due']}\n")
               handle.write(f"target_date={expected_nightly_date(now).isoformat()}\n")
               for label, value in (("full_status", full_status), ("fast_status", fast_status)):
                   handle.write(f"{label}={value if value in {'SUCCESS', 'PARTIAL', 'FAILED', 'RUNNING', 'MISSING'} else 'UNKNOWN'}\n")
@@ -995,6 +1012,8 @@ jobs:
       WORKFLOW_RETRIES: ${{ needs.diagnose.outputs.workflow_retries }}
       WORKFLOW_FAILURES: ${{ needs.diagnose.outputs.workflow_failures }}
       MONITORING_STATE: ${{ needs.diagnose.outputs.monitoring_state }}
+      HISTORY_PENDING: ${{ needs.diagnose.outputs.history_pending }}
+      HISTORY_DUE: ${{ needs.diagnose.outputs.history_due }}
       INCIDENT_DEFERRED: ${{ needs.diagnose.outputs.incident_deferred }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
@@ -1043,7 +1062,8 @@ jobs:
               f"| 30-minuttersoppdatering (D1) | {choice('FAST_STATUS', statuses)} |",
               f"| Workflow-instans | {workflow} |",
               f"| Omkjøringer / mislykkede forsøk | {count('WORKFLOW_RETRIES')} / {count('WORKFLOW_FAILURES')} |",
-              f"| Kilde-/markedskontroller | {monitor} |", "",
+              f"| Kilde-/markedskontroller | {monitor} |",
+              f"| NAV-historikk i kø / forfalt | {count('HISTORY_PENDING')} / {count('HISTORY_DUE')} |", "",
               "Detaljert NAV-avstemming, kildehelse, tidsstempler og feil finnes i den lenkede kjøreloggen.",
               "Ved manglende diagnosegrunnlag vises dette eksplisitt, ikke som OK.",
               "Status oppdateres av samme planlagte diagnose; fast-watchdog og offline CI overskriver den ikke.",
