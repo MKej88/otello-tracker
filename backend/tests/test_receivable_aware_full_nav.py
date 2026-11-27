@@ -212,11 +212,11 @@ def test_august_2026_jcp_receivable_and_option_liability_coexist(tmp_path):
         assert Decimal(before_ex["option_liability_nok"]) > 0
         assert before_ex["option_quality"] == "FORECAST_MARK_TO_MARKET"
 
-        expected_gross_nok = Decimal("6275058.12783696") * Decimal("2")
-        assert Decimal(ex_day["associated_receivable_nok"]) == expected_gross_nok
-        assert ex_day["receivable_quality"] == "ESTIMATED_GROSS"
-        assert Decimal(day_before_payment["associated_receivable_nok"]) == expected_gross_nok
-        assert day_before_payment["receivable_quality"] == "ESTIMATED_GROSS"
+        expected_net_nok = Decimal("0.15822091") * Decimal(32719588) * Decimal("2")
+        assert abs(Decimal(ex_day["associated_receivable_nok"]) - expected_net_nok) < Decimal("0.000001")
+        assert ex_day["receivable_quality"] == "ESTIMATED_NET"
+        assert abs(Decimal(day_before_payment["associated_receivable_nok"]) - expected_net_nok) < Decimal("0.000001")
+        assert day_before_payment["receivable_quality"] == "ESTIMATED_NET"
 
         components = json.loads(ex_day["receivable_components_json"])
         assert len(components) == 1
@@ -227,7 +227,9 @@ def test_august_2026_jcp_receivable_and_option_liability_coexist(tmp_path):
         assert component["payment_date"] == "2026-08-28"
         assert component["holding_shares"] == 32719588
         assert Decimal(component["gross_brl"]) == Decimal("6275058.12783696")
-        assert component["quality"] == "ESTIMATED_GROSS"
+        assert component["quality"] == "ESTIMATED_NET"
+        assert component["calibration"]["basis"] == "PUBLISHED_NET"
+        assert component["calibration"]["shareholder_specific_tax_confirmed"] is False
 
         assert Decimal(payment_day["associated_receivable_nok"]) == 0
         assert payment_day["receivable_quality"] == "NONE"
