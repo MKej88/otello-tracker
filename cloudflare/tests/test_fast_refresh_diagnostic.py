@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fast_refresh_diagnostic import (assess_fast_refresh, assess_fast_refresh_window,
-                                     public_fast_refresh_warning, TRANSLATION_ERROR_GROUPS_SQL)
+                                     public_fast_refresh_warning, TRANSLATION_ERROR_GROUPS_SQL,
+                                     TRANSLATION_DOCUMENTS_SQL, render_translation_diagnostics)
 
 NOW = datetime(2026, 10, 30, 0, 55, tzinfo=UTC)
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloudflare-workflow-diagnostics.yml"
@@ -106,6 +107,40 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         """)
         self.assertEqual(db.execute(TRANSLATION_ERROR_GROUPS_SQL).fetchall(),
                          [("document_http", 1, 0), ("other", 1, 0), ("value_validation", 1, 1)])
+        db.close()
+
+    def test_document_diagnostic_never_exposes_raw_errors(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("""
+            CREATE TABLE sources(id INTEGER, code TEXT);
+            INSERT INTO sources VALUES (1, 'CVM'), (2, 'OTHER');
+            CREATE TABLE source_documents(id INTEGER, source_id INTEGER, translation_status TEXT,
+                                          translation_attempts INTEGER, translation_error TEXT);
+            INSERT INTO source_documents VALUES
+              (1, 1, 'FAILED', 3, 'originaldokument HTTP 526 secret URL'),
+              (2, 1, 'FAILED', 1, 'translation:RuntimeError: secret'),
+              (3, 2, 'FAILED', 3, 'secret');
+        """)
+        db.row_factory = sqlite3.Row
+        unresolved = [dict(row) for row in db.execute(TRANSLATION_DOCUMENTS_SQL)]
+        self.assertEqual(unresolved[1]["http"], 526)
+        self.assertEqual(unresolved[0]["stage"], "translation")
+        self.assertEqual(len(unresolved), 2)
+        item = record("PARTIAL", steps={"bemobi_translation": {
+            "model": "@cf/google/gemma-4-26b-a4b-it", "diagnostics": [{
+                "document_id": 2, "source": "CVM", "stage": "translation", "outcome": "error",
+                "native_binding": True, "ai_provider_calls": 1, "ai_binding_calls": 1, "ai_responses": 0,
+                "downloads": [{"route": "original", "result": "http_error", "http": 526, "url": "secret"},
+                              {"route": "official_alternative", "result": "ok", "http": 200}],
+            }]}})
+        rendered = "\n".join(render_translation_diagnostics(item, unresolved))
+        self.assertIn("HTTP 526", rendered)
+        self.assertIn("official_alternative: ok (HTTP 200)", rendered)
+        self.assertIn("1 / 1 / 0", rendered)
+        self.assertIn("gemma-4", rendered)
+        self.assertNotIn("secret", rendered)
+        self.assertIn("eldre kjøring", "\n".join(render_translation_diagnostics(
+            record(steps={"bemobi_translation": {"model": "secret"}}), [])))
         db.close()
 
     def test_missing_valid_nav_keeps_partial_critical(self):

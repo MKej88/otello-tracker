@@ -6,7 +6,7 @@ import inspect
 import json
 import re
 from urllib.parse import urlencode, urlsplit
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Protocol
 
 from pypdf import PdfReader
@@ -56,6 +56,7 @@ class WorkersAIProvider:
 
     ai: Any
     model: str
+    trace: dict[str, Any] | None = None
 
     async def complete(self, instruction: str, text: str) -> str:
         inputs = {
@@ -74,6 +75,8 @@ class WorkersAIProvider:
             payload = inputs  # CPython tests
         else:
             payload = to_js(inputs, dict_converter=Object.fromEntries)
+        if self.trace is not None:
+            self.trace["ai_binding_calls"] += 1
         result = self.ai.run(self.model, payload)
         if inspect.isawaitable(result):
             result = await result
@@ -290,19 +293,29 @@ def _official_document_fallbacks(url: str) -> list[str]:
     return _official_mziq_document_fallbacks(url)
 
 
-async def _download_original(url: str, bucket: Any, downloader: Any) -> bytes:
+async def _download_original(url: str, bucket: Any, downloader: Any,
+                             *, trace: dict[str, Any] | None = None) -> bytes:
     from bemobi_cvm_rad import filing_identity
     from bemobi_verified_mirror import PINNED_Q3_DOCUMENTS, read_verified_q3_document
 
     original_error = None
-    for candidate in [url, *_official_document_fallbacks(url)]:
+    for index, candidate in enumerate([url, *_official_document_fallbacks(url)]):
+        attempt = {"route": "original" if index == 0 else "official_alternative", "result": "error"}
+        if trace is not None:
+            trace["downloads"].append(attempt)
         try:
             response = await downloader(candidate, headers={"Accept": "application/pdf"})
+            status = getattr(response, "status", None)
+            if type(status) is int and 100 <= status <= 599:
+                attempt["http"] = status
             if not bool(getattr(response, "ok", False)):
+                attempt["result"] = "http_error"
                 raise RuntimeError(f"originaldokument HTTP {getattr(response, 'status', 'ukjent')}")
             payload = await read_response_bytes(response, max_bytes=MAX_PDF_BYTES, label="Bemobi PDF")
             if not payload.startswith(b"%PDF"):
+                attempt["result"] = "not_pdf"
                 raise ValueError("Originaldokumentet er ikke en PDF")
+            attempt["result"] = "ok"
             return payload
         except Exception as exc:
             if original_error is None:
@@ -312,8 +325,12 @@ async def _download_original(url: str, bucket: Any, downloader: Any) -> bytes:
     if identity and bucket is not None:
         for kind, document in PINNED_Q3_DOCUMENTS.items():
             if identity == filing_identity(document["url"]):
+                attempt = {"route": "verified_r2", "result": "error"}
+                if trace is not None:
+                    trace["downloads"].append(attempt)
                 try:
                     payload, _ = await read_verified_q3_document(bucket, kind)
+                    attempt["result"] = "ok"
                     return payload
                 except Exception:
                     pass
@@ -334,6 +351,31 @@ async def _summarize_document(provider: TranslationProvider, text: str) -> tuple
     return parse_summary_response(await provider.complete(_SUMMARY_INSTRUCTION, combined))
 
 
+@dataclass
+class _ObservedProvider:
+    provider: TranslationProvider
+    trace: dict[str, Any]
+
+    @property
+    def model(self) -> str:
+        return self.provider.model
+
+    async def complete(self, instruction: str, text: str) -> str:
+        self.trace["ai_provider_calls"] += 1
+        response = await self.provider.complete(instruction, text)
+        self.trace["ai_responses"] += 1
+        return response
+
+
+def _new_trace(document_id: int, source: Any, provider: TranslationProvider) -> dict[str, Any]:
+    return {
+        "document_id": document_id, "source": source if source in ("CVM", "BEMOBI_IR") else "unknown",
+        "stage": "claim", "outcome": "error", "downloads": [],
+        "ai_provider_calls": 0, "ai_binding_calls": 0, "ai_responses": 0,
+        "native_binding": isinstance(provider, WorkersAIProvider),
+    }
+
+
 async def process_pending_translations(
     repository: Any,
     bucket: Any,
@@ -341,10 +383,11 @@ async def process_pending_translations(
     *,
     limit: int = 3,
     fetcher: Callable[..., Awaitable[Any]] | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows = await repository.all(
         f"""SELECT sd.id, sd.url, sd.title, sd.published_at, sd.content_sha256,
-                  sd.translation_attempts
+                  sd.translation_attempts, s.code AS source_code
            FROM source_documents sd JOIN sources s ON s.id=sd.source_id
            WHERE s.code IN ('CVM','BEMOBI_IR') AND {_ELIGIBLE}
            ORDER BY sd.published_at DESC, sd.id DESC LIMIT ?""",
@@ -368,6 +411,11 @@ async def process_pending_translations(
             continue
         print(f"bemobi_translation processing document_id={document_id}")
         attempts_before = int(row.get("translation_attempts") or 0)
+        trace = _new_trace(document_id, row.get("source_code"), provider)
+        if diagnostics is not None:
+            diagnostics.append(trace)
+        underlying = replace(provider, trace=trace) if isinstance(provider, WorkersAIProvider) else provider
+        observed = _ObservedProvider(underlying, trace)
         stage = "claim"
         try:
             if attempts_before >= MAX_TRANSLATION_ATTEMPTS:
@@ -378,7 +426,7 @@ async def process_pending_translations(
 
                 downloader = fetch
             stage = "download"
-            payload = await _download_original(str(row["url"]), bucket, downloader)
+            payload = await _download_original(str(row["url"]), bucket, downloader, trace=trace)
             stage = "deduplication"
             content_hash = hashlib.sha256(payload).hexdigest()
             duplicate = await repository.first(
@@ -412,6 +460,7 @@ async def process_pending_translations(
                         document_id,
                     ),
                 )
+                trace.update(stage="deduplication", outcome="reused")
                 print(f"bemobi_translation ready document_id={document_id} reused=true")
                 completed += 1
                 continue
@@ -427,6 +476,7 @@ async def process_pending_translations(
                        translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""",
                     (language, document_id),
                 )
+                trace.update(stage="pdf_extraction", outcome="not_required")
                 completed += 1
                 continue
             stage = "translation"
@@ -435,7 +485,7 @@ async def process_pending_translations(
                 raise ValueError("Dokumentet overskrider sikker behandlingsgrense")
             translations = []
             for chunk_id, chunk in chunks:
-                translated = await provider.complete(
+                translated = await observed.complete(
                     _TRANSLATE_INSTRUCTION, f"[{chunk_id}]\n{chunk}"
                 )
                 translations.append(translated)
@@ -445,13 +495,14 @@ async def process_pending_translations(
             if missing:
                 raise ValueError(f"verdikontroll feilet ({len(missing)} mangler)")
             stage = "summary"
-            title, norwegian_summary = await _summarize_document(provider, text)
+            title, norwegian_summary = await _summarize_document(observed, text)
             stage = "archive"
             key = translated_object_key(content_hash)
             pdf = render_norwegian_pdf(
                 title, str(row.get("published_at") or ""), full_translation
             )
             await bucket.put(key, pdf, http_metadata={"contentType": "application/pdf"})
+            stage = "database_write"
             await repository.run(
                 """UPDATE source_documents SET content_sha256=?, original_language='pt',
                    extraction_status='READY', translation_status='READY', summary_status='READY',
@@ -469,10 +520,12 @@ async def process_pending_translations(
                     document_id,
                 ),
             )
+            trace.update(stage="database_write", outcome="ready")
             print(f"bemobi_translation ready document_id={document_id}")
             completed += 1
         except Exception as exc:
             # Store stage and exception class; raw diagnostic stays private in D1.
+            trace.update(stage=stage, outcome="error")
             reason = f"{stage}:{type(exc).__name__}: {str(exc)[:240]}"
             if (_is_retryable_external_error(exc)
                     and attempts_before + 1 < MAX_TRANSLATION_ATTEMPTS):
@@ -522,12 +575,14 @@ async def run_translation_queue(repository: Any, bucket: Any, provider: Translat
     if provider is None or bucket is None:
         return {"status": "partial", "reason": "AI- eller dokumentlagerbinding mangler",
                 "non_critical": True, "queue": await translation_queue_health(repository)}
-    result = await process_pending_translations(repository, bucket, provider, limit=limit)
+    diagnostics: list[dict[str, Any]] = []
+    result = await process_pending_translations(repository, bucket, provider, limit=limit, diagnostics=diagnostics)
     queue = await translation_queue_health(repository)
     warning = bool(queue["failed"] or queue["overdue"] or result["failed"])
     return {
         **result, "status": "partial" if warning else "ok", "non_critical": True,
         "model": provider.model,
+        "diagnostics": diagnostics,
         "queue": queue,
         **({"reason": f"{queue['failed']} feilet ({queue['exhausted']} uten flere automatiske forsøk), "
                       f"{queue['overdue']} forsinket, {result['failed']} feil i denne kjøringen"} if warning else {}),
