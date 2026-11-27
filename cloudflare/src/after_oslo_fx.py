@@ -68,12 +68,14 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
             ("brlnok_oslo_capture_last_result",),
         )
         capture_details: dict[str, Any] = {}
+        capture_seen = False
         if attempt:
             try:
                 captured_at = timestamp(attempt.get("updated_at"))
                 details = json.loads(attempt["value"])
                 if (captured_at is not None and close <= captured_at <= measured_until
                         and isinstance(details, dict)):
+                    capture_seen = True
                     allowed = {
                         "fx_disabled_or_not_approved", "upstream_error",
                         "observation_not_near_oslo_close", "missing_sanity_reference",
@@ -87,7 +89,7 @@ async def fx_close_movement(repository: Any, close: datetime, current: datetime)
                         capture_details["capture_observed_at"] = iso(observed)
             except (TypeError, ValueError, ArithmeticError, KeyError):
                 pass
-        if not capture_details and current >= close + timedelta(minutes=35):
+        if not capture_seen and current >= close + timedelta(minutes=35):
             capture_details["capture_reason"] = "capture_not_recorded"
         return {"ready": False, "reason": "missing_oslo_close_fx_reference",
                 **latest_display, **capture_details}

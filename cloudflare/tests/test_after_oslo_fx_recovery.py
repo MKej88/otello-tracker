@@ -230,6 +230,15 @@ def test_missing_reference_still_returns_last_verified_fx_and_capture_cause():
     assert "change_pct" not in result
 
 
+def test_card_distinguishes_unrecorded_attempt_from_unrecognized_reason():
+    repo = Repository()
+    result = asyncio.run(fx_close_movement(repo, CLOSE, NOW))
+    assert result["capture_reason"] == "capture_not_recorded"
+    repo.capture_attempt("unknown_reason")
+    result = asyncio.run(fx_close_movement(repo, CLOSE, NOW))
+    assert "capture_reason" not in result
+
+
 def test_bemobi_reference_missing_does_not_hide_independent_fx_market_move():
     from src.bemobi_after_oslo import bemobi_after_oslo
     repo = Repository()
