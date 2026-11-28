@@ -21,7 +21,9 @@ test("NAV card shows concise, combined delayed-price information", () => {
 
 test("BRL/NOK shows one up-to-date value and offers source-aware fallbacks", () => {
   assert.match(overview, /usePollingResource<CurrentFxPayload>\(\s*"\/api\/fx\/dashboard"/);
-  assert.match(overview, /const currentFxTime = fxObservationTime\(fxSpot\?\.observed_at\)/);
+  assert.match(overview, /const candidateFxTime = fxObservationTime\(latestFx\?\.current\?\.observed_at\)/);
+  assert.match(overview, /&& candidateFxTime/);
+  assert.match(overview, /const currentFxTime = fxSpot \? candidateFxTime : null/);
   assert.match(overview, /<b>BRL\/NOK:<\/b> \{formatNumber\(fxSpot\.brl_nok!, 4\)\} · Oppdatert \{currentFxTime\}/);
   assert.match(overview, /Kursen er videreført fra siste registrerte handel/);
   assert.match(overview, /nyere markedskurs ikke tilgjengelig/);
