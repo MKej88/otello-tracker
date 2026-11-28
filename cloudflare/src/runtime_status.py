@@ -241,6 +241,62 @@ def _job_payload(
     }
 
 
+def _public_translation_progress(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Expose only bounded counters from the latest completed fast job.
+
+    A document's part counts are progress from its trace, not proof that the
+    final PDF has been published. Never forward document text, URLs or errors.
+    """
+    if not row or row.get("status") not in ("SUCCESS", "PARTIAL") or not row.get("finished_at"):
+        return None
+    steps = _metadata(row).get("steps")
+    translation = steps.get("bemobi_translation") if isinstance(steps, dict) else None
+    if not isinstance(translation, dict):
+        return None
+
+    def counter(value: Any, maximum: int = 1_000_000) -> int | None:
+        return value if type(value) is int and 0 <= value <= maximum else None
+
+    queue = translation.get("queue")
+    counts = {}
+    if isinstance(queue, dict):
+        for key in ("pending", "processing", "failed", "exhausted", "overdue"):
+            value = counter(queue.get(key))
+            if value is not None:
+                counts[key] = value
+
+    documents = []
+    seen = set()
+    diagnostics = translation.get("diagnostics")
+    for item in diagnostics[:20] if isinstance(diagnostics, list) else []:
+        if not isinstance(item, dict):
+            continue
+        document_id = counter(item.get("document_id"), 2**53 - 1)
+        source = item.get("source")
+        outcome = item.get("outcome")
+        if (not document_id or document_id in seen
+                or source not in ("CVM", "BEMOBI_IR")
+                or outcome not in ("progress", "ready", "reused", "not_required", "error")):
+            continue
+        seen.add(document_id)
+        total = counter(item.get("parts_total"), 120)
+        saved = counter(item.get("parts_saved"), 120)
+        reused = counter(item.get("parts_reused"), 120)
+        done = None
+        if total and saved is not None and reused is not None and saved + reused <= total:
+            done = saved + reused
+        documents.append({
+            "document_id": document_id,
+            "source": source,
+            "outcome": outcome,
+            "parts_completed": done,
+            "parts_total": total if done is not None else None,
+        })
+    if not counts and not isinstance(diagnostics, list):
+        return None
+    return {"queue": counts, "documents": documents}
+
+
 def _guard_orphaned_full_job(
     payload: dict[str, Any],
     row: dict[str, Any] | None,
@@ -484,6 +540,7 @@ async def runtime_status_summary(
         fast["secondary_warning"] = public_fast_refresh_warning(
             fast_row, now=current, max_age=FAST_MAX_AGE,
         )
+        fast["translation_progress"] = _public_translation_progress(fast_row)
     expected_fx_date = expected_norges_bank_date(current)
     latest_common_date = fx.get("latest_common_date")
     fx_current = (
