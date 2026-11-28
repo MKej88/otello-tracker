@@ -351,6 +351,7 @@ async function main() {
     ["nyheter","Nyheter og hendelser",".newsEventsPage"],
     ["datakvalitet","Datakvalitet",".dataQualityPage"],
   ];
+  const mobileLayoutFailures = [];
   for (const width of [390, 320, 768]) {
     await session.send("Emulation.setDeviceMetricsOverride", {
       width, height: 844, deviceScaleFactor: 1, mobile: true
@@ -382,13 +383,29 @@ async function main() {
         main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
       }))()`);
       if (Math.abs(dimensions.viewport - width) > 2 || dimensions.main <= 0 || dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
-        throw new Error(`Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}`);
+        const overflowCandidates = await session.evaluate(`(() => {
+          const viewport = document.documentElement.clientWidth;
+          return [...document.querySelectorAll('#main-content *')]
+            .map(el => ({tag: el.tagName, classes: el.getAttribute('class') ?? '',
+              right: Math.round(el.getBoundingClientRect().right),
+              width: Math.round(el.getBoundingClientRect().width)}))
+            .filter(el => el.right > viewport + 2)
+            .sort((a, b) => b.right - a.right)
+            .slice(0, 10);
+        })()`);
+        const message = `Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}; kandidater: ${JSON.stringify(overflowCandidates)}`;
+        mobileLayoutFailures.push(message);
+        console.error(message);
+      } else {
+        console.log(`Mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);
       }
-      console.log(`Mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);
     }
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
 
+  if (mobileLayoutFailures.length) {
+    throw new Error(`Mobilkontroll feilet i ${mobileLayoutFailures.length} kombinasjoner:\n${mobileLayoutFailures.join("\n")}`);
+  }
   console.log("Mobilvisning kontrollert for alle 12 sider ved 320, 390 og 768 px.");
   console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
   session.close();

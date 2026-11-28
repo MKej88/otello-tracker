@@ -107,3 +107,22 @@ test("conditional data views use explicit API status instead of waiting for none
   assert.ok(smoke.includes("const payload = await jsonFetch(new URL(path, baseUrl))"));
   assert.ok(smoke.includes('notice?.includes("NO_ACTIVE_PROGRAM")'));
 });
+
+
+test("narrow cash layout shrinks intrinsic tracks and wraps labels without hiding data", () => {
+  const narrow = cash.split("@media (max-width: 379px)")[1];
+  assert.ok(narrow);
+  assert.match(narrow, /grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(narrow, /\.cashPage \.cardHeader,[\s\S]*?flex-direction: column/);
+  assert.match(narrow, /\.cashPage \.placeholderRows > div,[\s\S]*?flex-wrap: wrap/);
+  assert.match(narrow, /overflow-wrap: anywhere/);
+  assert.doesNotMatch(narrow, /overflow(?:-x)?:\s*hidden/);
+});
+
+test("mobile smoke reports every layout failure before failing CI", () => {
+  const smoke = readFileSync(new URL("./browser-smoke.mjs", import.meta.url), "utf8");
+  assert.ok(smoke.includes("mobileLayoutFailures.push(message)"));
+  assert.ok(smoke.includes("overflowCandidates"));
+  assert.ok(smoke.includes("if (mobileLayoutFailures.length)"));
+  assert.ok(smoke.includes("throw new Error(`Mobilkontroll feilet"));
+});

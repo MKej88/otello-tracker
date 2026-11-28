@@ -580,3 +580,69 @@
     overflow-wrap: anywhere;
   }
 }
+
+
+/* Narrow phones: intrinsic grid/flex widths must not expand the document.
+   Keep amounts and labels visible rather than clipping horizontal overflow. */
+@media (max-width: 379px) {
+  .cashPage,
+  .cashPage .cashMainGrid,
+  .cashPage .cashBuybackLayout,
+  .cashPage .cashBuybackLayoutSimplified,
+  .cashPage .cashKpiGrid,
+  .cashPage .cashMetricGrid,
+  .cashPage .cashLegendRows,
+  .cashPage .cashInterestStrip,
+  .cashPage .cashBuybackResults,
+  .cashPage .cashBuybackSecondaryFacts,
+  .cashPage .cashMethodGrid,
+  .cashPage .cashControls,
+  .cashPage .cashBuybackFlowCard,
+  .cashPage .cashDistributionHeadline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cashPage .cardHeader,
+  .cashPage .cashModelValue {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .cashPage .cashControls label > span,
+  .cashPage .cashAssumptionRows > div,
+  .cashPage .placeholderRows > div,
+  .cashPage .cashBuybackFlow > div {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .cashPage .cashBridgeRows > div {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .cashPage .cardHeader > *,
+  .cashPage .cashModelValue > *,
+  .cashPage .cashControls label,
+  .cashPage .cashControls label > span > *,
+  .cashPage .cashAssumptionRows > div > *,
+  .cashPage .placeholderRows > div > *,
+  .cashPage .cashBridgeRows > div > *,
+  .cashPage .cashMetricGrid > div,
+  .cashPage .cashInterestStrip > div,
+  .cashPage .cashMethodGrid > div,
+  .cashPage .cashConstraintPill,
+  .cashPage .numeric {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .cashPage .cashControls input[type="range"] {
+    min-width: 0;
+    max-width: 100%;
+    margin-inline: 0;
+  }
+}
