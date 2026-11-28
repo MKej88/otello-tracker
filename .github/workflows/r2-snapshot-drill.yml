@@ -1,4 +1,4 @@
-name: R2 logical snapshot drill
+name: "30 – Kontroll av sikkerhetskopier"
 
 on:
   # Monthly snapshots: sampled readback; Jan/Apr/Jul/Oct: full-object validation.

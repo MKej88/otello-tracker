@@ -1,4 +1,4 @@
-name: Buyback model validation
+name: "50 – Validering av tilbakekjøpsmodell"
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Bemobi – lesediagnostikk
+name: "23 – Bemobi – lesediagnostikk"
 
 on:
   workflow_dispatch:

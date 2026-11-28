@@ -1,4 +1,4 @@
-name: Produksjon – manuell fulloppdatering
+name: "11 – Manuell fulloppdatering"
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Publish Cloudflare diagnostic status
+name: "14 – Manuell publisering av diagnosestatus"
 
 on:
   # Manual recovery only. Scheduled diagnostics publish directly in their own run.

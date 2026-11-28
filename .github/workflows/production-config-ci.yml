@@ -1,4 +1,4 @@
-name: Production config CI
+name: "03 – Validering av produksjonskonfigurasjon"
 
 on:
   pull_request:

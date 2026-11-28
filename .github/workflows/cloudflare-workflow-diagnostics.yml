@@ -1,4 +1,4 @@
-name: Cloudflare workflow diagnostics
+name: "10 – Produksjonsdiagnostikk"
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Verify Oslo close market cards
+name: "13 – Kontroll etter Oslo Børs"
 
 on:
   workflow_dispatch:
