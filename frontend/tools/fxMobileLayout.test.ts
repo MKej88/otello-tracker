@@ -29,3 +29,12 @@ test("mobile FX layout keeps filters, KPIs, history, and scenarios readable", ()
   assert.match(css, /\.fxHistorySummary > div:last-child\s*\{\s*grid-column: 1 \/ -1;/);
   assert.match(css, /\.fxTableWrap\s*\{\s*min-width: 0;\s*overflow: visible;/);
 });
+
+
+test("tablet FX layout confines the wide sensitivity table to its scroll container", () => {
+  assert.match(css, /\.fxPage\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-width: 0;/s);
+  assert.match(css, /\.fxPage > \*,\s*\.fxTwoColumn > \*,\s*\.fxChartWrap\s*\{\s*min-width: 0;/);
+  assert.match(css, /\.fxTableWrap\s*\{[^}]*max-width: 100%;[^}]*overflow-x: auto;[^}]*overscroll-behavior-x: contain;/s);
+  assert.match(css, /@media \(max-width: 900px\)\s*\{\s*\.fxTwoColumn,\s*\.fxContextGrid\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(css, /\.fxTable\s*\{[^}]*min-width: 720px;/s);
+});

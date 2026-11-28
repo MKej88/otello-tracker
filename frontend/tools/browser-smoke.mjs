@@ -172,6 +172,22 @@ async function waitFor(session, expression, label, timeoutMs = 15000) {
   throw new Error(`Timeout mens browser-smoke ventet på ${label}. Siste verdi: ${JSON.stringify(lastValue)}\n${body}`);
 }
 
+// A successful HTTP response may explicitly say that a financial dataset
+// is unavailable. Test that exact state, never a generic loading/error screen.
+async function datasetSelector(baseUrl, path, name, readySelector, emptySelector, classify) {
+  const payload = await jsonFetch(new URL(path, baseUrl));
+  const ready = classify(payload);
+  if (typeof ready !== "boolean") {
+    throw new Error(`${name}: API mangler entydig datastatus.`);
+  }
+  if (!ready) console.log(`${name}: API bekrefter manglende datagrunnlag; kontrollerer tomtilstand (ikke full datavisning).`);
+  return ready ? readySelector : emptySelector;
+}
+
+function explicitReady(payload) {
+  return typeof payload?.ready === "boolean" ? payload.ready : undefined;
+}
+
 async function clickView(session, label, heading, readySelector) {
   const clicked = await session.evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === ${JSON.stringify(label)});
@@ -219,19 +235,18 @@ async function main() {
 
   await waitFor(
     session,
-    "document.readyState === 'complete' && document.querySelector('.overviewV2 .estimatedHero h2')?.textContent?.includes('kr')",
+    "document.readyState === 'complete' && document.querySelector('.overviewV3 .overviewNavCardV3 h2')?.textContent?.includes('kr')",
     "vellykket innlasting av NAV"
   );
 
   const overviewLabels = await session.evaluate(`(() => ({
-    body: document.body.innerText,
     topbar: document.querySelector('.investorTopbar')?.innerText ?? '',
-    kpis: [...document.querySelectorAll('.overviewKpiGrid .label')].map((item) => item.textContent?.trim())
+    kpis: [...document.querySelectorAll('.overviewDriverGrid .overviewDriverCard .label')].map((item) => item.textContent?.trim())
   }))()`);
-  if (overviewLabels.body.includes("OTELLO / BEMOBI") || overviewLabels.body.includes("ESTIMERT NAV")) {
+  if (overviewLabels.topbar.includes("OTELLO / BEMOBI") || overviewLabels.topbar.includes("ESTIMERT NAV")) {
     throw new Error(`Gamle globale NAV-etiketter er fortsatt synlige: ${JSON.stringify(overviewLabels)}`);
   }
-  if (!overviewLabels.kpis.includes("BRL/NOK") || overviewLabels.kpis.includes("OTEC-kurs")) {
+  if (["BEMOBI", "BRL/NOK", "TILBAKEKJØP"].some((label) => !overviewLabels.kpis.includes(label))) {
     throw new Error(`Oversiktskortene er ikke oppdatert: ${JSON.stringify(overviewLabels.kpis)}`);
   }
 
@@ -271,40 +286,77 @@ async function main() {
   await waitFor(session, "!document.querySelector('.mobileMenuPanel')", "lukket mobilmeny");
   await session.send("Emulation.clearDeviceMetricsOverride");
 
-  await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
+  await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewHeroGrid");
   await clickView(session, "NAV", "NAV", ".compositionTable");
   const navRoute = await session.evaluate("({ hash: location.hash, title: document.title })");
   if (navRoute.hash !== "#nav" || navRoute.title !== "NAV | Otello") {
     throw new Error(`NAV-rute eller sidetittel er feil: ${JSON.stringify(navRoute)}`);
   }
-  await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
-  await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
-  await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
-  await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
+  // The deterministic fixture may legitimately have no eligible estimated
+  // history. Verify the exact UI request, rather than requiring a chart for
+  // data that the API explicitly reports unavailable.
+  const historyPayload = await jsonFetch(new URL("/api/dashboard/discount-history?days=365&max_points=72", baseUrl));
+  const history = historyPayload.estimated;
+  if (typeof history?.ready !== "boolean" || (history.ready && !history.statistics)) {
+    throw new Error("Historikk-API mangler gyldig estimert historikkstatus.");
+  }
+  const historyReadySelector = history.ready
+    ? ".historyV2 .historyAxisCard"
+    : ".historyV2 .resourceNotice.empty";
+  await clickView(session, "Historikk", "Historisk NAV-rabatt", historyReadySelector);
+  if (!history.ready) {
+    const emptyNotice = await session.evaluate("document.querySelector('.historyV2 .resourceNotice.empty')?.textContent");
+    if (!emptyNotice?.includes("ikke nok kildebelagt historikk")) {
+      throw new Error("Historikkens tomtilstand samsvarer ikke med API.");
+    }
+    console.log("Historikk: API bekrefter utilstrekkelig datagrunnlag; tomtilstand kontrollert (ikke graf).");
+  }
+  const buybackSelector = await datasetSelector(baseUrl, "/api/buybacks/dashboard",
+    "Tilbakekjøpsprogram", ".buybackPage", ".buybackNotice",
+    (payload) => payload?.ready === true ? true
+      : payload?.ready === false && payload.status === "NO_ACTIVE_PROGRAM" ? false : undefined);
+  const bemobiSelector = await datasetSelector(baseUrl, "/api/bemobi/dashboard",
+    "Bemobi", ".bemobiPage", ".bemobiNotice", explicitReady);
+  const consensusSelector = await datasetSelector(baseUrl, "/api/bemobi/consensus",
+    "Konsensus", ".consensusPage", ".consensusNotice", explicitReady);
+  const fxSelector = await datasetSelector(baseUrl, "/api/fx/dashboard",
+    "BRL/NOK", ".fxPage", ".fxError", explicitReady);
+  const brazilSelector = await datasetSelector(baseUrl, "/api/brazil/dashboard",
+    "Brasil", ".brazilPage", ".brazilError", (payload) =>
+      payload?.snapshot_unavailable === true ? false
+        : payload && typeof payload === "object" && !Array.isArray(payload) && payload.as_of_date ? true : undefined);
+  await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", buybackSelector);
+  if (buybackSelector === ".buybackNotice") {
+    const notice = await session.evaluate("document.querySelector('.buybackNotice')?.textContent");
+    if (!notice?.includes("NO_ACTIVE_PROGRAM")) throw new Error("Tilbakekjøpsstatus samsvarer ikke med API.");
+  }
+  await clickView(session, "Bemobi", "Bemobi", bemobiSelector);
+  await clickView(session, "Konsensus", "Konsensus", consensusSelector);
   await clickView(session, "Nyheter", "Nyheter og hendelser", ".newsEventsPage");
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
   // Check all twelve investor routes at narrow phone and tablet widths.
   // Scrollable data tables are permitted, but the page itself must not overflow.
   const mobileViews = [
-    ["oversikt", "Otello investoroversikt"],
-    ["nav", "NAV"],
-    ["nav-sensitivitet", "NAV-sensitivitet"],
-    ["historikk", "Historisk NAV-rabatt"],
-    ["tilbakekjop", "Tilbakekjøpsprogram"],
-    ["cash", "Cash & kapitalallokering"],
-    ["bemobi", "Bemobi"],
-    ["brl-nok", "BRL/NOK"],
-    ["brasil", "Brasil"],
-    ["konsensus", "Konsensus"],
-    ["nyheter", "Nyheter og hendelser"],
-    ["datakvalitet", "Datakvalitet"],
+    ["oversikt","Otello investoroversikt",".overviewV3"],
+    ["nav","NAV",".navV2 .compositionTable"],
+    ["nav-sensitivitet","NAV-sensitivitet",".sensitivityPage"],
+    ["historikk","Historisk NAV-rabatt",historyReadySelector],
+    ["tilbakekjop","Tilbakekjøpsprogram",buybackSelector],
+    ["cash","Cash & kapitalallokering",".cashPage"],
+    ["bemobi","Bemobi",bemobiSelector],
+    ["brl-nok","BRL/NOK",fxSelector],
+    ["brasil","Brasil",brazilSelector],
+    ["konsensus","Konsensus",consensusSelector],
+    ["nyheter","Nyheter og hendelser",".newsEventsPage"],
+    ["datakvalitet","Datakvalitet",".dataQualityPage"],
   ];
+  const mobileLayoutFailures = [];
   for (const width of [390, 320, 768]) {
     await session.send("Emulation.setDeviceMetricsOverride", {
       width, height: 844, deviceScaleFactor: 1, mobile: true
     });
-    for (const [slug, heading] of mobileViews) {
+    for (const [slug, heading, readySelector] of mobileViews) {
       await session.evaluate(`location.hash = ${JSON.stringify("#" + slug)}`);
       await waitFor(
         session,
@@ -313,22 +365,47 @@ async function main() {
       );
       await waitFor(
         session,
-        "!document.querySelector('.loadingPlaceholderPage')",
+        `Boolean(document.querySelector(${JSON.stringify(readySelector)})) && !document.querySelector('.loadingPlaceholderPage')`,
         `ferdig mobilvisning ${heading} ved ${width}px`
       );
+      if (slug === "tilbakekjop" && buybackSelector === ".buybackNotice") {
+        const notice = await session.evaluate("document.querySelector(\'.buybackNotice\')?.textContent");
+        if (!notice?.includes("NO_ACTIVE_PROGRAM")) throw new Error(`Tilbakekjøpsstatus samsvarer ikke med API ved ${width}px.`);
+      }
+      if (slug === "historikk") {
+        const historyError = await session.evaluate("Boolean(document.querySelector(\'.historyV2 .resourceNotice.error\'))");
+        if (historyError) throw new Error(`Historikk viser innlastingsfeil ved ${width}px.`);
+      }
       const dimensions = await session.evaluate(`(() => ({
         viewport: document.documentElement.clientWidth,
         html: document.documentElement.scrollWidth,
         body: document.body.scrollWidth,
         main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
       }))()`);
-      if (dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
-        throw new Error(`Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}`);
+      if (Math.abs(dimensions.viewport - width) > 2 || dimensions.main <= 0 || dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
+        const overflowCandidates = await session.evaluate(`(() => {
+          const viewport = document.documentElement.clientWidth;
+          return [...document.querySelectorAll('#main-content *')]
+            .map(el => ({tag: el.tagName, classes: el.getAttribute('class') ?? '',
+              right: Math.round(el.getBoundingClientRect().right),
+              width: Math.round(el.getBoundingClientRect().width)}))
+            .filter(el => el.right > viewport + 2)
+            .sort((a, b) => b.right - a.right)
+            .slice(0, 10);
+        })()`);
+        const message = `Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}; kandidater: ${JSON.stringify(overflowCandidates)}`;
+        mobileLayoutFailures.push(message);
+        console.error(message);
+      } else {
+        console.log(`Mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);
       }
     }
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
 
+  if (mobileLayoutFailures.length) {
+    throw new Error(`Mobilkontroll feilet i ${mobileLayoutFailures.length} kombinasjoner:\n${mobileLayoutFailures.join("\n")}`);
+  }
   console.log("Mobilvisning kontrollert for alle 12 sider ved 320, 390 og 768 px.");
   console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
   session.close();

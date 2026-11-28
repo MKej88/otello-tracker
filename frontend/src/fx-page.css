@@ -1,6 +1,14 @@
 .fxPage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 18px;
+}
+
+.fxPage > *,
+.fxTwoColumn > *,
+.fxChartWrap {
+  min-width: 0;
 }
 
 .fxPage h2,
@@ -473,7 +481,10 @@
 }
 
 .fxTableWrap {
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border: 1px solid var(--ot-border-soft);
   border-radius: 10px;
 }
@@ -633,7 +644,7 @@
 @media (max-width: 900px) {
   .fxTwoColumn,
   .fxContextGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .fxHistorySummary {
@@ -646,6 +657,19 @@
 
   .fxHistorySummary > div:nth-child(n + 4) {
     border-top: 1px solid var(--ot-border-soft);
+  }
+}
+
+@media (min-width: 681px) and (max-width: 900px) {
+  .fxPage .fxHero > div,
+  .fxPage .fxSectionHead > div,
+  .fxPage .fxMethodCard > div {
+    min-width: 0;
+  }
+
+  .fxPage .fxSources {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 

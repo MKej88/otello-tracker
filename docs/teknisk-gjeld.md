@@ -41,3 +41,15 @@ CI kaller fortsatt 7540-recovery etter deploy, med egen avgrensning som hopper o
 - Før fjerning av kode: kontroller referanser, obligatorisk CI, lokal/regresjonsparitet og produksjonsakseptanse.
 - Før fjerning av en datakilde: dokumenter bruk i historiske beregninger og faktisk reservefunksjon, og verifiser ny kilde.
 - Behold alle anvendte migreringsnumre og historiske originaler.
+
+## Fase 9 – Mobilkontroll
+
+CI 46150999219, Worker-jobb 140997403035, hadde grønn status, men loggen viste timeout i browser-smoke: den ventet på en eldre NAV-selektor selv om dagens V3-forside viste NAV. Kommandoens pipeline gjennom tee kunne maskere Node-feil i standard bash. Rettelsen oppdaterer selektorer og kortetiketter til dagens visning, aktiverer pipefail, krever en konkret sidemarkør og korrekt viewport før mobilmåling, og logger hver av 36 kombinasjoner. Dette er en styrking av kontrollen, ikke en verifisert mobil-layoutrettelse. Ny reell browser-smoke må gjennomføres før mobilstatus kan bekreftes. Ingen visuell CSS eller finansmodell endres.
+
+Oppfølging av PR #1024: Worker-jobb 140999233507 viste at lokal testdatabase svarte med utilstrekkelig kildebelagt historikk for valgt 1-årsperiode. Browser-smoke henter derfor nøyaktig samme API-spørring som historikkvisningen og krever graf ved `ready=true` (med statistikk), eller eksplisitt tomtilstand ved `ready=false`. Faktisk innlastingsfeil godtas ikke. Tomtilstand er ikke en bestått grafkontroll; en separat datarik fixture for historikkgrafen er fortsatt ønskelig. Pipefail beholdes.
+
+Worker-jobb 141000007722 bekreftet historikkens tomtilstand, men stoppet ved tilbakekjøp (`NO_ACTIVE_PROGRAM` i lokal fixture). Browser-smoke avklarer nå aktivt datagrunnlag mot de eksakte API-kallene også for tilbakekjøp, Bemobi, konsensus, FX og Brasil. Tilbakekjøp godtar kun eksplisitt NO_ACTIVE_PROGRAM som tomtilstand. HTTP-feil og manglende entydig status feiler. Logg skiller tomtilstand fra full datavisning; rikere fixture er nødvendig for å teste samtlige datakort. Ingen produksjonsberegning eller CSS endres.
+
+Worker-jobb 141000956234: 12/12 ved 390 px og fem første ved 320 px bestod (17/36 før stopp). Cash-siden hadde dokumentbredde 342 px ved viewport 320 px. Smal Cash-layout (<380 px) får krympbare gridspor, brytbare tekster og stablede overskrifter, uten skjuling av innhold. Browser-smoke samler nå layoutavvik fra alle kombinasjoner før ikke-null exit og logger kandidater til overflyt. Årsakselementet er ikke isolert i tidligere logg; CSS-rettelsen må verifiseres i ny CI. Tomtilstandskontroller og pipefail beholdes.
+
+Worker-jobb 141001648333: 35/36 mobilkombinasjoner bestod, inkludert Cash ved 320 px. Eneste avvik var BRL/NOK ved 768 px (dokumentbredde 784 px). Diagnosen viste at alle hovedseksjoner fikk en for bred grid-kolonne, forenlig med den innebygde tabellens minste bredde på 720 px og kortpadding. Rettelsen gir FX-siden og tablettradene krympbare gridspor, lar kort og diagram krympe, og begrenser horisontal scrolling til tabellens egen beholder. Tabellen beholder alle kolonner, og mobilkort under 681 px er uendret. Ny CI må bekrefte 36/36; ingen finansberegning endres.
