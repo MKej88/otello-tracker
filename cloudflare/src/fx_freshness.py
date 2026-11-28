@@ -32,16 +32,19 @@ def expected_norges_bank_date(now: datetime | None = None) -> str:
 async def norges_bank_fx_coverage(repository) -> dict[str, Any]:
     rows = await repository.all(
         """
-        SELECT fr.base_currency,
-               MAX(substr(fr.observed_at,1,10)) AS latest_date,
-               MAX(fr.fetched_at) AS latest_fetch
-        FROM fx_rates fr
-        JOIN sources s ON s.id=fr.source_id
-        WHERE fr.quote_currency='NOK'
-          AND fr.base_currency IN ('BRL','USD')
-          AND s.code='NORGES_BANK'
-        GROUP BY fr.base_currency
-        ORDER BY fr.base_currency
+        WITH pairs(base_currency) AS (VALUES ('BRL'), ('USD'))
+        SELECT p.base_currency,
+               (SELECT substr(fr.observed_at,1,10) FROM fx_rates fr
+                WHERE fr.source_id=s.id AND fr.base_currency=p.base_currency
+                  AND fr.quote_currency='NOK'
+                ORDER BY substr(fr.observed_at,1,10) DESC LIMIT 1) AS latest_date,
+               (SELECT fr.fetched_at FROM fx_rates fr
+                WHERE fr.source_id=s.id AND fr.base_currency=p.base_currency
+                  AND fr.quote_currency='NOK'
+                ORDER BY fr.fetched_at DESC LIMIT 1) AS latest_fetch
+        FROM pairs p JOIN sources s ON s.code='NORGES_BANK'
+        WHERE latest_date IS NOT NULL
+        ORDER BY p.base_currency
         """
     )
     pairs = {
