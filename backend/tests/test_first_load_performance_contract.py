@@ -71,11 +71,12 @@ def test_cached_first_screen_is_only_parsed_once_before_react_render() -> None:
     source = (FRONTEND_SRC / "dashboardBootstrapFetch.ts").read_text(encoding="utf-8")
 
     cache_check = source.index(
-        "if (storedBootstrap !== undefined) return storedBootstrap;"
+        "if (storedBootstrap !== undefined) {"
     )
     storage_read = source.index("window.localStorage.getItem(CLIENT_CACHE_KEY)")
 
     assert cache_check < storage_read
+    assert "!validStoredAge(storedBootstrap.storedAt)" in source
     assert "storedBootstrap = stored as StoredBootstrap" in source
     assert "storedBootstrap = stored;" in source
 
