@@ -34,6 +34,7 @@ const CLIENT_CACHE_KEY = "otello.dashboard.bootstrap.v3";
 const CLIENT_CACHE_VERSION = 3;
 const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const BOOTSTRAP_HEDGE_MS = 750;
+const STARTUP_BOOTSTRAP_MAX_AGE_MS = 30_000;
 
 let installed = false;
 let bootstrapPromise: Promise<BootstrapPayload | null> | null = null;
@@ -60,7 +61,7 @@ function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object";
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function completeBootstrap(payload: BootstrapPayload | null): payload is BootstrapPayload {
@@ -72,9 +73,19 @@ function completeBootstrap(payload: BootstrapPayload | null): payload is Bootstr
     && isObject(payload.events);
 }
 
+function validStoredAge(storedAt: unknown, now = Date.now()): boolean {
+  return typeof storedAt === "number" && Number.isFinite(storedAt)
+    && storedAt <= now && now - storedAt <= CLIENT_CACHE_MAX_AGE_MS;
+}
+
 function loadStoredBootstrap(): StoredBootstrap | null {
   if (typeof window === "undefined") return null;
-  if (storedBootstrap !== undefined) return storedBootstrap;
+  if (storedBootstrap !== undefined) {
+    if (storedBootstrap !== null && !validStoredAge(storedBootstrap.storedAt)) {
+      storedBootstrap = null;
+    }
+    return storedBootstrap;
+  }
   try {
     const raw = window.localStorage.getItem(CLIENT_CACHE_KEY);
     if (!raw) {
@@ -83,8 +94,7 @@ function loadStoredBootstrap(): StoredBootstrap | null {
     }
     const stored = JSON.parse(raw) as Partial<StoredBootstrap>;
     if (stored.cacheVersion !== CLIENT_CACHE_VERSION
-      || typeof stored.storedAt !== "number"
-      || Date.now() - stored.storedAt > CLIENT_CACHE_MAX_AGE_MS
+      || !validStoredAge(stored.storedAt)
       || !completeBootstrap(stored.payload ?? null)) {
       window.localStorage.removeItem(CLIENT_CACHE_KEY);
       storedBootstrap = null;
@@ -122,7 +132,7 @@ export function getCachedDashboardComponent<T>(component: BootstrapComponent): T
 /** Read a last-good first-screen value before React's first render. */
 export function getCachedDashboardComponentForUrl<T>(url: string): T | null {
   const parsed = requestUrl(url);
-  const component = parsed && parsed.search === ""
+  const component = parsed && parsed.origin === window.location.origin && parsed.search === ""
     ? COMPONENT_BY_PATH[parsed.pathname]
     : undefined;
   return component == null ? null : getCachedDashboardComponent<T>(component);
@@ -250,6 +260,7 @@ export function installDashboardBootstrapFetch(): void {
 
   const originalFetch = window.fetch.bind(window);
   const cached = loadStoredBootstrap();
+  const startedAt = Date.now();
 
   // Start revalidation before React effects issue their first API request.
   bootstrapPromise = fetchBootstrap(originalFetch);
@@ -257,9 +268,13 @@ export function installDashboardBootstrapFetch(): void {
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = requestUrl(input);
-    const component = url && url.search === "" ? COMPONENT_BY_PATH[url.pathname] : undefined;
+    const component = url && url.origin === window.location.origin && url.search === "" ? COMPONENT_BY_PATH[url.pathname] : undefined;
+    const requestCache = init?.cache ?? (typeof Request !== "undefined" && input instanceof Request ? input.cache : undefined);
+    const elapsed = Date.now() - startedAt;
     const canBootstrap = component != null
       && requestMethod(input, init) === "GET"
+      && requestCache !== "no-store" && requestCache !== "reload" && requestCache !== "no-cache"
+      && elapsed >= 0 && elapsed <= STARTUP_BOOTSTRAP_MAX_AGE_MS
       && !servedFromBootstrap.has(component);
 
     if (!canBootstrap || component == null) {
@@ -268,11 +283,12 @@ export function installDashboardBootstrapFetch(): void {
         // Startup revalidation must not overwrite a completed later refresh,
         // including when a consumer remounts and subscribes again.
         servedFromClientCache.delete(component);
+        servedFromBootstrap.add(component);
       }
       return response;
     }
 
-    const cachedComponent = cached?.payload[component];
+    const cachedComponent = cached && validStoredAge(cached.storedAt) ? cached.payload[component] : undefined;
     if (isObject(cachedComponent)) {
       servedFromBootstrap.add(component);
       servedFromClientCache.add(component);
@@ -289,7 +305,7 @@ export function installDashboardBootstrapFetch(): void {
       init,
       originalFetch,
     );
-    if (response.headers.get("X-Otello-Bootstrap") === "HIT") {
+    if (response.ok) {
       servedFromBootstrap.add(component);
     }
     return response;

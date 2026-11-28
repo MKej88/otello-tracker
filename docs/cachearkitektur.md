@@ -40,3 +40,7 @@ Samlet struktur- og eksakt aldersvalidering brukes nå av begge baner. Ved ugyld
 - Dokumenter eventuelle konkrete inkonsistenser med tidspunkt og generasjon før ytterligere inngrep.
 
 Ingen cache-TTL, kildeprioritet, regneverdier, D1-skjema eller oversettelsesprosess er endret i denne fasen.
+
+## Fase 11 – Avgrensning av nettleserens oppstarts-cache
+
+Sist-god bootstrap hadde memoiserte objekter uten ny alderskontroll, godtok fremtidig storedAt og arrays som komponenter. I tillegg kunne en komponent som først ble etterspurt lenge etter oppstart bruke den opprinnelige oppstartsresponsen; en eksplisitt no-store-forespørsel kunne bli oppfylt av samme syntetiske cache. Nå valideres lagringstid på nytt ved minneoppslag og bruk av innfanget kopi, med uendret 7-dagersgrense, og arrays avvises. Syntetisk bootstrap er begrenset til de første 30 sekundene (samme horisont som navigasjonscache), same-origin og vanlige GET-kall; no-store/reload/no-cache går direkte. Fullført direkte GET hindrer senere bruk av eldre oppstartsrespons for samme komponent. Bevarer preload, umiddelbar revalidering og eksisterende polling. Lagret dato er fortsatt ikke det samme som finansielle dataenes dato. HTTP- og server-TTL, finansmodell og kildeprioritet uendret. Ny CI og etterfølgende syntetisk produksjonsmåling må bekrefte funksjon og ytelse.
