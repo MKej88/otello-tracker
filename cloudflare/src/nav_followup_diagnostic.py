@@ -67,6 +67,19 @@ def followup_queries() -> list[dict]:
     ]
 
 
+def cost_anchor_query() -> dict:
+    # Select only the metadata fields used by the economic NAV cost model.
+    return {"sql": """SELECT id AS document_id,
+                json_extract(metadata_json,'$.scenario') AS scenario,
+                json_extract(metadata_json,'$.effective_from') AS effective_from,
+                json_extract(metadata_json,'$.amount_usd') AS amount_usd,
+                json_extract(metadata_json,'$.period_days') AS period_days
+                FROM source_documents
+                WHERE document_type='ECONOMIC_NAV_COST_ANCHOR'
+                AND json_valid(metadata_json)
+                ORDER BY published_at DESC,id DESC LIMIT 100"""}
+
+
 def _date(value) -> str:
     try:
         return date.fromisoformat(str(value)[:10]).isoformat()
@@ -96,15 +109,30 @@ def _choice(value, allowed) -> str:
 
 
 def assess_followup(groups: list[dict], details: list[dict], receivables: list[dict],
-                    *, preflight: dict) -> dict:
+                    *, preflight: dict, cost_anchors: list[dict] | None = None) -> dict:
     pending = sum(int(r["count"]) for r in groups)
     due = sum(int(r["due"]) for r in groups)
+    first_base = min((
+        day for row in (cost_anchors or [])
+        if str(row.get("scenario") or "").upper() == "BASE"
+        and (day := _date(row.get("effective_from"))) != "-"
+        and (amount := _number(row.get("amount_usd"))) is not None and amount >= 0
+        and (days := _number(row.get("period_days"))) is not None
+        and days > 0 and days == days.to_integral_value()
+    ), default=None)
+    # Preserve the entire queue. An earlier source-backed anchor may be added
+    # later; only classify the gap, never delete or invent history here.
+    before_base = sum(int(row["count"]) for row in groups
+                      if first_base and row.get("reason_code") == "missing_estimated_nav_anchor"
+                      and _date(row.get("last_date")) != "-"
+                      and _date(row["last_date"]) < first_base)
     warning = bool(pending or preflight.get("warnings") or preflight.get("blockers")
                    or not receivables or any(
-                       r.get("receivable_quality") not in {"NONE", "REPORTED_CALIBRATED"}
+                       r.get("receivable_quality") not in {"NONE", "REPORTED_CALIBRATED", "ESTIMATED_NET"}
                        for r in receivables))
     return {"pending": pending, "due": due, "warning": warning,
-            "groups": groups, "details": details, "receivables": receivables}
+            "groups": groups, "details": details, "receivables": receivables,
+            "first_base_anchor": first_base, "before_base_anchor": before_base}
 
 
 def render_followup(report: dict) -> str:
@@ -118,6 +146,9 @@ def render_followup(report: dict) -> str:
         lines.append(f"| {_reason(row.get('reason_code'))} | {_fmt(row.get('count'))} | "
                      f"{_date(row.get('first_date'))} | {_date(row.get('last_date'))} | "
                      f"{_date(row.get('first_failed_at'))} | {_fmt(row.get('max_attempts'))} | {_fmt(row.get('due'))} |")
+    lines += ["", f"- Tidligste gyldige BASE-kostnadsanker i D1: {report.get('first_base_anchor') or 'ikke bekreftet'}.",
+              f"- Køpunkter med manglende anker der hele årsaksgruppen er før første BASE-anker: {report.get('before_base_anchor', 0)}.",
+              "- Tidligere datoer kan ikke beregnes uten dokumentert kostnadsgrunnlag. Køen beholdes; øvrige årsaker må undersøkes separat."]
     if report["details"]:
         lines += ["", "### Datoer i historikkøen", "",
                   "| Datadato | Årsak | Forsøk | Første feil | Siste feil | Neste forsøk |",
@@ -132,9 +163,11 @@ def render_followup(report: dict) -> str:
     if not report["receivables"]:
         lines.append("- Fordringsgrunnlag ikke bekreftet.")
     for row in report["receivables"]:
-        quality = _choice(row.get("receivable_quality"), {"NONE", "ESTIMATED_GROSS", "REPORTED_CALIBRATED"})
+        quality = _choice(row.get("receivable_quality"), {"NONE", "ESTIMATED_GROSS", "REPORTED_CALIBRATED", "ESTIMATED_NET"})
         lines.append(f"- Datadato {_date(row.get('estimate_date'))}: {quality}; "
                      f"samlet modellert fordring {_fmt(row.get('associated_receivable_nok'))} NOK.")
+        if quality == "ESTIMATED_NET":
+            lines.append("  - Modellinformasjon: dokumentert standard nettoutdeling; Otellos faktiske skattebehandling er ikke bekreftet.")
         if row.get("modeled_action_id") is None:
             continue
         lines.append(f"  - Utdeling ID {_fmt(row.get('action_id'))}, "
@@ -154,5 +187,5 @@ def render_followup(report: dict) -> str:
             difference = (gross - net) * shares * fx
             lines.append(f"  - Illustrativ nettofordring ved publisert standard kildeskatt: "
                          f"{net * shares * fx:.2f} NOK; forskjell brutto/netto {difference:.2f} NOK. "
-                         "Ikke bekreftet Otello-spesifikk skatt eller endret NAV.")
+                         "Otello-spesifikk skatt er ikke bekreftet.")
     return "\n".join(lines) + "\n"

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
-from nav_followup_diagnostic import assess_followup, followup_queries, render_followup
+from nav_followup_diagnostic import assess_followup, followup_queries, render_followup, cost_anchor_query
 
 
 class FollowupTests(unittest.TestCase):
@@ -47,3 +47,31 @@ class FollowupTests(unittest.TestCase):
         self.assertTrue(assess_followup([], [], [], preflight={})["warning"])
         self.assertTrue(assess_followup([], [], [{"receivable_quality": "NONE"}],
                                        preflight={"warnings": [{}]})["warning"])
+
+
+    def test_net_estimate_and_pre_anchor_backlog(self):
+        anchors = [{"scenario": "BASE", "effective_from": "2023-06-30",
+                    "amount_usd": "1673000", "period_days": 181},
+                   {"scenario": "BASE", "effective_from": "2022-01-01",
+                    "amount_usd": "-1", "period_days": 181}]
+        net = [{"receivable_quality": "ESTIMATED_NET", "estimate_date": "2026-11-27"}]
+        healthy = assess_followup([], [], net, preflight={}, cost_anchors=anchors)
+        self.assertFalse(healthy["warning"])
+        self.assertIn("ESTIMATED_NET", render_followup(healthy))
+        self.assertNotIn("UKJENT", render_followup(healthy))
+        groups = [{"reason_code": "missing_estimated_nav_anchor", "count": 250,
+                   "due": 30, "last_date": "2023-06-29"}]
+        report = assess_followup(groups, [], net, preflight={}, cost_anchors=anchors)
+        self.assertTrue(report["warning"])
+        self.assertEqual(report["first_base_anchor"], "2023-06-30")
+        self.assertEqual(report["before_base_anchor"], 250)
+        self.assertEqual(report["pending"], 250)
+        db = sqlite3.connect(":memory:")
+        db.executescript("""
+        CREATE TABLE source_documents(id, published_at, document_type, metadata_json);
+        INSERT INTO source_documents VALUES(1, '2023-06-30','ECONOMIC_NAV_COST_ANCHOR',
+           '{"scenario":"BASE","effective_from":"2023-06-30","amount_usd":"1673000","period_days":181}');
+        INSERT INTO source_documents VALUES(2, '2023-01-01','ECONOMIC_NAV_COST_ANCHOR','not json');
+        """)
+        self.assertEqual(db.execute(cost_anchor_query()["sql"]).fetchall(),
+                         [(1, "BASE", "2023-06-30", "1673000", 181)])
