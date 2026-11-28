@@ -34,13 +34,16 @@ async def _preferred_series(
     start_date: str,
     end_date: str,
 ) -> list[dict[str, Any]]:
+    # Source-first join lets D1 use the existing source/pair/calendar-date
+    # index (0045) instead of scanning unrelated intraday quotes in the same
+    # currency pair. Preserve the original sort and daily deduplication.
     rows = await repository.all(
         """
         SELECT substr(fr.observed_at, 1, 10) AS rate_date,
                fr.rate,
                s.code AS source_code
-        FROM fx_rates fr
-        JOIN sources s ON s.id = fr.source_id
+        FROM sources s
+        CROSS JOIN fx_rates fr ON fr.source_id = s.id
         WHERE fr.base_currency = ?
           AND fr.quote_currency = 'NOK'
           AND s.code IN ('NORGES_BANK', 'ECB')
