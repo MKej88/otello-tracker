@@ -263,6 +263,7 @@ async def backfill_bmob3_volume_history(
     initial_sessions = len(available)
     downloaded = 0
     attempted: list[str] = []
+    scan_exhausted = True
 
     for offset in range(max_calendar_days + 1):
         if len(available) >= required_sessions:
@@ -271,6 +272,8 @@ async def backfill_bmob3_volume_history(
             max_downloaded_sessions is not None
             and downloaded >= max_downloaded_sessions
         ):
+            # A later batch can continue only if this scan stopped at the batch cap.
+            scan_exhausted = False
             break
         candidate = target - timedelta(days=offset)
         candidate_text = candidate.isoformat()
@@ -295,5 +298,6 @@ async def backfill_bmob3_volume_history(
         "initial_sessions": initial_sessions,
         "available_sessions": len(available),
         "downloaded_sessions": downloaded,
+        "scan_exhausted": len(available) < required_sessions and scan_exhausted,
         "attempted_dates": attempted,
     }

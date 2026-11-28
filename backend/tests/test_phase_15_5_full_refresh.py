@@ -250,8 +250,10 @@ def test_b3_volume_history_backfill_can_be_split_into_batches() -> None:
 
     assert first["status"] == "partial"
     assert first["downloaded_sessions"] == 1
+    assert first["scan_exhausted"] is False
     assert first["available_sessions"] == 2
     assert second["status"] == "ok"
+    assert second["scan_exhausted"] is False
     assert second["initial_sessions"] == 2
     assert second["downloaded_sessions"] == 1
     assert second["available_sessions"] == 3
@@ -517,3 +519,67 @@ def test_cloudflare_nav_fx_lookup_prefers_norges_bank_same_day() -> None:
     for source in (nav_source, backtest_source):
         assert "WHEN 'NORGES_BANK' THEN 0" in source
         assert "WHEN 'ECB' THEN 1" in source
+
+
+@pytest.mark.parametrize("available_days", [set(), {"2026-08-18"}])
+def test_b3_volume_backfill_reports_exhausted_window_without_marking_success(available_days) -> None:
+    class Repository:
+        def __init__(self):
+            self.saved = set()
+
+        async def all(self, query, params):
+            return [{"trading_date": day} for day in self.saved]
+
+        async def create_source_document(self, **kwargs):
+            return 1
+
+        async def upsert_market_price(self, **kwargs):
+            self.saved.add(kwargs["trading_date"])
+            return len(self.saved)
+
+    class NotPublished:
+        status = 404
+        ok = False
+
+    calls = []
+
+    async def fetcher(url, **kwargs):
+        raw = url.rsplit("D", 1)[1].split(".", 1)[0]
+        day = f"{raw[4:]}-{raw[2:4]}-{raw[:2]}"
+        calls.append(day)
+        if day not in available_days:
+            return NotPublished()
+        return _Response(_zip_text(f"COTAHIST_D{raw}.TXT", _b3_line(trading_date=day.replace("-", "")) + "\n"))
+
+    repository = Repository()
+    result = asyncio.run(backfill_bmob3_volume_history(
+        repository, target_date="2026-08-19", required_sessions=3,
+        max_calendar_days=2, max_downloaded_sessions=5, fetcher=fetcher,
+    ))
+    assert calls == ["2026-08-19", "2026-08-18", "2026-08-17"]
+    assert result["status"] == "partial"
+    assert result["scan_exhausted"] is True
+    assert result["downloaded_sessions"] == len(available_days)
+    assert result["available_sessions"] == len(available_days)
+    assert result["attempted_dates"] == calls
+
+    # Exhaustion is per scan, not a durable negative cache: the next full
+    # refresh can still collect a file which B3 publishes later.
+    available_days = available_days | {"2026-08-19"}
+    calls.clear()
+    retry = asyncio.run(backfill_bmob3_volume_history(
+        repository, target_date="2026-08-19", required_sessions=3,
+        max_calendar_days=2, max_downloaded_sessions=5, fetcher=fetcher,
+    ))
+    assert "2026-08-19" in calls
+    assert retry["downloaded_sessions"] == 1
+
+
+def test_full_workflow_stops_repeating_exhausted_volume_scan() -> None:
+    workflow = (CLOUDFLARE_SRC / "entry.py").read_text(encoding="utf-8")
+    loop = workflow.split("for batch_number in range(1, volume_batches + 1):", 1)[1].split(
+        'source_results.setdefault("b3", {})["volume_history"]', 1
+    )[0]
+    assert 'volume_history.get("status") == "ok"' in loop
+    assert 'or volume_history.get("scan_exhausted") is True' in loop
+    assert "break" in loop

@@ -520,7 +520,10 @@ class FullRefreshWorkflow(WorkflowEntrypoint):
                 except Exception as exc:
                     volume_history = error_result(exc)
                     break
-                if volume_history.get("status") == "ok":
+                if (volume_history.get("status") == "ok"
+                    or volume_history.get("scan_exhausted") is True):
+                    # All eligible dates in the lookback were checked. Do not
+                    # repeat unavailable files in this workflow; next run retries.
                     break
 
             source_results.setdefault("b3", {})["volume_history"] = volume_history

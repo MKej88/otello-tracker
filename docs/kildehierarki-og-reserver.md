@@ -30,3 +30,7 @@ Formål: skille aktiv innhenting, uavhengig reserve, kontrollserier og historisk
 4. Før eventuell fjerning av kompatibilitetsaliaser eller incident-verktøy: sjekk alle import- og testreferanser og eksisterende Workflow-versjoner.
 
 Ingen kilde fjernes nå. Dette er en konservativ kildeopprydding: dokumentasjon og mer presis diagnostikk, ikke en bekreftet reduksjon i nettverkskall. Kildeprioritet, datoferskhet og historiske data holdes uendret.
+
+### Fase 7 – Avgrenset B3-voluminnhenting
+
+Full Workflow tillater opptil 13 volumdelkjøringer (63 sesjoner, fem nye per del). Hvis en del har undersøkt hele vinduet uten å nå ønsket dekning, vil nye deler normalt bare gjenta de samme 404-/tomme filoppslagene. Nå returnerer innhentingen eksplisitt `scan_exhausted` ved ufullstendig dekning etter uttømt vindu, og Workflow avslutter delkjøringene for denne runden. `partial` beholdes, ingen vedvarende negativ cache, og neste fullkjøring prøver igjen. Når en del stoppes av fem-sesjonsgrensen, fortsetter vanlig batchbehandling. Offisiell daglig CLOSE, arkivering, datovalidering, transportfeil-retry og Yahoo-reserven er uendret. Dagens nattdiagnose 46149396473 viste kun én vellykket volumdel; gevinsten gjelder spesielt ved manglende historiske filer, ikke dokumentert besparelse i dagens friske kjøring.
