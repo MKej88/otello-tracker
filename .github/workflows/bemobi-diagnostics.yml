@@ -1,0 +1,156 @@
+name: Bemobi – lesediagnostikk
+
+on:
+  workflow_dispatch:
+    inputs:
+      kontroll:
+        description: Velg skrivebeskyttet kontroll
+        required: true
+        type: choice
+        default: fem-dokumenter
+        options:
+          - fem-dokumenter
+          - oversettelsesarkiv
+          - cvm-kilder
+          - alle
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bemobi-diagnostics.yml
+      - tools/select_bemobi_diagnostics.py
+      - tools/diagnose_bemobi_five_documents.py
+      - tools/audit_bemobi_translation_archive.py
+  pull_request:
+    paths:
+      - .github/workflows/bemobi-diagnostics.yml
+      - tools/select_bemobi_diagnostics.py
+      - tools/probe_bemobi_cvm_rad.py
+      - tools/diagnose_bemobi_five_documents.py
+      - tools/audit_bemobi_translation_archive.py
+      - backend/tests/test_bemobi_five_document_diagnostic.py
+      - backend/tests/test_bemobi_translation_archive_audit.py
+      - backend/tests/test_select_bemobi_diagnostics.py
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    name: Velg relevante kontroller
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      five: ${{ steps.route.outputs.five }}
+      archive: ${{ steps.route.outputs.archive }}
+      rad: ${{ steps.route.outputs.rad }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_CHOICE: ${{ inputs.kontroll }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 tools/select_bemobi_diagnostics.py
+
+  probe:
+    needs: select
+    if: needs.select.outputs.rad == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - name: Install locked parser dependencies
+        run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Discover CVM filings and verify official PDF
+        run: PYTHONPATH=cloudflare/src python3 tools/probe_bemobi_cvm_rad.py
+
+  validate-five:
+    needs: select
+    if: needs.select.outputs.five == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_five_document_diagnostic.py
+
+  diagnose-five:
+    needs: select
+    if: needs.select.outputs.five == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Les kun de fem dokumentradene
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/diagnose_bemobi_five_documents.py collect "$RUNNER_TEMP/bemobi-five"
+      - run: npm ci --prefix cloudflare --no-audit --no-fund
+      - name: Verifiser eksisterende R2-originaler med lesetilgang
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: python3 tools/diagnose_bemobi_five_documents.py read-r2 "$RUNNER_TEMP/bemobi-five"
+      - name: Analyser originaltekst og numerisk deling uten credentials
+        run: python3 tools/diagnose_bemobi_five_documents.py diagnose "$RUNNER_TEMP/bemobi-five"
+
+  validate-archive:
+    needs: select
+    if: needs.select.outputs.archive == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_translation_archive_audit.py
+
+  audit-archive:
+    needs: select
+    if: needs.select.outputs.archive == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Kartlegg historiske dokumenter (kun lesing)
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/audit_bemobi_translation_archive.py
