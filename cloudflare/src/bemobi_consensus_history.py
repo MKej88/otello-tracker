@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, timedelta
 from typing import Any
@@ -230,7 +231,10 @@ async def build_consensus_history(
     *,
     current_forward: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    metadata_by_period = await _event_metadata(repository)
+    metadata_by_period, forward_tracker = await asyncio.gather(
+        _event_metadata(repository),
+        _forward_tracker(repository, current_forward or []),
+    )
     events: list[dict[str, Any]] = []
     for item in beat_miss:
         period = str(item.get("period") or "")
@@ -251,11 +255,20 @@ async def build_consensus_history(
                 "metrics": item.get("metrics") or [],
             },
             "model_revision": model,
-            "market_reaction": await _market_reaction(repository, result_date),
         })
+    # Fetch distinct report dates concurrently, in bounded groups to avoid
+    # unbounded D1 load. Preserve the original event ordering and price rules.
+    dates = list(dict.fromkeys(event["result_date"] for event in events))
+    reactions = {}
+    for offset in range(0, len(dates), 4):
+        group = dates[offset:offset + 4]
+        values = await asyncio.gather(*(_market_reaction(repository, day) for day in group))
+        reactions.update(zip(group, values))
+    for event in events:
+        event["market_reaction"] = reactions[event["result_date"]]
     return {
         "events": events,
-        "forward_revision_tracker": await _forward_tracker(repository, current_forward or []),
+        "forward_revision_tracker": forward_tracker,
         "method_note": (
             "Historiske rapport-/modellhendelser ligger i databasen, ikke i Python-kode. "
             "Kvartalsforventningene er foreløpig XP-spesifikke; årsrevisjoner sammenlignes "
