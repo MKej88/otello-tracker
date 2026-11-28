@@ -6,12 +6,13 @@ SRC = ROOT / "frontend" / "src"
 
 
 def test_legacy_frontend_components_are_not_reintroduced():
-    retired = ("App", "HistoryPage", "DeferredDiagnostics", "EconomicNavPanel")
+    retired = ("App", "HistoryPage", "DeferredDiagnostics", "EconomicNavPanel",
+               "NavWaterfallPanel", "ReportStatusPanel", "RuntimeStatusPanel")
     for name in retired:
         assert not (SRC / f"{name}.tsx").exists(), name
     # Check literal imports, dynamic imports and re-exports throughout src.
     imports = re.compile(
-        r"""(?:from\s*|import\s*\(\s*|import\s*)['"](?:\./|[^'"]*/)(App|HistoryPage|DeferredDiagnostics|EconomicNavPanel)(?:\.tsx?)?['"]"""
+        r"""(?:from\s*|import\s*\(\s*|import\s*)['"](?:\./|[^'"]*/)(App|HistoryPage|DeferredDiagnostics|EconomicNavPanel|NavWaterfallPanel|ReportStatusPanel|RuntimeStatusPanel)(?:\.tsx?)?['"]"""
     )
     for path in SRC.rglob("*"):
         if path.suffix in {".ts", ".tsx", ".js", ".jsx"}:
@@ -27,3 +28,19 @@ def test_active_frontend_entrypoint_and_routes_remain_wired():
         assert (SRC / f"{page}.tsx").exists()
         assert f'import("./{page}")' in investor
         assert f"<{page} />" in investor
+
+
+def test_retired_stylesheets_are_not_imported_or_reintroduced():
+    retired = (
+        "economic-nav.css", "history-page.css", "nav-waterfall.css",
+        "report-status.css", "runtime-status.css",
+    )
+    for name in retired:
+        assert not (SRC / name).exists(), name
+    sources = [path for path in SRC.rglob("*")
+               if path.suffix in {".ts", ".tsx", ".js", ".jsx", ".css"}]
+    sources.append(SRC.parent / "index.html")
+    for path in sources:
+        source = path.read_text(encoding="utf-8")
+        for name in retired:
+            assert name not in source, (path, name)

@@ -9,7 +9,7 @@ const shared = read("investor-v2.css");
 const navigation = read("navigation-groups.css");
 const sensitivity = read("nav-sensitivity.css");
 const sensitivityPage = read("NavSensitivityPage.tsx");
-const history = read("history-page.css");
+const historyPage = read("EstimatedHistoryPage.tsx");
 const cash = read("cash-page.css");
 const buyback = read("buyback-page.css");
 const buybackPage = read("BuybackPage.tsx");
@@ -41,7 +41,9 @@ test("sensitivity and buyback wide financial tables explicitly preserve horizont
 });
 
 test("history and cash use two-column mobile KPI layouts instead of full-height lists", () => {
-  assert.match(history, /\.historyKpiGrid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(historyPage, /className="historyKpiGrid"/);
+  assert.match(shared, /@media\s*\(max-width:\s*1100px\)\s*\{[\s\S]*?\.historyKpiGrid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(shared, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.historyKpiGrid\s*\{\s*grid-template-columns:\s*1fr\s+1fr;/);
   assert.match(cash, /@media \(min-width: 380px\) and \(max-width: 760px\)/);
   assert.match(cash, /\.cashKpiGrid,\s*\.cashBuybackResultsPrimary\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
 });

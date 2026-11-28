@@ -70,32 +70,45 @@ def test_worker_and_reference_waterfall_are_identical() -> None:
 def test_waterfall_routes_are_exposed() -> None:
     backend = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/dashboard/waterfall")' in backend
     assert '@app.get("/api/dashboard/waterfall")' in worker
-    assert 'usePollingResource<NavWaterfall>(' in frontend
-    assert '"/api/dashboard/waterfall"' in frontend
+    # The active NAV page uses economic NAV and period attribution instead.
+    assert 'usePollingResource<EstimatedNav>(' in frontend
+    assert '"/api/dashboard/economic"' in frontend
+    assert "fetchPreloadedJson<Payload>(discountHistoryUrl(period))" in frontend
+    assert "groupedDrivers(change?.drivers" in frontend
     assert "Tilbakekjøp – kontantbruk" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
     assert "Færre utestående aksjer" in (ROOT / "backend" / "app" / "nav_waterfall.py").read_text(encoding="utf-8")
 
 
 def test_frontend_presents_buybacks_as_net_per_share_effect() -> None:
-    frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
 
-    assert 'label: "Tilbakekjøp – netto effekt"' in frontend
-    assert "per_share_nok: cashImpact + shareCountImpact" in frontend
-    assert 'label: "Kontantbruk"' in frontend
-    assert 'label: "Færre aksjer"' in frontend
-    assert 'item.key === "share_count" && canGroupBuybacks' in frontend
+    assert 'if (buybackCash && buybackShares)' in frontend
+    assert 'addGroup("buyback_net", "Tilbakekjøp – netto", [buybackCash, buybackShares])' in frontend
+    assert "per_share_nok: parts.reduce((sum, part) => sum + part.per_share_nok, 0)" in frontend
+    assert "parts.forEach((part) => groupedKeys.add(part.key))" in frontend
+    assert "if (groupedKeys.has(driver.key)) continue" in frontend
+    assert '"Kontantbruk"' in frontend
+    assert '"Færre aksjer"' in frontend
 
 
-def test_frontend_hides_non_investor_ona_and_small_cash_residuals() -> None:
-    frontend = (ROOT / "frontend" / "src" / "NavWaterfallPanel.tsx").read_text(encoding="utf-8")
+def test_frontend_explains_cash_residuals_and_preserves_nav_reconciliation() -> None:
+    frontend = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
 
-    assert 'if (item.key === "ona_ex_option") continue' in frontend
-    assert 'if (item.key === "other_cash")' in frontend
-    assert "if (!isMaterialUnexplainedCash(item)) continue" in frontend
-    assert 'label: "Uforklart kontantendring"' in frontend
-    assert "UNEXPLAINED_CASH_MNOK_THRESHOLD = 0.5" in frontend
-    assert "UNEXPLAINED_CASH_PER_SHARE_THRESHOLD = 0.01" in frontend
+    # The active period attribution intentionally shows nonzero residuals
+    # rather than silently hiding them using the old waterfall thresholds.
+    assert 'if (driver.key === "other_cash")' in frontend
+    assert 'detailNumber(driver, "operating_cost_mnok")' in frontend
+    assert 'detailNumber(driver, "interest_income_mnok")' in frontend
+    assert 'detailNumber(driver, "other_movements_mnok")' in frontend
+    assert 'label: "Restpost"' in frontend
+    assert "per_share_nok: otherMovements * scale" in frontend
+    assert "Math.abs(effect.amount_mnok ?? 0) > 1e-9" in frontend
+    assert "Math.abs(effect.per_share_nok) > 1e-9" in frontend
+    assert "groupedDrivers(change?.drivers ?? []).filter(driverHasChange)" in frontend
+    assert 'case "model_residual":' in frontend
+    assert "Avstemming mellom underkomponenter og total NAV" in frontend
+    assert "change.change_per_share_nok" in frontend

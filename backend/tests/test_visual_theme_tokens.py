@@ -74,17 +74,12 @@ def test_migrated_pages_consume_shared_tokens_directly() -> None:
         "data-quality.css": ("var(--ot-surface-raised)", "var(--ot-positive-soft)", "var(--ot-warning-soft)"),
         "nav-sensitivity.css": ("var(--ot-surface-muted)", "var(--ot-accent-soft)", "var(--ot-negative-soft)"),
         "market-quote-panel.css": ("var(--ot-surface)", "var(--ot-track)", "var(--ot-positive)"),
-        "economic-nav.css": ("var(--ot-surface)", "var(--ot-surface-raised)", "var(--ot-positive-border)"),
         "styles.css": ("var(--ot-border-soft)", "var(--ot-warning-soft)", "var(--ot-chart-secondary)"),
         "investor-v2.css": ("var(--ot-border-soft)", "var(--ot-positive)", "var(--ot-chart-secondary)"),
         "overview-page.css": ("var(--ot-positive)", "var(--ot-accent-soft)", "var(--ot-control-soft)"),
         "news-events.css": ("var(--ot-surface)", "var(--ot-warning)", "var(--ot-positive-soft)"),
         "navigation-groups.css": ("var(--ot-border-soft)", "var(--ot-text-muted)"),
         "bemobi-source-status.css": ("var(--ot-positive)", "var(--ot-warning-border)", "var(--ot-negative)"),
-        "nav-waterfall.css": ("var(--ot-surface)", "var(--ot-positive)", "var(--ot-warning-soft)"),
-        "report-status.css": ("var(--ot-surface-raised)", "var(--ot-positive-soft)", "var(--ot-warning-soft)"),
-        "runtime-status.css": ("var(--ot-surface-raised)", "var(--ot-negative-soft)", "var(--ot-warning-soft)"),
-        "history-page.css": ("var(--ot-surface-inset)", "var(--ot-chart-reference)", "var(--ot-warning-soft)"),
     }
 
     for filename, tokens in expected_tokens.items():
