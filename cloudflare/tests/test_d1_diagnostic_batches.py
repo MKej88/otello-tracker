@@ -56,3 +56,23 @@ class DiagnosticBatchTests(unittest.TestCase):
         self.assertLess(seen.index("SELECT 17"), seen.index("SELECT 16"))
         with self.assertRaises(RuntimeError):
             query_diagnostics(queries, post, optional_indices=(15,))
+
+
+    def test_optional_fallback_preserves_reduced_evidence(self):
+        queries = [{"sql": f"SELECT {i}"} for i in range(3)]
+        def post(chunk):
+            if any(q["sql"] == "SELECT 1" for q in chunk):
+                raise HTTPError("https://example.invalid", 400, "private text", {}, None)
+            return {"success": True, "result": [
+                {"success": True, "results": [q["sql"]]} for q in chunk]}
+        result = query_diagnostics(queries, post, optional_indices=(1,),
+                                   optional_fallbacks={1: {"sql": "SELECT 10"}})["result"]
+        self.assertEqual(result[1]["results"], ["SELECT 10"])
+        self.assertTrue(result[1]["diagnostic_reduced"])
+        self.assertEqual(result[2]["results"], ["SELECT 2"])
+        failed = query_diagnostics(queries, post, optional_indices=(1,),
+                                   optional_fallbacks={1: {"sql": "SELECT 1"}})["result"]
+        self.assertTrue(failed[1]["diagnostic_unavailable"])
+        with self.assertRaises(ValueError):
+            query_diagnostics(queries, post, optional_indices=(1,),
+                              optional_fallbacks={1: {"sql": "DELETE FROM x"}})

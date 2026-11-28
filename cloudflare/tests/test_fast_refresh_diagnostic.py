@@ -11,7 +11,8 @@ from pathlib import Path
 
 from fast_refresh_diagnostic import (assess_fast_refresh, assess_fast_refresh_window,
                                      public_fast_refresh_warning, TRANSLATION_ERROR_GROUPS_SQL,
-                                     TRANSLATION_DOCUMENTS_SQL, render_translation_diagnostics)
+                                     TRANSLATION_DOCUMENTS_SQL, TRANSLATION_DOCUMENTS_FALLBACK_SQL,
+                                     render_translation_diagnostics)
 
 NOW = datetime(2026, 10, 30, 0, 55, tzinfo=UTC)
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloudflare-workflow-diagnostics.yml"
@@ -133,6 +134,11 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         self.assertEqual(unresolved[0]["stage"], "translation")
         self.assertEqual(unresolved[0]["ai_code"], 3036)
         self.assertEqual(len(unresolved), 2)
+        fallback = [dict(row) for row in db.execute(TRANSLATION_DOCUMENTS_FALLBACK_SQL)]
+        self.assertEqual([row["document_id"] for row in fallback], [2, 1])
+        self.assertEqual([row["stage"] for row in fallback], ["translation", "download"])
+        self.assertEqual(set(fallback[0]), {"document_id", "source", "attempts", "status", "stage"})
+        self.assertNotIn("secret", str(fallback))
         item = record("PARTIAL", steps={"bemobi_translation": {
             "model": "@cf/google/gemma-4-26b-a4b-it",
             "ai_probe": {"status": "error", "binding_calls": 1,

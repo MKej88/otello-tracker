@@ -503,12 +503,14 @@ jobs:
           import sys
           sys.path.insert(0, "cloudflare/src")
           from d1_diagnostic_batches import query_diagnostics, post_d1
+          from fast_refresh_diagnostic import TRANSLATION_DOCUMENTS_FALLBACK_SQL
           with open("d1-query-request.json", encoding="utf-8") as handle:
               batch = json.load(handle)["batch"]
           try:
               result = query_diagnostics(batch, lambda chunk: post_d1(
                   os.environ["D1_QUERY_URL"], os.environ["CLOUDFLARE_API_TOKEN"], chunk),
-                  optional_indices=(15, 16))
+                  optional_indices=(15, 16),
+                  optional_fallbacks={16: {"sql": TRANSLATION_DOCUMENTS_FALLBACK_SQL}})
           except RuntimeError as exc:
               raise SystemExit(str(exc)) from None
           with open("d1-query.json", "w", encoding="utf-8") as handle:
@@ -620,8 +622,10 @@ jobs:
               raise SystemExit("One or more mandatory read-only D1 diagnostic queries failed")
           translation_groups_available = result[15].get("success") is True
           translation_documents_available = result[16].get("success") is True
-          translation_diagnostic_warning = not (
-              translation_groups_available and translation_documents_available
+          translation_documents_reduced = result[16].get("diagnostic_reduced") is True
+          translation_diagnostic_warning = (
+              not (translation_groups_available and translation_documents_available)
+              or translation_documents_reduced
           )
 
           full_rows = result[0].get("results") or []
@@ -824,6 +828,8 @@ jobs:
               fast, result[16].get("results") or [],
               documents_available=translation_documents_available,
           ))
+          if translation_documents_reduced:
+              lines.append("- ADVARSEL: dokumentlisten er hentet med avgrenset reservespørring. Feilkoder og detaljert årsak er ikke bekreftet.")
           if translation_diagnostic_warning:
               lines.append("- ADVARSEL: oversettelsesdiagnostikk ufullstendig; obligatoriske NAV- og kildekontroller er vurdert separat.")
 
