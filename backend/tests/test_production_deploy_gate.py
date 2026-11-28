@@ -221,3 +221,25 @@ def test_manual_production_refresh_modes_are_exclusive_and_main_only():
     archived = (ROOT / "docs/archive/github-actions/verify-production-sources.yml").read_text(encoding="utf-8")
     old_job = archived.split("\n  verify:\n", 1)[1]
     assert verify.split("\n", 1)[1] == old_job
+
+
+def test_bemobi_workflow_maintenance_does_not_trigger_production_writes():
+    workflows = CI_WORKFLOW.parent
+    for filename, source in (
+        ("bemobi-cvm-live-r2.yml", "tools/mirror_bemobi_cvm_live.py"),
+        ("bemobi-translation-r2-mirror.yml", "tools/mirror_bemobi_translation_queue.py"),
+        ("bemobi-translation-history.yml", "tools/backfill_bemobi_translation_history.py"),
+        ("bemobi-verified-r2-mirror.yml", "tools/mirror_bemobi_q3_documents.py"),
+    ):
+        workflow = (workflows / filename).read_text(encoding="utf-8")
+        triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        push = triggers.split("\n  push:\n", 1)[1].split("\n  pull_request:", 1)[0]
+        assert f".github/workflows/{filename}" not in push
+        assert source in push
+        assert "workflow_dispatch:" in triggers
+    recovery = (workflows / "bemobi-cvm-7540-recovery.yml").read_text(encoding="utf-8")
+    scope = next(line for line in recovery.splitlines() if "git diff --name-only" in line)
+    assert ".github/workflows/bemobi-cvm-7540-recovery.yml" not in scope
+    assert "tools/recover_bemobi_cvm_7540.py" in scope
+    assert "cloudflare/src/bemobi_7540_normalization.py" in scope
+    assert "workflow_dispatch" in scope

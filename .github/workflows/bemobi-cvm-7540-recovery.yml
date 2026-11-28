@@ -1,4 +1,4 @@
-name: Bemobi CVM document 7540 verified normalization
+name: "26 – Bemobi – gjenoppretting av CVM-dokument 7540"
 
 on:
   workflow_dispatch:
@@ -55,7 +55,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] || git diff --name-only HEAD^1 HEAD | grep -Eq '^(cloudflare/src/bemobi_7540_normalization.py|tools/recover_bemobi_cvm_7540.py|.github/workflows/bemobi-cvm-7540-recovery.yml)$'; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || git diff --name-only HEAD^1 HEAD | grep -Eq '^(cloudflare/src/bemobi_7540_normalization.py|tools/recover_bemobi_cvm_7540.py)$'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0

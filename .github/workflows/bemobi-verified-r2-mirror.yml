@@ -1,11 +1,10 @@
-name: Mirror verified Bemobi Q3 official PDFs to private R2
+name: "25 – Bemobi – speiling av verifiserte Q3-dokumenter"
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - .github/workflows/bemobi-verified-r2-mirror.yml
       - tools/mirror_bemobi_q3_documents.py
       - cloudflare/src/bemobi_verified_mirror.py
 

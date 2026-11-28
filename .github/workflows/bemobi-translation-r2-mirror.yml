@@ -1,4 +1,4 @@
-name: Bemobi translation queue private R2 mirror
+name: "21 – Bemobi – speiling av oversettelseskø"
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/bemobi-translation-r2-mirror.yml
       - tools/mirror_bemobi_translation_queue.py
       - cloudflare/src/bemobi_translation_mirror.py
       - cloudflare/src/bemobi_cvm_padding_normalization.py
