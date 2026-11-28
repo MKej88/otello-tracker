@@ -7,7 +7,7 @@ Dette er produksjonspolicyen for Otello Tracker på Workers Paid. Målet er nok 
 1. **Statiske filer går ikke gjennom Worker-kode.** Workers Static Assets håndterer frontend; `/api/*` går gjennom Worker.
 2. **Compute er begrenset bevisst.** Produksjonsgrensen er 60 000 ms CPU og 50 000 subrequests per invocation. Subrequest-tallet er et sikkerhetstak for Full Workflow, ikke et mål for normal bruk.
 3. **API-cache brukes målrettet.** Statiske assets arver ikke global Worker-cache.
-4. **Observability er samplet.** Invocation logs lagres med 5 % sampling; tracing er av som standard.
+4. **Observability er samplet.** Invocation logs lagres med 5 % sampling; tracing er aktivert med 1 % grunnsampling (redusert fra 10 % før ny prismodell 1. desember 2026).
 5. **D1-spørringer skal være indekserte og bounded.** Query-parametre og produksjonsindekser skal begrense unødvendige rows read/written.
 6. **D1 Time Travel er primær korttids-recovery.** R2-logisk snapshot tas søndag og ved månedsslutt for revisjons-/ekstra recoveryformål.
 7. **Workflow state er ikke datalager.** D1/R2 er autoritative lagre.
@@ -47,10 +47,14 @@ Subrequests per invocation:        50 000
 Workers Caching, API-entrypoint:   på
 Global Workers Caching:            av
 Workers Logs sampling:             5 %
-Tracing:                           av
+Tracing sampling:                  1 %
 ```
 
 Subrequest-budsjettet deles av hele Full Workflow-instansen og nullstilles ikke per `step.do`. Grensen på 50 000 gir margin til historiske rebuilds og cleanup/finalisering; ordinære kjøringer skal bruke langt mindre. Øk ikke `cpu_ms` eller `subrequests` bare for å skjule en ytelsesregresjon.
+
+## Observability fra 1. desember 2026
+
+Cloudflare samler relevante logger og sporingsdata i felles kontokvoter: Paid inkluderer 50 GB innsamling og 10 GB-måneder lagring per fakturaperiode. Overforbruk faktureres med USD 0,25/GB og USD 0,10/GB-måned. Se [offisiell prising](https://developers.cloudflare.com/observability/pricing/). Grunnsampling 1 % for traces gir forventet 90 % færre sporede invocations enn 10 % ved lik trafikk, ikke nødvendigvis 90 % lavere samlet regning. Head sampling favoriserer ikke langsomme requests. Syntetiske målinger, Server-Timing og øvrige kontroller fortsetter uendret. Øk bare sampling ved konkret tidsavgrenset undersøkelse; vurder faktisk kontoforbruk i Billable Usage.
 
 ## Cache
 

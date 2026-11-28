@@ -58,9 +58,10 @@ def render_config(
 
     # Capture a small, bounded sample of production requests for Cloudflare Workers
     # traces. This is head sampling, so slow requests are NOT preferentially kept.
-    # Keep the existing 5% logs and a 10% trace rate while investigating sporadic
-    # 1-3s cache-MISS spikes. Do not log request headers or financial payload data.
-    # Reassess trace volume/cost before 2026-12-01 (pricing begins for stored traces).
+    # Keep 5% invocation logs and a 1% baseline trace rate ahead of the
+    # 2026-12-01 Observability pricing change. Synthetic Server-Timing remains
+    # independent of sampling. Increase tracing only for a bounded investigation;
+    # do not log request headers or financial payload data.
     config["observability"] = {
         "enabled": True,
         "logs": {
@@ -70,7 +71,7 @@ def render_config(
         },
         "traces": {
             "enabled": True,
-            "head_sampling_rate": 0.10,
+            "head_sampling_rate": 0.01,
         },
     }
 
