@@ -225,6 +225,34 @@ class RunningRefreshTests(unittest.TestCase):
         self.assertEqual(result["previous_status"], "SUCCESS")
         self.assertEqual(result["previous_age_minutes"], 38)
 
+    def test_recent_running_with_previous_translation_warning_stays_noncritical(self):
+        latest = {"status": "RUNNING", "started_at": (NOW - timedelta(minutes=3)).isoformat()}
+        previous = record("PARTIAL", minutes=33,
+                          errors=[{"step": "bemobi_translation", "error_type": "TranslationQueueWarning"}],
+                          steps={"bemobi_translation": {"status": "partial", "non_critical": True},
+                                 "dirty_nav": {"status": "ok"}})
+        result = assess_fast_refresh_window([latest, previous], now=NOW)
+        self.assertEqual(result["severity"], "WARNING")
+        self.assertEqual(result["reason"], "recent_running_with_noncritical_previous")
+        self.assertEqual(result["previous_status"], "PARTIAL")
+        self.assertEqual(result["steps"][0]["step"], "bemobi_translation")
+        latest["started_at"] = (NOW - timedelta(minutes=10)).isoformat()
+        self.assertEqual(assess_fast_refresh_window([latest, previous], now=NOW)["severity"], "FAILURE")
+        latest["started_at"] = (NOW - timedelta(minutes=3)).isoformat()
+        previous["finished_at"] = (NOW - timedelta(minutes=101)).isoformat()
+        self.assertEqual(assess_fast_refresh_window([latest, previous], now=NOW)["severity"], "FAILURE")
+
+    def test_recent_running_does_not_hide_critical_nav_or_unknown_partial(self):
+        latest = {"status": "RUNNING", "started_at": (NOW - timedelta(minutes=3)).isoformat()}
+        for nav_status, errors in (
+            ("error", [{"step": "bemobi_translation"}]),
+            ("ok", [{"step": "bemobi_translation"}, {"step": "unknown_source"}]),
+        ):
+            previous = record("PARTIAL", minutes=33, errors=errors,
+                              steps={"bemobi_translation": {"status": "partial", "non_critical": True},
+                                     "dirty_nav": {"status": nav_status}})
+            self.assertEqual(assess_fast_refresh_window([latest, previous], now=NOW)["severity"], "FAILURE")
+
     def test_running_after_grace_is_critical_even_with_recent_success(self):
         latest = {"status": "RUNNING", "started_at": (NOW - timedelta(minutes=11)).isoformat()}
         self.assertEqual(
