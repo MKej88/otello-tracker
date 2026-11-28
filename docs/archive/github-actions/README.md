@@ -14,3 +14,7 @@ Arkivering dokumenterer ikke at oversettelsene er ferdige. [#983](https://github
 - `python-worker-runtime-guard.yml`: Tidssonekontroll flyttet til obligatorisk Worker-API-jobb i [#1045](https://github.com/MKej88/otello-tracker/pull/1045).
 - `python-static-analysis.yml`: Utvidet Ruff-kontroll flyttet til obligatorisk backend-jobb, med uendret separat låsefil, regelsett og filunntak. Eksisterende Ruff-formatkontroll og mypy beholdes.
 - `python-dependency-audit.yml`: PR/main-kontroll dekkes av obligatorisk backend-CI. Ukentlig pip-audit flyttes uendret til Actions-sikkerhetsanalysen mandag 05:41 UTC (tidligere 05:17), med eget skrivebeskyttet jobbmiljø og manuell kjøring.
+
+## Manuelle produksjonskontroller
+
+- `verify-production-sources.yml`: Flyttet til `manual-cloudflare-full-refresh.yml` som valget `kildekontroll`. Begge eksisterende kontrollvarianter beholdes med uendrede jobbsteg, men kan bare startes manuelt på main og bruker samme concurrency-gruppe. Den tidligere push-triggeren på den gamle YAML-filen fjernes for å unngå produksjonsskriving ved ren arbeidsflytvedlikehold. Dato-standardene forblir Oslo og UTC, respektivt.

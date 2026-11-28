@@ -200,3 +200,24 @@ def test_weekly_python_audit_retained_without_duplicate_pr_scans():
     assert "python -m pip_audit -r backend/requirements.lock.txt --progress-spinner off" in job
     assert "python -m pip_audit cloudflare --progress-spinner off" in job
     assert "continue-on-error" not in job
+
+
+def test_manual_production_refresh_modes_are_exclusive_and_main_only():
+    source = (CI_WORKFLOW.parent / "manual-cloudflare-full-refresh.yml").read_text(encoding="utf-8")
+    header, jobs = source.split("\njobs:\n", 1)
+    assert "workflow_dispatch:" in header
+    assert "\n  push:" not in header
+    assert "\n  schedule:" not in header
+    assert "group: cloudflare-one-time-full-refresh" in header
+    assert "cancel-in-progress: false" in header
+    assert "default: fulloppdatering" in header
+    refresh, verify = jobs.split("\n  verify:\n", 1)
+    assert "github.ref == 'refs/heads/main' && inputs.kontroll == 'fulloppdatering'" in refresh
+    assert "github.ref == 'refs/heads/main' && inputs.kontroll == 'kildekontroll'" in verify
+    assert "environment: production" in refresh and "environment: production" in verify
+    assert "ZoneInfo(\"Europe/Oslo\")" in refresh
+    assert "D1 full refresh has status" in refresh
+    assert "CVM Q3 accounts are not fully source-verified" in refresh
+    archived = (ROOT / "docs/archive/github-actions/verify-production-sources.yml").read_text(encoding="utf-8")
+    old_job = archived.split("\n  verify:\n", 1)[1]
+    assert verify.split("\n", 1)[1] == old_job
