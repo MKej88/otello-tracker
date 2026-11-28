@@ -1,0 +1,10 @@
+# Arkiverte GitHub Actions-arbeidsflyter
+
+Disse YAML-filene er historiske referanser utenfor `.github/workflows` og kjøres ikke av GitHub Actions. Diagnoseverktøyene og regresjonstestene beholdes. Ved et eventuelt behov for gjeninnføring skal tilgang, triggere og produksjonsavgrensning vurderes på nytt i en pull request.
+
+## 28. november 2026
+
+- `bemobi-cvm-1477-diagnostic.yml`: Avgrenset lesediagnose for dokument 1477. Årsaken ble identifisert som utfylling etter PDF-sluttmarkøren; generell, verifisert normalisering ble innført i [#998](https://github.com/MKej88/otello-tracker/pull/998).
+- `bemobi-cvm-7540-diagnostic.yml`: Avgrenset lesediagnose for dokument 7540. Årsaken og normaliseringskravene er dokumentert i [#993](https://github.com/MKej88/otello-tracker/pull/993). Den separate gjenopprettingsjobben beholdes.
+
+Arkivering dokumenterer ikke at oversettelsene er ferdige. [#983](https://github.com/MKej88/otello-tracker/issues/983) følges opp separat; aktive oversettelses-, speilings- og gjenopprettingsjobber endres ikke.

@@ -24,7 +24,7 @@ def test_exact_scope_and_read_only_permissions(tmp_path, monkeypatch):
     path.write_text(json.dumps({"document_id": 7540}))
     with pytest.raises(ValueError, match="Uventet dokument-ID"):
         diagnostic.diagnose(tmp_path)
-    workflow = (ROOT / ".github/workflows/bemobi-cvm-1477-diagnostic.yml").read_text()
+    workflow = (ROOT / "docs/archive/github-actions/bemobi-cvm-1477-diagnostic.yml").read_text()
     assert "CLOUDFLARE_READ_TOKEN" in workflow
     assert "CLOUDFLARE_API_TOKEN" not in workflow
     assert "upload-artifact" not in workflow
