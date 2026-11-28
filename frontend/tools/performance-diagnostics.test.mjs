@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   browserProbeDetail, classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
-  isRateLimitError, isTimeoutError, parseHealthD1Timing, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout,
+  isRateLimitError, isTimeoutError, parseHealthD1Timing, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout, withBrowserCleanup,
 } from "./performance-diagnostics.mjs";
 
 const origin = "https://otellotracker.com";
@@ -278,4 +278,55 @@ test("Browser detail does not downgrade actual HTTP or content failures", () => 
   assert.equal(result.browserProbe.reason, "execution_context_lost");
   assert.equal(classifyColdFailure(new Error("No valid main content within 25000ms"),
     { loading: true }, null, "wait_for_content").category, "data_load_timeout");
+});
+
+
+test("Cleanup cannot overwrite the original HTTP failure and all steps run", async () => {
+  const original = new Error("primary");
+  original.diagnosis = classifyColdFailure(original, null, {
+    apiIssues: [{ path: "/api/dashboard/bootstrap", status: 503, category: "server_http_error" }],
+    pendingApiPaths: [],
+  }, "wait_for_content");
+  const steps = [];
+  await assert.rejects(() => withBrowserCleanup(async () => { throw original; }, [
+    ["cdp_close", () => { steps.push("close"); throw new Error("private target closed"); }],
+    ["chrome_stop", () => { steps.push("stop"); }],
+    ["profile_remove", () => { steps.push("remove"); throw Object.assign(new Error("private /tmp/profile"), { code: "ENOTEMPTY" }); }],
+  ]), (error) => {
+    assert.equal(error, original);
+    assert.equal(error.diagnosis.category, "server_http_error");
+    assert.deepEqual(error.diagnosis.cleanup, [
+      { stage: "cdp_close", reason: "target_or_socket_closed" },
+      { stage: "profile_remove", reason: "os_enotempty" },
+    ]);
+    assert.doesNotMatch(JSON.stringify(error.diagnosis), /private|\/tmp/);
+    return true;
+  });
+  assert.deepEqual(steps, ["close", "stop", "remove"]);
+});
+
+test("Cleanup-only failure remains a failed attempt with the precise stage", async () => {
+  let attempts = 0;
+  const result = await probeColdWithRetry(() => withBrowserCleanup(async () => {
+    attempts++;
+    return { firstDataMs: 260 };
+  }, [["profile_remove", () => {
+    if (attempts === 1) throw Object.assign(new Error("private"), { code: "EBUSY" });
+  }]]));
+  assert.equal(result.ok, true);
+  assert.equal(result.attempts[0].outcome, "failed");
+  assert.deepEqual(result.attempts[0].diagnosis.browserProbe, { stage: "profile_remove", reason: "os_ebusy" });
+  assert.equal(result.attempts[1].outcome, "success");
+});
+
+test("Profile and Chrome startup OS errors use fixed categories", () => {
+  assert.deepEqual(browserProbeDetail(Object.assign(new Error("private"), { code: "ENOSPC" }), "profile_create"),
+    { stage: "profile_create", reason: "os_enospc" });
+  assert.deepEqual(browserProbeDetail(Object.assign(new Error("private"), { code: "ENOENT" }), "chrome_spawn"),
+    { stage: "chrome_spawn", reason: "os_enoent" });
+});
+
+test("Successful teardown preserves original metrics without extra retries", async () => {
+  const metrics = { firstDataMs: 260 };
+  assert.equal(await withBrowserCleanup(async () => metrics, [["profile_remove", () => {}]]), metrics);
 });
