@@ -123,7 +123,8 @@ def assess_fast_refresh_window(records: list[dict], *,
     """Check latest and previous completed runs without hiding a stuck RUNNING job.
 
     A current RUNNING row is temporarily a warning only when it is recent and
-    the immediately preceding *completed* job is independently healthy/fresh.
+    the immediately preceding *completed* job is independently fresh and
+    either healthy or has only explicitly confirmed non-critical errors.
     UNKNOWN, FAILED, stale, missing metadata, or overlong RUNNING remains fatal.
     """
     now = now or datetime.now(UTC)
@@ -171,6 +172,11 @@ def assess_fast_refresh_window(records: list[dict], *,
     previous_result = assess_fast_refresh(previous, now=now, max_age=max_age)
     report["previous_status"] = previous_result["status"]
     report["previous_age_minutes"] = previous_result["age_minutes"]
+    if previous_result["severity"] == "WARNING" and previous_result["reason"] == "confirmed_noncritical_steps":
+        # Preserve the secondary warning and its sanitized evidence during the next run.
+        report.update(severity="WARNING", reason="recent_running_with_noncritical_previous",
+                      steps=previous_result["steps"])
+        return report
     if previous_result["severity"] != "OK":
         report["reason"] = "previous_completed_unhealthy"
         return report
