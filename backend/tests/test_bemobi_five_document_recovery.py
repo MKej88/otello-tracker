@@ -76,7 +76,7 @@ def test_concurrent_error_change_prevents_reset():
 
 
 def test_completed_incident_recovery_is_manual_only():
-    workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/bemobi-five-document-recovery.yml").read_text(encoding="utf-8")
+    workflow = (Path(__file__).resolve().parents[2] / "docs/archive/github-actions/bemobi-five-document-recovery.yml").read_text(encoding="utf-8")
     triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert "  workflow_dispatch:" in triggers
     assert "  pull_request:" in triggers
