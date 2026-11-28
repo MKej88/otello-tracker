@@ -109,13 +109,16 @@ def _incident_detail(value: object) -> str:
     return safe_detail(raw)
 
 
-def operational_lines(result: dict) -> tuple[list[str], int]:
+def operational_lines(result: dict, *, presentation: dict | None = None) -> tuple[list[str], int]:
     checks_summary: list[str] = []
     incidents: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    critical: set[tuple[str, str]] = set()
 
-    def incident(step: str, detail: object) -> None:
+    def incident(step: str, detail: object, *, is_critical: bool = False) -> None:
         item = (step, _incident_detail(detail))
+        if is_critical:
+            critical.add(item)
         if item not in seen:
             seen.add(item)
             incidents.append(item)
@@ -124,10 +127,11 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
         for item in result.get(key) or []:
             if isinstance(item, dict):
                 incident(
-                    str(item.get("step") or "ukjent steg"), item.get("error") or item
+                    str(item.get("step") or "ukjent steg"), item.get("error") or item,
+                    is_critical=key == "critical_errors",
                 )
             else:
-                incident("ukjent steg", item)
+                incident("ukjent steg", item, is_critical=key == "critical_errors")
     for key, label in (
         ("nav", "NAV-beregning"),
         ("dashboard_hot_snapshot", "Dashboard-cache"),
@@ -211,9 +215,10 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                        "Årsaken må bekreftes i produksjonsdiagnosen. ")
                     + (f"Grunnlag: {evidence}. " if evidence else "")
                     + "Statusen alene påviser ikke feil i NAV-beregningen.",
+                    is_critical=key == "blockers",
                 )
             else:
-                incident("preflight", f"{label}: {_incident_detail(item)}")
+                incident("preflight", f"{label}: {_incident_detail(item)}", is_critical=key == "blockers")
     source_results = result.get("source_results") or {}
     bemobi = source_results.get("bemobi_web") or {}
     ir_news = bemobi.get("ir_news") or {}
@@ -284,6 +289,14 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
             "workflow",
             "Kjøringen er ikke bekreftet fullført; detaljert feilårsak mangler i resultatet.",
         )
+    # Stable ordering: explicit blockers and critical job errors before warnings.
+    incidents.sort(key=lambda item: item not in critical)
+    if presentation is not None:
+        presentation.update(
+            incidents=[(step, detail, (step, detail) in critical, _guidance(step, detail))
+                       for step, detail in incidents[:10]],
+            critical_count=len(critical), checks=checks_summary,
+        )
     lines = ["", f"Avvik og oppfølging ({len(incidents)}):"]
     if not incidents:
         lines.append(
@@ -304,67 +317,164 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
     return lines, len(incidents)
 
 
-def render_html(text: str, *, status: str, incidents: int, public_url: str) -> str:
-    color = (
-        "#b42318"
-        if status == "FEILET"
-        else "#b54708"
-        if incidents or status != "OK"
-        else "#067647"
-    )
-    blocks = text.split("\n\n")
+# Email-client-safe inline table layout. Color always accompanies explicit text.
+_PALETTE = {
+    "green": ("#e8f5ee", "#14633e"),
+    "amber": ("#fff3dc", "#92400e"),
+    "red": ("#fdecec", "#a61b1b"),
+    "blue": ("#eaf2fc", "#174b80"),
+    "gray": ("#eef2f6", "#475569"),
+}
+_STEP_LABELS = {
+    "estimated_nav_history": "NAV-historikk", "preflight": "Datakontroll",
+    "nav": "NAV-beregning", "dashboard_hot_snapshot": "Dashboard-cache",
+    "investor_snapshots": "Investor-cache", "archive": "R2-arkivering",
+    "r2_snapshot": "R2-arkivering", "bemobi_translation": "Dokumentoversettelse",
+    "bemobi_web": "Bemobi – datainnhenting", "BEMOBI_IR": "Bemobi IR",
+    "workflow": "Nattkjøring", "newsweb": "NewsWeb",
+}
+
+
+def _tone(value: str) -> str:
+    status = value.strip().upper()
+    if status in {"OK", "SUCCESS", "PASS", "READY"}:
+        return "green"
+    if status in {"FEILET", "FAILED", "ERROR", "DOWN", "FAIL"}:
+        return "red"
+    if status in {"DELVIS", "PARTIAL", "DEGRADED", "WARN", "WARNING", "NOT_READY"}:
+        return "amber"
+    return "gray"
+
+
+def _pill(value: str, tone: str) -> str:
+    bg, fg = _PALETTE[tone]
+    return (f'<span style="display:inline-block;padding:4px 9px;background:{bg};color:{fg};'
+            f'font-size:12px;font-weight:bold;border-radius:4px">{escape(value)}</span>')
+
+
+def _section(title: str, body: str) -> str:
+    return (f'<h2 style="font-size:18px;margin:24px 0 10px;color:#142b44">{escape(title)}</h2>'
+            + body)
+
+
+def _table(rows: str) -> str:
+    return '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + rows + '</table>'
+
+
+def _row(label: str, value: str, tone: str | None = None) -> str:
+    shown = _pill(value, tone) if tone else escape(value)
+    return (f'<tr><td style="padding:8px 8px 8px 0;border-bottom:1px solid #e5eaf0;'
+            f'width:42%;vertical-align:top;color:#475569;word-break:break-word">{escape(label)}</td>'
+            f'<td style="padding:8px 0;border-bottom:1px solid #e5eaf0;vertical-align:top;'
+            f'overflow-wrap:anywhere;word-break:break-word">{shown}</td></tr>')
+
+
+def _metrics(items: list[tuple[str, str, str]]) -> str:
+    cells = ""
+    for label, value, tone in items:
+        bg, fg = _PALETTE[tone]
+        cells += (f'<td width="{100 // len(items)}%" style="padding:3px;vertical-align:top">'
+                  f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
+                  f'<td bgcolor="{bg}" style="background:{bg};padding:12px 8px;border-radius:6px">'
+                  f'<div style="font-size:11px;color:{fg};font-weight:bold">{escape(label)}</div>'
+                  f'<div style="font-size:21px;line-height:1.25;font-weight:bold;color:{fg};'
+                  f'word-break:break-word">{escape(value)}</div></td></tr></table></td>')
+    return _table("<tr>" + cells + "</tr>") if cells else ""
+
+
+def render_html(*, status: str, incidents: int, public_url: str, report: dict) -> str:
+    critical_count = report.get("critical_count", 0)
+    tone = "red" if status == "FEILET" or critical_count else "amber" if incidents or status != "OK" else "green"
+    bg, fg = _PALETTE[tone]
+    badge = "OK med avvik" if status == "OK" and incidents else status
+    source_ok, source_count = report["source_counts"]
+    source_value = f"{source_ok}/{source_count}" if source_count else "Ukjent"
+    summary = _metrics([
+        ("Rapporterte avvik", str(incidents), "red" if critical_count else "amber" if incidents else "green"),
+        ("Datakilder OK", source_value, "gray" if not source_count else "green" if source_ok == source_count else "amber"),
+        ("Kjøretid", report.get("duration") or "Ukjent", "blue"),
+    ])
     sections = []
-    for block in blocks[1:-1]:
-        rows = block.splitlines()
-        if not rows:
-            continue
-        if rows[0].startswith("Dashboard:"):
-            continue
-        title = (
-            rows.pop(0)
-            if rows[0].endswith(":")
-            else "Oppsummering"
-            if not sections
-            else "Status"
-        )
-        content = ""
-        for row in rows:
-            label, separator, value = row.removeprefix("- ").partition(": ")
-            if separator and title.startswith("Avvik og oppfølging"):
-                # A single full-width cell avoids cramped, unbreakable technical labels
-                # on iPhone/Outlook while retaining the exact diagnostic text.
-                display_label = {"estimated_nav_history": "NAV-historikk",
-                                 "preflight": "Datakontroll"}.get(label, label)
-                content += (
-                    f'<tr><td colspan="2" style="padding:10px 0;border-bottom:1px solid #eef2f6;word-break:break-word;overflow-wrap:anywhere">'
-                    f'<div style="font-weight:bold;margin-bottom:4px">{escape(display_label)}</div>'
-                    f'<div>{escape(value)}</div></td></tr>'
-                )
-            elif separator:
-                content += f'<tr><td style="padding:5px 8px 5px 0;border-bottom:1px solid #eef2f6;vertical-align:top;width:30%">{escape(label)}</td><td style="padding:5px 0;border-bottom:1px solid #eef2f6;overflow-wrap:anywhere">{escape(value)}</td></tr>'
-            else:
-                content += f'<tr><td colspan="2" style="padding:5px 0;overflow-wrap:anywhere">{escape(row)}</td></tr>'
-        sections.append(
-            f'<h2 style="font-size:17px;margin:18px 0 6px;color:#172b4d">{escape(title.rstrip(":"))}</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0">{content}</table>'
-        )
+    if incidents:
+        incident_rows = ""
+        for step, detail, is_critical, guidance in report["incidents"]:
+            label = _STEP_LABELS.get(step, step)
+            severity = "Kritisk" if is_critical else "Avvik"
+            severity_tone = "red" if is_critical else "amber"
+            incident_rows += (
+                '<tr><td colspan="2" style="padding:10px 0;border-bottom:1px solid #e5eaf0;'
+                'word-break:break-word;overflow-wrap:anywhere">'
+                + _pill(severity, severity_tone)
+                + f'<div style="font-weight:bold;margin-bottom:4px">{escape(label)}</div>'
+                + f'<div>{escape(detail)}</div>'
+                + '<div style="margin-top:8px;color:#475569;font-size:13px"><b>Oppfølging / mulig konsekvens:</b> '
+                + escape(guidance) + '</div></td></tr>'
+            )
+        if incidents > len(report["incidents"]):
+            incident_rows += ('<tr><td colspan="2" style="padding:10px 0">'
+                              f'Ytterligere {incidents - len(report["incidents"])} avvik finnes i kjøreloggen.</td></tr>')
+        sections.append(_section(f"Avvik og oppfølging ({incidents})", _table(incident_rows)))
+    else:
+        sections.append('<p style="margin:16px 0;color:#14633e;font-size:13px">'
+                        'Ingen rapporterte feil eller advarsler i mottatte kjøringsresultater.</p>')
+
+    nav = report["nav"]
+    nav_metrics = [(label, value, "blue") for label, value in nav["metrics"]]
+    nav_body = _metrics(nav_metrics)
+    if nav.get("date"):
+        nav_body += '<p style="font-size:12px;color:#475569;margin:6px 0">NAV-dato: ' + escape(nav["date"]) + '</p>'
+    if nav.get("reason"):
+        nav_body += '<p style="color:#475569">' + escape(nav["reason"]) + '</p>'
+    if report.get("model_information"):
+        nav_body += '<p style="background:#eaf2fc;color:#174b80;padding:10px;font-size:13px">Modellinformasjon: normal estimering mellom rapportdatoene.</p>'
+    sections.append(_section("Investor-NAV (sist tilgjengelig)", nav_body))
+
+    control_rows = ""
+    for line in report["checks"]:
+        label, sep, value = line.partition(": ")
+        control_rows += _row(label, value, _tone(value) if value.upper() in {
+            "OK", "FEILET", "DELVIS", "HOPPET OVER", "IKKE RAPPORTERT"
+        } else None) if sep else _row("Kontroll", line)
+    if report.get("preflight"):
+        ready, blockers, warnings = report["preflight"]
+        control_rows += _row("Preflight", ready, _tone(ready))
+        control_rows += _row("Blokkeringer", str(blockers), "red" if blockers else "green")
+        control_rows += _row("Advarsler", str(warnings), "amber" if warnings else "green")
+    sections.append(_section("Kontrollstatus", _table(control_rows)))
+    if report["sources"]:
+        source_rows = "".join(_row(label, value, _tone(value)) for label, value in report["sources"])
+        sections.append(_section("Datakilder", _table(source_rows)))
+    if report["resources"]:
+        sections.append(_section("Ressursforbruk og dokumenter",
+                                 _table("".join(_row(label, value) for label, value in report["resources"]))))
+    if report["timing"]:
+        sections.append(_section("Kjøringsdetaljer", _table("".join(_row(label, value) for label, value in report["timing"]))))
+
     url = dashboard_url(public_url)
-    button = (
-        f'<p style="margin:28px 0"><a href="{escape(url, quote=True)}/" style="background:#172b4d;color:white;padding:13px 20px;text-decoration:none;border-radius:6px;display:inline-block">Åpne Otello Tracker</a></p>'
-        if url
-        else ""
+    links = (
+        f'<p style="margin:24px 0 12px"><a href="{escape(url, quote=True)}/" style="background:#142b44;'
+        'color:#ffffff;padding:13px 20px;text-decoration:none;border-radius:5px;'
+        'display:inline-block;font-weight:bold">Åpne Otello Tracker</a></p>'
+        if url else ""
     )
     if url == "https://otellotracker.com":
-        button += ('<p style="margin:12px 0"><a href="https://github.com/MKej88/otello-tracker/issues/164">Produksjonsdiagnose</a>'
-                   ' · <a href="https://github.com/MKej88/otello-tracker/actions">Kjørelogger</a></p>')
-    badge = f"{status} · {incidents} rapporterte avvik" if incidents else status
+        links += ('<p style="margin:12px 0"><a style="color:#174b80" href="https://github.com/MKej88/otello-tracker/issues/164">Produksjonsdiagnose</a>'
+                  ' &nbsp;·&nbsp; <a style="color:#174b80" href="https://github.com/MKej88/otello-tracker/actions">Kjørelogger</a></p>')
     return (
         '<!doctype html><html lang="nb"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
-        '<body style="margin:0;background:#f2f5f9;font-family:Arial,Helvetica,sans-serif;color:#344054;font-size:14px;line-height:1.5">'
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px 12px">'
-        '<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:100%;max-width:640px;background:#fff;border:1px solid #e4e7ec;border-radius:10px">'
-        '<tr><td style="background:#172b4d;color:#fff;padding:18px 20px"><div style="font-size:12px;letter-spacing:2px">OTELLO TRACKER</div><h1 style="margin:8px 0 0;font-size:26px">Nattrapport</h1></td></tr>'
-        f'<tr><td style="padding:18px 20px"><p style="color:{color};font-size:18px;font-weight:bold;margin:0">{escape(badge)}</p>'
-        + "".join(sections)
-        + button
-        + '<p style="font-size:12px;color:#667085;margin-top:24px">Automatisk statusmelding fra Otello Tracker. Tidspunkter vises i norsk tid.</p></td></tr></table></td></tr></table></body></html>'
+        '<body style="margin:0;background:#edf2f7;font-family:Arial,Helvetica,sans-serif;color:#23354a;font-size:14px;line-height:1.5">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:16px 8px">'
+        '<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #dce4ed">'
+        '<tr><td bgcolor="#142b44" style="background:#142b44;color:#ffffff;padding:22px 20px">'
+        '<div style="font-size:11px;letter-spacing:2px;color:#b9cde2">OTELLO TRACKER / DRIFTSSTATUS</div>'
+        '<h1 style="margin:5px 0 4px;font-size:28px;line-height:1.2;color:#ffffff">Nattrapport</h1>'
+        f'<div style="color:#d6e3ef;font-size:13px">Datadato: {escape(report["date"])}</div></td></tr>'
+        f'<tr><td bgcolor="{bg}" style="background:{bg};padding:12px 20px;color:{fg};font-size:17px;font-weight:bold">{escape(badge)}'
+        + (f' · {critical_count} kritiske avvik' if critical_count else '')
+        + '</td></tr><tr><td style="padding:14px 16px 20px">'
+        + summary + "".join(sections) + links
+        + '<p style="border-top:1px solid #e5eaf0;padding-top:12px;color:#64748b;font-size:12px">'
+          'Separate GitHub-kontroller inngår ikke i denne statusen. Ikke rapportert = ikke bekreftet. '
+          'Automatisk statusmelding fra Otello Tracker. Tidspunkter vises i norsk tid.</p>'
+          '</td></tr></table></td></tr></table></body></html>'
     )

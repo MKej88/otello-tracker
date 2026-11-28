@@ -32,3 +32,17 @@ Forventede NAV-estimater mellom rapportdatoene vises som modellinformasjon,
 ikke som advarsler eller avvik i emnet. E-posten bruker samme kvalitetsregler
 som statusvisningen. Reelle kvalitetsavvik, øvrige advarsler og blokkeringer
 beholdes. Lagrede kjøringsresultater endres ikke.
+
+## Visuell rapport
+
+HTML-rapporten bygges fra strukturerte kjøringsdata, ikke fra avsnitt i ren tekst.
+Mørk blå topp, fargede statusfelt og nøkkeltall, kritiske feil/blokkeringer først,
+deretter øvrige avvik med mulig konsekvens og oppfølging. Investor-NAV, kontrollstatus,
+kilder, dokumentbehandling og kjøringsdetaljer følger. Normal modellinformasjon er blå,
+ikke et avvik. Grønn betyr rapportert OK; ukjent/hoppet over er grått.
+Maksimalt ti ulike avvik vises; øvrige finnes i loggen. Ressurstall vises bare når
+rapportert: D1-radtall gjelder kildesteg med komplett metadata, ikke samlet nattjobb
+eller fakturering. AI-kall og gjenbruk gjelder rapporterte dokumentdiagnoser; ingen
+nye oppslag, AI-kall eller e-poster opprettes. R2-snapshot vises med målt størrelse og
+antall deler der tilgjengelig. Tabellen er laget med inline-stil for e-postklienter;
+faktisk visning bør kontrolleres i mottakerens e-postklient ved neste ordinære utsending.
