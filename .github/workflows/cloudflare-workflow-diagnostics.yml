@@ -28,6 +28,8 @@ on:
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/src/nav_followup_diagnostic.py
+      - cloudflare/src/d1_diagnostic_batches.py
+      - cloudflare/tests/test_d1_diagnostic_batches.py
       - cloudflare/tests/test_nav_followup_diagnostic.py
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
@@ -48,6 +50,8 @@ on:
       - cloudflare/src/cvm_freshness.py
       - cloudflare/src/nav_cache_audit.py
       - cloudflare/src/nav_followup_diagnostic.py
+      - cloudflare/src/d1_diagnostic_batches.py
+      - cloudflare/tests/test_d1_diagnostic_batches.py
       - cloudflare/tests/test_nav_followup_diagnostic.py
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
@@ -95,6 +99,7 @@ jobs:
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_full_refresh_diagnostic.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_nav_followup_diagnostic.py'
+          PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_d1_diagnostic_batches.py'
 
   nightly-fallback:
     name: Check whether today's nightly diagnosis is missing
@@ -410,7 +415,7 @@ jobs:
           sys.path.insert(0, "cloudflare/src")
           from production_monitor import monitoring_queries
           from nav_cache_audit import audit_contract, audit_queries
-          from nav_followup_diagnostic import followup_queries
+          from nav_followup_diagnostic import followup_queries, cost_anchor_query
           from fast_refresh_diagnostic import TRANSLATION_ERROR_GROUPS_SQL, TRANSLATION_DOCUMENTS_SQL
 
           job_columns = """
@@ -486,20 +491,28 @@ jobs:
           batch.extend(followup_queries())
           batch.append({"sql": TRANSLATION_ERROR_GROUPS_SQL})
           batch.append({"sql": TRANSLATION_DOCUMENTS_SQL})
+          batch.append(cost_anchor_query())
           with open("d1-query-request.json", "w", encoding="utf-8") as handle:
               json.dump({"batch": batch}, handle)
           PY
 
           query_url="${CF_API_BASE}/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${database_id}/query"
-          curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors \
-            --request POST \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Accept: application/json" \
-            --header "Content-Type: application/json" \
-            --data-binary @d1-query-request.json \
-            "$query_url" \
-            --output d1-query.json
+          D1_QUERY_URL="$query_url" python - <<'PY'
+          import json
+          import os
+          import sys
+          sys.path.insert(0, "cloudflare/src")
+          from d1_diagnostic_batches import query_batches, post_d1
+          with open("d1-query-request.json", encoding="utf-8") as handle:
+              batch = json.load(handle)["batch"]
+          try:
+              result = query_batches(batch, lambda chunk: post_d1(
+                  os.environ["D1_QUERY_URL"], os.environ["CLOUDFLARE_API_TOKEN"], chunk))
+          except RuntimeError as exc:
+              raise SystemExit(str(exc)) from None
+          with open("d1-query.json", "w", encoding="utf-8") as handle:
+              json.dump(result, handle)
+          PY
 
           # Public read only; a unique query avoids reusing an older CDN response.
           if ! curl --fail --silent --show-error --max-time 30 --max-filesize 2097152 \
@@ -598,7 +611,7 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 17 or any(item.get("success") is False for item in result):
+          if len(result) != 18 or any(item.get("success") is False for item in result):
               raise SystemExit("One or more read-only D1 diagnostic queries failed")
 
           full_rows = result[0].get("results") or []
@@ -692,6 +705,7 @@ jobs:
               result[12].get("results") or [], result[13].get("results") or [],
               result[14].get("results") or [],
               preflight=safe_json((full or {}).get("metadata_json")).get("preflight") or {},
+              cost_anchors=result[17].get("results") or [],
           )
           d1_status = diagnostic_severity(
               full_status=full_status, fast_status=fast_status,

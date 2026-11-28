@@ -84,7 +84,7 @@ def test_monitoring_runs_after_changes_and_feeds_existing_deviation_alert():
     workflow = _workflow_text()
     assert 'cloudflare/src/production_monitor.py' in workflow
     assert 'batch.extend(monitoring_queries(' in workflow
-    assert 'len(result) != 17' in workflow
+    assert 'len(result) != 18' in workflow
     assert 'batch.append({"sql": TRANSLATION_DOCUMENTS_SQL})' in workflow
     assert 'batch.append({"sql": TRANSLATION_ERROR_GROUPS_SQL})' in workflow
     assert 'monitoring = assess_production(' in workflow
@@ -190,3 +190,10 @@ def test_existing_watchdog_can_recover_missing_daily_diagnosis():
     assert "issues: read" in workflow.split("  nightly-fallback:",1)[1].split("  diagnose:",1)[0]
     assert "needs: [diagnose, nightly-fallback]" in workflow
     assert "tools/nightly_diagnostic_fallback.py" in workflow
+
+
+def test_diagnostic_uses_bounded_d1_batches_and_source_anchor_query():
+    workflow = _workflow_text()
+    assert "batch.append(cost_anchor_query())" in workflow
+    assert "result[17].get" in workflow
+    assert "query_batches(batch, lambda chunk: post_d1(" in workflow

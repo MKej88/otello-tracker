@@ -160,12 +160,13 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     monkeypatch.setenv('GITHUB_OUTPUT', str(tmp_path / 'output'))
     exec(compile(pack_script, '<query-pack>', 'exec'), {})
     batch = json.loads((tmp_path / 'd1-query-request.json').read_text())['batch']
-    assert len(batch) == 17
-    from nav_followup_diagnostic import followup_queries
+    assert len(batch) == 18
+    from nav_followup_diagnostic import followup_queries, cost_anchor_query
     assert batch[12:15] == followup_queries()
     from fast_refresh_diagnostic import TRANSLATION_ERROR_GROUPS_SQL, TRANSLATION_DOCUMENTS_SQL
     assert batch[15] == {'sql': TRANSLATION_ERROR_GROUPS_SQL}
     assert batch[16] == {'sql': TRANSLATION_DOCUMENTS_SQL}
+    assert batch[17] == cost_anchor_query()
     assert all(q['sql'].strip().upper().startswith(('SELECT ', 'WITH ')) for q in batch)
     data = fixture()
     rows = [[data['jobs'][0]], [dict(status='SUCCESS', started_at='2026-10-17T04:00:00Z', finished_at='2026-10-17T04:01:00Z')],
@@ -184,6 +185,8 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
                           'associated_receivable_nok': '0'}]])
     rows.append([{'reason': 'value_validation', 'document_count': 9, 'exhausted_count': 1}])
     rows.append([{'document_id': 19, 'source': 'CVM', 'status': 'FAILED', 'attempts': 3, 'stage': 'download', 'http': 526}])
+    rows.append([{'document_id': 1, 'scenario': 'BASE', 'effective_from': '2023-06-30',
+                  'amount_usd': '1673000', 'period_days': 181}])
     (tmp_path / 'public-bootstrap.json').write_text(json.dumps(nav_data['public']))
     (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=[dict(success=True, results=r) for r in rows])))
     report_script = report_script.replace('now = datetime.now(UTC)', 'now = datetime(2026, 10, 17, 4, 30, tzinfo=UTC)')
@@ -191,6 +194,7 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     assert 'd1_unhealthy=false' in (tmp_path / 'output').read_text()
     assert 'd1_warning=false' in (tmp_path / 'output').read_text()
     assert 'history_pending=0' in (tmp_path / 'output').read_text()
+    assert 'Tidligste gyldige BASE-kostnadsanker i D1: 2023-06-30' in (tmp_path / 'summary').read_text()
     assert '| value_validation | 9 | 1 |' in (tmp_path / 'summary').read_text()
     assert '| 19 | CVM | FAILED | 3 | download | 526 |' in (tmp_path / 'summary').read_text()
 
