@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
@@ -92,3 +94,55 @@ def test_only_superseded_pull_request_runs_can_be_cancelled() -> None:
             "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
         )
     assert "cancel-in-progress: true" not in DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_scope_checks_live_ancestor_not_only_last_commit(tmp_path, monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location("production_deploy_scope", ROOT / "tools/production_deploy_scope.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.chdir(tmp_path)
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], text=True).strip()
+
+    def commit(path, content):
+        file = tmp_path / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(content, encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", path)
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "Test")
+    live = commit("cloudflare/src/worker.py", "old")
+    docs = commit("docs/runbook.md", "documentation")
+    assert not module.deploy_required(live, docs)
+    diagnostics = commit("frontend/tools/production-performance.mjs", "offline")
+    assert not module.deploy_required(live, diagnostics)
+    runtime = commit("cloudflare/src/worker.py", "new")
+    later_docs = commit("README.md", "another change")
+    assert module.deploy_required(live, later_docs)
+    assert not module.deploy_required(runtime, later_docs)
+    assert module.deploy_required(None, later_docs)
+    assert module.deploy_required("0" * 40, later_docs)
+    assert module.deploy_required(later_docs, live)
+    unknown = commit("frontend/package.json", "{}")
+    assert module.deploy_required(later_docs, unknown)
+    assert module.deploy_required(unknown, unknown) is False
+
+    for path in ("cloudflare/migrations/1000.sql", "cloudflare/wrangler.jsonc",
+                 "frontend/src/App.tsx", "frontend/tools/check-inline-csp.mjs",
+                 ".github/workflows/deploy-cloudflare.yml", "docs/input.json"):
+        assert not module.offline_only([path])
+
+
+def test_scope_is_only_used_after_main_ci_and_manual_deploy_remains_available() -> None:
+    source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    assert "fetch-depth: 0" in source
+    assert "run: python3 tools/production_deploy_scope.py" in source
+    assert 'if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then' in source
+    assert 'if [ "$DEPLOY_REQUIRED" = "false" ]; then' in source
+    assert "if: needs.gate.outputs.deploy == 'true'" in source
