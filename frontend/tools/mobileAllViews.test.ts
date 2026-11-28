@@ -47,3 +47,27 @@ test("history and cash use two-column mobile KPI layouts instead of full-height 
   assert.match(cash, /@media \(min-width: 380px\) and \(max-width: 760px\)/);
   assert.match(cash, /\.cashKpiGrid,\s*\.cashBuybackResultsPrimary\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
 });
+
+
+test("browser smoke verifies current overview markup and actual mobile route content", () => {
+  const smoke = readFileSync(new URL("./browser-smoke.mjs", import.meta.url), "utf8");
+  const overview = read("OverviewPage.tsx");
+  assert.ok(overview.includes("overviewNavCardV3"));
+  assert.ok(overview.includes("overviewDriverGrid"));
+  assert.ok(smoke.includes(".overviewV3 .overviewNavCardV3 h2"));
+  assert.ok(smoke.includes(".overviewDriverGrid .overviewDriverCard .label"));
+  assert.ok(!smoke.includes(".overviewV2 .estimatedHero h2"));
+  assert.ok(smoke.includes("for (const [slug, heading, readySelector] of mobileViews)"));
+  assert.ok(smoke.includes('Boolean(document.querySelector(${JSON.stringify(readySelector)}))'));
+  assert.ok(smoke.includes("Math.abs(dimensions.viewport - width) > 2"));
+  assert.ok(smoke.includes("Mobil OK:"));
+});
+
+test("CI propagates browser smoke failures instead of tee success", () => {
+  const ci = readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const smokeStep = ci.split("End-to-end Worker/reference parity and real browser smoke", 2)[1];
+  assert.ok(smokeStep);
+  const pipefail = smokeStep.indexOf("set -o pipefail");
+  const pipeline = smokeStep.indexOf('2>&1 | tee "$browser_log"');
+  assert.ok(pipefail >= 0 && pipeline > pipefail);
+});

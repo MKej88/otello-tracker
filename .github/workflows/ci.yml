@@ -387,6 +387,9 @@ jobs:
             echo '::error::GitHub runner mangler Chromium/Chrome for browser-smoke.'
             exit 1
           fi
+          # GitHub's implicit bash shell does not enable pipefail. Never let tee
+          # hide a nonzero browser-smoke exit status.
+          set -o pipefail
           browser_log=/tmp/browser-smoke.log
           if ! CHROME_BIN="$chrome_bin" CHROME_DEBUG_PORT=0 node ../frontend/tools/browser-smoke.mjs http://127.0.0.1:8787/ 2>&1 | tee "$browser_log"; then
             if grep -qE 'Chrome DevTools startet ikke|Chrome avsluttet før DevTools startet' "$browser_log"; then

@@ -41,3 +41,7 @@ CI kaller fortsatt 7540-recovery etter deploy, med egen avgrensning som hopper o
 - Før fjerning av kode: kontroller referanser, obligatorisk CI, lokal/regresjonsparitet og produksjonsakseptanse.
 - Før fjerning av en datakilde: dokumenter bruk i historiske beregninger og faktisk reservefunksjon, og verifiser ny kilde.
 - Behold alle anvendte migreringsnumre og historiske originaler.
+
+## Fase 9 – Mobilkontroll
+
+CI 46150999219, Worker-jobb 140997403035, hadde grønn status, men loggen viste timeout i browser-smoke: den ventet på en eldre NAV-selektor selv om dagens V3-forside viste NAV. Kommandoens pipeline gjennom tee kunne maskere Node-feil i standard bash. Rettelsen oppdaterer selektorer og kortetiketter til dagens visning, aktiverer pipefail, krever en konkret sidemarkør og korrekt viewport før mobilmåling, og logger hver av 36 kombinasjoner. Dette er en styrking av kontrollen, ikke en verifisert mobil-layoutrettelse. Ny reell browser-smoke må gjennomføres før mobilstatus kan bekreftes. Ingen visuell CSS eller finansmodell endres.

@@ -219,19 +219,18 @@ async function main() {
 
   await waitFor(
     session,
-    "document.readyState === 'complete' && document.querySelector('.overviewV2 .estimatedHero h2')?.textContent?.includes('kr')",
+    "document.readyState === 'complete' && document.querySelector('.overviewV3 .overviewNavCardV3 h2')?.textContent?.includes('kr')",
     "vellykket innlasting av NAV"
   );
 
   const overviewLabels = await session.evaluate(`(() => ({
-    body: document.body.innerText,
     topbar: document.querySelector('.investorTopbar')?.innerText ?? '',
-    kpis: [...document.querySelectorAll('.overviewKpiGrid .label')].map((item) => item.textContent?.trim())
+    kpis: [...document.querySelectorAll('.overviewDriverGrid .overviewDriverCard .label')].map((item) => item.textContent?.trim())
   }))()`);
-  if (overviewLabels.body.includes("OTELLO / BEMOBI") || overviewLabels.body.includes("ESTIMERT NAV")) {
+  if (overviewLabels.topbar.includes("OTELLO / BEMOBI") || overviewLabels.topbar.includes("ESTIMERT NAV")) {
     throw new Error(`Gamle globale NAV-etiketter er fortsatt synlige: ${JSON.stringify(overviewLabels)}`);
   }
-  if (!overviewLabels.kpis.includes("BRL/NOK") || overviewLabels.kpis.includes("OTEC-kurs")) {
+  if (["BEMOBI", "BRL/NOK", "TILBAKEKJØP"].some((label) => !overviewLabels.kpis.includes(label))) {
     throw new Error(`Oversiktskortene er ikke oppdatert: ${JSON.stringify(overviewLabels.kpis)}`);
   }
 
@@ -271,7 +270,7 @@ async function main() {
   await waitFor(session, "!document.querySelector('.mobileMenuPanel')", "lukket mobilmeny");
   await session.send("Emulation.clearDeviceMetricsOverride");
 
-  await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewGrid");
+  await clickView(session, "Oversikt", "Otello investoroversikt", ".overviewHeroGrid");
   await clickView(session, "NAV", "NAV", ".compositionTable");
   const navRoute = await session.evaluate("({ hash: location.hash, title: document.title })");
   if (navRoute.hash !== "#nav" || navRoute.title !== "NAV | Otello") {
@@ -287,24 +286,24 @@ async function main() {
   // Check all twelve investor routes at narrow phone and tablet widths.
   // Scrollable data tables are permitted, but the page itself must not overflow.
   const mobileViews = [
-    ["oversikt", "Otello investoroversikt"],
-    ["nav", "NAV"],
-    ["nav-sensitivitet", "NAV-sensitivitet"],
-    ["historikk", "Historisk NAV-rabatt"],
-    ["tilbakekjop", "Tilbakekjøpsprogram"],
-    ["cash", "Cash & kapitalallokering"],
-    ["bemobi", "Bemobi"],
-    ["brl-nok", "BRL/NOK"],
-    ["brasil", "Brasil"],
-    ["konsensus", "Konsensus"],
-    ["nyheter", "Nyheter og hendelser"],
-    ["datakvalitet", "Datakvalitet"],
+    ["oversikt","Otello investoroversikt",".overviewV3"],
+    ["nav","NAV",".navV2 .compositionTable"],
+    ["nav-sensitivitet","NAV-sensitivitet",".sensitivityPage"],
+    ["historikk","Historisk NAV-rabatt",".historyV2 .historyAxisCard"],
+    ["tilbakekjop","Tilbakekjøpsprogram",".buybackPage"],
+    ["cash","Cash & kapitalallokering",".cashPage"],
+    ["bemobi","Bemobi",".bemobiPage"],
+    ["brl-nok","BRL/NOK",".fxPage"],
+    ["brasil","Brasil",".brazilPage"],
+    ["konsensus","Konsensus",".consensusPage"],
+    ["nyheter","Nyheter og hendelser",".newsEventsPage"],
+    ["datakvalitet","Datakvalitet",".dataQualityPage"],
   ];
   for (const width of [390, 320, 768]) {
     await session.send("Emulation.setDeviceMetricsOverride", {
       width, height: 844, deviceScaleFactor: 1, mobile: true
     });
-    for (const [slug, heading] of mobileViews) {
+    for (const [slug, heading, readySelector] of mobileViews) {
       await session.evaluate(`location.hash = ${JSON.stringify("#" + slug)}`);
       await waitFor(
         session,
@@ -313,7 +312,7 @@ async function main() {
       );
       await waitFor(
         session,
-        "!document.querySelector('.loadingPlaceholderPage')",
+        `Boolean(document.querySelector(${JSON.stringify(readySelector)})) && !document.querySelector('.loadingPlaceholderPage')`,
         `ferdig mobilvisning ${heading} ved ${width}px`
       );
       const dimensions = await session.evaluate(`(() => ({
@@ -322,9 +321,10 @@ async function main() {
         body: document.body.scrollWidth,
         main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
       }))()`);
-      if (dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
+      if (Math.abs(dimensions.viewport - width) > 2 || dimensions.main <= 0 || dimensions.html > width + 2 || dimensions.body > width + 2 || dimensions.main > width + 2) {
         throw new Error(`Horisontal mobil-overflyt på ${heading} ved ${width}px: ${JSON.stringify(dimensions)}`);
       }
+      console.log(`Mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);
     }
   }
   await session.send("Emulation.clearDeviceMetricsOverride");
