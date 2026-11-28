@@ -253,10 +253,10 @@ SELECT document_id, source, attempts, status,
          WHEN translation_error LIKE '%WorkersAIError%' THEN 'ai_error'
          ELSE 'other_or_unknown' END AS safe_reason,
        CASE WHEN instr(translation_error, 'ai_code=') > 0
-            THEN CAST(substr(translation_error, instr(translation_error, 'ai_code=') + 8, 4) AS INTEGER)
+            THEN CAST(substr(translation_error, instr(translation_error, 'ai_code=') + length('ai_code='), 4) AS INTEGER)
             ELSE NULL END AS ai_code,
        CASE WHEN instr(translation_error, 'originaldokument HTTP ') > 0
-            THEN CAST(substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + 21, 3) AS INTEGER)
+            THEN CAST(substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + length('originaldokument HTTP '), 3) AS INTEGER)
             ELSE NULL END AS http
 FROM (
     SELECT sd.id AS document_id, s.code AS source, sd.translation_attempts AS attempts,
