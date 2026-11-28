@@ -123,7 +123,8 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     worker_service = (ROOT / "cloudflare/src/bemobi_consensus.py").read_text(encoding="utf-8")
     baseline_migration = (ROOT / "cloudflare/migrations/0028_replace_aggregator_with_btg_model.sql").read_text(encoding="utf-8")
     xp_migration = (ROOT / "cloudflare/migrations/0034_replace_btg_with_xp_model.sql").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend/src/InvestorApp.tsx").read_text(encoding="utf-8")
+    navigation = (ROOT / "frontend/src/investorViews.ts").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/ConsensusPage.tsx").read_text(encoding="utf-8")
     history_panel = (ROOT / "frontend/src/ConsensusHistoryPanel.tsx").read_text(encoding="utf-8")
 
@@ -140,7 +141,9 @@ def test_consensus_is_database_backed_and_frontend_prioritizes_investor_question
     assert '"revenue_mbrl":936.0' in xp_migration
     assert '"revenue_mbrl":1074.0' in xp_migration
     assert '"target_price_brl":32.5' in xp_migration
-    assert '{ label: "Konsensus", enabled: true }' in frontend
+    assert 'items: ["Bemobi", "Konsensus", "BRL/NOK", "Brasil"]' in navigation
+    assert 'const loadConsensusPage = () => import("./ConsensusPage");' in frontend
+    assert 'const ConsensusPage = lazy(loadConsensusPage);' in frontend
     assert '<ConsensusPage />' in frontend
     assert 'fetch("/api/bemobi/consensus")' in page
     assert "Hva forventer markedet?" in page

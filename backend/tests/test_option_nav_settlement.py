@@ -203,12 +203,18 @@ def test_waterfall_replaces_accounting_and_black_scholes_with_one_settlement_dri
 def test_routes_and_frontend_use_investor_settlement_model() -> None:
     backend = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend" / "src" / "EconomicNavPanel.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
+    sensitivity = (ROOT / "frontend" / "src" / "NavSensitivityPage.tsx").read_text(encoding="utf-8")
 
     assert "from app.economic_nav_investor import economic_nav_summary" in backend
     assert "from economic_nav_investor import economic_nav_summary" in worker
     assert "from app.nav_waterfall_settlement import nav_waterfall_summary" in backend
     assert "from nav_waterfall_settlement import nav_waterfall_summary" in worker
-    assert "Opsjoner – kontantoppgjør ved NAV" in frontend
+    assert '"/api/dashboard/economic"' in frontend
+    assert 'item.key === "options"' in frontend
+    assert "item.formula" in frontend
+    assert "settlementNavPerShare(" in sensitivity
+    assert "economic?.option?.option_count" in sensitivity
+    assert "Opsjonsoppgjør" in sensitivity
     assert "Opsjonsforpliktelse – regnskapsført" not in frontend
     assert "Ekstra opsjonsoverheng" not in frontend

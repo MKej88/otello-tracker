@@ -361,7 +361,7 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
         encoding="utf-8"
     )
     panel = (ROOT / "frontend/src/MarketQuotePanel.tsx").read_text(encoding="utf-8")
-    economic = (ROOT / "frontend/src/EconomicNavPanel.tsx").read_text(encoding="utf-8")
+    overview = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/market/quotes")' in backend
     assert '@app.get("/api/market/quotes")' in worker
@@ -405,7 +405,14 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     assert "{footer}" in shared_card
     assert 'const EMPTY = "—"' in panel
     assert "Number.isFinite" in panel
-    assert "<MarketQuotePanel />" in economic
+    # The active overview renders quotes directly, rather than mounting the old panel.
+    assert 'usePollingResource<MarketQuotePayload>(' in overview
+    assert '"/api/market/quotes"' in overview
+    for symbol in ("OTEC", "BMOB3", "LIF"):
+        assert f'<MarketTicker label="{symbol}" quote={{quotes?.symbols?.{symbol}}}' in overview
+    assert "quotes?.symbols?.OTEC?.volume?.relative_3m" in overview
+    assert "Viser siste gode markedsdata" in overview
+    assert "52 uker" in overview
 
 
 @pytest.mark.parametrize(
