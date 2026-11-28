@@ -199,3 +199,12 @@ def test_diagnostic_uses_bounded_d1_batches_and_source_anchor_query():
     assert "result[17].get" in workflow
     assert "query_diagnostics(batch, lambda chunk: post_d1(" in workflow
     assert "optional_indices=(15, 16)" in workflow
+
+
+def test_diagnostics_labels_ecb_as_historical_without_changing_health_policy():
+    workflow = _workflow_text()
+    assert 'if row.get("code") == "ECB":' in workflow
+    assert 'label = "ECB (historisk reserve)"' in workflow
+    assert "Historisk status er ikke en fersk kildekontroll" in workflow
+    assert "WHERE s.is_active = 1" in workflow
+    assert 'monitoring_unhealthy=monitoring["unhealthy"]' in workflow
