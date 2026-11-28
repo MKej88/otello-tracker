@@ -1,5 +1,17 @@
 const NUMBER_LOCALE = "nb-NO";
 const numberFormatters = new Map<number, Intl.NumberFormat>();
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Reuse locale formatters across renders; construct lazily on first use. */
+export function cachedDateTimeFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify([locale, options]);
+  let formatter = dateTimeFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormatters.set(key, formatter);
+  }
+  return formatter;
+}
 
 export function formatNumber(input: number | null | undefined, digits = 2): string {
   if (input == null || !Number.isFinite(input)) return "–";
@@ -16,7 +28,7 @@ export function formatNumber(input: number | null | undefined, digits = 2): stri
 
 export function formatInteger(input: number | null | undefined): string {
   if (input == null || !Number.isFinite(input)) return "–";
-  return Math.round(input).toLocaleString(NUMBER_LOCALE);
+  return formatNumber(Math.round(input), 0);
 }
 
 export function formatDate(input?: string | null): string {
@@ -31,17 +43,17 @@ export function formatDateTime(
   if (!input) return "–";
   const parsed = input instanceof Date ? input : new Date(input);
   if (!Number.isFinite(parsed.getTime())) return String(input);
-  const date = parsed.toLocaleDateString(NUMBER_LOCALE, {
+  const date = cachedDateTimeFormatter(NUMBER_LOCALE, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     timeZone: "Europe/Oslo",
-  });
-  const time = parsed.toLocaleTimeString(NUMBER_LOCALE, {
+  }).format(parsed);
+  const time = cachedDateTimeFormatter(NUMBER_LOCALE, {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Europe/Oslo",
-  });
+  }).format(parsed);
   return `${date} kl. ${time}`;
 }
 

@@ -392,3 +392,13 @@ def test_recent_navigation_data_is_reused_when_a_view_is_reopened() -> None:
     assert "cached.expiresAt > Date.now()" in source
     assert "resolvedJson.set(url" in source
     assert "if (cached) resolvedJson.delete(url)" in source
+
+
+def test_overview_reuses_locale_formatters_instead_of_constructing_them_on_render() -> None:
+    overview = (FRONTEND_SRC / "OverviewPage.tsx").read_text(encoding="utf-8")
+    formatting = (FRONTEND_SRC / "uiFormat.ts").read_text(encoding="utf-8")
+    assert "new Intl.DateTimeFormat(" not in overview
+    assert "cachedDateTimeFormatter(" in overview
+    assert "dateTimeFormatters.get(key)" in formatting
+    assert "dateTimeFormatters.set(key, formatter)" in formatting
+    assert overview.count("eventMetaLabel(nextEvent)") == 1
