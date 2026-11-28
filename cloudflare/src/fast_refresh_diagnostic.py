@@ -269,6 +269,26 @@ FROM (
 ORDER BY document_id DESC
 """
 
+# Reduced evidence when D1 rejects the detailed query. Never fetch raw errors.
+TRANSLATION_DOCUMENTS_FALLBACK_SQL = """
+SELECT sd.id AS document_id, s.code AS source,
+       sd.translation_attempts AS attempts, sd.translation_status AS status,
+       CASE
+         WHEN sd.translation_error LIKE 'value_validation:%'
+              OR sd.translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+         WHEN sd.translation_error LIKE '%originaldokument HTTP %'
+              OR sd.translation_error LIKE 'download:%' THEN 'download'
+         WHEN sd.translation_error LIKE '%krever OCR%'
+              OR sd.translation_error LIKE 'pdf_extraction:%' THEN 'pdf_extraction'
+         WHEN sd.translation_error LIKE 'translation:%' THEN 'translation'
+         WHEN sd.translation_error LIKE 'summary:%' THEN 'summary'
+         ELSE 'unknown' END AS stage
+FROM source_documents sd JOIN sources s ON s.id=sd.source_id
+WHERE s.code IN ('CVM','BEMOBI_IR')
+  AND sd.translation_status IN ('FAILED','PENDING') AND sd.translation_error IS NOT NULL
+ORDER BY sd.id DESC LIMIT 30
+"""
+
 _AI_CODES = frozenset({3003, 3006, 3007, 3008, 3023, 3036, 3039, 3040, 3041, 3042,
                        5004, 5005, 5007, 5016, 5018, 5019, 5028, 5035})
 _AI_CATEGORIES = frozenset({"invalid_request", "request_too_large", "timeout", "account_access",
