@@ -208,3 +208,20 @@ def test_diagnostics_labels_ecb_as_historical_without_changing_health_policy():
     assert "Historisk status er ikke en fersk kildekontroll" in workflow
     assert "WHERE s.is_active = 1" in workflow
     assert 'monitoring_unhealthy=monitoring["unhealthy"]' in workflow
+
+
+def test_manual_exr_control_is_isolated_from_scheduled_alerts():
+    workflow = _workflow_text()
+    header = workflow.split("\njobs:", 1)[0]
+    assert "default: ordinær" in header
+    assert "- brl-nok" in header and "- begge" in header
+    diagnose = workflow.split("\n  diagnose:\n", 1)[1].split("\n  fast-freshness:", 1)[0]
+    assert "(github.event_name != 'workflow_dispatch' || inputs.kontroll != 'brl-nok')" in diagnose
+    exr = workflow.split("\n  verify-exr:\n", 1)[1].split("\n  incident-notify:", 1)[0].rstrip()
+    assert "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" in exr
+    assert "inputs.kontroll == 'brl-nok' || inputs.kontroll == 'begge'" in exr
+    archived = (ROOT / "docs/archive/github-actions/verify-exr-production.yml").read_text(encoding="utf-8")
+    assert exr.split("\n", 1)[1] == archived.split("\n  verify:\n", 1)[1].rstrip()
+    assert "issues: write" not in exr
+    assert "CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}" in exr
+    assert "verify-exr" not in workflow.split("\n  incident-notify:", 1)[1]
