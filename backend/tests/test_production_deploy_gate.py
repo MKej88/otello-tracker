@@ -17,11 +17,14 @@ def test_auto_deploy_is_called_only_after_complete_main_ci_and_uses_tested_sha()
     assert "workflow_call:" in deploy
     assert "tested_sha:" in deploy
     assert "required: true" in deploy
+    assert "github.event_name == 'push'" in deploy
     assert "inputs.tested_sha != ''" in deploy
     assert "inputs.tested_sha == github.sha" in deploy
-    assert "ref: ${{ inputs.tested_sha || github.sha }}" in deploy
-    assert "EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}" in deploy
-    assert "OTELLO_DEPLOYMENT_REVISION: ${{ inputs.tested_sha || github.sha }}" in deploy
+    assert deploy.count("ref: ${{ github.sha }}") == 2
+    assert deploy.count("EXPECTED_SHA: ${{ github.sha }}") == 2
+    assert "OTELLO_DEPLOYMENT_REVISION: ${{ github.sha }}" in deploy
+    assert "${{ inputs.tested_sha" not in deploy
+    assert deploy.count("inputs.tested_sha") == 2
     assert "variables['DEPLOYMENT_REVISION'] == os.environ['OTELLO_DEPLOYMENT_REVISION']" in deploy
     assert "git rev-parse HEAD" in deploy
 
@@ -59,8 +62,12 @@ def test_manual_production_deploy_is_limited_to_main() -> None:
 
 def test_production_checkout_does_not_persist_git_credentials() -> None:
     source = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
-    checkout = source.split("uses: actions/checkout@", 1)[1].split("\n\n", 1)[0]
-    assert "persist-credentials: false" in checkout
+    checkouts = source.split("uses: actions/checkout@")[1:]
+    assert len(checkouts) == 2
+    for checkout in checkouts:
+        config = checkout.split("\n      -", 1)[0]
+        assert "ref: ${{ github.sha }}" in config
+        assert "persist-credentials: false" in config
 
 
 def test_production_acceptance_does_not_hardcode_hot_snapshot_version() -> None:
