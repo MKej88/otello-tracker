@@ -360,51 +360,20 @@ def test_issue_83_is_exposed_in_backend_worker_and_frontend() -> None:
     worker_service = (ROOT / "cloudflare/src/quote_details.py").read_text(
         encoding="utf-8"
     )
-    panel = (ROOT / "frontend/src/MarketQuotePanel.tsx").read_text(encoding="utf-8")
     overview = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
     assert '@app.get("/api/market/quotes")' in backend
     assert '@app.get("/api/market/quotes")' in worker
     assert "market_quote_details" in worker_service
-    assert '"NAV / aksje"' in panel
-    assert '"Siste dagsvolum vs 3 mnd snitt"' in panel
-    assert "volume?.latest_date" in panel
-    assert ": undefined" in panel
-    assert 'quote.symbol === "OTEC" ? "Siste handel" : "Siste kurs"' in panel
-    assert "Hentes hvert 30. min · tidspunktet er siste registrerte handel" in panel
-    for label in (
-        "NAV-effekt 1 mnd",
-        "Verdi / OTEC-aksje",
-        "Verdi for Otello",
-        "52 uker",
-    ):
-        assert label in panel
-    bemobi_card = panel.split('title="Bemobi / BMOB3"', maxsplit=1)[1].split(
-        'title="Life360 / LIF"', maxsplit=1
-    )[0]
-    assert "Otello eier" not in bemobi_card
-    assert "Kilde: B3 · 30 min refresh" in bemobi_card
-    assert "summary?.bemobi_value_mnok" in bemobi_card
-    assert (
-        bemobi_card.index('label: "Verdi for Otello"')
-        < bemobi_card.index('label: "Verdi / OTEC-aksje"')
-        < bemobi_card.index('label: "NAV-effekt 1 mnd"')
-    )
-    life360_card = panel.split('title="Life360 / LIF"', maxsplit=1)[1]
-    assert (
-        life360_card.index('label: "Verdi for Otello"')
-        < life360_card.index('label: "Verdi / OTEC-aksje"')
-        < life360_card.index('label: "NAV-effekt 1 mnd"')
-    )
-    shared_card = panel.split("function MarketInsightCard", maxsplit=1)[1].split(
-        "export default function", maxsplit=1
-    )[0]
-    assert 'label: "1 mnd"' in shared_card
-    assert 'label: "3 mnd"' in shared_card
-    assert "<MarketRange quote={quote} />" in shared_card
-    assert "{footer}" in shared_card
-    assert 'const EMPTY = "—"' in panel
-    assert "Number.isFinite" in panel
+    # The old cards were replaced by the active overview and its driver cards.
+    assert "bemobi?.nav_effect_1m_per_share_nok" in overview
+    assert "brl?.nav_effect_1m_per_share_nok" in overview
+    assert "quotes?.symbols?.BMOB3?.range_52w?.low" in overview
+    assert "quotes?.symbols?.BMOB3?.range_52w?.high" in overview
+    assert "Number.isFinite(quote.last)" in overview
+    assert 'return "—"' in overview
+    assert "OTEC-volum siste handelsdag:" in overview
+    assert "otecVolumeRelative >= 1.5" in overview
     # The active overview renders quotes directly, rather than mounting the old panel.
     assert 'usePollingResource<MarketQuotePayload>(' in overview
     assert '"/api/market/quotes"' in overview

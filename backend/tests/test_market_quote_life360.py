@@ -103,12 +103,14 @@ def test_life360_er_med_i_kurser_og_handelsdata(tmp_path) -> None:
 
 def test_life360_er_eksponert_i_worker_og_frontend() -> None:
     worker = (ROOT / "cloudflare/src/quote_details.py").read_text(encoding="utf-8")
-    panel = (ROOT / "frontend/src/MarketQuotePanel.tsx").read_text(encoding="utf-8")
+    overview = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
 
     assert '"LIF": {"currency": "USD", "source": "YAHOO_FINANCE"}' in worker
-    assert "data?.symbols?.LIF" in panel
-    assert 'title="Life360 / LIF"' in panel
-    assert 'currency === "USD"' in panel
+    assert '<MarketTicker label="LIF" quote={quotes?.symbols?.LIF} />' in overview
+    assert "{quotePrice(quote)}" in overview
+    assert 'if (quote.currency === "USD")' in overview
+    assert 'formatNumber(quote.last, 2)' in overview
+
 
 
 def test_life360_intradag_bruker_faktisk_innhentingstid(tmp_path) -> None:

@@ -33,7 +33,8 @@ def test_issue_83_market_quote_contract() -> None:
         encoding="utf-8"
     )
     worker = (ROOT / "cloudflare/src/quote_details.py").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend/src/MarketQuotePanel.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend/src/OverviewPage.tsx").read_text(encoding="utf-8")
+    model = (ROOT / "frontend/src/marketQuoteModel.ts").read_text(encoding="utf-8")
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     for source in (backend, worker):
@@ -48,22 +49,18 @@ def test_issue_83_market_quote_contract() -> None:
         assert '"low"' in source
         assert '"high"' in source
 
-    for label in (
-        "52 uker",
-        "1 mnd",
-        "3 mnd",
-        "NAV / aksje",
-        "Siste dagsvolum vs 3 mnd snitt",
-        "NAV-effekt 1 mnd",
-        "Verdi for Otello",
-    ):
+    # Assert the active market strip and driver cards, not labels in a dead panel.
+    for label in ("52 uker", "OTEC-volum siste handelsdag:", "Viser siste gode markedsdata"):
         assert label in frontend
 
-    assert "latest_date?: string | null" in frontend
-    assert "Number.isFinite" in frontend
-    assert 'const EMPTY = "—"' in frontend
-    assert 'quote.symbol === "OTEC" ? "Siste handel" : "Siste kurs"' in frontend
-    assert "tidspunktet er siste registrerte handel" in frontend
+    for field in ("latest_date", "relative_3m", "last_updated_at", "trading_date",
+                  "month_pct", "three_month_pct", "range_52w"):
+        assert f"{field}?" in model
+    assert "Number.isFinite(quote.last)" in frontend
+    assert 'return "—"' in frontend
+    assert "rangePosition(current, low, high)" in frontend
+    assert "quote?.changes?.daily_pct" in frontend
+    assert "bemobi?.nav_effect_1m_per_share_nok" in frontend
 
     assert "/api/market/quotes" in ci
     assert "worker-quotes.json" in ci
