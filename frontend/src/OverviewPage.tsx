@@ -2,7 +2,7 @@ import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
-import { formatCompanyEventTitle, formatDate, formatInteger, formatNumber } from "./uiFormat";
+import { cachedDateTimeFormatter, formatCompanyEventTitle, formatDate, formatInteger, formatNumber } from "./uiFormat";
 import { usePageUpdate } from "./pageUpdateStatus";
 import { medianDiscountPriceLine } from "./navMedianPrice";
 import { navUpsideLine } from "./navUpside";
@@ -192,33 +192,33 @@ function updatedTimeLabel(value?: string | null) {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleTimeString("nb-NO", {
+  return cachedDateTimeFormatter("nb-NO", {
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Europe/Oslo",
-  });
+  }).format(parsed);
 }
 
 function fxObservationTime(value?: string | null): string | null {
   if (!value) return null;
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return null;
-  const date = instant.toLocaleDateString("nb-NO", {
+  const date = cachedDateTimeFormatter("nb-NO", {
     timeZone: "Europe/Oslo",
     day: "2-digit",
     month: "2-digit",
-  });
-  const time = instant.toLocaleTimeString("nb-NO", {
+  }).format(instant);
+  const time = cachedDateTimeFormatter("nb-NO", {
     timeZone: "Europe/Oslo",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  });
+  }).format(instant);
   return `${date} kl. ${time}`;
 }
 
 function osloDateKey(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  const parts = cachedDateTimeFormatter("en-CA", {
     timeZone: "Europe/Oslo",
     year: "numeric",
     month: "2-digit",
@@ -233,7 +233,7 @@ function osloDateKey(now = new Date()) {
 function eventDateLabel(input: string) {
   const date = new Date(`${input}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return formatDate(input);
-  return new Intl.DateTimeFormat("nb-NO", {
+  return cachedDateTimeFormatter("nb-NO", {
     day: "2-digit",
     month: "short",
     timeZone: "UTC",
@@ -261,7 +261,7 @@ function norwayReleaseTime(value?: string | null) {
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat("nb-NO", {
+  return cachedDateTimeFormatter("nb-NO", {
     timeZone: "Europe/Oslo",
     hour: "2-digit",
     minute: "2-digit",
@@ -481,14 +481,15 @@ export default function OverviewPage() {
   usePageUpdate(nav?.calculated_at ?? nav?.as_of_date, "intraday");
 
 
+  const candidateFxTime = fxObservationTime(latestFx?.current?.observed_at);
   const fxSpot = latestFx?.ready
     && latestFx.current?.source === "EXCHANGERATE_DEV"
     && latestFx.current.observed_at
-    && fxObservationTime(latestFx.current.observed_at)
+    && candidateFxTime
     && finiteNumber(latestFx.current.brl_nok) != null
     ? latestFx.current
     : null;
-  const currentFxTime = fxObservationTime(fxSpot?.observed_at);
+  const currentFxTime = fxSpot ? candidateFxTime : null;
   const navFxTime = fxObservationTime(summary?.market_timestamps?.brl_nok?.observed_at);
   const shownBrlNok = fxSpot?.brl_nok ?? summary?.brl_nok;
 
@@ -510,6 +511,7 @@ export default function OverviewPage() {
     : null;
   const events = upcomingEvents(overviewEvents);
   const nextEvent = events[0];
+  const nextEventMeta = nextEvent ? eventMetaLabel(nextEvent) : null;
   const otecVolumeRelative = quotes?.symbols?.OTEC?.volume?.relative_3m;
 
   return (
@@ -569,7 +571,7 @@ export default function OverviewPage() {
                       <span className={`overviewEventBadge ${nextEvent.scopeClass}`}>{nextEvent.scopeBadge}</span>
                     </span>
                   </div>
-                  {eventMetaLabel(nextEvent) ? <small>{eventMetaLabel(nextEvent)}</small> : null}
+                  {nextEventMeta ? <small>{nextEventMeta}</small> : null}
                   <ReportEventPreview event={nextEvent} />
                 </div>
               </div>
