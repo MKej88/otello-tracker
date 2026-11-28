@@ -204,14 +204,16 @@ def _event(
 
 async def news_source_freshness(repository, *, now: datetime | None = None) -> dict:
     """Measure source checks, not the age of the most recent company announcement."""
-    rows = await repository.all(
+    rows, archive = await asyncio.gather(
+        repository.all(
         """SELECT s.code, sh.checked_at, sh.status
         FROM sources s
         LEFT JOIN source_health sh ON sh.id = (
             SELECT id FROM source_health WHERE source_id = s.id
             ORDER BY checked_at DESC, id DESC LIMIT 1
         )
-        WHERE s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')""", ()
+        WHERE s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')""", ()),
+        repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", ("cvm_ipe_archive_freshness",)),
     )
     by_code = {row["code"]: row for row in rows}
     current = now or datetime.now(UTC)
@@ -235,7 +237,6 @@ async def news_source_freshness(repository, *, now: datetime | None = None) -> d
             problems.append(f"{label}: avvik ved siste kontroll")
         elif current - checked > timedelta(hours=max_hours):
             problems.append(f"{label}: kontrollen er forsinket")
-    archive = await repository.first("SELECT value FROM runtime_state WHERE key=? LIMIT 1", ("cvm_ipe_archive_freshness",))
     if archive:
         try:
             observed = json.loads(archive["value"])
@@ -307,6 +308,7 @@ async def news_and_events(
         repository.first(next_quarter_query),
         agenda_events(repository, as_of_date=today.isoformat()),
         news_source_freshness(repository),
+        official_ir_news(repository, target_date=today.isoformat()),
     )
 
     while len(news) < safe_limit:
@@ -350,7 +352,7 @@ async def news_and_events(
             break
         offset += batch_size
 
-    programs, actions, next_quarter, agenda, freshness = await event_reads
+    programs, actions, next_quarter, agenda, freshness, (ir_items, ir_warning) = await event_reads
 
     events: list[dict[str, Any]] = []
     for row in programs:
@@ -459,7 +461,6 @@ async def news_and_events(
                 )
             )
 
-    ir_items, ir_warning = await official_ir_news(repository, target_date=today.isoformat())
     # Bemobi IR is authoritative for its own announcements and reports. CVM
     # remains a fallback; suppress only an exact, one-to-one date/title match.
     # Do not merge separate shareholder notifications on the same day.
