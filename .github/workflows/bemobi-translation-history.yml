@@ -1,4 +1,4 @@
-name: Bemobi rolling 24-month translation history
+name: "22 – Bemobi – 24 måneders oversettelseshistorikk"
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/bemobi-translation-history.yml
       - tools/backfill_bemobi_translation_history.py
       - cloudflare/src/bemobi_cvm_padding_normalization.py
   pull_request:

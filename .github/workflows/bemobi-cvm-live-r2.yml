@@ -1,4 +1,4 @@
-name: Bemobi CVM live private R2 mirror
+name: "20 – Bemobi – innhenting av CVM-dokumenter"
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/bemobi-cvm-live-r2.yml
       - tools/mirror_bemobi_cvm_live.py
       - cloudflare/src/bemobi_cvm_mirror.py
       - backend/tests/test_bemobi_cvm_publish.py
