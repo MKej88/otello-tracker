@@ -1,4 +1,4 @@
-name: CodeQL security analysis
+name: "40 – Sikkerhetsanalyse av kode (CodeQL)"
 
 on:
   pull_request:

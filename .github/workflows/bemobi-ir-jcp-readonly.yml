@@ -1,4 +1,4 @@
-name: Bemobi IR og JCP - lesediagnose
+name: "24 – Bemobi – kontroll av investorinformasjon og rentebasert utbytte"
 
 on:
   workflow_dispatch:

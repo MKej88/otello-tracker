@@ -1,4 +1,4 @@
-name: Production performance (synthetic)
+name: "12 – Ytelsesovervåkning"
 
 on:
   workflow_dispatch:

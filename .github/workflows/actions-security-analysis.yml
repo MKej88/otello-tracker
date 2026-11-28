@@ -1,4 +1,4 @@
-name: GitHub Actions security analysis
+name: "41 – Sikkerhetsanalyse av arbeidsflyter og Python-avhengigheter"
 
 on:
   workflow_dispatch:

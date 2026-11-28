@@ -1,4 +1,4 @@
-name: OpenSSF Scorecard
+name: "43 – Sikkerhetsvurdering (OpenSSF Scorecard)"
 
 on:
   push:

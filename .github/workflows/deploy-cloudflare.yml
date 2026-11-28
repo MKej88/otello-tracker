@@ -1,4 +1,4 @@
-name: Deploy Cloudflare production
+name: "02 – Produksjonsutrulling"
 
 on:
   workflow_dispatch:
