@@ -163,6 +163,9 @@ def operational_lines(result: dict) -> tuple[list[str], int]:
                         parts.append(f"{safe_detail(failure.get('date') or '-')}: {_incident_detail(failure.get('reason') or 'ukjent årsak')}")
                 if parts:
                     incident(key, "; ".join(parts))
+            parked = retry.get("parked_before_cost_anchor") or 0
+            if parked:
+                checks_summary.append(f"NAV-historikk: {parked} datoer før kostnadsdekning ({safe_detail(retry.get('first_base_anchor') or '-')}); avventer eldre dokumentert anker")
             if period_cache.get("status") == "ok" and period_cache.get("written") == 6:
                 checks_summary.append("Periodecache: 6/6")
         if key == "investor_snapshots":

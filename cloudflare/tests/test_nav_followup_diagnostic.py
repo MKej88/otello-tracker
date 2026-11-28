@@ -62,10 +62,25 @@ class FollowupTests(unittest.TestCase):
         groups = [{"reason_code": "missing_estimated_nav_anchor", "count": 250,
                    "due": 30, "last_date": "2023-06-29"}]
         report = assess_followup(groups, [], net, preflight={}, cost_anchors=anchors)
-        self.assertTrue(report["warning"])
+        self.assertFalse(report["warning"])
         self.assertEqual(report["first_base_anchor"], "2023-06-30")
         self.assertEqual(report["before_base_anchor"], 250)
-        self.assertEqual(report["pending"], 250)
+        self.assertEqual(report["pending"], 0)
+        self.assertEqual(report["due"], 0)
+        self.assertEqual(report["total_pending"], 250)
+        earlier = [{"scenario": "BASE", "effective_from": "2022-07-01",
+                    "amount_usd": "1000", "period_days": 181}]
+        mixed = [{"reason_code": "missing_estimated_nav_anchor", "count": 2,
+                  "due": 2, "last_date": "2023-07-01",
+                  "coverage_dates": '[["2022-07-01",1],["2023-07-01",1]]'}]
+        partial = assess_followup(mixed, [], net, preflight={}, cost_anchors=anchors)
+        self.assertEqual(partial["pending"], 1)
+        self.assertEqual(partial["due"], 1)
+        self.assertTrue(partial["warning"])
+        reopened = assess_followup(mixed, [], net, preflight={}, cost_anchors=earlier)
+        self.assertEqual(reopened["pending"], 2)
+        self.assertEqual(reopened["before_base_anchor"], 0)
+        self.assertTrue(reopened["warning"])
         db = sqlite3.connect(":memory:")
         db.executescript("""
         CREATE TABLE source_documents(id, published_at, document_type, metadata_json);
