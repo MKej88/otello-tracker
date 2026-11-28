@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from src.repository import D1Repository, D1WriteRepository
-from src.performance_repository import PerformanceD1WriteRepository
+from src.performance_repository import PerformanceD1Repository, PerformanceD1WriteRepository
 
 
 @dataclass
@@ -106,3 +106,68 @@ def test_performance_repository_invalidates_read_cache_after_batch() -> None:
         {"value": "oppdatert"}
     ]
     assert repository.performance_metrics()["d1_writes"] == 1
+
+
+def test_row_metrics_count_scanned_rows_not_result_length_and_do_not_count_cache_hits():
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(results=[{"id": 1}], meta={"rows_read": 200, "rows_written": 0})
+    repository = PerformanceD1Repository(Database(result))
+
+    async def read():
+        assert await repository.all("SELECT id FROM example") == [{"id": 1}]
+        assert await repository.all("SELECT id FROM example") == [{"id": 1}]
+        await repository.all_uncached("SELECT id FROM example")
+
+    asyncio.run(read())
+    metrics = repository.performance_metrics()
+    assert metrics["d1_operations"] == 2
+    assert metrics["d1_row_meta_operations"] == 2
+    assert metrics["d1_rows_read"] == 400
+    assert metrics["d1_rows_written"] == 0
+
+
+@pytest.mark.parametrize("meta", [None, {"rows_read": 2}, {"rows_read": -1, "rows_written": 0},
+                                {"rows_read": True, "rows_written": 0},
+                                {"rows_read": float("nan"), "rows_written": 0}])
+def test_invalid_row_metadata_is_unknown_not_zero(meta):
+    from types import SimpleNamespace
+
+    database = Database(SimpleNamespace(results=[], meta={"rows_read": 3, "rows_written": 0}))
+    repository = PerformanceD1Repository(database)
+    asyncio.run(repository.all("SELECT 1"))
+    database.result = SimpleNamespace(results=[], meta=meta)
+    asyncio.run(repository.all_uncached("SELECT 2"))
+    metrics = repository.performance_metrics()
+    assert metrics["d1_row_meta_operations"] == 1
+    assert metrics["d1_rows_read_observed"] == 3
+    assert metrics["d1_rows_read"] is None
+    assert metrics["d1_rows_written"] is None
+
+
+def test_write_and_batch_row_counts_are_per_statement():
+    from types import SimpleNamespace
+
+    class WriteStatement(Statement):
+        async def run(self):
+            return self.result
+
+    class CostDatabase(Database):
+        def prepare(self, sql):
+            return WriteStatement(self.result)
+
+        async def batch(self, statements):
+            return [
+                SimpleNamespace(meta={"rows_read": 5, "rows_written": 2}),
+                SimpleNamespace(meta={"rows_read": 8.0, "rows_written": 3.0}),
+            ]
+
+    database = CostDatabase(SimpleNamespace(meta={"rows_read": 4, "rows_written": 1}))
+    repository = PerformanceD1WriteRepository(database)
+    asyncio.run(repository.run("UPDATE example SET value=1"))
+    asyncio.run(repository.run_batch([("UPDATE example SET value=2", ()), ("DELETE FROM example", ())]))
+    metrics = repository.performance_metrics()
+    assert metrics["d1_operations"] == 3
+    assert metrics["d1_row_meta_operations"] == 3
+    assert metrics["d1_rows_read"] == 17
+    assert metrics["d1_rows_written"] == 6
