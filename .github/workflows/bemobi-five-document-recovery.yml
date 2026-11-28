@@ -1,0 +1,61 @@
+name: Bemobi translation recovery 2026-11-28
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bemobi-five-document-recovery.yml
+      - tools/reactivate_bemobi_five_documents.py
+  pull_request:
+    paths:
+      - .github/workflows/bemobi-five-document-recovery.yml
+      - tools/reactivate_bemobi_five_documents.py
+      - backend/tests/test_bemobi_five_document_recovery.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bemobi-five-recovery-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - run: python3 -m pytest -q backend/tests/test_bemobi_five_document_recovery.py
+  recover:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      - name: Les kun de fem historiske feilradene
+        env:
+          CLOUDFLARE_READ_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/reactivate_bemobi_five_documents.py collect "$RUNNER_TEMP/bemobi-five-recovery"
+      - name: Verifiser offisielle CVM-originaler uten credentials
+        run: python3 tools/reactivate_bemobi_five_documents.py verify "$RUNNER_TEMP/bemobi-five-recovery"
+      - name: Reaktiver kun uendrede og verifiserte feilrader
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 tools/reactivate_bemobi_five_documents.py recover "$RUNNER_TEMP/bemobi-five-recovery"
