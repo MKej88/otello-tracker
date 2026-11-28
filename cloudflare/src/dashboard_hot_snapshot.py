@@ -187,6 +187,24 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _snapshot_validation_reason(
+    payload: dict[str, Any], *, generated: datetime | None, current: datetime
+) -> str | None:
+    """Use the same structural and exact-age checks for serving and diagnostics."""
+    if payload.get("version") != SNAPSHOT_VERSION:
+        return "version_mismatch"
+    if not all(isinstance(payload.get(name), dict) for name in _COMPONENTS):
+        return "missing_or_invalid_components"
+    if generated is None:
+        return "invalid_generated_at"
+    age = (current - generated).total_seconds()
+    if age < 0:
+        return "generated_at_in_future"
+    if age > SNAPSHOT_MAX_AGE_SECONDS:
+        return "stale"
+    return None
+
+
 async def build_dashboard_hot_snapshot(repository: Any) -> dict[str, Any]:
     """Build the expensive first-screen payload outside the user request path."""
 
@@ -236,18 +254,13 @@ async def load_dashboard_hot_snapshot(
         payload = json.loads(str(row.get("value") or ""))
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") != SNAPSHOT_VERSION:
-        return None
-    if not _COMPONENTS.issubset(payload):
+    if not isinstance(payload, dict):
         return None
     generated_at = _parse_timestamp(
         payload.get("generated_at") or row.get("updated_at")
     )
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    if generated_at is None:
-        return None
-    age_seconds = (current - generated_at).total_seconds()
-    if age_seconds < 0 or age_seconds > SNAPSHOT_MAX_AGE_SECONDS:
+    if _snapshot_validation_reason(payload, generated=generated_at, current=current) is not None:
         return None
     # Older snapshots can contain already-rendered calendar titles. Normalize only
     # the two legacy titles, leaving dates, sources, identity and NAV data untouched.
@@ -342,23 +355,11 @@ async def dashboard_hot_snapshot_status(
     )
     current = (now or datetime.now(UTC)).astimezone(UTC)
     generated = _parse_timestamp(generated_at)
-    raw_age_seconds = (
-        int((current - generated).total_seconds()) if generated is not None else None
+    age_seconds = (
+        max(0, int((current - generated).total_seconds()))
+        if generated is not None else None
     )
-    age_seconds = max(0, raw_age_seconds) if raw_age_seconds is not None else None
-
-    if stored_version != SNAPSHOT_VERSION:
-        reason = "version_mismatch"
-    elif len(present_components) != len(_COMPONENTS):
-        reason = "missing_or_invalid_components"
-    elif generated is None:
-        reason = "invalid_generated_at"
-    elif raw_age_seconds is not None and raw_age_seconds < 0:
-        reason = "generated_at_in_future"
-    elif age_seconds is not None and age_seconds > SNAPSHOT_MAX_AGE_SECONDS:
-        reason = "stale"
-    else:
-        reason = None
+    reason = _snapshot_validation_reason(payload, generated=generated, current=current)
 
     valid = reason is None
     return {

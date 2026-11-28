@@ -30,7 +30,7 @@ CI kaller fortsatt 7540-recovery etter deploy, med egen avgrensning som hopper o
 | 2 | Hendelsesspesifikke recovery-workflows og diagnoseverktøy | Når #983 er ferdig: verifiser eksakte dokumentstatus, avhengigheter og historiske kontrollkrav. Fjern automatiske skrivetilganger som ikke lenger trengs; behold reproduserbare verktøy og evidens. |
 | 3 | Gamle reservekilder, særlig ECB og overlappende CVM/IR | Fase 3: se [kildehierarki og reserver](kildehierarki-og-reserver.md). ECB merkes som historisk reserve i diagnosen. Behold eksisterende kildevalg og historikk; konkret reduksjon i nettverkskall krever måling og regresjonstest. |
 | 4 | Dobbeltimplementering i backend/ og cloudflare/ | Fase 4: [finansiell modellparitet](finansiell-modellparitet.md), utvidede tester for opsjoner, kontantbro, NAV-attribusjon og betalingsomklassifisering. Behold separate beregningsmotorer. Full paritet for alle datatilganger gjenstår. |
-| 5 | Flere cache- og snapshotlag | Dokumenter eier, nøkkel, maksimal alder, fallback og ugyldiggjøring per endepunkt. Behold separat historikk og intradag. Mål cold/non-HIT før endring. |
+| 5 | Flere cache- og snapshotlag | Fase 5: [cachearkitektur](cachearkitektur.md). Samordnet struktur- og aldersvalidering for dashboard-snapshot. Behold separat historikk og intradag. Måling av TTL og nettleserens revalidering gjenstår. |
 | 6 | Historiske revisjonsnotater og utdaterte beskrivelser | Oppdater aktiv arkitekturdokumentasjon. Behold daterte revisjoner som evidens: eksterne-api-audit.md og eksterne_api_audit.md har forskjellig omfang og er ikke identiske. |
 | 7 | Ytelsesmålinger | Europeisk runner krever faktisk provisionert infrastruktur. Se production-performance-followup.md. Ikke bland europeiske og amerikanske trendserier. |
 

@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from app.main import _sync_summary_with_otec_quote
 
@@ -428,3 +430,56 @@ def test_legacy_snapshot_calendar_titles_are_normalized_without_changing_data() 
     assert bootstrap["events"]["events"] == expected
     assert repository.rows[hot.STATE_KEY]["value"] == stored
     assert repository.writes == 0
+
+
+def _snapshot_fixture(now):
+    return {
+        "version": hot.SNAPSHOT_VERSION,
+        "generated_at": now.isoformat(),
+        **{name: {"ready": True} for name in hot._COMPONENTS},
+    }
+
+
+@pytest.mark.parametrize("component", sorted(hot._COMPONENTS))
+@pytest.mark.parametrize("bad_value", [None, [], "invalid", 42, False])
+def test_invalid_component_rejected_by_all_snapshot_read_paths(component, bad_value, monkeypatch):
+    now = datetime.now(UTC)
+    repository = FakeRepository()
+    payload = _snapshot_fixture(now)
+    payload[component] = bad_value
+    repository.rows[hot.STATE_KEY] = {"value": json.dumps(payload), "updated_at": now.isoformat()}
+
+    async def rebuild(_repository):
+        return _snapshot_fixture(now)
+
+    monkeypatch.setattr(hot, "build_dashboard_hot_snapshot", rebuild)
+    assert asyncio.run(hot.load_dashboard_hot_snapshot(repository, now=now)) is None
+    status = asyncio.run(hot.dashboard_hot_snapshot_status(repository, now=now))
+    assert status["valid"] is False
+    assert status["reason"] == "missing_or_invalid_components"
+    assert asyncio.run(hot.dashboard_hot_component(repository, component)) is None
+    assert asyncio.run(hot.dashboard_hot_components(repository, "summary", "quotes")) == (None, None)
+    result = asyncio.run(hot.dashboard_bootstrap_payload(repository))
+    assert result["meta"]["source"] == "live_fallback"
+    assert result[component] == {"ready": True}
+    assert repository.writes == 0
+
+
+@pytest.mark.parametrize("age,valid,reason", [
+    (-0.001, False, "generated_at_in_future"),
+    (0, True, None),
+    (5399.999, True, None),
+    (5400, True, None),
+    (5400.001, False, "stale"),
+])
+def test_serving_and_diagnostics_agree_at_subsecond_age_boundaries(age, valid, reason):
+    now = datetime(2026, 11, 28, 12, 0, tzinfo=UTC)
+    generated = now - timedelta(seconds=age)
+    repository = FakeRepository()
+    payload = _snapshot_fixture(generated)
+    repository.rows[hot.STATE_KEY] = {"value": json.dumps(payload), "updated_at": generated.isoformat()}
+    assert (asyncio.run(hot.load_dashboard_hot_snapshot(repository, now=now)) is not None) is valid
+    status = asyncio.run(hot.dashboard_hot_snapshot_status(repository, now=now))
+    assert status["valid"] is valid
+    assert status["cache_status"] == ("HIT" if valid else "MISS")
+    assert status["reason"] == reason
