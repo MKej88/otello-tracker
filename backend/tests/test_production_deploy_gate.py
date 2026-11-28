@@ -76,3 +76,19 @@ def test_native_workflow_schedule_removal_is_verified_from_cloudflare():
     assert 'with urlopen(verify, timeout=30)' in cleanup
     assert "state['result'].get('schedules')" in cleanup
     assert 'still active after removal' in cleanup
+
+
+def test_only_superseded_pull_request_runs_can_be_cancelled() -> None:
+    for path, prefix in (
+        (CI_WORKFLOW, "ci"),
+        (CI_WORKFLOW.parent / "production-config-ci.yml", "production-config"),
+    ):
+        source = path.read_text(encoding="utf-8")
+        block = source.split("\nconcurrency:\n", 1)[1].split("\n\n", 1)[0]
+        assert block == (
+            "  group: " + prefix + "-${{ github.event_name == 'pull_request' && "
+            "format('pr-{0}', github.event.pull_request.number) || "
+            "format('run-{0}', github.run_id) }}\n"
+            "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
+        )
+    assert "cancel-in-progress: true" not in DEPLOY_WORKFLOW.read_text(encoding="utf-8")
