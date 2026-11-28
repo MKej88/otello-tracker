@@ -234,6 +234,35 @@ def validate_preserved_values(original: str, translated: str) -> list[str]:
     return sorted(source - target)
 
 
+class ValuePreservationError(ValueError):
+    def __init__(self, missing_count: int):
+        self.missing_count = missing_count
+        super().__init__(f"verdikontroll feilet ({missing_count} mangler)")
+
+
+async def translate_verified_chunk(provider, chunk_id: str, chunk: str, trace: dict) -> str:
+    # Keep the exact existing value-preservation policy. Retry the entire
+    # affected chunk, not just the missing numbers, to preserve their context.
+    # Do not include a numbered artificial chunk identifier in the AI input.
+    translated = await provider.complete(_TRANSLATE_INSTRUCTION, chunk)
+    missing = validate_preserved_values(chunk, translated)
+    if missing:
+        trace["value_chunk_retries"] = trace.get("value_chunk_retries", 0) + 1
+        translated = await provider.complete(
+            _TRANSLATE_INSTRUCTION + "\nForrige svar manglet tall eller datoer. "
+            "Kontroller hele originalen linje for linje. Behold tall, skilletegn, "
+            "valutamerker, prosenttegn og datoer nøyaktig som i originalen. "
+            "Ikke legg til en liste med manglende verdier; oversett alt i riktig sammenheng.",
+            chunk,
+        )
+        missing = validate_preserved_values(chunk, translated)
+    if missing:
+        trace["value_missing_count"] = len(missing)
+        trace["value_failed_chunk"] = chunk_id
+        raise ValuePreservationError(len(missing))
+    return translated
+
+
 def translated_object_key(content_hash: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
         raise ValueError("Ugyldig innholdshash")
@@ -660,7 +689,10 @@ async def process_pending_translations(
                 continue
             stage = "translation"
             chunks = stable_chunks(text)
+            trace["source_characters"] = len(text)
+            trace["source_chunks"] = len(chunks)
             if len(chunks) > MAX_DOCUMENT_CHUNKS:
+                trace["translation_limit"] = "max_document_chunks"
                 raise ValueError("Dokumentet overskrider sikker behandlingsgrense")
             identity = _checkpoint_identity(content_hash, text, provider.model)
             full_translation = await _read_translation_checkpoint(bucket, identity, text)
@@ -668,15 +700,16 @@ async def process_pending_translations(
             if full_translation is None:
                 translations = []
                 for chunk_id, chunk in chunks:
-                    translated = await observed.complete(
-                        _TRANSLATE_INSTRUCTION, f"[{chunk_id}]\n{chunk}"
-                    )
+                    stage = "value_validation"
+                    translated = await translate_verified_chunk(observed, chunk_id, chunk, trace)
+                    stage = "translation"
                     translations.append(translated)
                 full_translation = "\n\n".join(translations)
             stage = "value_validation"
             missing = validate_preserved_values(text, full_translation)
             if missing:
-                raise ValueError(f"verdikontroll feilet ({len(missing)} mangler)")
+                trace["value_missing_count"] = len(missing)
+                raise ValuePreservationError(len(missing))
             if trace["translation_checkpoint"] != "reused":
                 try:
                     await _write_translation_checkpoint(bucket, identity, full_translation)
@@ -717,6 +750,9 @@ async def process_pending_translations(
             # Store stage and exception class; raw diagnostic stays private in D1.
             trace.update(stage=stage, outcome="error")
             if isinstance(exc, WorkersAIError):
+                if stage == "value_validation":
+                    stage = "translation"
+                    trace["stage"] = stage
                 trace["ai_error"] = _ai_error_info(exc)
                 # A stable, redacted marker makes the error queryable without raw provider messages.
                 reason = f"{stage}:WorkersAIError: ai_category={exc.category}; ai_code={exc.code or 0}; ai_http={exc.http or 0}"
