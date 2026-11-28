@@ -167,7 +167,8 @@ export function createApiDiagnostics(origin) {
 
 // Keep the diagnostic vocabulary fixed; never expose raw CDP messages or URLs.
 const PROBE_STAGES = new Set([
-  "chrome_start", "tab_create", "cdp_connect", "cdp_setup",
+  "profile_create", "chrome_spawn", "chrome_start", "tab_create", "cdp_connect", "cdp_setup",
+  "cdp_close", "chrome_stop", "profile_remove",
   "navigate", "wait_for_content", "read_metrics", "cpu_profile",
 ]);
 
@@ -194,6 +195,14 @@ export function browserProbeDetail(error, stage) {
     reason = "content_not_ready";
   } else if (/exceptionDetails|exceptionId/i.test(message)) {
     reason = "runtime_exception";
+  }
+  if (reason === "unknown") {
+    const code = error?.code;
+    if (["EBUSY", "ENOTEMPTY", "EPERM", "EACCES", "ENOENT", "EMFILE", "ENFILE", "ENOSPC", "EAGAIN"].includes(code)) {
+      reason = "os_" + code.toLowerCase();
+    } else if (error?.name === "TimeoutError") {
+      reason = "operation_timeout";
+    }
   }
   return { stage: PROBE_STAGES.has(stage) ? stage : "unknown", reason };
 }
@@ -232,6 +241,50 @@ export function classifyColdFailure(error, pageState, network, stage) {
     apiIssues,
     pendingApiPaths,
   };
+}
+
+/**
+ * Run every teardown step even when one fails. Preserve the primary diagnosis.
+ * A teardown-only failure is still a failed attempt, not a successful measurement.
+ * Only allow-listed detail reaches the report.
+ */
+export async function withBrowserCleanup(run, cleanupSteps) {
+  let primary;
+  let failed = false;
+  try {
+    return await run();
+  } catch (error) {
+    failed = true;
+    primary = error;
+    throw error;
+  } finally {
+    const cleanup = [];
+    for (const [stage, action] of cleanupSteps) {
+      try {
+        await action();
+      } catch (error) {
+        cleanup.push(browserProbeDetail(error, stage));
+      }
+    }
+    if (cleanup.length) {
+      if (failed && primary?.diagnosis) {
+        primary.diagnosis.cleanup = cleanup;
+      } else if (failed) {
+        // The production caller classifies all primary failures before teardown.
+        // Preserve even an unexpected unclassified error, rather than replacing it.
+        if (primary instanceof Error) {
+          primary.diagnosis = classifyColdFailure(primary, null, null);
+          primary.diagnosis.cleanup = cleanup;
+        }
+      } else {
+        const error = new Error("Synthetic browser cleanup failed");
+        error.diagnosis = classifyColdFailure(error, null, null, cleanup[0].stage);
+        error.diagnosis.browserProbe = cleanup[0];
+        error.diagnosis.cleanup = cleanup;
+        throw error;
+      }
+    }
+  }
 }
 
 /** Retry exactly once in a new browser profile; preserve both attempts. */
