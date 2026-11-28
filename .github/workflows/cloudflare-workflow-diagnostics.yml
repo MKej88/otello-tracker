@@ -32,6 +32,8 @@ on:
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
       - tools/select_production_diagnostic.py
+      - tools/nightly_diagnostic_fallback.py
+      - tools/tests/test_nightly_diagnostic_fallback.py
       - tools/tests/test_select_production_diagnostic.py
   push:
     branches: [main]
@@ -50,14 +52,16 @@ on:
       - cloudflare/tests/test_production_diagnostic_policy.py
       - cloudflare/tests/test_production_incident_notification.py
       - tools/select_production_diagnostic.py
+      - tools/nightly_diagnostic_fallback.py
+      - tools/tests/test_nightly_diagnostic_fallback.py
       - tools/tests/test_select_production_diagnostic.py
   schedule:
     # Full refresh starts at 03:35 UTC. Give it 55 minutes before the daily diagnosis.
     - cron: "30 4 * * *"
-    # Independent morning recheck: a delayed/missed GitHub schedule or a transient
+    # Secondary morning recheck: a delayed/missed GitHub schedule or a transient
     # failure must not leave the entire day without a full production diagnosis.
     - cron: "45 6 * * *"
-    # Read-only watchdog every two hours; unchanged fast-refresh cadence.
+    # Read-only watchdog every two hours; also checks for missing daily diagnosis.
     - cron: "17 */2 * * *"
 
 permissions:
@@ -86,15 +90,40 @@ jobs:
         run: |
           PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
           PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_select_production_diagnostic.py'
+          PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_nightly_diagnostic_fallback.py'
           python3 -m unittest discover -s cloudflare/tests -p 'test_production_incident_notification.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_full_refresh_diagnostic.py'
           PYTHONPATH=cloudflare/src python3 -m unittest discover -s cloudflare/tests -p 'test_nav_followup_diagnostic.py'
 
+  nightly-fallback:
+    name: Check whether today's nightly diagnosis is missing
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      needed: ${{ steps.gate.outputs.needed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: PYTHONPATH=tools python3 tools/nightly_diagnostic_fallback.py
+
   diagnose:
+    needs: [nightly-fallback]
     # Live production reads only after the nightly deadline, or on manual request.
     # In particular, never compare a fresh main commit with a pre-deploy night.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *')) ||
+       (github.event_name == 'schedule' && github.event.schedule == '17 */2 * * *' &&
+        needs.nightly-fallback.outputs.needed == 'true'))
     name: Read Cloudflare Workflow and D1 status
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -918,7 +947,7 @@ jobs:
       always() && github.event_name == 'schedule' &&
       ((github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *') ||
        github.event.schedule == '17 */2 * * *')
-    needs: [diagnose, fast-freshness]
+    needs: [diagnose, fast-freshness, nightly-fallback]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1002,10 +1031,11 @@ jobs:
 
   publish-status:
     name: Publish nightly status to issue 164
-    needs: [diagnose]
+    needs: [diagnose, nightly-fallback]
     if: >-
       always() && github.event_name == 'schedule' &&
-      (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *')
+      (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *' ||
+       (github.event.schedule == '17 */2 * * *' && needs.nightly-fallback.outputs.needed == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -1079,7 +1109,7 @@ jobs:
               f"| NAV-historikk i kø / forfalt | {count('HISTORY_PENDING')} / {count('HISTORY_DUE')} |", "",
               "Detaljert NAV-avstemming, kildehelse, tidsstempler og feil finnes i den lenkede kjøreloggen.",
               "Ved manglende diagnosegrunnlag vises dette eksplisitt, ikke som OK.",
-              "Status oppdateres av samme planlagte diagnose; fast-watchdog og offline CI overskriver den ikke.",
+              "Status oppdateres kun av full planlagt diagnose, inkludert reservekontroll; fast-watchdog alene og offline CI overskriver den ikke.",
           ]) + "\n"
           url = "https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"] + "/issues/164"
           headers = {"Authorization": "Bearer " + os.environ["GH_TOKEN"],
