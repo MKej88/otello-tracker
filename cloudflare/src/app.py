@@ -53,6 +53,7 @@ CACHE_POLICIES = {
 # Aggregate D1 timings for selected production bottlenecks.
 # This exposes only durations and query counts, never SQL text or financial data.
 D1_TIMING_ROUTES = frozenset({
+    "/api/bemobi/consensus",
     "/api/news-events",
     "/api/dashboard/runtime-status",
     "/api/fx/dashboard",
