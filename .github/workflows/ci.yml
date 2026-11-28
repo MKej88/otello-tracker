@@ -53,6 +53,17 @@ jobs:
           ruff check --select E9,F63,F7,F82 app ../cloudflare/src
           ruff format --check app/api_models.py app/estimated_nav_attribution.py app/main.py
           mypy
+      - name: Utvidet Python-kodekontroll med separat låst Ruff
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/otello-ruff"
+          "$RUNNER_TEMP/otello-ruff/bin/python" -m pip install --require-hashes -r tools/ruff.lock.txt
+          # Behold det avgrensede F841-unntaket for den eksisterende parseren.
+          "$RUNNER_TEMP/otello-ruff/bin/ruff" check --select E4,E7,E9,F \
+            --per-file-ignores "cloudflare/src/newsweb_daily_buybacks.py:F841" \
+            backend/app cloudflare/src
       # These offline checks must also gate the existing required backend job.
       # The independent diagnostics workflow alone is not a reliable merge gate.
       - name: Required offline production diagnostics gate
