@@ -113,7 +113,7 @@ def test_merge_runs_only_offline_tests_not_live_production_probe() -> None:
     """A push can precede deployment, so historical PARTIAL must not fail CI."""
     workflow = _workflow_text()
     assert "if: github.event_name == 'pull_request' || github.event_name == 'push'" in workflow
-    assert "if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))" in workflow
+    assert "github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && (github.event.schedule == '30 4 * * *' || github.event.schedule == '45 6 * * *'))" in workflow
     assert "if: github.event_name != 'pull_request'" not in workflow
     assert "github.event_name == 'schedule' &&" in workflow
     assert "github.event_name == 'schedule' || github.event_name == 'push'" not in workflow
@@ -162,7 +162,7 @@ def test_nightly_status_publication_is_same_run_and_manual_publisher_ignores_fas
     publisher = (ROOT / ".github/workflows/publish-cloudflare-diagnostic-status.yml").read_text(encoding="utf-8")
     assert 'cron: "45 6 * * *"' in workflow
     assert "publish-status:" in workflow
-    assert "needs: [diagnose]" in workflow
+    assert "needs: [diagnose, nightly-fallback]" in workflow
     assert "D1_STATUS: ${{ needs.diagnose.outputs.d1_status }}" in workflow
     assert "github.event_name == 'schedule'" in workflow.split("  publish-status:", 1)[1]
     assert "workflow_dispatch:" in publisher
@@ -181,3 +181,12 @@ def test_nav_followup_queries_are_wired_into_warning_not_critical_status():
     assert 'HISTORY_VERSION = "ESTIMATED_NAV_V1"' in helper
     assert 'ESTIMATED_NAV_CALCULATION_VERSION = "ESTIMATED_NAV_V1"' in (ROOT / "cloudflare/src/estimated_nav_history.py").read_text(encoding="utf-8")
     assert 'FULL_CALCULATION_VERSION = "full-market-nav-daily-v2"' in (ROOT / "cloudflare/src/nav_refresh.py").read_text(encoding="utf-8")
+
+
+def test_existing_watchdog_can_recover_missing_daily_diagnosis():
+    workflow = _workflow_text()
+    assert "nightly-fallback:" in workflow
+    assert "needs.nightly-fallback.outputs.needed == 'true'" in workflow
+    assert "issues: read" in workflow.split("  nightly-fallback:",1)[1].split("  diagnose:",1)[0]
+    assert "needs: [diagnose, nightly-fallback]" in workflow
+    assert "tools/nightly_diagnostic_fallback.py" in workflow

@@ -185,7 +185,11 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn('cron: "45 6 * * *"', text)
         self.assertGreaterEqual(text.count("github.event.schedule == '45 6 * * *'"), 4)
         self.assertIn("publish-status:", text)
-        self.assertIn("needs: [diagnose]", text)
+        publisher = text.split("\n  publish-status:", 1)[1]
+        self.assertIn("needs: [diagnose, nightly-fallback]", publisher)
+        self.assertIn("github.event.schedule == '45 6 * * *'", publisher)
+        self.assertIn("needs.nightly-fallback.outputs.needed == 'true'", publisher)
+        self.assertIn("D1_STATUS: ${{ needs.diagnose.outputs.d1_status }}", publisher)
 
 
     def test_scheduled_incident_not_closed_while_manual_refresh_pending(self):
