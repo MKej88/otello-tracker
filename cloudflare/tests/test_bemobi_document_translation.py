@@ -226,6 +226,83 @@ class SummaryRecoveryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider.summaries, 3)
 
 
+    async def test_summary_checkpoint_resumes_sections_and_validates_identity(self):
+        class Bucket:
+            def __init__(self):
+                self.objects = {}
+            async def put(self, key, raw, **kwargs):
+                self.objects[key] = raw
+            async def get(self, key):
+                raw = self.objects.get(key)
+                if raw is None:
+                    return None
+                async def body():
+                    return raw
+                return SimpleNamespace(size=len(raw), arrayBuffer=body)
+
+        class Provider:
+            model = "test"
+            def __init__(self):
+                self.calls = []
+                self.fail = True
+            async def complete(self, instruction, text):
+                self.calls.append(text)
+                if self.fail and text == "B" * 48000:
+                    raise RuntimeError("syntetisk avbrudd")
+                return '{"title":"Tittel","summary":"Kort fortalt: Sammendrag."}'
+
+        text = "A" * 48000 + "B" * 48000
+        bucket, provider = Bucket(), Provider()
+        identity = _checkpoint_identity("a" * 64, text, provider.model)
+        with self.assertRaises(RuntimeError):
+            await _summarize_document(provider, text, bucket=bucket, identity=identity, trace={})
+        self.assertEqual(len(provider.calls), 2)
+        self.assertEqual(len(bucket.objects), 1)
+        provider.fail = False
+        trace = {}
+        result = await _summarize_document(provider, text, bucket=bucket, identity=identity, trace=trace)
+        self.assertEqual(len(provider.calls), 4)
+        self.assertEqual(trace["summary_checkpoints_reused"], 1)
+        self.assertEqual(trace["summary_checkpoints_saved"], 2)
+        trace = {}
+        self.assertEqual(await _summarize_document(provider, text, bucket=bucket, identity=identity, trace=trace), result)
+        self.assertEqual(len(provider.calls), 4)
+        self.assertEqual(trace["summary_checkpoints_reused"], 3)
+        self.assertTrue(all(not is_safe_translated_key(key) for key in bucket.objects))
+
+        # Matching hash alone cannot bypass strict summary-format validation.
+        key = next(iter(bucket.objects))
+        raw = json.loads(bucket.objects[key])
+        raw["response"] = '{"title":"A","summary":"B","extra":1}'
+        raw["response_sha256"] = hashlib.sha256(raw["response"].encode()).hexdigest()
+        bucket.objects[key] = json.dumps(raw).encode()
+        await _summarize_document(provider, text, bucket=bucket, identity=identity)
+        self.assertEqual(len(provider.calls), 5)
+        other = _checkpoint_identity("a" * 64, text, "other-model")
+        await _summarize_document(provider, text, bucket=bucket, identity=other)
+        self.assertEqual(len(provider.calls), 8)
+
+    async def test_summary_checkpoint_storage_failure_is_nonblocking(self):
+        class Bucket:
+            async def get(self, key):
+                raise OSError("syntetisk R2-feil")
+            async def put(self, key, raw, **kwargs):
+                raise OSError("syntetisk R2-feil")
+
+        class Provider:
+            model = "test"
+            async def complete(self, instruction, text):
+                return '{"title":"Tittel","summary":"Kort fortalt: Sammendrag."}'
+
+        identity = _checkpoint_identity("a" * 64, "Original", "test")
+        trace = {}
+        self.assertEqual(
+            await _summarize_document(Provider(), "Original", bucket=Bucket(), identity=identity, trace=trace),
+            ("Tittel", "Kort fortalt: Sammendrag."),
+        )
+        self.assertEqual(trace["summary_checkpoint_write_failures"], 1)
+
+
 class FakeWorkersAI:
     def __init__(self, response: object) -> None:
         self.response = response
