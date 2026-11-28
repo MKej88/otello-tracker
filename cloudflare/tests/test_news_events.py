@@ -175,6 +175,32 @@ class NewsPaginationTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ir_snapshot_and_archive_check_start_before_news_finishes(self):
+        ir_started = asyncio.Event()
+        archive_started = asyncio.Event()
+
+        class Repository:
+            async def all(self, query, parameters=()):
+                if "FROM company_news" in query:
+                    await asyncio.wait_for(ir_started.wait(), timeout=0.5)
+                    await asyncio.wait_for(archive_started.wait(), timeout=0.5)
+                return []
+
+            async def first(self, query, parameters=()):
+                if parameters == ("cvm_ipe_archive_freshness",):
+                    archive_started.set()
+                return None
+
+        async def ir_read(repository, *, target_date):
+            ir_started.set()
+            return [], "Test av IR-advarsel"
+
+        with patch("news_events.official_ir_news", ir_read):
+            result = await news_and_events(Repository(), as_of_date="2026-09-26")
+        self.assertTrue(result["ready"])
+        self.assertIn("Test av IR-advarsel", result["freshness"]["warning"])
+
+
     async def test_news_and_independent_event_reads_run_concurrently(self) -> None:
         active_reads = 0
         max_active_reads = 0
@@ -206,7 +232,7 @@ class ParallelEventReadsTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result["ready"])
-        self.assertEqual(max_active_reads, 6)
+        self.assertGreaterEqual(max_active_reads, 8)
 
 
 if __name__ == "__main__":
