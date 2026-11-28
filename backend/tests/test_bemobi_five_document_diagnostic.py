@@ -17,9 +17,20 @@ def test_fixed_scope_and_redaction():
 
 
 def test_metrics_detect_document_limit_and_preexisting_chunk_split():
-    metrics = source_metrics("de da do " + "a" * 170000)
-    assert metrics["exceeds_limit"]
-    assert metrics["chunks"] > 40
+    from bemobi_document_translation import MAX_DOCUMENT_CHUNKS, MAX_CHUNK_CHARACTERS
+
+    # Test the exact current boundary, rather than the retired 40-part limit.
+    at_limit = source_metrics("a" * (MAX_DOCUMENT_CHUNKS * MAX_CHUNK_CHARACTERS))
+    assert at_limit["chunks"] == MAX_DOCUMENT_CHUNKS
+    assert at_limit["chunk_limit"] == MAX_DOCUMENT_CHUNKS
+    assert not at_limit["exceeds_limit"]
+    over_limit = source_metrics("a" * (MAX_DOCUMENT_CHUNKS * MAX_CHUNK_CHARACTERS + 1))
+    assert over_limit["chunks"] == MAX_DOCUMENT_CHUNKS + 1
+    assert over_limit["exceeds_limit"]
+    # Previously oversized documents must now be within the total safety limit.
+    historical = source_metrics("de da do " + "a" * 170000)
+    assert historical["chunks"] > 40
+    assert not historical["exceeds_limit"]
     # Boundary crosses a financial number even before AI has translated it.
     metrics = source_metrics("a" * 3996 + " 1234567")
     assert metrics["values_lost_by_chunking"] == 1
