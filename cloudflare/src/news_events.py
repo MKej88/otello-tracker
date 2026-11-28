@@ -255,6 +255,92 @@ async def news_source_freshness(repository, *, now: datetime | None = None) -> d
     }
 
 
+# The original cross-table COALESCE sort remains the exact reference and
+# the fallback for later pages (deep offsets need not repeat three top-N scans).
+NEWS_PAGE_QUERY = """
+SELECT cn.id, cn.headline,
+       COALESCE(cn.published_at, sd.published_at) AS published_at,
+       cn.category, cn.nav_impact, cn.processing_status,
+       cn.summary, i.symbol, sd.url, s.code AS source_code,
+       s.name AS source_name, sd.metadata_json, sd.content_sha256,
+       sd.translation_status, sd.summary_status, sd.norwegian_title,
+       sd.norwegian_summary, sd.translated_pdf_key
+FROM company_news cn
+LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
+JOIN source_documents sd ON sd.id=cn.source_document_id
+JOIN sources s ON s.id=sd.source_id
+WHERE i.symbol IN ('OTEC', 'BMOB3')
+  AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
+ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
+LIMIT ? OFFSET ?
+"""
+
+# Each non-null issuer branch can stop after N eligible rows using the existing
+# issuer/time index. Null publication dates still use the source document date,
+# including NULL/NULL rows. A global top-N must be in its branch's own top-N.
+# Source filtering occurs before limits; version/deduplication stays in Python.
+NEWS_FIRST_PAGE_QUERY = """
+WITH page_bounds AS (SELECT ? AS batch_size, ? AS page_offset),
+otec AS (
+    SELECT cn.id, cn.published_at
+    FROM company_news cn
+    CROSS JOIN source_documents sd ON sd.id=cn.source_document_id
+    CROSS JOIN sources s ON s.id=sd.source_id
+    WHERE cn.issuer_instrument_id=(SELECT id FROM instruments WHERE symbol='OTEC')
+      AND cn.published_at IS NOT NULL
+      AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
+    ORDER BY cn.published_at DESC, cn.id DESC
+    LIMIT (SELECT batch_size + page_offset FROM page_bounds)
+),
+bemobi AS (
+    SELECT cn.id, cn.published_at
+    FROM company_news cn
+    CROSS JOIN source_documents sd ON sd.id=cn.source_document_id
+    CROSS JOIN sources s ON s.id=sd.source_id
+    WHERE cn.issuer_instrument_id=(SELECT id FROM instruments WHERE symbol='BMOB3')
+      AND cn.published_at IS NOT NULL
+      AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
+    ORDER BY cn.published_at DESC, cn.id DESC
+    LIMIT (SELECT batch_size + page_offset FROM page_bounds)
+),
+fallback AS (
+    SELECT cn.id, sd.published_at
+    FROM company_news cn
+    CROSS JOIN source_documents sd ON sd.id=cn.source_document_id
+    CROSS JOIN sources s ON s.id=sd.source_id
+    WHERE cn.issuer_instrument_id IN (SELECT id FROM instruments WHERE symbol IN ('OTEC','BMOB3'))
+      AND cn.published_at IS NULL
+      AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
+    ORDER BY sd.published_at DESC, cn.id DESC
+    LIMIT (SELECT batch_size + page_offset FROM page_bounds)
+),
+page AS (
+    SELECT id, published_at
+    FROM (
+        SELECT * FROM otec
+        UNION ALL SELECT * FROM bemobi
+        UNION ALL SELECT * FROM fallback
+    )
+    ORDER BY published_at DESC, id DESC
+    LIMIT (SELECT batch_size FROM page_bounds)
+    OFFSET (SELECT page_offset FROM page_bounds)
+)
+SELECT cn.id, cn.headline,
+       COALESCE(cn.published_at, sd.published_at) AS published_at,
+       cn.category, cn.nav_impact, cn.processing_status,
+       cn.summary, i.symbol, sd.url, s.code AS source_code,
+       s.name AS source_name, sd.metadata_json, sd.content_sha256,
+       sd.translation_status, sd.summary_status, sd.norwegian_title,
+       sd.norwegian_summary, sd.translated_pdf_key
+FROM page
+CROSS JOIN company_news cn ON cn.id=page.id
+JOIN instruments i ON i.id=cn.issuer_instrument_id
+JOIN source_documents sd ON sd.id=cn.source_document_id
+JOIN sources s ON s.id=sd.source_id
+ORDER BY page.published_at DESC, cn.id DESC
+"""
+
+
 async def news_and_events(
     repository,
     *,
@@ -313,23 +399,7 @@ async def news_and_events(
 
     while len(news) < safe_limit:
         news_rows = await repository.all(
-            """
-            SELECT cn.id, cn.headline,
-                   COALESCE(cn.published_at, sd.published_at) AS published_at,
-                   cn.category, cn.nav_impact, cn.processing_status,
-                   cn.summary, i.symbol, sd.url, s.code AS source_code,
-                   s.name AS source_name, sd.metadata_json, sd.content_sha256,
-                   sd.translation_status, sd.summary_status, sd.norwegian_title,
-                   sd.norwegian_summary, sd.translated_pdf_key
-            FROM company_news cn
-            LEFT JOIN instruments i ON i.id=cn.issuer_instrument_id
-            JOIN source_documents sd ON sd.id=cn.source_document_id
-            JOIN sources s ON s.id=sd.source_id
-            WHERE i.symbol IN ('OTEC', 'BMOB3')
-              AND s.code IN ('NEWSWEB', 'CVM', 'BEMOBI_IR')
-            ORDER BY COALESCE(cn.published_at, sd.published_at) DESC, cn.id DESC
-            LIMIT ? OFFSET ?
-            """,
+            NEWS_FIRST_PAGE_QUERY if offset == 0 else NEWS_PAGE_QUERY,
             (batch_size, offset),
         )
         for row in news_rows:
