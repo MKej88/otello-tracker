@@ -18,3 +18,4 @@ Arkivering dokumenterer ikke at oversettelsene er ferdige. [#983](https://github
 ## Manuelle produksjonskontroller
 
 - `verify-production-sources.yml`: Flyttet til `manual-cloudflare-full-refresh.yml` som valget `kildekontroll`. Begge eksisterende kontrollvarianter beholdes med uendrede jobbsteg, men kan bare startes manuelt på main og bruker samme concurrency-gruppe. Den tidligere push-triggeren på den gamle YAML-filen fjernes for å unngå produksjonsskriving ved ren arbeidsflytvedlikehold. Dato-standardene forblir Oslo og UTC, respektivt.
+- `verify-exr-production.yml`: Flyttet uendret kontrolljobb til `cloudflare-workflow-diagnostics.yml` som manuelt valg `brl-nok` eller `begge`. Kun main, skrivebeskyttet Cloudflare-token, ingen endring i nattdiagnostikk/varsler. Tidligere push-trigger på den gamle YAML-filen erstattes av eksplisitt manuell produksjonskontroll.
