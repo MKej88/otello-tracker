@@ -118,13 +118,18 @@ def test_worker_report_anchor_synthesis_matches_reference(monkeypatch) -> None:
     assert actual == expected
 
 
-def test_waterfall_is_rendered_once_and_routes_use_resilient_service() -> None:
-    economic = (ROOT / "frontend" / "src" / "EconomicNavPanel.tsx").read_text(encoding="utf-8")
-    app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+def test_nav_change_is_rendered_once_and_waterfall_routes_use_resilient_service() -> None:
+    nav = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
+    app = (ROOT / "frontend" / "src" / "InvestorApp.tsx").read_text(encoding="utf-8")
     backend = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
     worker = (ROOT / "cloudflare" / "src" / "app.py").read_text(encoding="utf-8")
 
-    assert "NavWaterfallPanel" not in economic
-    assert app.count("<NavWaterfallPanel />") == 1
+    # NAV V2 replaced the old waterfall panel with a period-based change table.
+    assert app.count("<NavPageV2 />") == 1
+    assert nav.count('className="compositionTable driverNetTable"') == 1
+    assert "groupedDrivers(change?.drivers" in nav
+    assert "change.change_per_share_nok" in nav
+    assert "NavWaterfallPanel" not in nav
+    assert "NavWaterfallPanel" not in app
     assert "from app.nav_waterfall_settlement import nav_waterfall_summary" in backend
     assert "from nav_waterfall_settlement import nav_waterfall_summary" in worker

@@ -62,12 +62,15 @@ def test_attachment_fallback_is_content_reconciled_and_not_silent() -> None:
 
 def test_dashboard_surfaces_share_count_and_nav_reconciliation() -> None:
     backend = (CLOUDFLARE_SRC / "dashboard_service.py").read_text(encoding="utf-8")
-    frontend = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend" / "src" / "NavPageV2.tsx").read_text(encoding="utf-8")
 
     assert '"share_count": latest_share_count' in backend
     assert '"used_in_nav"' in backend
     assert "Egne aksjer" in frontend
     assert "Utestående" in frontend
-    assert "summary.shares_outstanding" in frontend
-    assert "shareCount.outstanding_shares" in frontend
-    assert "Siste kilde" in frontend
+    assert "live.shares_outstanding" in frontend
+    assert "shareBasis.outstanding_shares" in frontend
+    assert "shareBasis.treasury_shares" in frontend
+    assert "shareBasisMatchesNav" in frontend
+    assert "shareSourceLabel(shareBasis.treasury_source)" in frontend
+    assert "Kan være forsinket" in frontend

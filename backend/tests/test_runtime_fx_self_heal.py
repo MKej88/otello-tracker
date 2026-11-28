@@ -181,10 +181,10 @@ def test_runtime_status_is_wired_to_api_frontend_and_fast_refresh() -> None:
         encoding="utf-8"
     )
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
-    deferred = (ROOT / "frontend" / "src" / "DeferredDiagnostics.tsx").read_text(
+    investor = (ROOT / "frontend" / "src" / "InvestorApp.tsx").read_text(
         encoding="utf-8"
     )
-    panel = (ROOT / "frontend" / "src" / "RuntimeStatusPanel.tsx").read_text(
+    panel = (ROOT / "frontend" / "src" / "DataQualityPage.tsx").read_text(
         encoding="utf-8"
     )
     polling = (ROOT / "frontend" / "src" / "usePollingResource.ts").read_text(
@@ -194,9 +194,11 @@ def test_runtime_status_is_wired_to_api_frontend_and_fast_refresh() -> None:
     assert '@app.get("/api/dashboard/runtime-status")' in app
     assert "repair_norges_bank_fx_if_stale" in scheduled
     assert scheduled.index("norges_bank_fx_repair") < scheduled.index('"dirty_nav"')
-    assert "<DeferredDiagnostics />" in main
-    assert 'lazy(() => import("./RuntimeStatusPanel"))' in deferred
-    assert "<RuntimeStatusMount />" in deferred
+    assert "<InvestorApp />" in main
+    assert "DeferredDiagnostics" not in main
+    assert 'const loadDataQualityPage = () => import("./DataQualityPage");' in investor
+    assert 'return <DataQualityPage />;' in investor
     assert '"/api/dashboard/runtime-status"' in panel
-    assert "usePollingResource<RuntimeStatus>" in panel
+    assert "usePollingResource<Runtime>" in panel
+    assert "Viser siste gode driftsstatus" in panel
     assert "fetch(url" in polling

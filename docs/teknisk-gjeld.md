@@ -26,7 +26,7 @@ CI kaller fortsatt 7540-recovery etter deploy, med egen avgrensning som hopper o
 
 | Prioritet | Funn | Neste kontroll / akseptanse |
 | --- | --- | --- |
-| 1 | Eldre frontendkomponenter App.tsx, HistoryPage.tsx, DeferredDiagnostics.tsx og EconomicNavPanel.tsx | Kartlegg direkte og indirekte import, dynamiske importer, stilark og testreferanser. Aktiv inngang er main.tsx -> InvestorApp.tsx. Ikke slett basert på filnavn eller fravær i et ufullstendig søk. |
+| 1 | Eldre frontendkomponenter App.tsx, HistoryPage.tsx, DeferredDiagnostics.tsx og EconomicNavPanel.tsx | Fase 2: fjernet fire komponenter uten aktive importreferanser etter gjennomgang av alle TypeScript-filer under frontend/src. To kontrakttester peker nå på aktive visninger. Stilark og øvrige eldre paneler beholdes til egen gjennomgang. |
 | 2 | Hendelsesspesifikke recovery-workflows og diagnoseverktøy | Når #983 er ferdig: verifiser eksakte dokumentstatus, avhengigheter og historiske kontrollkrav. Fjern automatiske skrivetilganger som ikke lenger trengs; behold reproduserbare verktøy og evidens. |
 | 3 | Gamle reservekilder, særlig ECB og overlappende CVM/IR | Lag kilde-/fallbackmatrise per aktiv beregning. Skill inaktiv innhenting fra bevart provenance og faktisk reserve. Ingen fjerning av historiske valutakurser eller originaldokumenter. |
 | 4 | Dobbeltimplementering i backend/ og cloudflare/ | Referansebackend er tilsiktet uavhengig regresjonsmotor. Kartlegg faktisk regelverks- og formelavvik med paritetstester, ikke slå sammen bare fordi kodemønstre ligner. |
