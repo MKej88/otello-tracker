@@ -375,6 +375,8 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                      f"{_known(row.get('status'), {'FAILED', 'PENDING'})} | {_count(row.get('attempts'))} | "
                      f"{_known(row.get('stage'), _TRANSLATION_STAGES)} | {_count(http) if type(http) is int and 100 <= http <= 599 else '-'} |")
     for row in unresolved[:30]:
+        if isinstance(row, dict) and row.get("safe_reason") in {"max_document_chunks", "missing_values", "ocr_required", "ai_error"}:
+            lines.append(f"- Feilårsak dokument {_count(row.get('document_id'))}: {row['safe_reason']}")
         if isinstance(row, dict) and type(row.get("ai_code")) is int and row["ai_code"] in _AI_CODES:
             lines.append(f"- Workers AI-feilkode for dokument {_count(row.get('document_id'))}: {row['ai_code']}")
     return lines
