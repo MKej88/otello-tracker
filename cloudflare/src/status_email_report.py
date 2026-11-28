@@ -407,7 +407,7 @@ def render_html(*, status: str, incidents: int, public_url: str, report: dict) -
                 + _pill(severity, severity_tone)
                 + f'<div style="font-weight:bold;margin-bottom:4px">{escape(label)}</div>'
                 + f'<div>{escape(detail)}</div>'
-                + f'<div style="margin-top:8px;color:#475569;font-size:13px"><b>Oppfølging / mulig konsekvens:</b> '
+                + '<div style="margin-top:8px;color:#475569;font-size:13px"><b>Oppfølging / mulig konsekvens:</b> '
                 + escape(guidance) + '</div></td></tr>'
             )
         if incidents > len(report["incidents"]):
