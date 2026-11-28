@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
+  browserProbeDetail, classifyColdFailure, createApiDiagnostics, fetchWithRateLimitRetry, httpCategory,
   isRateLimitError, isTimeoutError, parseHealthD1Timing, parseRetryAfterMs, probeColdWithRetry, retryOnTimeout,
 } from "./performance-diagnostics.mjs";
 
@@ -247,4 +247,35 @@ test("Health Server-Timing exposes only the D1 duration", () => {
   assert.equal(parseHealthD1Timing("other;dur=3"), null);
   assert.equal(parseHealthD1Timing("d1;dur=invalid"), null);
   assert.equal(parseHealthD1Timing(null), null);
+});
+
+
+test("Browser probe identifies navigation-context loss without retaining raw CDP messages", () => {
+  const error = new Error('{"code":-32000,"message":"Execution context was destroyed.","url":"https://example.invalid/?secret=abc"}');
+  const result = classifyColdFailure(error, null, null, "wait_for_content");
+  assert.equal(result.category, "browser_probe_error");
+  assert.deepEqual(result.browserProbe, { stage: "wait_for_content", reason: "execution_context_lost" });
+  assert.doesNotMatch(JSON.stringify(result), /secret|example.invalid|32000/);
+});
+
+test("Browser probe separates setup, navigation, and content-loss failures", () => {
+  assert.deepEqual(browserProbeDetail(new Error("Chrome stopped before DevTools: private"), "chrome_start"),
+    { stage: "chrome_start", reason: "chrome_exited" });
+  assert.deepEqual(browserProbeDetail(new Error("CDP navigation failed"), "navigate"),
+    { stage: "navigate", reason: "navigation_failed" });
+  assert.deepEqual(browserProbeDetail(new Error("First-screen data lost on #oversikt"), "read_metrics"),
+    { stage: "read_metrics", reason: "content_lost_after_ready" });
+  assert.deepEqual(browserProbeDetail(new Error("secret"), "private stage"),
+    { stage: "unknown", reason: "unknown" });
+});
+
+test("Browser detail does not downgrade actual HTTP or content failures", () => {
+  const result = classifyColdFailure(new Error("Execution context was destroyed"), null, {
+    apiIssues: [{ path: "/api/dashboard/bootstrap", status: 503, category: "server_http_error" }],
+    pendingApiPaths: [],
+  }, "wait_for_content");
+  assert.equal(result.category, "server_http_error");
+  assert.equal(result.browserProbe.reason, "execution_context_lost");
+  assert.equal(classifyColdFailure(new Error("No valid main content within 25000ms"),
+    { loading: true }, null, "wait_for_content").category, "data_load_timeout");
 });
