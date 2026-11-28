@@ -17,24 +17,24 @@ Cloudflare Worker + Workers Static Assets
    |
    +--> D1   autoritativ strukturert produksjonsdatabase
    +--> R2   råkilder, PDF-er og logiske revisjonssnapshots
-   +--> Cron */30 * * * *
-   +--> Workflow 35 3 * * * UTC
+   +--> Workers AI: norske Bemobi-oversettelser
+   +--> Cron */30 * * * *: rask oppdatering
+   +--> Cron 35 3 * * * UTC -> full Workflow
+   +--> Egne handelsdags-cron for Oslo-referanser
 ```
 
 SQLite/Docker-implementasjonen i `backend/` er en deterministisk referanse- og regresjonsmotor. Den er ikke produksjonsdatabasen.
 
 ## Frontend
 
-Aktive hovedvisninger:
+Aktive hovedvisninger (12), gruppert som i `frontend/src/investorViews.ts`:
 
-- Oversikt
-- NAV
-- Historikk
-- Tilbakekjøp
-- Bemobi
-- Konsensus
+- Verdi: Oversikt, NAV, NAV-sensitivitet og Historikk.
+- Kapital: Tilbakekjøpsprogram og Cash.
+- Bemobi: Bemobi, Konsensus, BRL/NOK og Brasil.
+- Informasjon: Nyheter og Datakvalitet.
 
-Nyheter og Innstillinger ligger fortsatt i navigasjonen som inaktive områder og skal ikke beskrives som ferdige sider.
+`frontend/src/main.tsx` starter `InvestorApp.tsx`. Eldre komponenter er ikke nødvendigvis aktive bare fordi de ligger i `src/`; se [teknisk gjeld](teknisk-gjeld.md) før eventuell fjerning.
 
 Frontend leveres som Workers Static Assets på samme domene som API-et. `/api/*` går gjennom Worker-koden.
 
@@ -45,6 +45,8 @@ De sentrale investorendepunktene omfatter:
 ```text
 GET /api/health
 GET /api/market/quotes
+GET /api/market/bemobi-after-oslo
+GET /api/dashboard/bootstrap
 GET /api/dashboard/summary
 GET /api/dashboard/economic
 GET /api/dashboard/waterfall
@@ -53,14 +55,23 @@ GET /api/dashboard/history
 GET /api/dashboard/discount-history
 GET /api/dashboard/report-status
 GET /api/dashboard/runtime-status
+GET /api/buybacks/overview-status
 GET /api/buybacks/forecast
 GET /api/buybacks/dashboard
 GET /api/bemobi/dashboard
 GET /api/bemobi/consensus
 GET /api/bemobi/source-status
+GET /api/fx/dashboard
+GET /api/brazil/dashboard
+GET /api/overview/events
+GET /api/news-events
 ```
 
 Referansebackend og Cloudflare Worker skal beholde samme finansielle semantikk. Produksjons- og Worker-smoketester dekker de aktive frontend-visningene.
+
+## Cache og materialisering
+
+D1 er autoritativt. `dashboard_hot_snapshot.py` samler de fem komponentene summary, economic, quotes, buyback og events for rask førsteside. `investor_snapshots.py` lagrer egne øyeblikksbilder for Bemobi, konsensus og tilbakekjøp. De to mekanismene har ulike bruksområder og ferskhetsregler (henholdsvis maksimalt 90 og 40 minutter, med øvrige valideringer i koden). Cloudflare HTTP-cache og nettleserens sist-gode bootstrap er separate leveringslag, ikke selvstendige finansielle kilder. Ikke slå sammen lagene uten å dokumentere ferskhetskrav, ugyldiggjøring og fallback.
 
 ## Finansielle lag
 
@@ -91,7 +102,7 @@ Se `docs/economic-nav.md` og `docs/option-liability.md` for modellbeskrivelse.
 
 ### Valuta
 
-- Norges Banks åpne EXR-API er primærkilde for direkte BRL/NOK og USD/NOK, både løpende og historisk.
+- Norges Banks åpne EXR-API er primærkilde for historiske daglige referansekurser for direkte BRL/NOK og USD/NOK. Godkjent Exchangerate.dev BRL/NOK-intradag kan brukes for løpende estimater; Norges Bank beholdes som referanse og reserve. Se [integrasjonsnotatet](exchangerate-dev-brlnok.md).
 - D1 vedlikeholder en rullerende tiårsserie med daglige Norges Bank-kurser. Første Full Workflow etter manglende dekning backfiller serien automatisk.
 - Når flere kilder finnes for samme kursdato, velges Norges Bank foran ECB. En nyere fallback-dato velges fortsatt foran en eldre Norges Bank-dato; ferskhet går altså foran kildeprioritet.
 - Etter en tiårsbackfill revalueres opprinnelige USD/BRL-baserte kontantankre og kontantstrømmer, og eksisterende historiske CORE/FULL NAV-datoer bygges på nytt deterministisk.
@@ -108,7 +119,7 @@ Cloudflare Cron kjører hvert 30. minutt. Banen er bounded og håndterer lette, 
 
 ### Full oppdatering
 
-Cloudflare Workflow kjører daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, Life360-markedsdata, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
+Cloudflare Worker-cron starter full Workflow daglig kl. 03:35 UTC og håndterer tyngre datakilder, inkludert Norges Bank-valuta, Life360-markedsdata, avstemming, NAV-oppdatering, produksjonspreflight og R2-snapshot ved behov.
 
 Hvis den rullerende tiårsdekningen fra Norges Bank mangler, utvider Full Workflow valutahentingen til hele perioden og rebuild-er deretter eksisterende historiske NAV-datoer med de direkte NOK-kursene. Rebuild-en oppretter ikke kunstige NAV-datoer; den oppdaterer kun historikk som allerede har nødvendige pris- og modellankre.
 

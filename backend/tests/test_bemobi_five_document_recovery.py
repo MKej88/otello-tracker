@@ -73,3 +73,13 @@ def test_concurrent_error_change_prevents_reset():
 
     assert reactivate_one({"document_id": 7538, "fingerprint": fingerprint(original)}, query) == 0
     assert calls == [SELECT_SQL]
+
+
+def test_completed_incident_recovery_is_manual_only():
+    workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/bemobi-five-document-recovery.yml").read_text(encoding="utf-8")
+    triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert "  workflow_dispatch:" in triggers
+    assert "  pull_request:" in triggers
+    assert "  push:" not in triggers
+    assert "  schedule:" not in triggers
+    assert "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" in workflow

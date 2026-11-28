@@ -1,12 +1,10 @@
 name: Bemobi translation recovery 2026-11-28
 
+# Engangsreaktiveringen ble fullført 28.11.2026 (run 46139684541).
+# Behold manuell, avgrenset recovery og PR-tester; aldri skriv automatisk på push.
+
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/bemobi-five-document-recovery.yml
-      - tools/reactivate_bemobi_five_documents.py
   pull_request:
     paths:
       - .github/workflows/bemobi-five-document-recovery.yml
@@ -35,7 +33,7 @@ jobs:
       - run: python3 -m pip install --require-hashes -r backend/requirements-dev.lock.txt
       - run: python3 -m pytest -q backend/tests/test_bemobi_five_document_recovery.py
   recover:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
