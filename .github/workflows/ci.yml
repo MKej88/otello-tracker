@@ -222,6 +222,19 @@ jobs:
         run: pywrangler deploy --dry-run --config wrangler.worker-test.jsonc --outdir /tmp/otello-worker-dist
       - name: Validate scheduled Workflow production config
         run: pywrangler deploy --dry-run --config wrangler.jsonc --outdir /tmp/otello-workflow-dist
+      - name: Require Europe/Oslo timezone data in vendored Worker packages
+        working-directory: cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f python_modules/tzdata/__init__.py
+          PYTHONPATH=python_modules python - <<'PY'
+          from importlib import resources
+
+          oslo = resources.files("tzdata.zoneinfo.Europe").joinpath("Oslo")
+          assert oslo.is_file(), f"Missing vendored IANA Europe/Oslo data: {oslo}"
+          print(f"Worker timezone data present: {oslo}")
+          PY
       - name: End-to-end Worker/reference parity and real browser smoke
         run: |
           pywrangler dev --config wrangler.worker-test.jsonc --port 8787 > /tmp/otello-worker.log 2>&1 &
