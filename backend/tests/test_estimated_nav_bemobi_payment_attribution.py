@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import copy
+import sys
+from pathlib import Path
+
 from app.estimated_nav_history import _build_change_attribution
+
+WORKER = Path(__file__).resolve().parents[2] / "cloudflare" / "src"
+if str(WORKER) not in sys.path:
+    sys.path.insert(0, str(WORKER))
+from estimated_nav_history import _build_change_attribution as worker_attribution  # noqa: E402
 
 
 def _point(*, day: str, cash_mnok: float, ona_mnok: float) -> dict:
@@ -39,16 +48,16 @@ def test_payment_crossover_keeps_confirmed_distribution_visible_without_moving_n
     start_receivable = {"ready": True, "amount_nok": 8_000_000, "quality": "CONFIRMED"}
     current_receivable = {"ready": True, "amount_nok": 0, "quality": "NONE"}
 
-    result = _build_change_attribution(
-        start,
-        current,
-        "2026-08-01",
+    inputs = dict(
         bemobi_market={"ready": False},
         cash_breakdown=cash_breakdown,
         start_receivable=start_receivable,
         current_receivable=current_receivable,
     )
 
+    result = _build_change_attribution(copy.deepcopy(start), copy.deepcopy(current), "2026-08-01", **copy.deepcopy(inputs))
+    actual = worker_attribution(copy.deepcopy(start), copy.deepcopy(current), "2026-08-01", **copy.deepcopy(inputs))
+    assert actual == result
     assert result["ready"] is True
     drivers = {driver["key"]: driver for driver in result["drivers"]}
 
