@@ -178,3 +178,25 @@ def test_expanded_static_analysis_is_in_required_backend_job():
     assert "backend/app cloudflare/src" in expanded
     assert "if:" not in expanded
     assert "continue-on-error" not in expanded
+
+
+def test_weekly_python_audit_retained_without_duplicate_pr_scans():
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    backend = ci.split("\n  backend:\n", 1)[1].split("\n  frontend:\n", 1)[0]
+    gate = backend.split("      - name: Required Python dependency vulnerability gate", 1)[1].split("\n      - name:", 1)[0]
+    assert "pip install --require-hashes -r ../tools/pip-audit.lock.txt" in gate
+    assert "python -m pip_audit -r requirements.lock.txt --progress-spinner off" in gate
+    assert "python -m pip_audit ../cloudflare --progress-spinner off" in gate
+    assert "if:" not in gate and "continue-on-error" not in gate
+    source = (CI_WORKFLOW.parent / "actions-security-analysis.yml").read_text(encoding="utf-8")
+    assert 'cron: "41 5 * * 1"' in source
+    assert "workflow_dispatch:" in source
+    assert "name: zizmor GitHub Actions audit" in source
+    job = source.split("\n  python-audit:\n", 1)[1]
+    assert "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" in job
+    assert "permissions:\n      contents: read" in job
+    assert "security-events: write" not in job
+    assert "pip install --require-hashes -r tools/pip-audit.lock.txt" in job
+    assert "python -m pip_audit -r backend/requirements.lock.txt --progress-spinner off" in job
+    assert "python -m pip_audit cloudflare --progress-spinner off" in job
+    assert "continue-on-error" not in job
