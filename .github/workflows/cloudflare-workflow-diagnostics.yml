@@ -842,6 +842,10 @@ jobs:
           ])
           for row in sources:
               label = row.get("code") or row.get("name") or "-"
+              # ECB is retained for historical provenance/fallback, not refreshed.
+              # Do not interpret a historic OK as a recent source health check.
+              if row.get("code") == "ECB":
+                  label = "ECB (historisk reserve)"
               lines.append(
                   f"| {cell(label, 80)} | {cell(row.get('status'), 30)} | "
                   f"{cell(row.get('checked_at'), 60)} | {cell(row.get('latency_ms'), 30)} | "
@@ -849,6 +853,8 @@ jobs:
               )
 
           lines.extend([
+              "",
+              "ECB oppdateres ikke lenger i produksjon. Historisk status er ikke en fersk kildekontroll; Norges Bank vurderes separat.",
               "",
               "## Siste Norges Bank FX-rader",
               "",
