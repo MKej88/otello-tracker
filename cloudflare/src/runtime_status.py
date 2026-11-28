@@ -356,13 +356,22 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
     """Read the latest NAV quality cheaply, without rebuilding the full dashboard summary."""
     full = await repository.first(
         """
-        SELECT as_of_at, status, components_json, quality_notes
-        FROM nav_snapshots
-        WHERE calculation_version=? AND nav_scope='FULL'
-        ORDER BY as_of_at DESC, id DESC
-        LIMIT 1
+        SELECT full_row.as_of_at, full_row.status, full_row.components_json, full_row.quality_notes,
+               core.components_json AS core_components_json
+        FROM (
+            SELECT as_of_at, status, components_json, quality_notes
+            FROM nav_snapshots
+            WHERE calculation_version=? AND nav_scope='FULL'
+            ORDER BY as_of_at DESC, id DESC LIMIT 1
+        ) AS full_row
+        LEFT JOIN nav_snapshots core ON core.id = (
+            SELECT candidate.id FROM nav_snapshots candidate
+            WHERE candidate.as_of_at=full_row.as_of_at
+              AND candidate.calculation_version=? AND candidate.nav_scope='CORE'
+            ORDER BY candidate.id DESC LIMIT 1
+        )
         """,
-        (FULL_NAV_CALCULATION_VERSION,),
+        (FULL_NAV_CALCULATION_VERSION, CORE_NAV_CALCULATION_VERSION),
     )
     if full is None:
         return {
@@ -373,17 +382,8 @@ async def _current_dashboard_quality(repository) -> dict[str, Any]:
             "reasons": [],
         }
 
-    core = await repository.first(
-        """
-        SELECT status, components_json
-        FROM nav_snapshots
-        WHERE as_of_at=? AND calculation_version=? AND nav_scope='CORE'
-        ORDER BY id DESC LIMIT 1
-        """,
-        (full.get("as_of_at"), CORE_NAV_CALCULATION_VERSION),
-    )
     full_components = _json_object(full.get("components_json"))
-    core_components = _json_object((core or {}).get("components_json"))
+    core_components = _json_object(full.get("core_components_json"))
     cash = (
         core_components.get("cash")
         if isinstance(core_components.get("cash"), dict)

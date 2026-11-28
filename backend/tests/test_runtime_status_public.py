@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -249,6 +250,10 @@ class _QualityRepository:
                 "as_of_at": "2026-09-04T23:59:59Z",
                 "status": "DEGRADED",
                 "quality_notes": "safe stored note",
+                "core_components_json": json.dumps({
+                    "cash": {"quality": "FORECAST_PARTIAL", "calibration_quality": None},
+                    "otec": {"share_count_quality": "CURRENT_KNOWN"},
+                }),
                 "components_json": json.dumps(
                     {
                         "other_net_assets": {
@@ -256,16 +261,6 @@ class _QualityRepository:
                             "receivable_quality": "NONE",
                             "option_liability": {"quality": "FORECAST_MARK_TO_MARKET"},
                         }
-                    }
-                ),
-            }
-        if "nav_scope='CORE'" in query:
-            return {
-                "status": "DEGRADED",
-                "components_json": json.dumps(
-                    {
-                        "cash": {"quality": "FORECAST_PARTIAL", "calibration_quality": None},
-                        "otec": {"share_count_quality": "CURRENT_KNOWN"},
                     }
                 ),
             }
@@ -395,3 +390,67 @@ def test_public_translation_progress_is_bounded_and_distinguishes_publication() 
     assert _public_translation_progress({**row, "status": "RUNNING"}) is None
     assert _public_translation_progress({**row, "finished_at": None}) is None
     assert _public_translation_progress({**row, "metadata_json": "{}"}) is None
+
+
+def test_dashboard_quality_reads_latest_full_and_matching_core_in_one_query() -> None:
+    from runtime_status import CORE_NAV_CALCULATION_VERSION, FULL_NAV_CALCULATION_VERSION
+
+    class Repository:
+        def __init__(self):
+            self.db = sqlite3.connect(":memory:")
+            self.db.row_factory = sqlite3.Row
+            self.reads = 0
+            self.db.execute("""CREATE TABLE nav_snapshots (
+                id INTEGER PRIMARY KEY, as_of_at TEXT, status TEXT,
+                components_json TEXT, quality_notes TEXT, calculation_version TEXT, nav_scope TEXT
+            )""")
+
+        async def first(self, query, params=()):
+            self.reads += 1
+            row = self.db.execute(query, params).fetchone()
+            return dict(row) if row else None
+
+    repo = Repository()
+    try:
+        def insert(day, scope, version, components):
+            repo.db.execute(
+                """INSERT INTO nav_snapshots(as_of_at,status,components_json,quality_notes,
+                   calculation_version,nav_scope) VALUES (?, 'DEGRADED', ?, '', ?, ?)""",
+                (day, json.dumps(components), version, scope),
+            )
+
+        assert asyncio.run(_current_dashboard_quality(repo))["available"] is False
+        assert repo.reads == 1
+        day = "2026-11-27T23:59:59Z"
+        insert("2026-11-26T23:59:59Z", "FULL", FULL_NAV_CALCULATION_VERSION, {})
+        insert(day, "FULL", FULL_NAV_CALCULATION_VERSION,
+               {"other_net_assets": {"receivable_quality": "ESTIMATED_NET"}})
+        insert("2026-11-28T23:59:59Z", "FULL", "wrong-version", {})
+        insert(day, "CORE", CORE_NAV_CALCULATION_VERSION,
+               {"cash": {"quality": "FORECAST_PARTIAL", "calibration_quality": "HIGH_RESIDUAL"}})
+        insert(day, "CORE", CORE_NAV_CALCULATION_VERSION,
+               {"cash": {"quality": "FORECAST_PARTIAL"}})
+        insert("2026-11-28T23:59:59Z", "CORE", CORE_NAV_CALCULATION_VERSION,
+               {"cash": {"calibration_quality": "HIGH_RESIDUAL"}})
+        insert(day, "CORE", "wrong-version",
+               {"cash": {"calibration_quality": "HIGH_RESIDUAL"}})
+        quality = asyncio.run(_current_dashboard_quality(repo))
+        assert repo.reads == 2
+        assert quality["as_of_date"] == "2026-11-27"
+        assert quality["status"] == "OK"
+        assert quality["model_information"]
+
+        insert(day, "CORE", CORE_NAV_CALCULATION_VERSION,
+               {"cash": {"calibration_quality": "HIGH_RESIDUAL"}})
+        quality = asyncio.run(_current_dashboard_quality(repo))
+        assert repo.reads == 3
+        assert quality["status"] == "DEGRADED"
+        assert any("avstemmingsrest" in reason for reason in quality["reasons"])
+
+        repo.db.execute("DELETE FROM nav_snapshots WHERE nav_scope='CORE'")
+        quality = asyncio.run(_current_dashboard_quality(repo))
+        assert repo.reads == 4
+        assert quality["available"] is True
+        assert quality["as_of_date"] == "2026-11-27"
+    finally:
+        repo.db.close()
