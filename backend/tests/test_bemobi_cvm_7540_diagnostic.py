@@ -47,7 +47,7 @@ def test_scope_and_no_write_permissions():
     assert DOCUMENT_ID == 7540
     assert "sd.id=?" in SQL
     assert "UPDATE" not in SQL
-    workflow = (ROOT / ".github/workflows/bemobi-cvm-7540-diagnostic.yml").read_text()
+    workflow = (ROOT / "docs/archive/github-actions/bemobi-cvm-7540-diagnostic.yml").read_text()
     assert "CLOUDFLARE_READ_TOKEN" in workflow
     assert "CLOUDFLARE_API_TOKEN" not in workflow
     assert "upload-artifact" not in workflow
