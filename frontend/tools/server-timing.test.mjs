@@ -90,3 +90,18 @@ test("FX parser stores only allow-listed aggregate phase timings", () => {
   assert.equal(parseFxServerTiming(null), null);
   assert.doesNotMatch(JSON.stringify(parsed), /secret|private/);
 });
+
+
+test("D1 scan counts require complete metadata coverage", () => {
+  assert.deepEqual(parseWorkerFetchTiming('otello_req_row_meta;desc="2/2", otello_req_rows_read;desc="1200"'), {
+    requestD1MetaObserved: 2, requestD1MetaOperations: 2, requestD1RowsRead: 1200,
+  });
+  assert.deepEqual(parseWorkerFetchTiming('otello_req_row_meta;desc="1/2", otello_req_rows_read;desc="1200"'), {
+    requestD1MetaObserved: 1, requestD1MetaOperations: 2,
+  });
+  assert.equal(parseWorkerFetchTiming('otello_req_rows_read;desc="1200"'), null);
+  assert.equal(parseWorkerFetchTiming('otello_req_row_meta;desc="3/2", otello_req_rows_read;desc="1200"'), null);
+  assert.deepEqual(parseWorkerFetchTiming('otello_req_row_meta;desc="1/1", otello_req_rows_read;desc="0"'), {
+    requestD1MetaObserved: 1, requestD1MetaOperations: 1, requestD1RowsRead: 0,
+  });
+});
