@@ -602,18 +602,74 @@ async def _summary_once_with_retry(provider: TranslationProvider, text: str) -> 
             '{"title":"Norsk tittel","summary":"Kort fortalt: Norsk sammendrag."}', text))
 
 
-async def _summarize_document(provider: TranslationProvider, text: str) -> tuple[str, str]:
-    if len(text) <= MAX_SUMMARY_CHARACTERS:
+# Separate from the full-translation cache: summaries are deliberately selective
+# and must not be accepted as verified translations. Bind each saved response
+# to the PDF, extracted text, model, prompt, policy, stage and exact AI input.
+SUMMARY_CHECKPOINT_POLICY = "summary-v1"
+
+
+async def _summary_with_checkpoint(provider, text, *, bucket, identity, trace, stage):
+    if bucket is None or identity is None:
         return await _summary_once_with_retry(provider, text)
+    from bemobi_cvm_mirror import _read
+
+    summary_identity = {
+        **identity,
+        "summary_policy": SUMMARY_CHECKPOINT_POLICY,
+        "summary_prompt_sha256": hashlib.sha256(_SUMMARY_INSTRUCTION.encode()).hexdigest(),
+        "summary_stage": stage,
+        "summary_input_sha256": hashlib.sha256(text.encode()).hexdigest(),
+    }
+    key = _checkpoint_key(summary_identity)
+    try:
+        raw = await _read(bucket, key, MAX_SUMMARY_RESPONSE_CHARS * 4 + 4096)
+        record = json.loads(raw)
+        response = record["response"]
+        if (record["identity"] == summary_identity
+                and isinstance(response, str)
+                and hashlib.sha256(response.encode()).hexdigest() == record["response_sha256"]):
+            result = parse_summary_response(response)
+            if trace is not None:
+                trace["summary_checkpoints_reused"] = trace.get("summary_checkpoints_reused", 0) + 1
+            return result
+    except Exception:
+        # Missing, invalid or unavailable cache: use the original strict AI path.
+        pass
+
+    title, summary = await _summary_once_with_retry(provider, text)
+    response = json.dumps({"title": title, "summary": summary}, ensure_ascii=False)
+    record = {"identity": summary_identity, "response": response,
+              "response_sha256": hashlib.sha256(response.encode()).hexdigest()}
+    try:
+        await bucket.put(key, json.dumps(record, ensure_ascii=False).encode(),
+                         http_metadata={"contentType": "application/json"})
+        if trace is not None:
+            trace["summary_checkpoints_saved"] = trace.get("summary_checkpoints_saved", 0) + 1
+    except Exception:
+        # Cache availability must never block a valid document publication.
+        if trace is not None:
+            trace["summary_checkpoint_write_failures"] = trace.get("summary_checkpoint_write_failures", 0) + 1
+    return title, summary
+
+
+async def _summarize_document(provider: TranslationProvider, text: str, *,
+                              bucket=None, identity=None, trace=None) -> tuple[str, str]:
+    async def summarize(value, stage):
+        return await _summary_with_checkpoint(
+            provider, value, bucket=bucket, identity=identity, trace=trace, stage=stage,
+        )
+
+    if len(text) <= MAX_SUMMARY_CHARACTERS:
+        return await summarize(text, "document")
     # Summarize all sections, never silently truncate a long financial filing.
     summaries = []
-    for _, chunk in stable_chunks(text, limit=MAX_SUMMARY_CHARACTERS):
-        title, summary = await _summary_once_with_retry(provider, chunk)
+    for chunk_id, chunk in stable_chunks(text, limit=MAX_SUMMARY_CHARACTERS):
+        title, summary = await summarize(chunk, "section:" + chunk_id)
         summaries.append(title + "\n" + summary)
     combined = "\n\n".join(summaries)
     if len(combined) > MAX_SUMMARY_CHARACTERS:
         raise ValueError("Deloppsummeringene overskrider sikker lengdegrense")
-    return await _summary_once_with_retry(provider, combined)
+    return await summarize(combined, "combined")
 
 
 @dataclass
@@ -786,7 +842,9 @@ async def process_pending_translations(
                     # Storage failure must not prevent normal successful publication.
                     trace["translation_checkpoint"] = "write_failed"
             stage = "summary"
-            title, norwegian_summary = await _summarize_document(observed, text)
+            title, norwegian_summary = await _summarize_document(
+                observed, text, bucket=bucket, identity=identity, trace=trace,
+            )
             stage = "archive"
             key = translated_object_key(content_hash)
             pdf = render_norwegian_pdf(
