@@ -19,7 +19,7 @@ def _acceptance_step() -> str:
 def test_production_acceptance_uses_unique_cache_buster_for_worker_api() -> None:
     step = _acceptance_step()
 
-    assert "EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}" in step
+    assert "EXPECTED_SHA: ${{ github.sha }}" in step
     assert 'acceptance_token="${EXPECTED_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in step
     assert 'q="acceptance=${acceptance_token}"' in step
 
