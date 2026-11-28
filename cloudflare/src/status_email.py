@@ -81,6 +81,68 @@ def _number(value: Any, digits: int = 2) -> str | None:
         return None
 
 
+def _count(value: Any) -> str | None:
+    return f"{value:,}".replace(",", " ") if type(value) is int and value >= 0 else None
+
+
+def _resource_rows(result: dict[str, Any]) -> list[tuple[str, str]]:
+    """Only use already collected metrics, never infer job totals from partial steps."""
+    rows = []
+    records = _count(result.get("records_written"))
+    if records is not None:
+        rows.append(("Registrerte datapunkter", records))
+    sources = result.get("source_results") or {}
+    metrics = [
+        item["repository"] for item in sources.values()
+        if isinstance(item, dict) and isinstance(item.get("repository"), dict)
+        and _count(item["repository"].get("d1_rows_read")) is not None
+        and _count(item["repository"].get("d1_rows_written")) is not None
+        and type(item["repository"].get("d1_operations")) is int
+        and item["repository"]["d1_operations"] > 0
+        and item["repository"].get("d1_row_meta_operations") == item["repository"]["d1_operations"]
+    ]
+    if metrics:
+        read = _count(sum(item["d1_rows_read"] for item in metrics))
+        written = _count(sum(item["d1_rows_written"] for item in metrics))
+        rows.append(("D1 – målte kildesteg (ikke totalt)",
+                     f"{len(metrics)} steg: {read} rader lest / {written} skrevet"))
+    translation = sources.get("bemobi_translation") or {}
+    counts = []
+    for key, label in (("completed", "ferdigbehandlet"), ("deferred", "videreføres"), ("failed", "feilet")):
+        value = _count(translation.get(key))
+        if value is not None:
+            counts.append(f"{value} {label}")
+    if counts:
+        rows.append(("Dokumentbehandling i natt", " · ".join(counts)))
+    queue = translation.get("queue") or {}
+    counts = []
+    for key, label in (("pending", "venter"), ("processing", "behandles"), ("failed", "feilet"),
+                       ("exhausted", "uten flere forsøk"), ("overdue", "forsinket")):
+        value = _count(queue.get(key))
+        if value is not None:
+            counts.append(f"{value} {label}")
+    if counts:
+        rows.append(("Oversettelseskø", " · ".join(counts)))
+    diagnostics = translation.get("diagnostics")
+    if isinstance(diagnostics, list) and diagnostics:
+        for key, label in (("ai_provider_calls", "AI-kall i dokumentbehandling"),
+                           ("parts_reused", "Gjenbrukte oversettelsesdeler"),
+                           ("summary_checkpoints_reused", "Gjenbrukte sammendrag")):
+            values = [item[key] for item in diagnostics
+                      if isinstance(item, dict) and _count(item.get(key)) is not None]
+            if values:
+                rows.append((label, _count(sum(values)) + " (rapportert)"))
+    archive = result.get("archive") or {}
+    if str(archive.get("status")).lower() == "ok":
+        size = _count(archive.get("compressed_bytes"))
+        chunks = _count(archive.get("chunk_count"))
+        if size is not None and chunks is not None:
+            rows.append(("R2-snapshot", f"{chunks} deler · {size} komprimerte byte"))
+    elif archive.get("reason") == "weekly_or_month_end_only":
+        rows.append(("R2-snapshot", "Ikke planlagt (søndag og månedsslutt)"))
+    return rows
+
+
 def build_status_email(
     result: dict[str, Any],
     *,
@@ -138,7 +200,8 @@ def build_status_email(
     source_ok = sum(1 for value in source_health.values() if str(value).upper() == "OK")
     duration = _duration_label(started_at, finished_at)
 
-    details, incidents = operational_lines(result)
+    report: dict[str, Any] = {}
+    details, incidents = operational_lines(result, presentation=report)
     report_status = "OK med avvik" if raw_status == "SUCCESS" and incidents else status
     lines = [
         "Otello Tracker – nattstatus",
@@ -164,11 +227,24 @@ def build_status_email(
     else:
         lines.append("Datakilder: ikke bekreftet")
 
+    report.update(date=safe_detail(target_date), duration=duration,
+                  source_counts=(source_ok, source_count),
+                  sources=[(safe_detail(_SOURCE_LABELS.get(str(code), str(code))), safe_detail(health).upper())
+                           for code, health in source_health.items()],
+                  timing=[(label, safe_detail(value)) for label, value in (
+                      ("Startet", oslo_time(started_at) if started_at else None),
+                      ("Fullført", oslo_time(finished_at) if finished_at else None),
+                      ("Jobb-ID", result.get("job_id")),
+                  ) if value is not None],
+                  resources=_resource_rows(result), model_information=model_information,
+                  nav={"metrics": []})
+
     # Put actual failures and consequences ahead of normal checks and market numbers.
     lines.extend(details)
     preflight = result.get("preflight") or {}
     if preflight:
         ready = "OK" if preflight.get("ready") is True else "FEILET" if preflight.get("ready") is False else "ikke rapportert"
+        report["preflight"] = (ready, len(preflight.get("blockers") or []), len(preflight.get("warnings") or []))
         lines.extend(["", f"Preflight: {ready} · Blokkeringer: {len(preflight.get('blockers') or [])} · Advarsler: {len(preflight.get('warnings') or [])}"])
     if model_information:
         lines.append("Modellinformasjon: normal estimering mellom rapportdatoene.")
@@ -180,13 +256,27 @@ def build_status_email(
         lines.extend(["", "Investor-NAV (sist tilgjengelig):"])
         if nav is not None:
             lines.append(f"- Økonomisk NAV: {nav} kr/aksje")
+            report["nav"]["metrics"].append(("Økonomisk NAV", f"{nav} kr"))
         if discount is not None:
             lines.append(f"- Rabatt: {discount} %")
+            report["nav"]["metrics"].append(("NAV-rabatt", f"{discount} %"))
+        conservative = _number(economic.get("conservative_nav_per_share"), 2)
+        if conservative is not None:
+            lines.append(f"- Konservativ NAV: {conservative} kr/aksje")
+            report["nav"]["metrics"].append(("Konservativ NAV", f"{conservative} kr"))
+        if not report["nav"]["metrics"]:
+            report["nav"]["reason"] = "NAV-nøkkeltall ikke rapportert."
         if economic.get("as_of_date"):
             lines.append(f"- NAV-dato: {safe_detail(economic['as_of_date'])}")
+            report["nav"]["date"] = safe_detail(economic["as_of_date"])
     else:
         reason = "ikke bekreftet i denne kjøringen" if raw_status == "FAILED" else safe_detail(economic.get("reason") or "ikke tilgjengelig")
         lines.extend(["", f"Investor-NAV: ikke klar ({reason})"])
+        report["nav"]["reason"] = f"Investor-NAV: ikke klar ({reason})"
+
+    if report["resources"]:
+        lines.extend(["", "Ressursforbruk og dokumenter:",
+                      *[f"- {label}: {value}" for label, value in report["resources"]]])
 
     if incidents and raw_status == "SUCCESS":
         subject = f"Otello Tracker – nattkjøring OK med avvik – {target_date}"
@@ -203,7 +293,7 @@ def build_status_email(
         "subject": subject,
         "text": text,
         "html": render_html(
-            text, status=status, incidents=incidents, public_url=clean_url
+            status=status, incidents=incidents, public_url=clean_url, report=report
         ),
     }
 
