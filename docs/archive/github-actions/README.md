@@ -8,3 +8,8 @@ Disse YAML-filene er historiske referanser utenfor `.github/workflows` og kjøre
 - `bemobi-cvm-7540-diagnostic.yml`: Avgrenset lesediagnose for dokument 7540. Årsaken og normaliseringskravene er dokumentert i [#993](https://github.com/MKej88/otello-tracker/pull/993). Den separate gjenopprettingsjobben beholdes.
 
 Arkivering dokumenterer ikke at oversettelsene er ferdige. [#983](https://github.com/MKej88/otello-tracker/issues/983) følges opp separat; aktive oversettelses-, speilings- og gjenopprettingsjobber endres ikke.
+
+## Konsoliderte CI-kontroller
+
+- `python-worker-runtime-guard.yml`: Tidssonekontroll flyttet til obligatorisk Worker-API-jobb i [#1045](https://github.com/MKej88/otello-tracker/pull/1045).
+- `python-static-analysis.yml`: Utvidet Ruff-kontroll flyttet til obligatorisk backend-jobb, med uendret separat låsefil, regelsett og filunntak. Eksisterende Ruff-formatkontroll og mypy beholdes.

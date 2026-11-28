@@ -160,3 +160,21 @@ def test_worker_timezone_guard_reuses_exact_scheduled_config_build():
     assert "assert oslo.is_file()" in worker[guard:browser]
     assert "working-directory: cloudflare" in worker[guard:browser]
     assert "if:" not in worker[guard:browser]
+
+
+def test_expanded_static_analysis_is_in_required_backend_job():
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    backend = ci.split("\n  backend:\n", 1)[1].split("\n  frontend:\n", 1)[0]
+    assert "name: Backend reference tests" in backend
+    assert "ruff check --select E9,F63,F7,F82 app ../cloudflare/src" in backend
+    assert "ruff format --check app/api_models.py app/estimated_nav_attribution.py app/main.py" in backend
+    assert "          mypy" in backend
+    expanded = backend.split("      - name: Utvidet Python-kodekontroll med separat låst Ruff", 1)[1].split("\n      # These offline checks", 1)[0]
+    assert "working-directory: ." in expanded
+    assert 'python -m venv "$RUNNER_TEMP/otello-ruff"' in expanded
+    assert '-m pip install --require-hashes -r tools/ruff.lock.txt' in expanded
+    assert 'bin/ruff" check --select E4,E7,E9,F' in expanded
+    assert '--per-file-ignores "cloudflare/src/newsweb_daily_buybacks.py:F841"' in expanded
+    assert "backend/app cloudflare/src" in expanded
+    assert "if:" not in expanded
+    assert "continue-on-error" not in expanded
