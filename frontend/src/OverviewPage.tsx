@@ -1,4 +1,4 @@
-import type { MarketQuotePayload, Quote } from "./MarketQuotePanel";
+import { rangePosition, type MarketQuotePayload, type Quote } from "./marketQuoteModel";
 import LoadingPlaceholder from "./LoadingPlaceholder";
 import BemobiAfterOsloCard from "./BemobiAfterOsloCard";
 import { usePollingResource } from "./usePollingResource";
@@ -383,24 +383,6 @@ function MarketTicker({ label, quote }: { label: string; quote?: Quote }) {
       <b className={`numeric ${tone(quote?.changes?.daily_pct)}`}>{signed(quote?.changes?.daily_pct, 1, " %")}</b>
     </div>
   );
-}
-
-function rangePosition(
-  current?: number | null,
-  low?: number | null,
-  high?: number | null,
-) {
-  if (
-    current == null
-    || low == null
-    || high == null
-    || !Number.isFinite(current)
-    || !Number.isFinite(low)
-    || !Number.isFinite(high)
-    || high < low
-  ) return null;
-  if (high === low) return 50;
-  return Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
 }
 
 function OverviewRange({

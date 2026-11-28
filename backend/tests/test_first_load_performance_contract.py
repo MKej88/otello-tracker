@@ -134,7 +134,7 @@ def test_buyback_overview_reuses_bootstrap_instead_of_a_separate_request() -> No
 
 
 def test_repeat_visit_renders_cached_market_quotes_on_first_render() -> None:
-    quotes = (FRONTEND_SRC / "MarketQuotePanel.tsx").read_text(encoding="utf-8")
+    quotes = (FRONTEND_SRC / "OverviewPage.tsx").read_text(encoding="utf-8")
 
     assert "usePollingResource<MarketQuotePayload>(" in quotes
     assert '    "/api/market/quotes",' in quotes
