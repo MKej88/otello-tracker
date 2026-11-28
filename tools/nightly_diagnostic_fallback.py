@@ -18,7 +18,10 @@ def fallback_needed(now, body):
     if not date or date.group(1) != target:
         return True
     # A previously failed or incomplete diagnosis is worth checking again.
-    return ("| GitHub Actions – diagnose | success |" not in body
+    overall = re.search(r"(?m)^- Samlet status: \*\*(OK|ADVARSEL)\*\*$", body)
+    d1 = re.search(r"(?m)^\| D1-produksjonsdiagnose \| (OK|ADVARSEL) \|$", body)
+    return (not overall or not d1
+            or "| GitHub Actions – diagnose | success |" not in body
             or "| Fulloppdatering (D1) | SUCCESS |" not in body
             or "| Workflow-instans | complete |" not in body
             or "**AVVIK**" in body)

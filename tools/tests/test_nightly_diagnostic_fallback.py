@@ -17,6 +17,7 @@ class FallbackTest(unittest.TestCase):
         body="""- Datadato: `2026-11-27`
 - Samlet status: **ADVARSEL**
 | GitHub Actions – diagnose | success |
+| D1-produksjonsdiagnose | ADVARSEL |
 | Fulloppdatering (D1) | SUCCESS |
 | Workflow-instans | complete |
 """
@@ -24,3 +25,23 @@ class FallbackTest(unittest.TestCase):
         self.assertTrue(fallback_needed(now,body.replace("SUCCESS","FAILED")))
         self.assertTrue(fallback_needed(now,body.replace("ADVARSEL","AVVIK")))
         self.assertTrue(fallback_needed(now,body.replace("complete","running")))
+
+    def test_unconfirmed_or_missing_d1_needs_fallback(self):
+        now = datetime(2026, 11, 28, 6, 17, tzinfo=UTC)
+        body = """- Datadato: `2026-11-27`
+- Samlet status: **OK**
+| GitHub Actions – diagnose | success |
+| D1-produksjonsdiagnose | OK |
+| Fulloppdatering (D1) | SUCCESS |
+| Workflow-instans | complete |
+"""
+        self.assertFalse(fallback_needed(now, body))
+        for report in (
+            body.replace("**OK**", "**IKKE BEKREFTET**"),
+            body.replace("| D1-produksjonsdiagnose | OK |", "| D1-produksjonsdiagnose | IKKE BEKREFTET |"),
+            body.replace("| D1-produksjonsdiagnose | OK |", ""),
+            body.replace("- Samlet status: **OK**", ""),
+            body.replace("| D1-produksjonsdiagnose | OK |", "| D1-produksjonsdiagnose | AVVIK |"),
+        ):
+            with self.subTest(report=report):
+                self.assertTrue(fallback_needed(now, report))
