@@ -515,3 +515,28 @@ class BackfillTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChunkValueRetryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_retry_preserves_exact_original_values(self):
+        from bemobi_document_translation import translate_verified_chunk
+        class Provider:
+            async def complete(self, instruction, text):
+                self.calls = getattr(self,"calls",0)+1
+                assert text == "A companhia tem 123 ações, R$ 18,5."
+                return "Selskapet har 124 aksjer." if self.calls == 1 else "Selskapet har 123 aksjer, R$ 18,5."
+        trace={}
+        result=await translate_verified_chunk(Provider(),"chunk-0001","A companhia tem 123 ações, R$ 18,5.",trace)
+        self.assertIn("123",result)
+        self.assertEqual(trace["value_chunk_retries"],1)
+
+    async def test_failed_retry_rejects_instead_of_publishing(self):
+        from bemobi_document_translation import translate_verified_chunk, ValuePreservationError
+        class Provider:
+            async def complete(self,instruction,text):
+                return "Selskapet har 124 aksjer."
+        trace={}
+        with self.assertRaises(ValuePreservationError):
+            await translate_verified_chunk(Provider(),"chunk-0001","A companhia tem 123 ações.",trace)
+        self.assertEqual(trace["value_missing_count"],1)
+        self.assertEqual(trace["value_chunk_retries"],1)

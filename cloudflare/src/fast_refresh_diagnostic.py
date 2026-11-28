@@ -248,6 +248,12 @@ WITH unresolved AS (
                   OR translation_error LIKE '%model%does not exist%' THEN 'legacy_model'
              WHEN translation_error LIKE '%Workers AI%' THEN 'legacy_ai'
              ELSE 'unknown' END AS stage,
+           CASE
+             WHEN translation_error LIKE 'translation:%Dokumentet overskrider sikker behandlingsgrense%' THEN 'max_document_chunks'
+             WHEN translation_error LIKE '%verdikontroll feilet%' THEN 'missing_values'
+             WHEN translation_error LIKE '%krever OCR%' THEN 'ocr_required'
+             WHEN translation_error LIKE '%WorkersAIError%' THEN 'ai_error'
+             ELSE 'other_or_unknown' END AS safe_reason,
            CASE WHEN instr(translation_error, 'ai_code=') > 0
                 THEN substr(translation_error, instr(translation_error, 'ai_code=') + length('ai_code='), 4)
                 ELSE NULL END AS ai_code_text,
@@ -258,7 +264,7 @@ WITH unresolved AS (
     WHERE s.code IN ('CVM','BEMOBI_IR') AND sd.translation_status IN ('FAILED','PENDING')
       AND sd.translation_error IS NOT NULL
 )
-SELECT document_id, source, attempts, status, stage,
+SELECT document_id, source, attempts, status, stage, safe_reason,
        CASE WHEN ai_code_text IN ('3003','3006','3007','3008','3023','3036','3039','3040','3041','3042',
                                  '5004','5005','5007','5016','5018','5019','5028','5035')
             THEN CAST(ai_code_text AS INTEGER) ELSE NULL END AS ai_code,
@@ -346,6 +352,14 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                                                           "invalid_summary", "duplicate_field",
                                                           "unexpected_fields", "size_or_type"})
                     lines.extend(["", f"- Sammendragsfeil dokument {_count(item.get('document_id'))}: {code}"])
+                if "source_chunks" in item:
+                    lines.append(f"- Dokument {_count(item.get('document_id'))}: "
+                                 f"{_count(item.get('source_characters'))} tegn / {_count(item.get('source_chunks'))} deler; "
+                                 f"grense: {_known(item.get('translation_limit'), {'max_document_chunks'})}")
+                if "value_missing_count" in item or "value_chunk_retries" in item:
+                    lines.append(f"- Verdikontroll dokument {_count(item.get('document_id'))}: "
+                                 f"{_count(item.get('value_chunk_retries'))} nye delforsøk; "
+                                 f"{_count(item.get('value_missing_count'))} manglende verdier")
                 if "translation_checkpoint" in item:
                     state = _known(item["translation_checkpoint"], {"miss", "saved", "reused", "write_failed"})
                     lines.extend(["", f"- Mellomlagret oversettelse dokument {_count(item.get('document_id'))}: {state}"])
@@ -361,6 +375,8 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                      f"{_known(row.get('status'), {'FAILED', 'PENDING'})} | {_count(row.get('attempts'))} | "
                      f"{_known(row.get('stage'), _TRANSLATION_STAGES)} | {_count(http) if type(http) is int and 100 <= http <= 599 else '-'} |")
     for row in unresolved[:30]:
+        if isinstance(row, dict) and row.get("safe_reason") in {"max_document_chunks", "missing_values", "ocr_required", "ai_error"}:
+            lines.append(f"- Feilårsak dokument {_count(row.get('document_id'))}: {row['safe_reason']}")
         if isinstance(row, dict) and type(row.get("ai_code")) is int and row["ai_code"] in _AI_CODES:
             lines.append(f"- Workers AI-feilkode for dokument {_count(row.get('document_id'))}: {row['ai_code']}")
     return lines
