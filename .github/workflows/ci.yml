@@ -47,6 +47,18 @@ jobs:
           ruff check --select E9,F63,F7,F82 app ../cloudflare/src
           ruff format --check app/api_models.py app/estimated_nav_attribution.py app/main.py
           mypy
+      # These offline checks must also gate the existing required backend job.
+      # The independent diagnostics workflow alone is not a reliable merge gate.
+      - name: Required offline production diagnostics gate
+        working-directory: .
+        run: |
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_production_diagnostic_policy.py'
+          PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_nightly_diagnostic_fallback.py'
+          python -m unittest discover -s cloudflare/tests -p 'test_production_incident_notification.py'
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_fast_refresh_diagnostic.py'
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_full_refresh_diagnostic.py'
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_nav_followup_diagnostic.py'
+          PYTHONPATH=cloudflare/src python -m unittest discover -s cloudflare/tests -p 'test_d1_diagnostic_batches.py'
       - name: Run reference backend tests
         run: PYTHONPATH=. pytest -q
 

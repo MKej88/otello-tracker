@@ -124,6 +124,12 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         db.row_factory = sqlite3.Row
         unresolved = [dict(row) for row in db.execute(TRANSLATION_DOCUMENTS_SQL)]
         self.assertEqual(unresolved[1]["http"], 526)
+        # Prefix position may vary in legacy errors; preserve all three digits.
+        db.execute("UPDATE source_documents SET translation_error=? WHERE id=1",
+                   ("download: originaldokument HTTP 404 private text",))
+        updated = [dict(row) for row in db.execute(TRANSLATION_DOCUMENTS_SQL)]
+        self.assertEqual(updated[1]["http"], 404)
+        self.assertEqual(updated[1]["stage"], "download")
         self.assertEqual(unresolved[0]["stage"], "translation")
         self.assertEqual(unresolved[0]["ai_code"], 3036)
         self.assertEqual(len(unresolved), 2)
