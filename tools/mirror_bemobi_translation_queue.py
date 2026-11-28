@@ -220,6 +220,32 @@ def verify_local_pair(out, manifest, identity, delivery, *, prefix=""):
     return [(artifact["key"], "original.pdf", "application/pdf")]
 
 
+def publish_verified_object(wrangler, target, local, readback, content_type, *, reuse=False):
+    """Skip an immutable PDF upload only after exact remote byte verification."""
+    get_command = [str(wrangler), "r2", "object", "get", target,
+                   "--file=" + str(readback), "--remote"]
+    if reuse:
+        readback.unlink(missing_ok=True)
+        # Failure (missing object, unavailable endpoint, permissions) is not a
+        # verified hit. Fall back to the existing upload + mandatory readback.
+        try:
+            existing = subprocess.run(get_command, check=False, capture_output=True,
+                                      timeout=60)
+            if (existing.returncode == 0 and readback.is_file()
+                    and local.stat().st_size == readback.stat().st_size
+                    and local.read_bytes() == readback.read_bytes()):
+                return "reused"
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    readback.unlink(missing_ok=True)
+    subprocess.run([str(wrangler), "r2", "object", "put", target,
+                    "--file=" + str(local), "--content-type=" + content_type, "--remote"], check=True)
+    subprocess.run(get_command, check=True)
+    if local.read_bytes() != readback.read_bytes():
+        raise ValueError("R2-tilbakelesing avviker")
+    return "written"
+
+
 def publish(folder):
     bucket = os.environ["CLOUDFLARE_R2_BUCKET_NAME"]
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,63}", bucket):
@@ -228,6 +254,7 @@ def publish(folder):
     directories = sorted(p for p in folder.iterdir() if p.is_dir() and p.name.isdigit())
     if len(directories) > MAX_DOCUMENTS:
         raise ValueError("For mange lokale dokumenter")
+    reused = written = 0
     for out in directories:
         with (out / "manifest.json").open("rb") as handle:
             manifest = json.loads(bounded_read(handle, MAX_INDEX))
@@ -238,14 +265,17 @@ def publish(folder):
             local = out / filename
             readback = out / ("readback-" + filename)
             target = bucket + "/" + key
-            subprocess.run([str(wrangler), "r2", "object", "put", target,
-                            "--file=" + str(local), "--content-type=" + content_type, "--remote"], check=True)
-            subprocess.run([str(wrangler), "r2", "object", "get", target,
-                            "--file=" + str(readback), "--remote"], check=True)
-            if local.read_bytes() != readback.read_bytes():
-                raise ValueError("R2-tilbakelesing avviker")
+            outcome = publish_verified_object(
+                wrangler, target, local, readback, content_type,
+                reuse=content_type == "application/pdf",
+            )
+            if outcome == "reused":
+                reused += 1
+            else:
+                written += 1
         print(f"Dokument {out.name}: PDF og manifest verifisert i R2")
     print("Publiserte dokumenter:", len(directories))
+    print(f"R2-objekter skrevet: {written}; identiske PDF-opplastinger unngått: {reused}")
 
 
 def main():

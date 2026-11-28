@@ -95,3 +95,66 @@ def test_workflow_separates_credentials_and_does_not_write_d1():
     assert "UPDATE source_documents" not in script
     assert "INSERT INTO" not in script
     assert "NoRedirect" in script
+
+
+@pytest.mark.parametrize("existing,read_error,expected,writes", [
+    (RAW, False, "reused", 0),
+    (b"corrupt", False, "written", 1),
+    (None, False, "written", 1),
+    (RAW, True, "written", 1),
+])
+def test_verified_object_reuses_only_exact_bytes(tmp_path, monkeypatch, existing, read_error, expected, writes):
+    sys.path.insert(0, str(ROOT / "tools"))
+    from mirror_bemobi_translation_queue import publish_verified_object
+    import subprocess
+
+    local = tmp_path / "original.pdf"
+    readback = tmp_path / "readback.pdf"
+    local.write_bytes(RAW)
+    # A stale local readback must not masquerade as a successful remote read.
+    readback.write_bytes(RAW)
+    remote = existing
+    calls = []
+
+    def run(command, **kwargs):
+        nonlocal remote
+        operation = command[3]
+        calls.append(operation)
+        target = Path(next(value[7:] for value in command if value.startswith("--file=")))
+        if operation == "put":
+            remote = target.read_bytes()
+            return SimpleNamespace(returncode=0)
+        if remote is None or (read_error and len(calls) == 1):
+            return SimpleNamespace(returncode=1)
+        target.write_bytes(remote)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert publish_verified_object("wrangler", "bucket/object", local, readback,
+                                   "application/pdf", reuse=True) == expected
+    assert calls.count("put") == writes
+    assert readback.read_bytes() == RAW
+    assert calls[-1] == "get"
+
+
+def test_manifest_still_written_and_verified_and_bad_readback_fails(tmp_path, monkeypatch):
+    sys.path.insert(0, str(ROOT / "tools"))
+    from mirror_bemobi_translation_queue import publish_verified_object
+    import subprocess
+
+    local = tmp_path / "manifest.json"
+    readback = tmp_path / "readback.json"
+    local.write_bytes(b"manifest")
+    calls = []
+
+    def run(command, **kwargs):
+        operation = command[3]
+        calls.append(operation)
+        if operation == "get":
+            readback.write_bytes(b"bad")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(ValueError, match="R2-tilbakelesing avviker"):
+        publish_verified_object("wrangler", "bucket/manifest", local, readback, "application/json")
+    assert calls == ["put", "get"]
