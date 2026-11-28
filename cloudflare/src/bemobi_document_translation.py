@@ -17,7 +17,11 @@ from bounded_response import read_response_bytes
 MAX_PDF_BYTES = 30 * 1024 * 1024
 MAX_CHUNK_CHARACTERS = 4_000
 MAX_SUMMARY_CHARACTERS = 48_000
-MAX_DOCUMENT_CHUNKS = 40
+# Bound total source size separately from the amount of new AI work per claim.
+MAX_DOCUMENT_CHUNKS = 120
+MAX_NEW_CHUNKS_PER_CLAIM = 6
+MIN_SPLIT_CHARACTERS = 600
+MAX_VALUE_SPLIT_DEPTH = 2
 MAX_CHECKPOINT_BYTES = 4 * 1024 * 1024
 MAX_SUMMARY_RESPONSE_CHARS = 16_384
 TRANSLATOR_VERSION = "bemobi-nb-v2"
@@ -240,7 +244,26 @@ class ValuePreservationError(ValueError):
         super().__init__(f"verdikontroll feilet ({missing_count} mangler)")
 
 
-async def translate_verified_chunk(provider, chunk_id: str, chunk: str, trace: dict) -> str:
+def _split_for_value_recovery(chunk: str) -> tuple[str, str] | None:
+    """Split near the midpoint without cutting a recognized financial value."""
+    if len(chunk) < MIN_SPLIT_CHARACTERS:
+        return None
+    middle = len(chunk) // 2
+    spans = [(match.start(), match.end()) for match in _VALUE_RE.finditer(chunk)]
+    candidates = [match.start() for match in re.finditer(r"\s+", chunk)
+                  if len(chunk) // 4 <= match.start() <= len(chunk) * 3 // 4
+                  and not any(start < match.start() < end for start, end in spans)]
+    if not candidates:
+        return None
+    boundary = min(candidates, key=lambda offset: (abs(offset - middle), offset))
+    left, right = chunk[:boundary].strip(), chunk[boundary:].strip()
+    if not left or not right or validate_preserved_values(chunk, left + "\n\n" + right):
+        return None
+    return left, right
+
+
+async def translate_verified_chunk(provider, chunk_id: str, chunk: str, trace: dict,
+                                   *, depth: int = 0) -> str:
     # Keep the exact existing value-preservation policy. Retry the entire
     # affected chunk, not just the missing numbers, to preserve their context.
     # Do not include a numbered artificial chunk identifier in the AI input.
@@ -256,6 +279,15 @@ async def translate_verified_chunk(provider, chunk_id: str, chunk: str, trace: d
             chunk,
         )
         missing = validate_preserved_values(chunk, translated)
+    if missing and depth < MAX_VALUE_SPLIT_DEPTH:
+        parts = _split_for_value_recovery(chunk)
+        if parts is not None:
+            trace["value_chunk_splits"] = trace.get("value_chunk_splits", 0) + 1
+            translated = "\n\n".join([
+                await translate_verified_chunk(provider, f"{chunk_id}-{index}", part, trace, depth=depth + 1)
+                for index, part in enumerate(parts, 1)
+            ])
+            missing = validate_preserved_values(chunk, translated)
     if missing:
         trace["value_missing_count"] = len(missing)
         trace["value_failed_chunk"] = chunk_id
@@ -439,6 +471,33 @@ async def _read_translation_checkpoint(bucket, identity, original: str) -> str |
         return None
 
 
+async def _translate_document_parts(bucket, identity, chunks, provider, trace) -> str | None:
+    """Persist verified parts and do bounded new work; None means durable progress."""
+    translations = []
+    new = reused = 0
+    for chunk_id, chunk in chunks:
+        part_identity = {
+            **identity, "part": chunk_id,
+            "part_text_sha256": hashlib.sha256(chunk.encode()).hexdigest(),
+            "part_policy": "bounded-v1",
+        }
+        translated = await _read_translation_checkpoint(bucket, part_identity, chunk)
+        if translated is not None:
+            reused += 1
+        else:
+            if new >= MAX_NEW_CHUNKS_PER_CLAIM:
+                trace.update(parts_saved=new, parts_reused=reused,
+                             parts_total=len(chunks), translation_checkpoint="progress")
+                return None
+            translated = await translate_verified_chunk(provider, chunk_id, chunk, trace)
+            # Progress is not acknowledged unless this verified part is durable.
+            await _write_translation_checkpoint(bucket, part_identity, translated)
+            new += 1
+        translations.append(translated)
+    trace.update(parts_saved=new, parts_reused=reused, parts_total=len(chunks))
+    return "\n\n".join(translations)
+
+
 async def _write_translation_checkpoint(bucket, identity, translated: str) -> None:
     checkpoint = {"identity": identity, "translation": translated,
                   "translation_sha256": hashlib.sha256(translated.encode()).hexdigest()}
@@ -599,7 +658,7 @@ async def process_pending_translations(
            ORDER BY sd.published_at DESC, sd.id DESC LIMIT ?""",
         (max(1, min(limit, 20)),),
     )
-    completed = failed = 0
+    completed = failed = deferred = 0
     for row in rows:
         document_id = int(row["id"])
         claimed = await repository.run(
@@ -698,13 +757,22 @@ async def process_pending_translations(
             full_translation = await _read_translation_checkpoint(bucket, identity, text)
             trace["translation_checkpoint"] = "reused" if full_translation is not None else "miss"
             if full_translation is None:
-                translations = []
-                for chunk_id, chunk in chunks:
-                    stage = "value_validation"
-                    translated = await translate_verified_chunk(observed, chunk_id, chunk, trace)
-                    stage = "translation"
-                    translations.append(translated)
-                full_translation = "\n\n".join(translations)
+                stage = "value_validation"
+                full_translation = await _translate_document_parts(bucket, identity, chunks, observed, trace)
+                if full_translation is None:
+                    # A successful bounded batch is progress, not a failed attempt.
+                    # Preserve the prior failure count and let the regular queue resume.
+                    await repository.run(
+                        """UPDATE source_documents SET translation_status='PENDING',
+                           translation_attempts=translation_attempts-1, translation_error=NULL,
+                           translation_processed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                           WHERE id=? AND translation_status='PROCESSING'
+                             AND translation_attempts=?""",
+                        (document_id, attempts_before + 1),
+                    )
+                    trace.update(stage="translation", outcome="progress")
+                    deferred += 1
+                    continue
             stage = "value_validation"
             missing = validate_preserved_values(text, full_translation)
             if missing:
@@ -786,7 +854,8 @@ async def process_pending_translations(
             }:
                 # A provider-wide failure must not consume the rest of the batch.
                 break
-    return {"selected": len(rows), "completed": completed, "failed": failed}
+    return {"selected": len(rows), "completed": completed, "failed": failed,
+            **({"deferred": deferred} if deferred else {})}
 
 
 async def translation_queue_health(repository: Any) -> dict[str, Any]:

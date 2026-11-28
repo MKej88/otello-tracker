@@ -358,7 +358,7 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict], 
                     attempts.append(f"{route}: {result} (HTTP {code})")
                 binding = _count(item.get("ai_binding_calls")) if item.get("native_binding") is True else "-"
                 lines.append(f"| {_count(item.get('document_id'))} | {_known(item.get('source'), {'CVM', 'BEMOBI_IR'})} | "
-                             f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error'})} | "
+                             f"{_known(item.get('stage'), _TRANSLATION_STAGES)} | {_known(item.get('outcome'), {'ready', 'reused', 'not_required', 'error', 'progress'})} | "
                              f"{'; '.join(attempts) or '-'} | {_count(item.get('ai_provider_calls'))} / {binding} / {_count(item.get('ai_responses'))} |")
             for item in diagnostics[:20]:
                 if not isinstance(item, dict):
@@ -378,8 +378,16 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict], 
                     lines.append(f"- Verdikontroll dokument {_count(item.get('document_id'))}: "
                                  f"{_count(item.get('value_chunk_retries'))} nye delforsøk; "
                                  f"{_count(item.get('value_missing_count'))} manglende verdier")
+                if "parts_total" in item:
+                    lines.append(f"- Dokument {_count(item.get('document_id'))}: "
+                                 f"{_count(item.get('parts_saved'))} nye verifiserte deler, "
+                                 f"{_count(item.get('parts_reused'))} gjenbrukte, "
+                                 f"{_count(item.get('parts_total'))} totalt")
+                if "value_chunk_splits" in item:
+                    lines.append(f"- Dokument {_count(item.get('document_id'))}: "
+                                 f"{_count(item.get('value_chunk_splits'))} oppdelinger etter verdikontroll")
                 if "translation_checkpoint" in item:
-                    state = _known(item["translation_checkpoint"], {"miss", "saved", "reused", "write_failed"})
+                    state = _known(item["translation_checkpoint"], {"miss", "saved", "reused", "write_failed", "progress"})
                     lines.extend(["", f"- Mellomlagret oversettelse dokument {_count(item.get('document_id'))}: {state}"])
             if not diagnostics:
                 lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")

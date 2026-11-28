@@ -540,3 +540,99 @@ class ChunkValueRetryTest(unittest.IsolatedAsyncioTestCase):
             await translate_verified_chunk(Provider(),"chunk-0001","A companhia tem 123 ações.",trace)
         self.assertEqual(trace["value_missing_count"],1)
         self.assertEqual(trace["value_chunk_retries"],1)
+
+
+class BoundedDocumentProgressTest(unittest.IsolatedAsyncioTestCase):
+    async def test_large_document_resumes_only_verified_parts(self):
+        from bemobi_document_translation import _translate_document_parts
+
+        class Bucket:
+            def __init__(self):
+                self.objects = {}
+            async def put(self, key, raw, **kwargs):
+                self.objects[key] = raw
+            async def get(self, key):
+                raw = self.objects.get(key)
+                if raw is None:
+                    return None
+                async def body():
+                    return raw
+                return SimpleNamespace(size=len(raw), arrayBuffer=body)
+
+        class Provider:
+            model = "test"
+            def __init__(self):
+                self.calls = []
+            async def complete(self, instruction, text):
+                self.calls.append(text)
+                return text.replace("A companhia", "Selskapet")
+
+        chunks = [(f"chunk-{i:04d}", f"A companhia tem {i} ações.") for i in range(1, 9)]
+        text = "\n\n".join(chunk for _, chunk in chunks)
+        identity = _checkpoint_identity("a" * 64, text, "test")
+        bucket, provider, trace = Bucket(), Provider(), {}
+        with patch("bemobi_document_translation.MAX_NEW_CHUNKS_PER_CLAIM", 3):
+            self.assertIsNone(await _translate_document_parts(bucket, identity, chunks, provider, trace))
+            self.assertEqual(len(provider.calls), 3)
+            self.assertEqual(trace["parts_saved"], 3)
+            self.assertIsNone(await _translate_document_parts(bucket, identity, chunks, provider, trace))
+            self.assertEqual(len(provider.calls), 6)
+            self.assertEqual(trace["parts_reused"], 3)
+            translated = await _translate_document_parts(bucket, identity, chunks, provider, trace)
+        self.assertEqual(len(provider.calls), 8)
+        self.assertEqual(trace["parts_reused"], 6)
+        self.assertEqual(validate_preserved_values(text, translated), [])
+        self.assertTrue(all(not is_safe_translated_key(key) for key in bucket.objects))
+        # Tampered checkpoint must not be accepted even with a matching hash.
+        key = next(iter(bucket.objects))
+        raw = json.loads(bucket.objects[key])
+        raw["translation"] = "Selskapet har 999 aksjer."
+        raw["translation_sha256"] = hashlib.sha256(raw["translation"].encode()).hexdigest()
+        bucket.objects[key] = json.dumps(raw).encode()
+        await _translate_document_parts(bucket, identity, chunks, provider, {})
+        self.assertEqual(len(provider.calls), 9)
+
+    async def test_smaller_parts_recover_without_weakening_value_validation(self):
+        from bemobi_document_translation import translate_verified_chunk
+        original = ("A companhia informa R$ 123,45 e 12,4 % em 09/09/2026. " * 30).strip()
+        class Provider:
+            async def complete(self, instruction, text):
+                if len(text) > 1000:
+                    return "Selskapet har ingen verdier."
+                return text.replace("A companhia", "Selskapet")
+        trace = {}
+        translated = await translate_verified_chunk(Provider(), "chunk-0001", original, trace)
+        self.assertEqual(validate_preserved_values(original, translated), [])
+        self.assertGreater(trace["value_chunk_splits"], 0)
+
+    async def test_progress_releases_claim_without_consuming_failed_attempt(self):
+        class Repository:
+            def __init__(self):
+                self.updates = []
+            async def all(self, query, parameters):
+                return [{"id": 9, "url": "https://example.com/a.pdf", "published_at": "2026-11-27",
+                         "source_code": "CVM", "translation_attempts": 2}]
+            async def first(self, query, parameters):
+                return None
+            async def run(self, query, parameters):
+                self.updates.append((query, parameters))
+                return SimpleNamespace(meta=SimpleNamespace(changes=1))
+
+        class Provider:
+            model = "test"
+        async def fetcher(*args, **kwargs):
+            async def body():
+                return b"%PDF-test"
+            return SimpleNamespace(ok=True, headers={}, arrayBuffer=body)
+        repository, diagnostics = Repository(), []
+        with patch("bemobi_document_translation.extract_pdf_text",
+                   return_value="A companhia informa que tem 123 ações. " * 10), \
+             patch("bemobi_document_translation._translate_document_parts", return_value=None):
+            result = await process_pending_translations(repository, SimpleNamespace(), Provider(),
+                                                        fetcher=fetcher, diagnostics=diagnostics)
+        self.assertEqual(result, {"selected": 1, "completed": 0, "failed": 0, "deferred": 1})
+        query, params = repository.updates[-1]
+        self.assertIn("translation_attempts=translation_attempts-1", query)
+        self.assertIn("translation_status='PENDING'", query)
+        self.assertEqual(params, (9, 3))
+        self.assertEqual(diagnostics[0]["outcome"], "progress")
