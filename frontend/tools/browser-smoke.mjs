@@ -172,6 +172,22 @@ async function waitFor(session, expression, label, timeoutMs = 15000) {
   throw new Error(`Timeout mens browser-smoke ventet på ${label}. Siste verdi: ${JSON.stringify(lastValue)}\n${body}`);
 }
 
+// A successful HTTP response may explicitly say that a financial dataset
+// is unavailable. Test that exact state, never a generic loading/error screen.
+async function datasetSelector(baseUrl, path, name, readySelector, emptySelector, classify) {
+  const payload = await jsonFetch(new URL(path, baseUrl));
+  const ready = classify(payload);
+  if (typeof ready !== "boolean") {
+    throw new Error(`${name}: API mangler entydig datastatus.`);
+  }
+  if (!ready) console.log(`${name}: API bekrefter manglende datagrunnlag; kontrollerer tomtilstand (ikke full datavisning).`);
+  return ready ? readySelector : emptySelector;
+}
+
+function explicitReady(payload) {
+  return typeof payload?.ready === "boolean" ? payload.ready : undefined;
+}
+
 async function clickView(session, label, heading, readySelector) {
   const clicked = await session.evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.trim() === ${JSON.stringify(label)});
@@ -295,9 +311,27 @@ async function main() {
     }
     console.log("Historikk: API bekrefter utilstrekkelig datagrunnlag; tomtilstand kontrollert (ikke graf).");
   }
-  await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
-  await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
-  await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
+  const buybackSelector = await datasetSelector(baseUrl, "/api/buybacks/dashboard",
+    "Tilbakekjøpsprogram", ".buybackPage", ".buybackNotice",
+    (payload) => payload?.ready === true ? true
+      : payload?.ready === false && payload.status === "NO_ACTIVE_PROGRAM" ? false : undefined);
+  const bemobiSelector = await datasetSelector(baseUrl, "/api/bemobi/dashboard",
+    "Bemobi", ".bemobiPage", ".bemobiNotice", explicitReady);
+  const consensusSelector = await datasetSelector(baseUrl, "/api/bemobi/consensus",
+    "Konsensus", ".consensusPage", ".consensusNotice", explicitReady);
+  const fxSelector = await datasetSelector(baseUrl, "/api/fx/dashboard",
+    "BRL/NOK", ".fxPage", ".fxError", explicitReady);
+  const brazilSelector = await datasetSelector(baseUrl, "/api/brazil/dashboard",
+    "Brasil", ".brazilPage", ".brazilError", (payload) =>
+      payload?.snapshot_unavailable === true ? false
+        : payload && typeof payload === "object" && !Array.isArray(payload) && payload.as_of_date ? true : undefined);
+  await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", buybackSelector);
+  if (buybackSelector === ".buybackNotice") {
+    const notice = await session.evaluate("document.querySelector('.buybackNotice')?.textContent");
+    if (!notice?.includes("NO_ACTIVE_PROGRAM")) throw new Error("Tilbakekjøpsstatus samsvarer ikke med API.");
+  }
+  await clickView(session, "Bemobi", "Bemobi", bemobiSelector);
+  await clickView(session, "Konsensus", "Konsensus", consensusSelector);
   await clickView(session, "Nyheter", "Nyheter og hendelser", ".newsEventsPage");
   await clickView(session, "Datakvalitet", "Datakvalitet", ".dataQualityPage");
 
@@ -308,12 +342,12 @@ async function main() {
     ["nav","NAV",".navV2 .compositionTable"],
     ["nav-sensitivitet","NAV-sensitivitet",".sensitivityPage"],
     ["historikk","Historisk NAV-rabatt",historyReadySelector],
-    ["tilbakekjop","Tilbakekjøpsprogram",".buybackPage"],
+    ["tilbakekjop","Tilbakekjøpsprogram",buybackSelector],
     ["cash","Cash & kapitalallokering",".cashPage"],
-    ["bemobi","Bemobi",".bemobiPage"],
-    ["brl-nok","BRL/NOK",".fxPage"],
-    ["brasil","Brasil",".brazilPage"],
-    ["konsensus","Konsensus",".consensusPage"],
+    ["bemobi","Bemobi",bemobiSelector],
+    ["brl-nok","BRL/NOK",fxSelector],
+    ["brasil","Brasil",brazilSelector],
+    ["konsensus","Konsensus",consensusSelector],
     ["nyheter","Nyheter og hendelser",".newsEventsPage"],
     ["datakvalitet","Datakvalitet",".dataQualityPage"],
   ];
@@ -333,6 +367,10 @@ async function main() {
         `Boolean(document.querySelector(${JSON.stringify(readySelector)})) && !document.querySelector('.loadingPlaceholderPage')`,
         `ferdig mobilvisning ${heading} ved ${width}px`
       );
+      if (slug === "tilbakekjop" && buybackSelector === ".buybackNotice") {
+        const notice = await session.evaluate("document.querySelector(\'.buybackNotice\')?.textContent");
+        if (!notice?.includes("NO_ACTIVE_PROGRAM")) throw new Error(`Tilbakekjøpsstatus samsvarer ikke med API ved ${width}px.`);
+      }
       if (slug === "historikk") {
         const historyError = await session.evaluate("Boolean(document.querySelector(\'.historyV2 .resourceNotice.error\'))");
         if (historyError) throw new Error(`Historikk viser innlastingsfeil ved ${width}px.`);

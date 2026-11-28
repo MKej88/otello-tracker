@@ -87,3 +87,23 @@ test("history smoke accepts the empty state only when the exact API request conf
   assert.ok(history.includes('data && !data.ready'));
   assert.ok(history.includes('data?.ready && stats'));
 });
+
+
+test("conditional data views use explicit API status instead of waiting for nonexistent cards", () => {
+  const smoke = readFileSync(new URL("./browser-smoke.mjs", import.meta.url), "utf8");
+  for (const [path, variable, empty] of [
+    ["/api/buybacks/dashboard", "buybackSelector", ".buybackNotice"],
+    ["/api/bemobi/dashboard", "bemobiSelector", ".bemobiNotice"],
+    ["/api/bemobi/consensus", "consensusSelector", ".consensusNotice"],
+    ["/api/fx/dashboard", "fxSelector", ".fxError"],
+    ["/api/brazil/dashboard", "brazilSelector", ".brazilError"],
+  ]) {
+    assert.ok(smoke.includes(`const ${variable} = await datasetSelector(baseUrl, "${path}"`));
+    assert.ok(smoke.includes(`"${empty}"`));
+  }
+  assert.ok(smoke.includes('payload?.ready === false && payload.status === "NO_ACTIVE_PROGRAM"'));
+  assert.ok(smoke.includes('typeof ready !== "boolean"'));
+  assert.ok(smoke.includes("payload?.snapshot_unavailable === true"));
+  assert.ok(smoke.includes("const payload = await jsonFetch(new URL(path, baseUrl))"));
+  assert.ok(smoke.includes('notice?.includes("NO_ACTIVE_PROGRAM")'));
+});
