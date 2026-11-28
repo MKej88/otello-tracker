@@ -71,3 +71,19 @@ test("CI propagates browser smoke failures instead of tee success", () => {
   const pipeline = smokeStep.indexOf('2>&1 | tee "$browser_log"');
   assert.ok(pipefail >= 0 && pipeline > pipefail);
 });
+
+
+test("history smoke accepts the empty state only when the exact API request confirms it", () => {
+  const smoke = readFileSync(new URL("./browser-smoke.mjs", import.meta.url), "utf8");
+  const history = read("EstimatedHistoryPage.tsx");
+  assert.ok(smoke.includes("/api/dashboard/discount-history?days=365&max_points=72"));
+  assert.ok(smoke.includes('typeof history?.ready !== "boolean"'));
+  assert.ok(smoke.includes("history.ready && !history.statistics"));
+  assert.ok(smoke.includes('const historyReadySelector = history.ready'));
+  assert.ok(smoke.includes(".historyV2 .historyAxisCard"));
+  assert.ok(smoke.includes(".historyV2 .resourceNotice.empty"));
+  assert.ok(smoke.includes(".historyV2 .resourceNotice.error"));
+  assert.ok(smoke.includes('["historikk","Historisk NAV-rabatt",historyReadySelector]'));
+  assert.ok(history.includes('data && !data.ready'));
+  assert.ok(history.includes('data?.ready && stats'));
+});

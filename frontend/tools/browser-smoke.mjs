@@ -276,7 +276,25 @@ async function main() {
   if (navRoute.hash !== "#nav" || navRoute.title !== "NAV | Otello") {
     throw new Error(`NAV-rute eller sidetittel er feil: ${JSON.stringify(navRoute)}`);
   }
-  await clickView(session, "Historikk", "Historisk NAV-rabatt", ".historyAxisCard");
+  // The deterministic fixture may legitimately have no eligible estimated
+  // history. Verify the exact UI request, rather than requiring a chart for
+  // data that the API explicitly reports unavailable.
+  const historyPayload = await jsonFetch(new URL("/api/dashboard/discount-history?days=365&max_points=72", baseUrl));
+  const history = historyPayload.estimated;
+  if (typeof history?.ready !== "boolean" || (history.ready && !history.statistics)) {
+    throw new Error("Historikk-API mangler gyldig estimert historikkstatus.");
+  }
+  const historyReadySelector = history.ready
+    ? ".historyV2 .historyAxisCard"
+    : ".historyV2 .resourceNotice.empty";
+  await clickView(session, "Historikk", "Historisk NAV-rabatt", historyReadySelector);
+  if (!history.ready) {
+    const emptyNotice = await session.evaluate("document.querySelector('.historyV2 .resourceNotice.empty')?.textContent");
+    if (!emptyNotice?.includes("ikke nok kildebelagt historikk")) {
+      throw new Error("Historikkens tomtilstand samsvarer ikke med API.");
+    }
+    console.log("Historikk: API bekrefter utilstrekkelig datagrunnlag; tomtilstand kontrollert (ikke graf).");
+  }
   await clickView(session, "Tilbakekjøpsprogram", "Tilbakekjøpsprogram", ".buybackPage");
   await clickView(session, "Bemobi", "Bemobi", ".bemobiPage");
   await clickView(session, "Konsensus", "Konsensus", ".consensusPage");
@@ -289,7 +307,7 @@ async function main() {
     ["oversikt","Otello investoroversikt",".overviewV3"],
     ["nav","NAV",".navV2 .compositionTable"],
     ["nav-sensitivitet","NAV-sensitivitet",".sensitivityPage"],
-    ["historikk","Historisk NAV-rabatt",".historyV2 .historyAxisCard"],
+    ["historikk","Historisk NAV-rabatt",historyReadySelector],
     ["tilbakekjop","Tilbakekjøpsprogram",".buybackPage"],
     ["cash","Cash & kapitalallokering",".cashPage"],
     ["bemobi","Bemobi",".bemobiPage"],
@@ -315,6 +333,10 @@ async function main() {
         `Boolean(document.querySelector(${JSON.stringify(readySelector)})) && !document.querySelector('.loadingPlaceholderPage')`,
         `ferdig mobilvisning ${heading} ved ${width}px`
       );
+      if (slug === "historikk") {
+        const historyError = await session.evaluate("Boolean(document.querySelector(\'.historyV2 .resourceNotice.error\'))");
+        if (historyError) throw new Error(`Historikk viser innlastingsfeil ved ${width}px.`);
+      }
       const dimensions = await session.evaluate(`(() => ({
         viewport: document.documentElement.clientWidth,
         html: document.documentElement.scrollWidth,
