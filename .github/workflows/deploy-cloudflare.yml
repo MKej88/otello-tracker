@@ -27,7 +27,8 @@ jobs:
   gate:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (inputs.tested_sha != '' &&
+      (github.event_name == 'push' &&
+       inputs.tested_sha != '' &&
        github.ref == 'refs/heads/main' &&
        inputs.tested_sha == github.sha)
     runs-on: ubuntu-latest
@@ -41,7 +42,8 @@ jobs:
         if: github.event_name != 'workflow_dispatch' && env.AUTO_DEPLOY_ENABLED == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.tested_sha }}
+          # The CI input is only an equality gate, never a checkout source.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Compare live revision with tested main
@@ -92,18 +94,18 @@ jobs:
       CLOUDFLARE_STATUS_EMAIL_FROM: ${{ vars.CLOUDFLARE_STATUS_EMAIL_FROM }}
       CLOUDFLARE_WAF_COST_GUARD_READY: ${{ vars.CLOUDFLARE_WAF_COST_GUARD_READY }}
       CLOUDFLARE_EXR_MARKET_FX_ENABLED: ${{ vars.CLOUDFLARE_EXR_MARKET_FX_ENABLED }}
-      OTELLO_DEPLOYMENT_REVISION: ${{ inputs.tested_sha || github.sha }}
+      OTELLO_DEPLOYMENT_REVISION: ${{ github.sha }}
     steps:
       - name: Check out tested production revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.tested_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify deployment revision
         shell: bash
         env:
-          EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           actual_sha="$(git rev-parse HEAD)"
           if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
@@ -335,7 +337,7 @@ jobs:
       - name: Production HTTP acceptance
         shell: bash
         env:
-          EXPECTED_SHA: ${{ inputs.tested_sha || github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           base="${CLOUDFLARE_PUBLIC_URL%/}"
           acceptance_token="${EXPECTED_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
