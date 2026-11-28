@@ -146,3 +146,17 @@ def test_scope_is_only_used_after_main_ci_and_manual_deploy_remains_available() 
     assert 'if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then' in source
     assert 'if [ "$DEPLOY_REQUIRED" = "false" ]; then' in source
     assert "if: needs.gate.outputs.deploy == 'true'" in source
+
+
+def test_worker_timezone_guard_reuses_exact_scheduled_config_build():
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    worker = ci.split("\n  worker:\n", 1)[1].split("\n  docker-reference:\n", 1)[0]
+    build = worker.index("pywrangler deploy --dry-run --config wrangler.jsonc")
+    guard = worker.index("Require Europe/Oslo timezone data in vendored Worker packages")
+    browser = worker.index("End-to-end Worker/reference parity and real browser smoke")
+    assert build < guard < browser
+    assert "test -f python_modules/tzdata/__init__.py" in worker[guard:browser]
+    assert 'resources.files("tzdata.zoneinfo.Europe").joinpath("Oslo")' in worker[guard:browser]
+    assert "assert oslo.is_file()" in worker[guard:browser]
+    assert "working-directory: cloudflare" in worker[guard:browser]
+    assert "if:" not in worker[guard:browser]
