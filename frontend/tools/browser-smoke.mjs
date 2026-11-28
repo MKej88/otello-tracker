@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fixtureOrigin, fixtureScript, HISTORY_PATH, BUYBACK_PATH, BRAZIL_PATH, BUYBACK_FIXTURE_DATE } from "./browser-data-fixtures.mjs";
 
 const baseUrl = process.argv[2] ?? "http://127.0.0.1:8787/";
 const chromeBin = process.env.CHROME_BIN ?? "google-chrome";
@@ -222,6 +223,68 @@ async function clickView(session, label, heading, readySelector) {
   }
 }
 
+async function checkRichMobileViews(session) {
+  // A real historical Worker response was already compared with SQLite in CI.
+  // Replay that response plus two explicitly synthetic UI payloads only in a
+  // fresh local test document, leaving the ordinary real-API smoke intact.
+  fixtureOrigin(baseUrl);
+  const buyback = await jsonFetch(new URL(BUYBACK_PATH + "?as_of_date=" + BUYBACK_FIXTURE_DATE, baseUrl));
+  const script = await session.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: fixtureScript(baseUrl, buyback),
+  });
+  try {
+    await session.send("Page.reload", {ignoreCache:true});
+    await waitFor(session, "Boolean(window.__otelloTestFixtureHits) && document.readyState === 'complete'", "lokalt datarikt testdokument");
+    const richViews = [
+      ["historikk", "Historisk NAV-rabatt", HISTORY_PATH, ".historyAxisCard svg", ".historyKpiGrid .historyKpi", 4],
+      ["tilbakekjop", "Tilbakekjøpsprogram", BUYBACK_PATH, ".buybackHero", ".buybackKpis .buybackKpi", 3],
+      ["brasil", "Brasil", BRAZIL_PATH, ".brazilChangeTable", ".brazilDriverGrid .brazilDriverCard", 3],
+    ];
+    const failures = [];
+    for (const width of [390, 320, 768]) {
+      await session.send("Emulation.setDeviceMetricsOverride", {width,height:844,deviceScaleFactor:1,mobile:true});
+      for (const [slug, heading, path, selector, cards, count] of richViews) {
+        await session.evaluate("location.hash = " + JSON.stringify("#" + slug));
+        await waitFor(session, `document.querySelector('h1')?.textContent?.trim() === ${JSON.stringify(heading)} &&
+          Boolean(document.querySelector(${JSON.stringify(selector)})) &&
+          document.querySelectorAll(${JSON.stringify(cards)}).length === ${count} &&
+          window.__otelloTestFixtureHits?.[${JSON.stringify(path)}] > 0`, `datarik ${heading} ved ${width}px`);
+        if (slug === "brasil") {
+          await session.evaluate("document.querySelectorAll('.brazilDetailBlock').forEach(el => el.open = true)");
+          await waitFor(session, "document.querySelectorAll('.brazilDetailMetric').length === 5", "fem utfylte Brasil-indikatorer");
+        }
+        await session.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        const dimensions = await session.evaluate(`(() => ({
+          viewport: document.documentElement.clientWidth,
+          html: document.documentElement.scrollWidth,
+          body: document.body.scrollWidth,
+          main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
+        }))()`);
+        if (Math.abs(dimensions.viewport-width)>2 || dimensions.main<=0 || dimensions.html>width+2 || dimensions.body>width+2 || dimensions.main>width+2) {
+          const candidates = await session.evaluate(`(() => {
+            const viewport = document.documentElement.clientWidth;
+            return [...document.querySelectorAll('#main-content *')]
+              .map(el => ({tag: el.tagName, classes: el.getAttribute('class') ?? '',
+                right: Math.round(el.getBoundingClientRect().right),
+                width: Math.round(el.getBoundingClientRect().width)}))
+              .filter(el => el.right > viewport + 2)
+              .sort((a,b) => b.right-a.right).slice(0,10);
+          })()`);
+          failures.push(`Datarik mobil-overflyt ${slug} ${width}px ${JSON.stringify(dimensions)}; kandidater: ${JSON.stringify(candidates)}`);
+          console.error(failures.at(-1));
+        } else {
+          console.log(`Datarik mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);
+        }
+      }
+    }
+    if (failures.length) throw new Error(failures.join("\\n"));
+    console.log("Datarik mobilkontroll bestått: 9/9 kombinasjoner.");
+  } finally {
+    await session.send("Emulation.clearDeviceMetricsOverride");
+    await session.send("Page.removeScriptToEvaluateOnNewDocument", {identifier:script.identifier});
+  }
+}
+
 async function main() {
   const debugPort = await waitForDevtools();
   const page = await jsonFetch(
@@ -408,6 +471,7 @@ async function main() {
   }
   console.log("Mobilvisning kontrollert for alle 12 sider ved 320, 390 og 768 px.");
   console.log("Browser-smoke bestått for Oversikt, NAV, Historikk, Tilbakekjøpsprogram, Bemobi, Konsensus, Nyheter og Datakvalitet.");
+  await checkRichMobileViews(session);
   session.close();
 }
 
