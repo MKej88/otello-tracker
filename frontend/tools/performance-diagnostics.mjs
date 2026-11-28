@@ -165,8 +165,41 @@ export function createApiDiagnostics(origin) {
   };
 }
 
+// Keep the diagnostic vocabulary fixed; never expose raw CDP messages or URLs.
+const PROBE_STAGES = new Set([
+  "chrome_start", "tab_create", "cdp_connect", "cdp_setup",
+  "navigate", "wait_for_content", "read_metrics", "cpu_profile",
+]);
+
+export function browserProbeDetail(error, stage) {
+  const message = String(error?.message || "");
+  let reason = "unknown";
+  if (/execution context (?:was destroyed|not found)|cannot find context with specified id|cannot find default execution context/i.test(message)) {
+    reason = "execution_context_lost";
+  } else if (/target closed|session closed|inspected target navigated or closed|socket.*(?:closed|not open)/i.test(message)) {
+    reason = "target_or_socket_closed";
+  } else if (/chrome stopped before devtools/i.test(message)) {
+    reason = "chrome_exited";
+  } else if (/devtools timeout|cdp socket timeout/i.test(message)) {
+    reason = "browser_start_timeout";
+  } else if (/CDP connection failed/i.test(message)) {
+    reason = "cdp_connection_failed";
+  } else if (/unable to create chrome tab/i.test(message)) {
+    reason = "tab_creation_failed";
+  } else if (/CDP navigation failed/i.test(message)) {
+    reason = "navigation_failed";
+  } else if (/first-screen data lost/i.test(message)) {
+    reason = "content_lost_after_ready";
+  } else if (/no valid main content within/i.test(message)) {
+    reason = "content_not_ready";
+  } else if (/exceptionDetails|exceptionId/i.test(message)) {
+    reason = "runtime_exception";
+  }
+  return { stage: PROBE_STAGES.has(stage) ? stage : "unknown", reason };
+}
+
 /** Interpret what was actually seen, not all non-ready screens as 'slow'. */
-export function classifyColdFailure(error, pageState, network) {
+export function classifyColdFailure(error, pageState, network, stage) {
   const apiIssues = Array.isArray(network?.apiIssues) ? network.apiIssues : [];
   const pendingApiPaths = Array.isArray(network?.pendingApiPaths)
     ? network.pendingApiPaths : [];
@@ -188,6 +221,7 @@ export function classifyColdFailure(error, pageState, network) {
 
   return {
     category,
+    browserProbe: browserProbeDetail(error, stage),
     page: {
       headingMatches: Boolean(pageState?.headingMatches),
       markerFound: Boolean(pageState?.markerFound),
