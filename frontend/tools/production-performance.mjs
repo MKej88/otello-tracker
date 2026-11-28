@@ -416,16 +416,20 @@ async function probeBrowserAttempt(hash, { profileCpu = false } = {}) {
     stderr = (stderr + String(data)).slice(-2000);
   });
   let session = null;
+  let stage = "chrome_start";
   const apiTrace = createApiDiagnostics(base.origin);
   try {
     const port = await devtoolsPort(profileDir, chrome, () => stderr);
+    stage = "tab_create";
     const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
       method: "PUT", signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error("Unable to create Chrome tab");
     const tab = await response.json();
+    stage = "cdp_connect";
     session = new CdpSession(tab.webSocketDebuggerUrl);
     await session.connect();
+    stage = "cdp_setup";
     for (const method of [
       "Network.requestWillBeSent", "Network.responseReceived",
       "Network.loadingFailed", "Network.loadingFinished",
@@ -442,14 +446,19 @@ async function probeBrowserAttempt(hash, { profileCpu = false } = {}) {
       await session.send("Profiler.setSamplingInterval", { interval: 1000 });
       await session.send("Profiler.start");
     }
-    await session.send("Page.navigate", { url: pageUrl });
+    stage = "navigate";
+    const navigation = await session.send("Page.navigate", { url: pageUrl });
+    if (navigation.errorText) throw new Error("CDP navigation failed");
     const route = ROUTES.find((item) => item.hash === hash);
     if (!route) throw new Error("Unknown synthetic route: " + hash);
+    stage = "wait_for_content";
     await waitForRoute(session, route);
+    stage = "read_metrics";
     const metrics = await session.evaluate(metricsScript());
     if (!metrics?.status?.ready || metrics.status.label !== route.label) {
       throw new Error("First-screen data lost on " + hash);
     }
+    stage = "cpu_profile";
     const cpuProfile = profileCpu
       ? summarizeCpuProfile((await session.send("Profiler.stop")).profile, base.origin)
       : null;
@@ -460,7 +469,7 @@ async function probeBrowserAttempt(hash, { profileCpu = false } = {}) {
       try { pageState = await session.evaluate(routeStatusScript()); } catch { /* Chrome may be gone. */ }
     }
     const failure = new Error("Synthetic cold load failed on " + hash);
-    failure.diagnosis = classifyColdFailure(error, pageState, apiTrace.snapshot());
+    failure.diagnosis = classifyColdFailure(error, pageState, apiTrace.snapshot(), stage);
     throw failure;
   } finally {
     session?.close();
@@ -729,6 +738,7 @@ async function main() {
         issue.path + " " + (issue.status ?? issue.category));
       const pending = diagnosis.pendingApiPaths.map((path) => path + " (venter)");
       return "forsøk " + attempt.attempt + ": " + diagnosis.category +
+        (diagnosis.browserProbe ? " [" + diagnosis.browserProbe.stage + "/" + diagnosis.browserProbe.reason + "]" : "") +
         (api.length || pending.length ? " [" + [...api, ...pending].join(", ") + "]" : "") +
         " (markør=" + diagnosis.page.markerFound + ", laster=" + diagnosis.page.loading +
         ", utilgjengelig=" + diagnosis.page.unavailable + ")";
