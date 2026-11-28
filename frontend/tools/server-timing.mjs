@@ -56,6 +56,16 @@ export function parseWorkerFetchTiming(header) {
     if (match) result[allowed[match[1]]] = Number(match[2]);
     const count = /^\s*otello_req_reads;desc="(\d{1,5})"\s*$/.exec(part);
     if (count) result.requestD1Reads = Number(count[1]);
+    const coverage = /^\s*otello_req_row_meta;desc="(\d{1,5})\/(\d{1,5})"\s*$/.exec(part);
+    if (coverage && Number(coverage[1]) <= Number(coverage[2])) {
+      result.requestD1MetaObserved = Number(coverage[1]);
+      result.requestD1MetaOperations = Number(coverage[2]);
+    }
+    const rows = /^\s*otello_req_rows_read;desc="(\d{1,12})"\s*$/.exec(part);
+    if (rows) result.requestD1RowsRead = Number(rows[1]);
+  }
+  if (!(result.requestD1MetaOperations > 0 && result.requestD1MetaObserved === result.requestD1MetaOperations)) {
+    delete result.requestD1RowsRead;
   }
   return Object.keys(result).length ? result : null;
 }

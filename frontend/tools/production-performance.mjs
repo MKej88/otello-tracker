@@ -860,7 +860,7 @@ async function main() {
     "",
     "### Cloudflare Traces – korrelasjon av langsomme API-forespørsler",
     "",
-    "Produksjonen har 10 % tilfeldig Worker trace-sampling og 5 % loggsampling. Det er ikke sikkert disse forespørslene ble samplet. Ray-ID kan søkes med `cloudflare.ray_id = \"<ray-id>\"` i Cloudflare Observability > Traces (velg riktig tidsrom).",
+    "Produksjonen bruker tilfeldig Worker trace-sampling og 5 % loggsampling. Det er ikke sikkert disse forespørslene ble samplet. Ray-ID kan søkes med `cloudflare.ray_id = \"<ray-id>\"` i Cloudflare Observability > Traces (velg riktig tidsrom).",
     "Kun API-sti uten spørringsparametere, UTC, Ray-ID, cachestatus og ekstern responstid vises. GitHub-testen kan gå via et annet Cloudflare-datasenter enn en norsk bruker.",
     ...traceCandidates.map((candidate) =>
       "- `" + candidate.path + "` " + candidate.elapsedMs + " ms" +
@@ -897,6 +897,24 @@ async function main() {
     "Resterende etter utsending er IKKE dokumentert nettverkstid eller Worker CPU; dette er kun differansen mot målt handler.",
     "Målingene gjelder første API-prøve per endepunkt. Cloudflare-datasenter er utledet fra CF-Ray, ikke antatt.",
     "Undici-målinger er frivillige: hvis runtime ikke eksponerer kanalene, vises – i stedet for beregnede gjetninger.",
+    "",
+    "### D1-radforbruk – første API-prøve per endepunkt",
+    "",
+    "| Endepunkt | CF-cache | D1-operasjoner med radmetadata / totalt | Rader lest |",
+    "| --- | --- | ---: | ---: |",
+    ...result.api.map((a) => {
+      const t = a.workerTiming?.[0];
+      const cache = a.cfCacheStatus?.[0] ?? "–";
+      const fresh = ["MISS", "DYNAMIC", "BYPASS"].includes(cache);
+      const coverage = fresh && Number.isInteger(t?.requestD1MetaOperations)
+        ? t.requestD1MetaObserved + "/" + t.requestD1MetaOperations : "–";
+      const rows = fresh && Number.isInteger(t?.requestD1RowsRead)
+        ? String(t.requestD1RowsRead) : "–";
+      return "| `" + new URL(a.endpoint, base).pathname + "` | " +
+        cache + " | " + coverage + " | " + rows + " |";
+    }),
+    "",
+    "Radtall gjelder målt responsgenerering, ikke kontofakturering. Kun MISS/DYNAMIC/BYPASS vises; cachede headere kan ellers gjenta gamle målinger. Manglende metadata er ukjent, ikke null forbruk.",
     "",
     "### Python Worker – oppstart, asgi-import og FastAPI ved cache MISS",
     "",

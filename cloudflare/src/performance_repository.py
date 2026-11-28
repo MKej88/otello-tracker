@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
 try:
-    from .repository import D1Repository, D1WriteRepository
+    from .repository import D1Repository, D1WriteRepository, _to_python
 except ImportError:
-    from repository import D1Repository, D1WriteRepository
+    from repository import D1Repository, D1WriteRepository, _to_python
 
 READ_CACHE_LIMIT = 256
 
@@ -30,6 +31,9 @@ class _PerformanceState:
         self._cache_hits = 0
         self._read_ms = 0.0
         self._write_ms = 0.0
+        self._rows_read = 0
+        self._rows_written = 0
+        self._row_meta_operations = 0
 
     def _cache_key(
         self,
@@ -59,11 +63,39 @@ class _PerformanceState:
         self._read_ms += (perf_counter() - started) * 1000
         self._read_queries += 1
 
+    def _observe_result(self, result: Any) -> None:
+        # Billing-relevant scan counts come from D1 itself, not len(results).
+        # Optional telemetry must never change query success or returned data.
+        try:
+            meta = _to_python(getattr(result, "meta", None))
+            if not isinstance(meta, Mapping):
+                return
+            read = meta.get("rows_read")
+            written = meta.get("rows_written")
+            # JS numbers can arrive as integer-valued floats.
+            if not all(type(value) in (int, float)
+                       and 0 <= value <= 2**53 - 1
+                       and int(value) == value for value in (read, written)):
+                return
+            self._rows_read += int(read)
+            self._rows_written += int(written)
+            self._row_meta_operations += 1
+        except Exception:
+            # Missing/invalid binding metadata is unknown, not zero usage.
+            return
+
     def performance_metrics(self) -> dict[str, Any]:
+        operations = self._read_queries + self._write_queries
+        complete = self._row_meta_operations == operations
         return {
             "d1_reads": self._read_queries,
             "d1_writes": self._write_queries,
-            "d1_operations": self._read_queries + self._write_queries,
+            "d1_operations": operations,
+            "d1_row_meta_operations": self._row_meta_operations,
+            "d1_rows_read_observed": self._rows_read,
+            "d1_rows_written_observed": self._rows_written,
+            "d1_rows_read": self._rows_read if complete else None,
+            "d1_rows_written": self._rows_written if complete else None,
             "read_cache_hits": self._cache_hits,
             "read_cache_entries": len(self._read_cache),
             "source_id_cache_entries": len(self._source_ids),
@@ -143,6 +175,7 @@ class PerformanceD1WriteRepository(_PerformanceState, D1WriteRepository):
     async def run(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any:
         started = perf_counter()
         result = await super().run(sql, parameters)
+        self._observe_result(result)
         self._write_ms += (perf_counter() - started) * 1000
         self._write_queries += 1
         self._read_cache.clear()
@@ -154,6 +187,14 @@ class PerformanceD1WriteRepository(_PerformanceState, D1WriteRepository):
     ) -> Any:
         started = perf_counter()
         result = await super().run_batch(statements)
+        try:
+            # One D1Result per statement. Do not count a malformed batch twice.
+            items = list(result)
+            if len(items) == len(statements):
+                for item in items:
+                    self._observe_result(item)
+        except Exception:
+            pass
         self._write_ms += (perf_counter() - started) * 1000
         self._write_queries += len(statements)
         self._read_cache.clear()

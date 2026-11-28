@@ -51,7 +51,7 @@ CACHE_POLICIES = {
 }
 
 # Aggregate D1 timings for selected production bottlenecks.
-# This exposes only durations and query counts, never SQL text or financial data.
+# This exposes only durations and aggregate query/row counts, never SQL or financial data.
 D1_TIMING_ROUTES = frozenset({
     "/api/bemobi/consensus",
     "/api/news-events",
@@ -98,6 +98,15 @@ async def add_response_hardening(request: Request, call_next):
             read_count = max(0, min(int(metrics["d1_reads"]), 99_999))
             measurements.append(f"otello_req_d1;dur={read_ms:.2f}")
             measurements.append(f'otello_req_reads;desc="{read_count}"')
+            # A cache HIT may replay these origin headers; they describe the
+            # response generation, not necessarily this client's D1 usage.
+            observed = metrics["d1_row_meta_operations"]
+            operations = metrics["d1_operations"]
+            if 0 <= observed <= operations <= 99_999:
+                measurements.append(f'otello_req_row_meta;desc="{observed}/{operations}"')
+            rows = metrics["d1_rows_read"]
+            if operations > 0 and type(rows) is int and 0 <= rows <= 999_999_999_999:
+                measurements.append(f'otello_req_rows_read;desc="{rows}"')
         measurements.append(
             f"otello_fastapi;dur={(perf_counter() - fastapi_started) * 1000:.2f}"
         )

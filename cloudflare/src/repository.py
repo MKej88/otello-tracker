@@ -41,11 +41,15 @@ class D1Repository:
     def __init__(self, database: Any):
         self.database = database
 
+    def _observe_result(self, result: Any) -> None:
+        """Optional telemetry hook; plain repositories ignore metadata."""
+
     async def all(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         statement = self.database.prepare(sql)
         if parameters:
             statement = statement.bind(*parameters)
         result = await statement.all()
+        self._observe_result(result)
         raw_rows = getattr(result, "results", _MISSING)
         if raw_rows is _MISSING:
             raise RuntimeError("D1-svaret mangler det forventede 'results'-feltet")
