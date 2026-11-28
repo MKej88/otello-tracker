@@ -148,7 +148,8 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     d1_migration = (ROOT / "cloudflare/migrations/0009_bemobi_investor_facts.sql").read_text(
         encoding="utf-8"
     )
-    frontend = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
+    frontend = (ROOT / "frontend/src/InvestorApp.tsx").read_text(encoding="utf-8")
+    navigation = (ROOT / "frontend/src/investorViews.ts").read_text(encoding="utf-8")
     page = (ROOT / "frontend/src/BemobiPage.tsx").read_text(encoding="utf-8")
     page_base = (ROOT / "frontend/src/BemobiPageBase.tsx").read_text(encoding="utf-8")
 
@@ -169,7 +170,9 @@ def test_bemobi_page_uses_database_facts_in_reference_worker_and_frontend() -> N
     assert "CREATE TABLE bemobi_investor_facts" in d1_migration
     assert "'RESULT', '2Q26'" in d1_migration
     assert "'FORWARD_CONSENSUS', '2026'" in d1_migration
-    assert '{ label: "Bemobi", enabled: true }' in frontend
+    assert 'items: ["Bemobi", "Konsensus", "BRL/NOK", "Brasil"]' in navigation
+    assert 'const loadBemobiPage = () => import("./BemobiPage");' in frontend
+    assert 'const BemobiPage = lazy(loadBemobiPage);' in frontend
     assert '<BemobiPage />' in frontend
     assert 'return <BemobiPageBase />' in page
     assert 'fetch("/api/bemobi/dashboard")' in page_base
