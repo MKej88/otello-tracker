@@ -175,7 +175,8 @@ def test_nav_followup_queries_are_wired_into_warning_not_critical_status():
     workflow = _workflow_text()
     assert "batch.extend(followup_queries())" in workflow
     assert "render_followup(followup)" in workflow
-    assert 'monitoring_warning=bool(monitoring["warnings"] or followup["warning"])' in workflow
+    assert 'monitoring_warning=bool(monitoring["warnings"] or followup["warning"]' in workflow
+    assert 'or translation_diagnostic_warning)' in workflow
     assert "HISTORY_PENDING:" in workflow
     helper = (ROOT / "cloudflare/src/nav_followup_diagnostic.py").read_text(encoding="utf-8")
     assert 'HISTORY_VERSION = "ESTIMATED_NAV_V1"' in helper
@@ -196,4 +197,5 @@ def test_diagnostic_uses_bounded_d1_batches_and_source_anchor_query():
     workflow = _workflow_text()
     assert "batch.append(cost_anchor_query())" in workflow
     assert "result[17].get" in workflow
-    assert "query_batches(batch, lambda chunk: post_d1(" in workflow
+    assert "query_diagnostics(batch, lambda chunk: post_d1(" in workflow
+    assert "optional_indices=(15, 16)" in workflow

@@ -502,12 +502,13 @@ jobs:
           import os
           import sys
           sys.path.insert(0, "cloudflare/src")
-          from d1_diagnostic_batches import query_batches, post_d1
+          from d1_diagnostic_batches import query_diagnostics, post_d1
           with open("d1-query-request.json", encoding="utf-8") as handle:
               batch = json.load(handle)["batch"]
           try:
-              result = query_batches(batch, lambda chunk: post_d1(
-                  os.environ["D1_QUERY_URL"], os.environ["CLOUDFLARE_API_TOKEN"], chunk))
+              result = query_diagnostics(batch, lambda chunk: post_d1(
+                  os.environ["D1_QUERY_URL"], os.environ["CLOUDFLARE_API_TOKEN"], chunk),
+                  optional_indices=(15, 16))
           except RuntimeError as exc:
               raise SystemExit(str(exc)) from None
           with open("d1-query.json", "w", encoding="utf-8") as handle:
@@ -611,8 +612,17 @@ jobs:
               raise SystemExit("Cloudflare D1 query request failed")
 
           result = payload.get("result") or []
-          if len(result) != 18 or any(item.get("success") is False for item in result):
-              raise SystemExit("One or more read-only D1 diagnostic queries failed")
+          if len(result) != 18 or any(
+              item.get("success") is not True
+              and not (index in (15, 16) and item.get("diagnostic_unavailable") is True)
+              for index, item in enumerate(result)
+          ):
+              raise SystemExit("One or more mandatory read-only D1 diagnostic queries failed")
+          translation_groups_available = result[15].get("success") is True
+          translation_documents_available = result[16].get("success") is True
+          translation_diagnostic_warning = not (
+              translation_groups_available and translation_documents_available
+          )
 
           full_rows = result[0].get("results") or []
           fast_rows = result[1].get("results") or []
@@ -716,7 +726,8 @@ jobs:
               core_nav_status=str(nav.get("status") or "MISSING").upper(),
               core_nav_components=components,
               manual_full_refresh_pending=manual_window["under_grace"],
-              monitoring_warning=bool(monitoring["warnings"] or followup["warning"]),
+              monitoring_warning=bool(monitoring["warnings"] or followup["warning"]
+                                      or translation_diagnostic_warning),
           )
           core_quality = core_nav_quality(str(nav.get("status") or "MISSING"), components)
           d1_unhealthy = d1_status == "AVVIK"
@@ -803,10 +814,18 @@ jobs:
               lines.append(f"- {cell(item['step'], 80)}: {cell(item['type'], 80)} ({cell(item['status'], 80)})")
           lines.extend(["", "## Oversettelseskø: feilkategorier", "",
                         "| Årsak | Dokumenter | Uten flere forsøk |", "|---|---:|---:|"])
-          for row in result[15].get("results") or []:
-              lines.append(f"| {cell(row.get('reason'), 80)} | {int(row.get('document_count') or 0)} | {int(row.get('exhausted_count') or 0)} |")
+          if not translation_groups_available:
+              lines.append("- IKKE BEKREFTET: feilkategoriene kunne ikke hentes fra D1.")
+          else:
+              for row in result[15].get("results") or []:
+                  lines.append(f"| {cell(row.get('reason'), 80)} | {int(row.get('document_count') or 0)} | {int(row.get('exhausted_count') or 0)} |")
 
-          lines.extend(render_translation_diagnostics(fast, result[16].get("results") or []))
+          lines.extend(render_translation_diagnostics(
+              fast, result[16].get("results") or [],
+              documents_available=translation_documents_available,
+          ))
+          if translation_diagnostic_warning:
+              lines.append("- ADVARSEL: oversettelsesdiagnostikk ufullstendig; obligatoriske NAV- og kildekontroller er vurdert separat.")
 
           lines.extend([
               "",

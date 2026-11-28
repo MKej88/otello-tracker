@@ -148,6 +148,9 @@ class FastRefreshDiagnosticTests(unittest.TestCase):
         self.assertIn("Sammendragsfeil dokument 2: invalid_json", rendered)
         self.assertIn("Mellomlagret oversettelse dokument 2: saved", rendered)
         self.assertNotIn("secret", rendered)
+        unavailable = "\n".join(render_translation_diagnostics(item, [], documents_available=False))
+        self.assertIn("IKKE BEKREFTET", unavailable)
+        self.assertNotIn("Uavklarte dokumenter (maks 30)", unavailable)
         self.assertIn("eldre kjøring", "\n".join(render_translation_diagnostics(
             record(steps={"bemobi_translation": {"model": "secret"}}), [])))
         db.close()

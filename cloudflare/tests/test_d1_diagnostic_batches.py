@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from urllib.error import HTTPError
 
-from d1_diagnostic_batches import query_batches
+from d1_diagnostic_batches import query_batches, query_diagnostics
 
 
 class DiagnosticBatchTests(unittest.TestCase):
@@ -38,3 +38,21 @@ class DiagnosticBatchTests(unittest.TestCase):
             query_batches([{"sql": "SELECT 1"}], lambda _: {"success": True, "result": []})
         with self.assertRaises(ValueError):
             query_batches([{"sql": "DELETE FROM x"}], lambda _: {})
+
+
+    def test_secondary_failure_does_not_hide_required_results(self):
+        queries = [{"sql": f"SELECT {i}"} for i in range(18)]
+        seen = []
+        def post(chunk):
+            seen.extend(q["sql"] for q in chunk)
+            if any(q["sql"] == "SELECT 16" for q in chunk):
+                raise HTTPError("https://example.invalid", 400, "private text", {}, None)
+            return {"success": True, "result": [
+                {"success": True, "results": [q["sql"]]} for q in chunk]}
+        result = query_diagnostics(queries, post, optional_indices=(15, 16))["result"]
+        self.assertEqual(result[17]["results"], ["SELECT 17"])
+        self.assertEqual(result[15]["results"], ["SELECT 15"])
+        self.assertEqual(result[16], {"success": False, "diagnostic_unavailable": True, "results": []})
+        self.assertLess(seen.index("SELECT 17"), seen.index("SELECT 16"))
+        with self.assertRaises(RuntimeError):
+            query_diagnostics(queries, post, optional_indices=(15,))

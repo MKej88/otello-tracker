@@ -198,6 +198,19 @@ def test_workflow_query_pack_and_report_integration(tmp_path, monkeypatch):
     assert '| value_validation | 9 | 1 |' in (tmp_path / 'summary').read_text()
     assert '| 19 | CVM | FAILED | 3 | download | 526 |' in (tmp_path / 'summary').read_text()
 
+    # A failed secondary SQL probe is visible, but NAV and cost-anchor checks still run.
+    payload = [dict(success=True, results=r) for r in rows]
+    payload[16] = dict(success=False, diagnostic_unavailable=True, results=[])
+    (tmp_path / 'd1-query.json').write_text(json.dumps(dict(success=True, result=payload)))
+    (tmp_path / 'output').write_text('')
+    exec(compile(report_script, '<report>', 'exec'), {})
+    output = (tmp_path / 'output').read_text()
+    assert 'd1_unhealthy=false' in output
+    assert 'd1_warning=true' in output
+    assert 'history_pending=0' in output
+    assert 'IKKE BEKREFTET: dokumentlisten' in (tmp_path / 'summary').read_text()
+    assert 'Tidligste gyldige BASE-kostnadsanker i D1: 2023-06-30' in (tmp_path / 'summary').read_text()
+
     # The new checks must propagate a real backlog as a warning, not a failure.
     rows[12] = [{'reason_code': 'missing_option_inputs', 'count': 250,
                  'due': 10, 'first_date': '2025-01-01', 'last_date': '2025-09-07',

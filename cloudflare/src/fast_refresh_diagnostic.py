@@ -228,48 +228,45 @@ def public_fast_refresh_warning(record: dict, *, now: datetime, max_age: timedel
 # A bounded read-only listing of unresolved IDs, source codes and sanitized HTTP status.
 # Legacy errors are classified inside D1; raw exception messages never leave the query.
 TRANSLATION_DOCUMENTS_SQL = """
-WITH unresolved AS (
+SELECT document_id, source, attempts, status,
+       CASE
+         WHEN translation_error LIKE 'claim:%' THEN 'claim'
+         WHEN translation_error LIKE 'download:%' OR translation_error LIKE 'originaldokument HTTP %' THEN 'download'
+         WHEN translation_error LIKE 'deduplication:%' THEN 'deduplication'
+         WHEN translation_error LIKE 'pdf_extraction:%' OR translation_error LIKE '%krever OCR%' THEN 'pdf_extraction'
+         WHEN translation_error LIKE 'translation:%' THEN 'translation'
+         WHEN translation_error LIKE 'value_validation:%' OR translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
+         WHEN translation_error LIKE 'summary:%' THEN 'summary'
+         WHEN translation_error LIKE 'archive:%' THEN 'archive'
+         WHEN translation_error LIKE 'database_write:%' THEN 'database_write'
+         WHEN translation_error LIKE '%PyProxy%' OR translation_error LIKE '%JsException%'
+              OR translation_error LIKE '%Cannot read properties%' OR translation_error LIKE '%object has no attribute%'
+              OR translation_error LIKE '%not JSON serializable%' THEN 'legacy_runtime'
+         WHEN translation_error LIKE '%model%not found%' OR translation_error LIKE '%model%deprecated%'
+              OR translation_error LIKE '%model%does not exist%' THEN 'legacy_model'
+         WHEN translation_error LIKE '%Workers AI%' THEN 'legacy_ai'
+         ELSE 'unknown' END AS stage,
+       CASE
+         WHEN translation_error LIKE 'translation:%Dokumentet overskrider sikker behandlingsgrense%' THEN 'max_document_chunks'
+         WHEN translation_error LIKE '%verdikontroll feilet%' THEN 'missing_values'
+         WHEN translation_error LIKE '%krever OCR%' THEN 'ocr_required'
+         WHEN translation_error LIKE '%WorkersAIError%' THEN 'ai_error'
+         ELSE 'other_or_unknown' END AS safe_reason,
+       CASE WHEN instr(translation_error, 'ai_code=') > 0
+            THEN CAST(substr(translation_error, instr(translation_error, 'ai_code=') + 8, 4) AS INTEGER)
+            ELSE NULL END AS ai_code,
+       CASE WHEN instr(translation_error, 'originaldokument HTTP ') > 0
+            THEN CAST(substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + 21, 3) AS INTEGER)
+            ELSE NULL END AS http
+FROM (
     SELECT sd.id AS document_id, s.code AS source, sd.translation_attempts AS attempts,
-           sd.translation_status AS status,
-           CASE
-             WHEN translation_error LIKE 'claim:%' THEN 'claim'
-             WHEN translation_error LIKE 'download:%' OR translation_error LIKE 'originaldokument HTTP %' THEN 'download'
-             WHEN translation_error LIKE 'deduplication:%' THEN 'deduplication'
-             WHEN translation_error LIKE 'pdf_extraction:%' OR translation_error LIKE '%krever OCR%' THEN 'pdf_extraction'
-             WHEN translation_error LIKE 'translation:%' THEN 'translation'
-             WHEN translation_error LIKE 'value_validation:%' OR translation_error LIKE 'verdikontroll feilet%' THEN 'value_validation'
-             WHEN translation_error LIKE 'summary:%' THEN 'summary'
-             WHEN translation_error LIKE 'archive:%' THEN 'archive'
-             WHEN translation_error LIKE 'database_write:%' THEN 'database_write'
-             WHEN translation_error LIKE '%PyProxy%' OR translation_error LIKE '%JsException%'
-                  OR translation_error LIKE '%Cannot read properties%' OR translation_error LIKE '%object has no attribute%'
-                  OR translation_error LIKE '%not JSON serializable%' THEN 'legacy_runtime'
-             WHEN translation_error LIKE '%model%not found%' OR translation_error LIKE '%model%deprecated%'
-                  OR translation_error LIKE '%model%does not exist%' THEN 'legacy_model'
-             WHEN translation_error LIKE '%Workers AI%' THEN 'legacy_ai'
-             ELSE 'unknown' END AS stage,
-           CASE
-             WHEN translation_error LIKE 'translation:%Dokumentet overskrider sikker behandlingsgrense%' THEN 'max_document_chunks'
-             WHEN translation_error LIKE '%verdikontroll feilet%' THEN 'missing_values'
-             WHEN translation_error LIKE '%krever OCR%' THEN 'ocr_required'
-             WHEN translation_error LIKE '%WorkersAIError%' THEN 'ai_error'
-             ELSE 'other_or_unknown' END AS safe_reason,
-           CASE WHEN instr(translation_error, 'ai_code=') > 0
-                THEN substr(translation_error, instr(translation_error, 'ai_code=') + length('ai_code='), 4)
-                ELSE NULL END AS ai_code_text,
-           CASE WHEN instr(translation_error, 'originaldokument HTTP ') > 0
-                THEN substr(translation_error, instr(translation_error, 'originaldokument HTTP ') + length('originaldokument HTTP '), 3)
-                ELSE NULL END AS http_text
+           sd.translation_status AS status, sd.translation_error
     FROM source_documents sd JOIN sources s ON s.id=sd.source_id
     WHERE s.code IN ('CVM','BEMOBI_IR') AND sd.translation_status IN ('FAILED','PENDING')
       AND sd.translation_error IS NOT NULL
-)
-SELECT document_id, source, attempts, status, stage, safe_reason,
-       CASE WHEN ai_code_text IN ('3003','3006','3007','3008','3023','3036','3039','3040','3041','3042',
-                                 '5004','5005','5007','5016','5018','5019','5028','5035')
-            THEN CAST(ai_code_text AS INTEGER) ELSE NULL END AS ai_code,
-       CASE WHEN http_text GLOB '[1-5][0-9][0-9]' THEN CAST(http_text AS INTEGER) ELSE NULL END AS http
-FROM unresolved ORDER BY document_id DESC LIMIT 30
+    ORDER BY sd.id DESC LIMIT 30
+) AS recent
+ORDER BY document_id DESC
 """
 
 _AI_CODES = frozenset({3003, 3006, 3007, 3008, 3023, 3036, 3039, 3040, 3041, 3042,
@@ -305,7 +302,8 @@ def _count(value: Any) -> str:
     return str(value) if type(value) is int and 0 <= value <= 1_000_000_000 else "-"
 
 
-def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) -> list[str]:
+def render_translation_diagnostics(record: dict | None, unresolved: list[dict], *,
+                                   documents_available: bool = True) -> list[str]:
     """Only fixed enums and integer counters may enter the Actions report."""
     steps = _metadata((record or {}).get("metadata_json")).get("steps")
     translation = steps.get("bemobi_translation") if isinstance(steps, dict) else None
@@ -365,6 +363,10 @@ def render_translation_diagnostics(record: dict | None, unresolved: list[dict]) 
                     lines.extend(["", f"- Mellomlagret oversettelse dokument {_count(item.get('document_id'))}: {state}"])
             if not diagnostics:
                 lines.append("- Ingen dokumenter ble behandlet i denne kjøringen.")
+    if not documents_available:
+        lines.extend(["", "### Uavklarte dokumenter",
+                      "- IKKE BEKREFTET: dokumentlisten kunne ikke hentes fra D1."])
+        return lines
     lines.extend(["", "### Uavklarte dokumenter (maks 30)", "",
                   "| Dokument-ID | Kilde | Status | Forsøk | Feiltrinn | HTTP |", "|---:|---|---|---:|---|---:|"])
     for row in unresolved[:30]:
