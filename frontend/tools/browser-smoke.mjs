@@ -261,7 +261,16 @@ async function checkRichMobileViews(session) {
           main: Math.round(document.querySelector('.investorMainV2')?.getBoundingClientRect().width ?? 0)
         }))()`);
         if (Math.abs(dimensions.viewport-width)>2 || dimensions.main<=0 || dimensions.html>width+2 || dimensions.body>width+2 || dimensions.main>width+2) {
-          failures.push(`Datarik mobil-overflyt ${slug} ${width}px ${JSON.stringify(dimensions)}`);
+          const candidates = await session.evaluate(`(() => {
+            const viewport = document.documentElement.clientWidth;
+            return [...document.querySelectorAll('#main-content *')]
+              .map(el => ({tag: el.tagName, classes: el.getAttribute('class') ?? '',
+                right: Math.round(el.getBoundingClientRect().right),
+                width: Math.round(el.getBoundingClientRect().width)}))
+              .filter(el => el.right > viewport + 2)
+              .sort((a,b) => b.right-a.right).slice(0,10);
+          })()`);
+          failures.push(`Datarik mobil-overflyt ${slug} ${width}px ${JSON.stringify(dimensions)}; kandidater: ${JSON.stringify(candidates)}`);
           console.error(failures.at(-1));
         } else {
           console.log(`Datarik mobil OK: ${slug} ${width}px ${JSON.stringify(dimensions)}`);

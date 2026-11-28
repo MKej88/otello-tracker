@@ -43,7 +43,7 @@ test("sensitivity and buyback wide financial tables explicitly preserve horizont
 test("history and cash use two-column mobile KPI layouts instead of full-height lists", () => {
   assert.match(historyPage, /className="historyKpiGrid"/);
   assert.match(shared, /@media\s*\(max-width:\s*1100px\)\s*\{[\s\S]*?\.historyKpiGrid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
-  assert.match(shared, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.historyKpiGrid\s*\{\s*grid-template-columns:\s*1fr\s+1fr;/);
+  assert.match(shared, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.historyKpiGrid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
   assert.match(cash, /@media \(min-width: 380px\) and \(max-width: 760px\)/);
   assert.match(cash, /\.cashKpiGrid,\s*\.cashBuybackResultsPrimary\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
 });
@@ -125,4 +125,11 @@ test("mobile smoke reports every layout failure before failing CI", () => {
   assert.ok(smoke.includes("overflowCandidates"));
   assert.ok(smoke.includes("if (mobileLayoutFailures.length)"));
   assert.ok(smoke.includes("throw new Error(`Mobilkontroll feilet"));
+});
+
+
+test("populated history cards shrink without hiding their financial values", () => {
+  assert.match(shared, /\.historyV2\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-width: 0;/s);
+  assert.match(shared, /\.historyV2 \.historyKpi\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*overflow-wrap: anywhere;/s);
+  assert.match(shared, /\.historyV2 \.historyDetailGrid\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/s);
 });

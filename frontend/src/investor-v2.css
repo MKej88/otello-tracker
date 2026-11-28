@@ -170,7 +170,7 @@
   .driverRow { grid-template-columns:1fr 90px; }
   .driverBarTrack { grid-column:1 / -1; grid-row:2; }
   .qualityMetricGrid,.qualitySteps,.qualityReportMeta { grid-template-columns:1fr; }
-  .historyKpiGrid { grid-template-columns:1fr 1fr; }
+  .historyKpiGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .compositionHead { display:none; }
   .compositionRow,.compositionTotal { grid-template-columns:1fr 1fr; gap:7px 14px; }
   .compositionRow strong,.compositionRow small,.compositionTotal strong,.compositionTotal small { grid-column:1 / -1; }
@@ -260,5 +260,70 @@
   .fxProviderCredit {
     padding-inline: 0;
     overflow-wrap: anywhere;
+  }
+}
+
+
+/* Loaded history cards must fit narrow screens, not just the empty state. */
+@media (max-width: 760px) {
+  .historyV2 {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .historyV2 > *,
+  .historyV2 .historyKpi,
+  .historyV2 .historyDetailGrid > *,
+  .historyV2 .historyAxisCard .cardHeader > *,
+  .historyV2 .axisChart,
+  .historyV2 .axisChartLegend > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .historyV2 .historyDetailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .historyV2 .historyKpi {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
+    overflow-wrap: anywhere;
+  }
+
+  .historyV2 .historyKpi strong {
+    font-size: clamp(18px, 5.3vw, 24px);
+  }
+
+  .historyV2 .historyPercentileAssessment,
+  .historyV2 .historyPercentileAssessment > *,
+  .historyV2 .placeholderRows > div > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .historyV2 .placeholderRows > div {
+    gap: 8px;
+  }
+
+  .historyV2 .historyRangeRows > div {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+
+  .historyV2 .axisChartLegend {
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 379px) {
+  .historyV2 .historyAxisCard .cardHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .historyV2 .historyKpiGrid {
+    gap: 8px;
   }
 }
