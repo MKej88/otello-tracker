@@ -43,6 +43,29 @@ def query_batches(queries, post, *, batch_size=BATCH_SIZE):
     return {"success": True, "result": results}
 
 
+def query_diagnostics(queries, post, *, optional_indices=()):
+    """Run required checks first; only explicitly secondary probes may be unavailable."""
+    optional = frozenset(optional_indices)
+    if any(type(i) is not int or not 0 <= i < len(queries) for i in optional):
+        raise ValueError("Invalid optional diagnostic index")
+    if any(not q["sql"].lstrip().upper().startswith(("SELECT ", "WITH ")) for q in queries):
+        raise ValueError("Only read-only diagnostic queries are allowed")
+    # Preserve indices in the report and never omit a failed mandatory query.
+    required = [i for i in range(len(queries)) if i not in optional]
+    response = query_batches([queries[i] for i in required], post)
+    results = [None] * len(queries)
+    for i, result in zip(required, response["result"], strict=True):
+        results[i] = result
+    for i in sorted(optional):
+        try:
+            results[i] = query_batches([queries[i]], post)["result"][0]
+        except RuntimeError:
+            # No raw errors or fake successful empty rows. The caller must
+            # explicitly report the missing secondary evidence as a warning.
+            results[i] = {"success": False, "diagnostic_unavailable": True, "results": []}
+    return {"success": True, "result": results}
+
+
 def post_d1(url, token, queries):
     payload = json.dumps({"batch": queries}).encode("utf-8")
     request = Request(url, data=payload, method="POST", headers={
