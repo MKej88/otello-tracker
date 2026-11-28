@@ -21,6 +21,7 @@ from runtime_status import (  # noqa: E402
     _guard_orphaned_full_job,
     _job_freshness,
     _job_payload,
+    _public_translation_progress,
 )
 
 
@@ -355,3 +356,42 @@ def test_running_full_job_is_failed_when_writer_lease_is_missing_or_expired() ->
         assert guarded["reason"] == "writer_lease_inactive"
         assert guarded["has_error"] is True
         assert guarded["error_message"] is None
+
+
+def test_public_translation_progress_is_bounded_and_distinguishes_publication() -> None:
+    row = {
+        "status": "PARTIAL",
+        "finished_at": "2026-11-28T11:30:00Z",
+        "metadata_json": json.dumps({"steps": {"bemobi_translation": {
+            "queue": {"pending": 5, "failed": 1, "exhausted": 0, "overdue": 3,
+                      "processing": True, "private": "secret"},
+            "diagnostics": [
+                {"document_id": 7537, "source": "CVM", "outcome": "progress",
+                 "parts_total": 12, "parts_saved": 6, "parts_reused": 2, "error": "secret"},
+                {"document_id": 7538, "source": "CVM", "outcome": "error",
+                 "parts_total": 6, "parts_saved": 6, "parts_reused": 0, "url": "secret"},
+                {"document_id": 7539, "source": "BEMOBI_IR", "outcome": "ready"},
+                {"document_id": 7540, "source": "CVM", "outcome": "progress",
+                 "parts_total": 3, "parts_saved": 4, "parts_reused": 0},
+                {"document_id": 7541, "source": "private", "outcome": "progress"},
+            ],
+        }}}),
+    }
+    progress = _public_translation_progress(row)
+    assert progress == {
+        "queue": {"pending": 5, "failed": 1, "exhausted": 0, "overdue": 3},
+        "documents": [
+            {"document_id": 7537, "source": "CVM", "outcome": "progress",
+             "parts_completed": 8, "parts_total": 12},
+            {"document_id": 7538, "source": "CVM", "outcome": "error",
+             "parts_completed": 6, "parts_total": 6},
+            {"document_id": 7539, "source": "BEMOBI_IR", "outcome": "ready",
+             "parts_completed": None, "parts_total": None},
+            {"document_id": 7540, "source": "CVM", "outcome": "progress",
+             "parts_completed": None, "parts_total": None},
+        ],
+    }
+    assert "secret" not in json.dumps(progress)
+    assert _public_translation_progress({**row, "status": "RUNNING"}) is None
+    assert _public_translation_progress({**row, "finished_at": None}) is None
+    assert _public_translation_progress({**row, "metadata_json": "{}"}) is None

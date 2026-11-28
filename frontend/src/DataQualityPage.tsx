@@ -7,6 +7,17 @@ import "./data-quality.css";
 
 const REFRESH_MS = 60_000;
 
+type TranslationProgress = {
+  queue: Partial<Record<"pending" | "processing" | "failed" | "exhausted" | "overdue", number>>;
+  documents: Array<{
+    document_id: number;
+    source: "CVM" | "BEMOBI_IR";
+    outcome: "progress" | "ready" | "reused" | "not_required" | "error";
+    parts_completed: number | null;
+    parts_total: number | null;
+  }>;
+};
+
 type Job = {
   available?: boolean;
   status?: string;
@@ -15,6 +26,7 @@ type Job = {
   stale?: boolean;
   has_error?: boolean;
   secondary_warning?: SecondaryWarning | null;
+  translation_progress?: TranslationProgress | null;
   target_date?: string | null;
   records_written?: number;
   source_health?: Record<string, string>;
@@ -230,6 +242,66 @@ function PipelineStep({ label, state }: { label: string; state: PipelineState })
       <span>{label}</span>
       <strong>{state}</strong>
     </div>
+  );
+}
+
+function TranslationProgressCard({ job }: { job?: Job }) {
+  const progress = job?.translation_progress;
+  const labels = {
+    progress: "Delvis behandlet",
+    ready: "Ferdig",
+    reused: "Gjenbrukt",
+    not_required: "Ikke nødvendig",
+    error: "Feil",
+  } as const;
+  const queueLabels = [
+    ["pending", "Venter"],
+    ["processing", "Under behandling"],
+    ["failed", "Feilet"],
+    ["exhausted", "Ingen forsøk igjen"],
+    ["overdue", "Forsinket"],
+  ] as const;
+  return (
+    <section className="card cardStandard qualityTranslationCard">
+      <div className="cardHeader">
+        <div>
+          <span className="label">BEMOBI-DOKUMENTER</span>
+          <h2>Oversettelsesfremdrift</h2>
+        </div>
+      </div>
+      {!progress ? (
+        <p className="qualityFootnote">
+          {job?.status === "RUNNING"
+            ? "Oppdatering pågår. Ny fremdrift vises når kjøringen er fullført."
+            : "Ingen bekreftede fremdriftsdata fra siste kjøring."}
+        </p>
+      ) : (
+        <>
+          <p className="qualityFootnote">Sist fullførte kjøring: {formatDateTime(job?.finished_at)}.</p>
+          <div className="qualityTranslationCounts">
+            {queueLabels.map(([key, label]) => (
+              <div key={key}><span>{label}</span><strong>{progress.queue[key] ?? "–"}</strong></div>
+            ))}
+          </div>
+          {progress.documents.length > 0 ? (
+            <div className="qualityTranslationList">
+              {progress.documents.map((doc) => (
+                <div className="qualityTranslationRow" key={doc.document_id}>
+                  <div><strong>Dokument {doc.document_id}</strong><small>{doc.source} · {labels[doc.outcome]}</small></div>
+                  {doc.parts_completed !== null && doc.parts_total !== null ? (
+                    <div>
+                      <progress aria-label={`Verifiserte deler for dokument ${doc.document_id}`} value={doc.parts_completed} max={doc.parts_total} />
+                      <small>{doc.parts_completed} / {doc.parts_total} verifiserte deler</small>
+                    </div>
+                  ) : <small>Antall verifiserte deler ikke tilgjengelig</small>}
+                </div>
+              ))}
+            </div>
+          ) : <p className="qualityFootnote">Ingen dokumenter med registrert behandling i denne kjøringen.</p>}
+          <p className="qualityFootnote">Oversikten viser dokumenter behandlet i siste kjøring, ikke hele køen. Alle deler kan være verifisert uten at den ferdige oversettelsen er publisert. Forsinkede dokumenter kan også inngå i de øvrige kategoriene.</p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -543,6 +615,8 @@ export default function DataQualityPage() {
           </div>
         )}
       </section>
+
+      <TranslationProgressCard job={runtime?.fast_refresh} />
 
       <section className={`card cardStandard qualityReportCard ${reportNeedsAttention ? "qualityReportAttention" : ""}`}>
         <div className="cardHeader">
