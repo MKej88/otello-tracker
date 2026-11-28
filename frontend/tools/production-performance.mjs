@@ -15,7 +15,7 @@ import { summarizeCpuProfile } from "./cpu-profile-summary.mjs";
 import { parseBrazilServerTiming, parseNavHistoryServerTiming, parseOtelloOriginTiming, parseWorkerFetchTiming, parseFxServerTiming } from "./server-timing.mjs";
 import {
   API_PROBE_INTERVAL_MS, classifyColdFailure, createApiDiagnostics,
-  fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout,
+  fetchWithRateLimitRetry, isRateLimitError, isTimeoutError, parseHealthD1Timing, probeColdWithRetry, retryOnTimeout, withBrowserCleanup,
 } from "./performance-diagnostics.mjs";
 
 const base = new URL(process.env.OTELLO_SITE_URL || "https://otellotracker.com/");
@@ -182,9 +182,10 @@ async function stopChrome(chrome) {
   if (chrome.exitCode === null && chrome.signalCode === null) chrome.kill("SIGKILL");
 }
 
-async function devtoolsPort(profileDir, chrome, lastError) {
+async function devtoolsPort(profileDir, chrome, lastError, spawnError = () => null) {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
+    if (spawnError()) throw spawnError();
     if (chrome.exitCode !== null || chrome.signalCode !== null) {
       throw new Error("Chrome stopped before DevTools: " + lastError());
     }
@@ -404,78 +405,86 @@ function extractBrowserMetrics(transitionStartMs = 0) {
 }
 
 async function probeBrowserAttempt(hash, { profileCpu = false } = {}) {
-  const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-perf-"));
-  const chrome = spawn(chromeBin, [
-    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-    "--disable-background-networking", "--disable-extensions", "--no-first-run",
-    "--window-size=1440,1100", "--remote-debugging-address=127.0.0.1",
-    "--remote-debugging-port=0", "--user-data-dir=" + profileDir, "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  chrome.stderr.on("data", (data) => {
-    stderr = (stderr + String(data)).slice(-2000);
-  });
+  let profileDir = null;
+  let chrome = null;
   let session = null;
-  let stage = "chrome_start";
+  let stage = "profile_create";
+  let stderr = "";
+  let spawnError = null;
   const apiTrace = createApiDiagnostics(base.origin);
-  try {
-    const port = await devtoolsPort(profileDir, chrome, () => stderr);
-    stage = "tab_create";
-    const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
-      method: "PUT", signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error("Unable to create Chrome tab");
-    const tab = await response.json();
-    stage = "cdp_connect";
-    session = new CdpSession(tab.webSocketDebuggerUrl);
-    await session.connect();
-    stage = "cdp_setup";
-    for (const method of [
-      "Network.requestWillBeSent", "Network.responseReceived",
-      "Network.loadingFailed", "Network.loadingFinished",
-    ]) session.on(method, (params) => apiTrace.onEvent(method, params));
-    await session.send("Network.enable");
-    await session.send("Runtime.enable");
-    await session.send("Page.enable");
-    await session.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: observerInjection(),
-    });
-    const pageUrl = new URL("/" + hash, base).toString();
-    if (profileCpu) {
-      await session.send("Profiler.enable");
-      await session.send("Profiler.setSamplingInterval", { interval: 1000 });
-      await session.send("Profiler.start");
+  return withBrowserCleanup(async () => {
+    try {
+      profileDir = mkdtempSync(join(tmpdir(), "otello-prod-perf-"));
+      stage = "chrome_spawn";
+      chrome = spawn(chromeBin, [
+      "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+      "--disable-background-networking", "--disable-extensions", "--no-first-run",
+      "--window-size=1440,1100", "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0", "--user-data-dir=" + profileDir, "about:blank",
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+      chrome.on("error", (error) => { spawnError = error; });
+      chrome.stderr.on("data", (data) => { stderr = (stderr + String(data)).slice(-2000); });
+      stage = "chrome_start";
+      const port = await devtoolsPort(profileDir, chrome, () => stderr, () => spawnError);
+      stage = "tab_create";
+      const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
+        method: "PUT", signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error("Unable to create Chrome tab");
+      const tab = await response.json();
+      stage = "cdp_connect";
+      session = new CdpSession(tab.webSocketDebuggerUrl);
+      await session.connect();
+      stage = "cdp_setup";
+      for (const method of [
+        "Network.requestWillBeSent", "Network.responseReceived",
+        "Network.loadingFailed", "Network.loadingFinished",
+      ]) session.on(method, (params) => apiTrace.onEvent(method, params));
+      await session.send("Network.enable");
+      await session.send("Runtime.enable");
+      await session.send("Page.enable");
+      await session.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: observerInjection(),
+      });
+      const pageUrl = new URL("/" + hash, base).toString();
+      if (profileCpu) {
+        await session.send("Profiler.enable");
+        await session.send("Profiler.setSamplingInterval", { interval: 1000 });
+        await session.send("Profiler.start");
+      }
+      stage = "navigate";
+      const navigation = await session.send("Page.navigate", { url: pageUrl });
+      if (navigation.errorText) throw new Error("CDP navigation failed");
+      const route = ROUTES.find((item) => item.hash === hash);
+      if (!route) throw new Error("Unknown synthetic route: " + hash);
+      stage = "wait_for_content";
+      await waitForRoute(session, route);
+      stage = "read_metrics";
+      const metrics = await session.evaluate(metricsScript());
+      if (!metrics?.status?.ready || metrics.status.label !== route.label) {
+        throw new Error("First-screen data lost on " + hash);
+      }
+      stage = "cpu_profile";
+      const cpuProfile = profileCpu
+        ? summarizeCpuProfile((await session.send("Profiler.stop")).profile, base.origin)
+        : null;
+      return { route: hash, ...metrics, ...(cpuProfile ? { cpuProfile } : {}) };
+    } catch (error) {
+      let pageState = null;
+      if (session) {
+        try { pageState = await session.evaluate(routeStatusScript()); } catch { /* Chrome may be gone. */ }
+      }
+      const failure = new Error("Synthetic cold load failed on " + hash);
+      failure.diagnosis = classifyColdFailure(spawnError || error, pageState, apiTrace.snapshot(), spawnError ? "chrome_spawn" : stage);
+      throw failure;
     }
-    stage = "navigate";
-    const navigation = await session.send("Page.navigate", { url: pageUrl });
-    if (navigation.errorText) throw new Error("CDP navigation failed");
-    const route = ROUTES.find((item) => item.hash === hash);
-    if (!route) throw new Error("Unknown synthetic route: " + hash);
-    stage = "wait_for_content";
-    await waitForRoute(session, route);
-    stage = "read_metrics";
-    const metrics = await session.evaluate(metricsScript());
-    if (!metrics?.status?.ready || metrics.status.label !== route.label) {
-      throw new Error("First-screen data lost on " + hash);
-    }
-    stage = "cpu_profile";
-    const cpuProfile = profileCpu
-      ? summarizeCpuProfile((await session.send("Profiler.stop")).profile, base.origin)
-      : null;
-    return { route: hash, ...metrics, ...(cpuProfile ? { cpuProfile } : {}) };
-  } catch (error) {
-    let pageState = null;
-    if (session) {
-      try { pageState = await session.evaluate(routeStatusScript()); } catch { /* Chrome may be gone. */ }
-    }
-    const failure = new Error("Synthetic cold load failed on " + hash);
-    failure.diagnosis = classifyColdFailure(error, pageState, apiTrace.snapshot(), stage);
-    throw failure;
-  } finally {
-    session?.close();
-    await stopChrome(chrome);
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
-  }
+  }, [
+    ["cdp_close", () => session?.close()],
+    ["chrome_stop", () => chrome && !spawnError ? stopChrome(chrome) : undefined],
+    ["profile_remove", () => {
+      if (profileDir) rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    }],
+  ]);
 }
 
 /** A failed cold load is retried once in a completely new Chrome profile. */
@@ -493,78 +502,99 @@ async function probeBrowser(hash) {
 
 /** Same browser + cache, measuring user-menu navigation without page reload. */
 async function probeSpaNavigationAttempt() {
-  const profileDir = mkdtempSync(join(tmpdir(), "otello-prod-spa-perf-"));
-  const chrome = spawn(chromeBin, [
-    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-    "--disable-background-networking", "--disable-extensions", "--no-first-run",
-    "--window-size=1440,1100", "--remote-debugging-address=127.0.0.1",
-    "--remote-debugging-port=0", "--user-data-dir=" + profileDir, "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  chrome.stderr.on("data", (data) => { stderr = (stderr + String(data)).slice(-2000); });
+  let profileDir = null;
+  let chrome = null;
   let session = null;
+  let stage = "profile_create";
+  let stderr = "";
+  let spawnError = null;
   const apiTrace = createApiDiagnostics(base.origin);
-  try {
-    const port = await devtoolsPort(profileDir, chrome, () => stderr);
-    const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
-      method: "PUT", signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error("Unable to create Chrome tab for SPA");
-    const tab = await response.json();
-    session = new CdpSession(tab.webSocketDebuggerUrl);
-    await session.connect();
-    for (const method of [
-      "Network.requestWillBeSent", "Network.responseReceived",
-      "Network.loadingFailed", "Network.loadingFinished",
-    ]) session.on(method, (params) => apiTrace.onEvent(method, params));
-    await session.send("Network.enable");
-    await session.send("Runtime.enable");
-    await session.send("Page.enable");
-    await session.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: observerInjection(),
-    });
-    await session.send("Page.navigate", { url: new URL("/#oversikt", base).toString() });
-    await waitForRoute(session, ROUTES[0]);
-    const result = [];
-
-    for (const route of [...ROUTES.slice(1), ROUTES[0]]) {
-      const clicked = await session.evaluate(`(() => {
-        const button = [...document.querySelectorAll("button")].find(
-          (item) => item.textContent?.trim() === ${JSON.stringify(route.label)}
-        );
-        if (!button || button.disabled) return false;
-        window.__otelloPerfNavigationStart = performance.now();
-        window.__otelloSynthetic?.arm(${JSON.stringify(route.hash)}, window.__otelloPerfNavigationStart);
-        button.click();
-        return true;
-      })()`);
-      if (!clicked) throw new Error("Navigation button missing: " + route.label);
-      await waitForRoute(session, route);
-      const metrics = await session.evaluate(metricsScript(true));
-      if (!metrics?.status?.ready || metrics.status.label !== route.label) {
-        throw new Error("SPA content lost on " + route.hash);
-      }
-      result.push({
-        label: route.label,
-        route: route.hash,
-        navigationMs: metrics.firstDataMs,
-        apiResources: metrics.apiResources,
-        scriptResources: metrics.scriptResources,
-        longTaskCount: metrics.longTaskCount,
-        longTaskTotalMs: metrics.longTaskTotalMs,
-        observerCaptured: metrics.observerCaptured,
-        observerReadLagMs: metrics.observerReadLagMs,
+  return withBrowserCleanup(async () => {
+    try {
+      profileDir = mkdtempSync(join(tmpdir(), "otello-prod-spa-perf-"));
+      stage = "chrome_spawn";
+      chrome = spawn(chromeBin, [
+      "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+      "--disable-background-networking", "--disable-extensions", "--no-first-run",
+      "--window-size=1440,1100", "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0", "--user-data-dir=" + profileDir, "about:blank",
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+      chrome.on("error", (error) => { spawnError = error; });
+      chrome.stderr.on("data", (data) => { stderr = (stderr + String(data)).slice(-2000); });
+      stage = "chrome_start";
+      const port = await devtoolsPort(profileDir, chrome, () => stderr, () => spawnError);
+      stage = "tab_create";
+      const response = await fetch("http://127.0.0.1:" + port + "/json/new?about:blank", {
+        method: "PUT", signal: AbortSignal.timeout(5000),
       });
+      if (!response.ok) throw new Error("Unable to create Chrome tab for SPA");
+      const tab = await response.json();
+      stage = "cdp_connect";
+      session = new CdpSession(tab.webSocketDebuggerUrl);
+      await session.connect();
+      stage = "cdp_setup";
+      for (const method of [
+        "Network.requestWillBeSent", "Network.responseReceived",
+        "Network.loadingFailed", "Network.loadingFinished",
+      ]) session.on(method, (params) => apiTrace.onEvent(method, params));
+      await session.send("Network.enable");
+      await session.send("Runtime.enable");
+      await session.send("Page.enable");
+      await session.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: observerInjection(),
+      });
+      stage = "navigate";
+      const navigation = await session.send("Page.navigate", { url: new URL("/#oversikt", base).toString() });
+      if (navigation.errorText) throw new Error("CDP navigation failed");
+      stage = "wait_for_content";
+      await waitForRoute(session, ROUTES[0]);
+      const result = [];
+  
+      for (const route of [...ROUTES.slice(1), ROUTES[0]]) {
+        stage = "navigate";
+        const clicked = await session.evaluate(`(() => {
+          const button = [...document.querySelectorAll("button")].find(
+            (item) => item.textContent?.trim() === ${JSON.stringify(route.label)}
+          );
+          if (!button || button.disabled) return false;
+          window.__otelloPerfNavigationStart = performance.now();
+          window.__otelloSynthetic?.arm(${JSON.stringify(route.hash)}, window.__otelloPerfNavigationStart);
+          button.click();
+          return true;
+        })()`);
+        if (!clicked) throw new Error("Navigation button missing: " + route.label);
+        stage = "wait_for_content";
+        await waitForRoute(session, route);
+        stage = "read_metrics";
+        const metrics = await session.evaluate(metricsScript(true));
+        if (!metrics?.status?.ready || metrics.status.label !== route.label) {
+          throw new Error("SPA content lost on " + route.hash);
+        }
+        result.push({
+          label: route.label,
+          route: route.hash,
+          navigationMs: metrics.firstDataMs,
+          apiResources: metrics.apiResources,
+          scriptResources: metrics.scriptResources,
+          longTaskCount: metrics.longTaskCount,
+          longTaskTotalMs: metrics.longTaskTotalMs,
+          observerCaptured: metrics.observerCaptured,
+          observerReadLagMs: metrics.observerReadLagMs,
+        });
+      }
+      return result;
+    } catch (error) {
+      const failure = new Error("Synthetic SPA navigation failed");
+      failure.diagnosis = classifyColdFailure(spawnError || error, null, apiTrace.snapshot(), spawnError ? "chrome_spawn" : stage);
+      throw failure;
     }
-    return result;
-  } catch (error) {
-    error.diagnosis = classifyColdFailure(error, null, apiTrace.snapshot());
-    throw error;
-  } finally {
-    session?.close();
-    await stopChrome(chrome);
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
-  }
+  }, [
+    ["cdp_close", () => session?.close()],
+    ["chrome_stop", () => chrome && !spawnError ? stopChrome(chrome) : undefined],
+    ["profile_remove", () => {
+      if (profileDir) rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    }],
+  ]);
 }
 
 function isRateLimitedDiagnosis(diagnosis) {
@@ -739,6 +769,7 @@ async function main() {
       const pending = diagnosis.pendingApiPaths.map((path) => path + " (venter)");
       return "forsøk " + attempt.attempt + ": " + diagnosis.category +
         (diagnosis.browserProbe ? " [" + diagnosis.browserProbe.stage + "/" + diagnosis.browserProbe.reason + "]" : "") +
+        (diagnosis.cleanup?.length ? " [opprydding: " + diagnosis.cleanup.map((item) => item.stage + "/" + item.reason).join(", ") + "]" : "") +
         (api.length || pending.length ? " [" + [...api, ...pending].join(", ") + "]" : "") +
         " (markør=" + diagnosis.page.markerFound + ", laster=" + diagnosis.page.loading +
         ", utilgjengelig=" + diagnosis.page.unavailable + ")";
