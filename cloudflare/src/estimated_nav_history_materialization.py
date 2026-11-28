@@ -11,12 +11,14 @@ try:
         FULL_CALCULATION_VERSION,
         _estimated_point,
     )
+    from .nav_followup_diagnostic import cost_anchor_query, earliest_base_cost_anchor
 except ImportError:
     from estimated_nav_history import (
         ESTIMATED_NAV_CALCULATION_VERSION,
         FULL_CALCULATION_VERSION,
         _estimated_point,
     )
+    from nav_followup_diagnostic import cost_anchor_query, earliest_base_cost_anchor
 
 SCAN_CURSOR_STATE_KEY = (
     f"estimated_nav_history_scan_cursor:{ESTIMATED_NAV_CALCULATION_VERSION}"
@@ -149,8 +151,18 @@ async def _queue_failure(repository, day: str, reason: Any) -> None:
     )
 
 
+async def _queue_coverage_gap(repository, day: str) -> None:
+    # Keep the date for automatic reactivation, without incrementing attempts.
+    await repository.run(
+        """INSERT OR IGNORE INTO estimated_nav_history_retry_queue
+           (date, calculation_version, reason, attempts, next_retry_at)
+           VALUES (?, ?, 'before_cost_anchor', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))""",
+        (day, ESTIMATED_NAV_CALCULATION_VERSION),
+    )
+
+
 async def _retry_due_failures(
-    repository, *, batch_size: int = RETRY_BATCH_SIZE
+    repository, *, batch_size: int = RETRY_BATCH_SIZE, first_base: str | None = None
 ) -> dict[str, Any]:
     """Retry a small, rate-limited queue without making old gaps part of the daily scan."""
     await repository.run(
@@ -169,9 +181,11 @@ async def _retry_due_failures(
            FROM estimated_nav_history_retry_queue
            WHERE calculation_version=?
              AND next_retry_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             AND NOT (? IS NOT NULL AND date < ?
+                      AND reason IN ('missing_estimated_nav_anchor','before_cost_anchor'))
            ORDER BY next_retry_at, date
            LIMIT ?""",
-        (ESTIMATED_NAV_CALCULATION_VERSION, max(1, int(batch_size))),
+        (ESTIMATED_NAV_CALCULATION_VERSION, first_base, first_base, max(1, int(batch_size))),
     )
 
     written = 0
@@ -188,16 +202,22 @@ async def _retry_due_failures(
         await _queue_failure(repository, day, reason)
 
     pending_row = await repository.first(
-        """SELECT COUNT(*) AS count
+        """SELECT COUNT(*) AS count,
+                  SUM(CASE WHEN ? IS NOT NULL AND date < ?
+                           AND reason IN ('missing_estimated_nav_anchor','before_cost_anchor')
+                           THEN 1 ELSE 0 END) AS parked
            FROM estimated_nav_history_retry_queue
            WHERE calculation_version=?""",
-        (ESTIMATED_NAV_CALCULATION_VERSION,),
+        (first_base, first_base, ESTIMATED_NAV_CALCULATION_VERSION),
     )
+    parked = int((pending_row or {}).get("parked") or 0)
     return {
         "attempted": len(rows),
         "written": written,
         "failures": failures,
-        "pending": int((pending_row or {}).get("count") or 0),
+        "pending": int((pending_row or {}).get("count") or 0) - parked,
+        "parked_before_cost_anchor": parked,
+        "first_base_anchor": first_base,
         "batch_size": max(1, int(batch_size)),
         "retry_delay_days": RETRY_DELAY_DAYS,
     }
@@ -233,6 +253,7 @@ async def materialize_estimated_nav_history_batch(
         date.fromisoformat(after_date)
     scan_started = perf_counter()
     print("NAV history phase: scan started", flush=True)
+    first_base = earliest_base_cost_anchor(await repository.all(cost_anchor_query()["sql"]))
     persistent_cursor = await _load_scan_cursor(repository)
     effective_after_date = max(
         (value for value in (after_date, persistent_cursor) if value is not None),
@@ -249,12 +270,15 @@ async def materialize_estimated_nav_history_batch(
                  (p.date IS NULL AND (? IS NULL OR substr(n.as_of_at, 1, 10) > ?))
                  OR p.calculated_at < COALESCE(n.updated_at, n.created_at)
              )
+             AND (p.date IS NULL OR ? IS NULL OR substr(n.as_of_at, 1, 10) >= ?)
            ORDER BY date LIMIT ?""",
         (
             ESTIMATED_NAV_CALCULATION_VERSION,
             FULL_CALCULATION_VERSION,
             effective_after_date,
             effective_after_date,
+            first_base,
+            first_base,
             batch_size,
         ),
     )
@@ -265,6 +289,9 @@ async def materialize_estimated_nav_history_batch(
 
     for row in rows:
         day = str(row["date"])
+        if first_base and day < first_base:
+            await _queue_coverage_gap(repository, day)
+            continue
         point = await _estimated_point(repository, day)
         if not point.get("ready"):
             reason = point.get("reason")
@@ -280,7 +307,7 @@ async def materialize_estimated_nav_history_batch(
     if attempted < batch_size:
         retry_started = perf_counter()
         print("NAV history phase: retry queue started", flush=True)
-        retry = await _retry_due_failures(repository)
+        retry = await _retry_due_failures(repository, first_base=first_base)
         timings["retry_ms"] = round((perf_counter() - retry_started) * 1000, 1)
         print(f"NAV history phase: retry queue completed ({timings['retry_ms']} ms)", flush=True)
         if build_period_cache:

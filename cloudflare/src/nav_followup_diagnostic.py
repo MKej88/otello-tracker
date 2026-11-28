@@ -1,6 +1,7 @@
 """Read-only follow-up for NAV history backlog and source-documented receivables."""
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -9,9 +10,10 @@ from decimal import Decimal, InvalidOperation
 HISTORY_VERSION = "ESTIMATED_NAV_V1"
 FULL_VERSION = "full-market-nav-daily-v2"
 MAX_DETAIL_ROWS = 300
+COVERAGE_REASONS = frozenset({"missing_estimated_nav_anchor", "before_cost_anchor"})
 REASONS = frozenset({
     "missing_full_nav_row", "missing_option_inputs", "missing_reported_cash_anchor",
-    "missing_estimated_nav_anchor", "cash_fx_not_ready", "invalid_share_count",
+    "missing_estimated_nav_anchor", "before_cost_anchor", "cash_fx_not_ready", "invalid_share_count",
     "missing_bemobi_receivable", "missing_bemobi_attribution_inputs",
     "bemobi_holding_changed", "bemobi_attribution_does_not_reconcile",
     "missing_period_operating_cost_inputs", "invalid_interest_income_anchor",
@@ -33,7 +35,11 @@ def followup_queries() -> list[dict]:
                    MIN(first_failed_at) AS first_failed_at,
                    MAX(attempts) AS max_attempts,
                    SUM(CASE WHEN next_retry_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                            THEN 1 ELSE 0 END) AS due
+                            THEN 1 ELSE 0 END) AS due,
+                   CASE WHEN {reason} IN ('missing_estimated_nav_anchor','before_cost_anchor')
+                   THEN json_group_array(json_array(date, CASE WHEN next_retry_at <=
+                        strftime('%Y-%m-%dT%H:%M:%fZ','now') THEN 1 ELSE 0 END))
+                   ELSE NULL END AS coverage_dates
                    FROM estimated_nav_history_retry_queue
                    WHERE calculation_version=? GROUP BY reason_code ORDER BY count DESC""",
          "params": [HISTORY_VERSION]},
@@ -77,7 +83,7 @@ def cost_anchor_query() -> dict:
                 FROM source_documents
                 WHERE document_type='ECONOMIC_NAV_COST_ANCHOR'
                 AND json_valid(metadata_json)
-                ORDER BY published_at DESC,id DESC LIMIT 100"""}
+                ORDER BY published_at DESC,id DESC"""}
 
 
 def _date(value) -> str:
@@ -108,36 +114,60 @@ def _choice(value, allowed) -> str:
     return value if value in allowed else "UKJENT"
 
 
-def assess_followup(groups: list[dict], details: list[dict], receivables: list[dict],
-                    *, preflight: dict, cost_anchors: list[dict] | None = None) -> dict:
-    pending = sum(int(r["count"]) for r in groups)
-    due = sum(int(r["due"]) for r in groups)
-    first_base = min((
-        day for row in (cost_anchors or [])
+def earliest_base_cost_anchor(cost_anchors: list[dict]) -> str | None:
+    return min((
+        day for row in cost_anchors
         if str(row.get("scenario") or "").upper() == "BASE"
         and (day := _date(row.get("effective_from"))) != "-"
         and (amount := _number(row.get("amount_usd"))) is not None and amount >= 0
         and (days := _number(row.get("period_days"))) is not None
         and days > 0 and days == days.to_integral_value()
     ), default=None)
-    # Preserve the entire queue. An earlier source-backed anchor may be added
-    # later; only classify the gap, never delete or invent history here.
-    before_base = sum(int(row["count"]) for row in groups
-                      if first_base and row.get("reason_code") == "missing_estimated_nav_anchor"
-                      and _date(row.get("last_date")) != "-"
-                      and _date(row["last_date"]) < first_base)
+
+
+def _coverage_counts(row: dict, first_base: str | None) -> tuple[int, int]:
+    """Only documented pre-anchor dates are parked, never other failure reasons."""
+    if not first_base or row.get("reason_code") not in COVERAGE_REASONS:
+        return 0, 0
+    if _date(row.get("last_date")) != "-" and _date(row["last_date"]) < first_base:
+        return int(row["count"]), int(row["due"])
+    try:
+        entries = json.loads(row.get("coverage_dates") or "[]")
+        if len(entries) != int(row["count"]):
+            return 0, 0
+        if any(not isinstance(item, list) or len(item) != 2
+               or _date(item[0]) == "-" or item[1] not in (0, 1) for item in entries):
+            return 0, 0
+        parked = [item for item in entries if _date(item[0]) < first_base]
+        return len(parked), sum(item[1] for item in parked)
+    except (TypeError, ValueError, KeyError):
+        return 0, 0
+
+
+def assess_followup(groups: list[dict], details: list[dict], receivables: list[dict],
+                    *, preflight: dict, cost_anchors: list[dict] | None = None) -> dict:
+    total = sum(int(r["count"]) for r in groups)
+    total_due = sum(int(r["due"]) for r in groups)
+    first_base = earliest_base_cost_anchor(cost_anchors or [])
+    coverage = [_coverage_counts(row, first_base) for row in groups]
+    before_base = sum(item[0] for item in coverage)
+    parked_due = sum(item[1] for item in coverage)
+    pending = total - before_base
+    due = total_due - parked_due
     warning = bool(pending or preflight.get("warnings") or preflight.get("blockers")
                    or not receivables or any(
                        r.get("receivable_quality") not in {"NONE", "REPORTED_CALIBRATED", "ESTIMATED_NET"}
                        for r in receivables))
     return {"pending": pending, "due": due, "warning": warning,
             "groups": groups, "details": details, "receivables": receivables,
-            "first_base_anchor": first_base, "before_base_anchor": before_base}
+            "first_base_anchor": first_base, "before_base_anchor": before_base,
+            "total_pending": total}
 
 
 def render_followup(report: dict) -> str:
     lines = ["", "## NAV-historikk – kø for nytt forsøk", "",
-             f"- Historikkpunkter i kø: **{report['pending']}**",
+             f"- Historikkpunkter i aktiv kø: **{report['pending']}**",
+             f"- Bevarte køpunkter utenfor dokumentert kostnadsdekning: **{report['before_base_anchor']}**",
              f"- Forfalt til nytt forsøk: **{report['due']}**",
              "- Køen er ikke det samme som antall feil i dagens NAV.", "",
              "| Årsak | Antall | Første dato | Siste dato | Eldste registrerte feil | Maks forsøk | Forfalt |",
@@ -147,8 +177,8 @@ def render_followup(report: dict) -> str:
                      f"{_date(row.get('first_date'))} | {_date(row.get('last_date'))} | "
                      f"{_date(row.get('first_failed_at'))} | {_fmt(row.get('max_attempts'))} | {_fmt(row.get('due'))} |")
     lines += ["", f"- Tidligste gyldige BASE-kostnadsanker i D1: {report.get('first_base_anchor') or 'ikke bekreftet'}.",
-              f"- Køpunkter med manglende anker der hele årsaksgruppen er før første BASE-anker: {report.get('before_base_anchor', 0)}.",
-              "- Tidligere datoer kan ikke beregnes uten dokumentert kostnadsgrunnlag. Køen beholdes; øvrige årsaker må undersøkes separat."]
+              f"- Parkeringsgrunnlag: {report.get('before_base_anchor', 0)} datoer før første BASE-anker.",
+              "- Disse punktene beholdes med opprinnelig feilhistorikk, men teller ikke som aktive forsøk. Et tidligere gyldig anker gjør dem aktuelle igjen. Øvrige årsaker må undersøkes separat."]
     if report["details"]:
         lines += ["", "### Datoer i historikkøen", "",
                   "| Datadato | Årsak | Forsøk | Første feil | Siste feil | Neste forsøk |",
@@ -157,8 +187,8 @@ def render_followup(report: dict) -> str:
             lines.append(f"| {_date(row.get('date'))} | {_reason(row.get('reason_code'))} | "
                          f"{_fmt(row.get('attempts'))} | {_date(row.get('first_failed_date'))} | "
                          f"{_date(row.get('last_failed_date'))} | {_date(row.get('next_retry_date'))} |")
-        if report["pending"] > len(report["details"]):
-            lines.append(f"- Viser {len(report['details'])} av {report['pending']} køpunkter.")
+        if report["total_pending"] > len(report["details"]):
+            lines.append(f"- Viser {len(report['details'])} av {report['total_pending']} bevarte køpunkter.")
     lines += ["", "## Bemobi-fordringer – siste FULL NAV", ""]
     if not report["receivables"]:
         lines.append("- Fordringsgrunnlag ikke bekreftet.")
