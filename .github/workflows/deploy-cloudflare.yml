@@ -32,11 +32,13 @@ jobs:
        inputs.tested_sha == github.sha)
     runs-on: ubuntu-latest
     environment: production
+    env:
+      AUTO_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
     outputs:
       deploy: ${{ steps.resolve.outputs.deploy }}
     steps:
       - name: Check out tested main history for deploy scope
-        if: github.event_name != 'workflow_dispatch' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+        if: github.event_name != 'workflow_dispatch' && env.AUTO_DEPLOY_ENABLED == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.tested_sha }}
@@ -44,7 +46,7 @@ jobs:
           persist-credentials: false
       - name: Compare live revision with tested main
         id: scope
-        if: github.event_name != 'workflow_dispatch' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+        if: github.event_name != 'workflow_dispatch' && env.AUTO_DEPLOY_ENABLED == 'true'
         env:
           CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
           CLOUDFLARE_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_CUSTOM_DOMAIN }}
@@ -53,7 +55,6 @@ jobs:
         id: resolve
         shell: bash
         env:
-          AUTO_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
           DEPLOY_REQUIRED: ${{ steps.scope.outputs.required }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
