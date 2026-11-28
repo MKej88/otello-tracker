@@ -592,3 +592,68 @@ def test_history_queue_email_reports_retry_result_and_full_width_incident():
     assert "missing_option_inputs" in message["html"]
     assert '<div style="font-weight:bold;margin-bottom:4px">NAV-historikk</div>' in message["html"]
     assert 'colspan="2" style="padding:10px 0' in message["html"]
+
+
+def test_new_html_prioritizes_critical_incidents_and_investor_cards():
+    message = build_status_email({
+        "status": "PARTIAL",
+        "target_date": "2026-11-28",
+        "job_id": 42,
+        "source_health": {"B3": "OK", "CVM": "DEGRADED"},
+        "errors": [{"step": "archive", "error": "Arkiv ikke bekreftet"}],
+        "critical_errors": [{"step": "nav", "error": "NAV må kontrolleres"}],
+        "preflight": {
+            "ready": False,
+            "blockers": [{"name": "fx", "details": "Valutagrunnlag mangler"}],
+            "warnings": [{"name": "news", "details": "Kilde forsinket"}],
+        },
+        "nav": {"status": "error"},
+    }, economic={
+        "ready": True, "as_of_date": "2026-11-27", "nav_per_share": 24.95,
+        "conservative_nav_per_share": 23.11, "discount_pct": 20.1,
+    }, public_url="https://otellotracker.com")
+    html = message["html"]
+    assert html.index("NAV må kontrolleres") < html.index("Arkiv ikke bekreftet")
+    assert html.index("Valutagrunnlag mangler") < html.index("Arkiv ikke bekreftet")
+    assert html.index("Avvik og oppfølging") < html.index("Investor-NAV") < html.index("Kontrollstatus")
+    assert "Kritisk" in html and "Oppfølging / mulig konsekvens" in html
+    assert "#fdecec" in html and "#fff3dc" in html and "#eaf2fc" in html
+    assert "24,95 kr" in html and "Konservativ NAV" in html
+    assert "NAV-dato: 2026-11-27" in html
+    assert "Separate GitHub-kontroller" in html
+    assert "Datakilder OK" in html and "1/2" in html
+
+
+def test_new_email_only_reports_measured_resources():
+    result = {
+        "status": "SUCCESS",
+        "records_written": 1234,
+        "source_results": {
+            "cvm": {"status": "ok", "repository": {
+                "d1_operations": 3, "d1_row_meta_operations": 3,
+                "d1_rows_read": 1000, "d1_rows_written": 12}},
+            "b3": {"status": "ok", "repository": {
+                "d1_operations": 3, "d1_row_meta_operations": 2,
+                "d1_rows_read": None, "d1_rows_written": None}},
+            "bemobi_translation": {"status": "ok", "completed": 1, "failed": 0,
+                "queue": {"pending": 3, "failed": 0},
+                "diagnostics": [{"ai_provider_calls": 2, "parts_reused": 6,
+                                 "summary_checkpoints_reused": 1}]},
+        },
+        "archive": {"status": "skipped", "reason": "weekly_or_month_end_only"},
+    }
+    original = json.dumps(result, sort_keys=True)
+    message = build_status_email(result)
+    for body in (message["text"], message["html"]):
+        assert "Ressursforbruk og dokumenter" in body
+        assert "1 steg: 1 000 rader lest / 12 skrevet" in body
+        assert "ikke totalt" in body
+        assert "AI-kall i dokumentbehandling" in body
+        assert "Gjenbrukte sammendrag" in body
+        assert "Oversettelseskø" in body
+        assert "Ikke planlagt (søndag og månedsslutt)" in body
+    assert json.dumps(result, sort_keys=True) == original
+    minimal = build_status_email({"status": "SUCCESS"})["html"]
+    assert "Ukjent" in minimal
+    assert "Ressursforbruk og dokumenter" not in minimal
+    assert "D1 – målte kildesteg" not in minimal
